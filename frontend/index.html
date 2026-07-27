@@ -382,77 +382,96 @@
     }
 
     .stat-card:nth-child(1) {
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.08) 0%, rgba(79, 70, 229, 0.02) 100%);
-      border: 1px solid rgba(79, 70, 229, 0.15);
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      border: 1px solid #bfdbfe;
+    }
+    .stat-card:nth-child(1) .stat-value {
+      color: #1e3a8a;
+    }
+    .stat-card:nth-child(1) .stat-label {
+      color: #2563eb;
+    }
+    .stat-card:nth-child(1) .stat-icon {
+      background: rgba(37, 99, 235, 0.1);
+      border-color: rgba(37, 99, 235, 0.2);
+      color: #2563eb;
     }
     .stat-card:nth-child(1):hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(79, 70, 229, 0.04) 100%);
-      border-color: rgba(79, 70, 229, 0.3);
-      box-shadow: 0 10px 25px rgba(79, 70, 229, 0.1);
+      box-shadow: 0 12px 25px rgba(37, 99, 235, 0.15);
+      border-color: #3b82f6;
     }
 
     .stat-card:nth-child(2) {
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(13, 148, 136, 0.02) 100%);
-      border: 1px solid rgba(13, 148, 136, 0.15);
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+      border: 1px solid #bbf7d0;
+    }
+    .stat-card:nth-child(2) .stat-value {
+      color: #14532d;
+    }
+    .stat-card:nth-child(2) .stat-label {
+      color: #16a34a;
+    }
+    .stat-card:nth-child(2) .stat-icon {
+      background: rgba(22, 163, 74, 0.1);
+      border-color: rgba(22, 163, 74, 0.2);
+      color: #16a34a;
     }
     .stat-card:nth-child(2):hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.12) 0%, rgba(13, 148, 136, 0.04) 100%);
-      border-color: rgba(13, 148, 136, 0.3);
-      box-shadow: 0 10px 25px rgba(13, 148, 136, 0.1);
+      box-shadow: 0 12px 25px rgba(22, 163, 74, 0.15);
+      border-color: #22c55e;
     }
 
     .stat-card:nth-child(3) {
-      background: linear-gradient(135deg, rgba(202, 138, 4, 0.08) 0%, rgba(202, 138, 4, 0.02) 100%);
-      border: 1px solid rgba(202, 138, 4, 0.15);
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border: 1px solid #fde68a;
+    }
+    .stat-card:nth-child(3) .stat-value {
+      color: #78350f;
+    }
+    .stat-card:nth-child(3) .stat-label {
+      color: #d97706;
+    }
+    .stat-card:nth-child(3) .stat-icon {
+      background: rgba(217, 119, 6, 0.1);
+      border-color: rgba(217, 119, 6, 0.2);
+      color: #d97706;
     }
     .stat-card:nth-child(3):hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(202, 138, 4, 0.12) 0%, rgba(202, 138, 4, 0.04) 100%);
-      border-color: rgba(202, 138, 4, 0.3);
-      box-shadow: 0 10px 25px rgba(202, 138, 4, 0.1);
+      box-shadow: 0 12px 25px rgba(217, 119, 6, 0.15);
+      border-color: #f59e0b;
     }
 
     .stat-card:nth-child(4) {
-      background: linear-gradient(135deg, rgba(219, 39, 119, 0.08) 0%, rgba(219, 39, 119, 0.02) 100%);
-      border: 1px solid rgba(219, 39, 119, 0.15);
+      background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+      border: 1px solid #e9d5ff;
+    }
+    .stat-card:nth-child(4) .stat-value {
+      color: #581c87;
+    }
+    .stat-card:nth-child(4) .stat-label {
+      color: #9333ea;
+    }
+    .stat-card:nth-child(4) .stat-icon {
+      background: rgba(147, 51, 234, 0.1);
+      border-color: rgba(147, 51, 234, 0.2);
+      color: #9333ea;
     }
     .stat-card:nth-child(4):hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(219, 39, 119, 0.12) 0%, rgba(219, 39, 119, 0.04) 100%);
-      border-color: rgba(219, 39, 119, 0.3);
-      box-shadow: 0 10px 25px rgba(219, 39, 119, 0.1);
+      box-shadow: 0 12px 25px rgba(147, 51, 234, 0.15);
+      border-color: #a855f7;
     }
 
     .stat-icon {
       width: 50px;
       height: 50px;
       border-radius: 12px;
-      background: rgba(79, 70, 229, 0.08);
-      border: 1px solid rgba(79, 70, 229, 0.15);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--primary);
-    }
-
-    .stat-card:nth-child(2) .stat-icon {
-      background: rgba(13, 148, 136, 0.08);
-      border: 1px solid rgba(13, 148, 136, 0.15);
-      color: var(--secondary);
-    }
-
-    .stat-card:nth-child(3) .stat-icon {
-      background: rgba(202, 138, 4, 0.08);
-      border: 1px solid rgba(202, 138, 4, 0.15);
-      color: var(--warning);
-    }
-
-    .stat-card:nth-child(4) .stat-icon {
-      background: rgba(219, 39, 119, 0.08);
-      border: 1px solid rgba(219, 39, 119, 0.15);
-      color: var(--accent);
     }
 
     .stat-value {
@@ -587,53 +606,83 @@
     
     /* Standard/Active (Indigo Theme) */
     .candidate-card.active-theme {
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.06) 0%, rgba(79, 70, 229, 0.015) 100%);
-      border: 1px solid rgba(79, 70, 229, 0.1);
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      border: 1px solid #bfdbfe;
     }
     .candidate-card.active-theme:hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.1) 0%, rgba(79, 70, 229, 0.03) 100%);
-      border-color: rgba(79, 70, 229, 0.3);
-      box-shadow: 0 15px 30px -10px rgba(79, 70, 229, 0.1), 0 0 0 1px rgba(79, 70, 229, 0.15);
+      border-color: #3b82f6;
+      box-shadow: 0 15px 30px -10px rgba(59, 130, 246, 0.25);
+    }
+    .candidate-card.active-theme .candidate-name {
+      color: #1e3a8a;
+    }
+    .candidate-card.active-theme .candidate-title {
+      color: #2563eb;
     }
     .candidate-card.active-theme .candidate-avatar {
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.2), rgba(79, 70, 229, 0.08));
-      color: var(--primary);
-      border: 1px solid rgba(79, 70, 229, 0.15);
+      background: linear-gradient(135deg, rgba(37, 99, 235, 0.15), rgba(37, 99, 235, 0.05));
+      color: #2563eb;
+      border: 1px solid rgba(37, 99, 235, 0.2);
+    }
+    .candidate-card.active-theme .skill-tag {
+      background: rgba(37, 99, 235, 0.08);
+      border-color: rgba(37, 99, 235, 0.15);
+      color: #1e3a8a;
     }
 
     /* Verified (Teal Theme) */
     .candidate-card.verified-theme {
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.06) 0%, rgba(13, 148, 136, 0.015) 100%);
-      border: 1px solid rgba(13, 148, 136, 0.1);
+      background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+      border: 1px solid #bbf7d0;
     }
     .candidate-card.verified-theme:hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.1) 0%, rgba(13, 148, 136, 0.03) 100%);
-      border-color: rgba(13, 148, 136, 0.3);
-      box-shadow: 0 15px 30px -10px rgba(13, 148, 136, 0.1), 0 0 0 1px rgba(13, 148, 136, 0.15);
+      border-color: #22c55e;
+      box-shadow: 0 15px 30px -10px rgba(34, 197, 94, 0.25);
+    }
+    .candidate-card.verified-theme .candidate-name {
+      color: #14532d;
+    }
+    .candidate-card.verified-theme .candidate-title {
+      color: #16a34a;
     }
     .candidate-card.verified-theme .candidate-avatar {
-      background: linear-gradient(135deg, rgba(13, 148, 136, 0.2), rgba(13, 148, 136, 0.08));
-      color: var(--secondary);
-      border: 1px solid rgba(13, 148, 136, 0.15);
+      background: linear-gradient(135deg, rgba(22, 163, 74, 0.15), rgba(22, 163, 74, 0.05));
+      color: #16a34a;
+      border: 1px solid rgba(22, 163, 74, 0.2);
+    }
+    .candidate-card.verified-theme .skill-tag {
+      background: rgba(22, 163, 74, 0.08);
+      border-color: rgba(22, 163, 74, 0.15);
+      color: #14532d;
     }
 
     /* Pending Review (Amber Theme) */
     .candidate-card.pending-theme {
-      background: linear-gradient(135deg, rgba(202, 138, 4, 0.06) 0%, rgba(202, 138, 4, 0.015) 100%);
-      border: 1px solid rgba(202, 138, 4, 0.1);
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border: 1px solid #fde68a;
     }
     .candidate-card.pending-theme:hover {
       transform: translateY(-4px);
-      background: linear-gradient(135deg, rgba(202, 138, 4, 0.1) 0%, rgba(202, 138, 4, 0.03) 100%);
-      border-color: rgba(202, 138, 4, 0.3);
-      box-shadow: 0 15px 30px -10px rgba(202, 138, 4, 0.1), 0 0 0 1px rgba(202, 138, 4, 0.15);
+      border-color: #f59e0b;
+      box-shadow: 0 15px 30px -10px rgba(245, 158, 11, 0.25);
+    }
+    .candidate-card.pending-theme .candidate-name {
+      color: #78350f;
+    }
+    .candidate-card.pending-theme .candidate-title {
+      color: #d97706;
     }
     .candidate-card.pending-theme .candidate-avatar {
-      background: linear-gradient(135deg, rgba(202, 138, 4, 0.2), rgba(202, 138, 4, 0.08));
-      color: var(--warning);
-      border: 1px solid rgba(202, 138, 4, 0.15);
+      background: linear-gradient(135deg, rgba(217, 119, 6, 0.15), rgba(217, 119, 6, 0.05));
+      color: #d97706;
+      border: 1px solid rgba(217, 119, 6, 0.2);
+    }
+    .candidate-card.pending-theme .skill-tag {
+      background: rgba(217, 119, 6, 0.08);
+      border-color: rgba(217, 119, 6, 0.15);
+      color: #78350f;
     }
 
     .card-top {
