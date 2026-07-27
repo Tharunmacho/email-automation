@@ -570,8 +570,6 @@
     }
 
     .candidate-card {
-      background: var(--glass-bg);
-      border: 1px solid var(--glass-border);
       border-radius: 16px;
       padding: 1.5rem;
       cursor: pointer;
@@ -585,10 +583,54 @@
       gap: 0.75rem;
     }
 
-    .candidate-card:hover {
+    /* Candidate Card Themes by Feature/Status */
+    
+    /* Standard/Active (Indigo Theme) */
+    .candidate-card.active-theme {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.02) 0%, rgba(79, 70, 229, 0.005) 100%);
+      border: 1px solid rgba(79, 70, 229, 0.08);
+    }
+    .candidate-card.active-theme:hover {
       transform: translateY(-4px);
       border-color: rgba(79, 70, 229, 0.3);
       box-shadow: 0 15px 30px -10px rgba(79, 70, 229, 0.08), 0 0 0 1px rgba(79, 70, 229, 0.1);
+    }
+    .candidate-card.active-theme .candidate-avatar {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.15), rgba(79, 70, 229, 0.05));
+      color: var(--primary);
+      border: 1px solid rgba(79, 70, 229, 0.12);
+    }
+
+    /* Verified (Teal Theme) */
+    .candidate-card.verified-theme {
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.02) 0%, rgba(13, 148, 136, 0.005) 100%);
+      border: 1px solid rgba(13, 148, 136, 0.08);
+    }
+    .candidate-card.verified-theme:hover {
+      transform: translateY(-4px);
+      border-color: rgba(13, 148, 136, 0.3);
+      box-shadow: 0 15px 30px -10px rgba(13, 148, 136, 0.08), 0 0 0 1px rgba(13, 148, 136, 0.1);
+    }
+    .candidate-card.verified-theme .candidate-avatar {
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.15), rgba(13, 148, 136, 0.05));
+      color: var(--secondary);
+      border: 1px solid rgba(13, 148, 136, 0.12);
+    }
+
+    /* Pending Review (Amber Theme) */
+    .candidate-card.pending-theme {
+      background: linear-gradient(135deg, rgba(202, 138, 4, 0.02) 0%, rgba(202, 138, 4, 0.005) 100%);
+      border: 1px solid rgba(202, 138, 4, 0.08);
+    }
+    .candidate-card.pending-theme:hover {
+      transform: translateY(-4px);
+      border-color: rgba(202, 138, 4, 0.3);
+      box-shadow: 0 15px 30px -10px rgba(202, 138, 4, 0.08), 0 0 0 1px rgba(202, 138, 4, 0.1);
+    }
+    .candidate-card.pending-theme .candidate-avatar {
+      background: linear-gradient(135deg, rgba(202, 138, 4, 0.15), rgba(202, 138, 4, 0.05));
+      color: var(--warning);
+      border: 1px solid rgba(202, 138, 4, 0.12);
     }
 
     .card-top {
@@ -602,13 +644,10 @@
       width: 48px;
       height: 48px;
       border-radius: 12px;
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.1), rgba(13, 148, 136, 0.1));
-      border: 1px solid rgba(15, 23, 42, 0.05);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      color: var(--primary);
       font-size: 1.2rem;
       font-family: 'Outfit', sans-serif;
     }
@@ -1619,11 +1658,18 @@
         const initial = (profile.full_name || 'U').charAt(0).toUpperCase();
         
         let statusBadgeClass = 'badge-active';
-        if (c.status === 'verified') statusBadgeClass = 'badge-verified';
-        if (profile.confidence < 0.85) statusBadgeClass = 'badge-review';
+        let cardThemeClass = 'active-theme';
+        
+        if (c.status === 'verified') {
+          statusBadgeClass = 'badge-verified';
+          cardThemeClass = 'verified-theme';
+        } else if (profile.confidence < 0.85) {
+          statusBadgeClass = 'badge-review';
+          cardThemeClass = 'pending-theme';
+        }
 
         const card = document.createElement('div');
-        card.className = 'candidate-card';
+        card.className = `candidate-card ${cardThemeClass}`;
         card.onclick = () => openCandidateModal(c);
         
         let skillsHtml = '';
