@@ -12,21 +12,21 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     :root {
-      --bg-dark: #07090e;
-      --bg-space: #0d1117;
-      --glass-bg: rgba(22, 27, 34, 0.65);
-      --glass-border: rgba(255, 255, 255, 0.08);
-      --glass-hover: rgba(255, 255, 255, 0.12);
-      --primary: #6366f1;
-      --primary-glow: rgba(99, 102, 241, 0.35);
-      --secondary: #14b8a6;
-      --secondary-glow: rgba(20, 184, 166, 0.35);
-      --accent: #ec4899;
-      --text-main: #f3f4f6;
-      --text-muted: #9ca3af;
-      --success: #10b981;
-      --error: #ef4444;
-      --warning: #f59e0b;
+      --bg-dark: #f8fafc;
+      --bg-space: #ffffff;
+      --glass-bg: #ffffff;
+      --glass-border: rgba(15, 23, 42, 0.08);
+      --glass-hover: rgba(15, 23, 42, 0.04);
+      --primary: #4f46e5;
+      --primary-glow: rgba(79, 70, 229, 0.15);
+      --secondary: #0d9488;
+      --secondary-glow: rgba(13, 148, 136, 0.15);
+      --accent: #db2777;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --success: #16a34a;
+      --error: #dc2626;
+      --warning: #ca8a04;
     }
 
     * {
@@ -35,7 +35,7 @@
       padding: 0;
       font-family: 'Inter', sans-serif;
       scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+      scrollbar-color: rgba(15, 23, 42, 0.1) transparent;
     }
 
     body {
@@ -55,11 +55,11 @@
       background: transparent;
     }
     ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(15, 23, 42, 0.1);
       border-radius: 4px;
     }
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(15, 23, 42, 0.2);
     }
 
     /* Sidebar */
@@ -102,7 +102,7 @@
       font-weight: 700;
       font-size: 1.25rem;
       letter-spacing: -0.5px;
-      background: linear-gradient(to right, #ffffff, #a5b4fc);
+      background: linear-gradient(to right, #0f172a, #4f46e5);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
@@ -141,7 +141,7 @@
     }
 
     .nav-item.active {
-      background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, rgba(20, 184, 166, 0.05) 100%);
+      background: linear-gradient(90deg, rgba(79, 70, 229, 0.08) 0%, rgba(13, 148, 136, 0.02) 100%);
       border-left: 3px solid var(--primary);
     }
 
@@ -183,7 +183,7 @@
       font-family: 'Outfit', sans-serif;
       font-size: 2rem;
       font-weight: 700;
-      background: linear-gradient(to right, #ffffff, #e2e8f0);
+      background: linear-gradient(to right, #0f172a, #334155);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
@@ -213,7 +213,7 @@
 
     .btn:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+      box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
     }
 
     .btn:active {
@@ -229,7 +229,7 @@
 
     .btn-secondary:hover {
       background: var(--glass-hover);
-      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.05);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
     }
 
     /* Tab Layouts */
@@ -250,7 +250,7 @@
       backdrop-filter: blur(12px);
       padding: 2rem;
       margin-bottom: 2rem;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+      box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.04);
     }
 
     /* Dashboard Stats Grid */
@@ -272,8 +272,8 @@
       width: 50px;
       height: 50px;
       border-radius: 12px;
-      background: rgba(99, 102, 241, 0.1);
-      border: 1px solid rgba(99, 102, 241, 0.2);
+      background: rgba(79, 70, 229, 0.08);
+      border: 1px solid rgba(79, 70, 229, 0.15);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -281,20 +281,20 @@
     }
 
     .stat-card:nth-child(2) .stat-icon {
-      background: rgba(20, 184, 166, 0.1);
-      border: 1px solid rgba(20, 184, 166, 0.2);
+      background: rgba(13, 148, 136, 0.08);
+      border: 1px solid rgba(13, 148, 136, 0.15);
       color: var(--secondary);
     }
 
     .stat-card:nth-child(3) .stat-icon {
-      background: rgba(245, 158, 11, 0.1);
-      border: 1px solid rgba(245, 158, 11, 0.2);
+      background: rgba(202, 138, 4, 0.08);
+      border: 1px solid rgba(202, 138, 4, 0.15);
       color: var(--warning);
     }
 
     .stat-card:nth-child(4) .stat-icon {
-      background: rgba(236, 72, 153, 0.1);
-      border: 1px solid rgba(236, 72, 153, 0.2);
+      background: rgba(219, 39, 119, 0.08);
+      border: 1px solid rgba(219, 39, 119, 0.15);
       color: var(--accent);
     }
 
@@ -311,7 +311,7 @@
 
     /* Terminal Console */
     .terminal-container {
-      background: #05070a;
+      background: #f8fafc;
       border: 1px solid var(--glass-border);
       border-radius: 16px;
       padding: 1.25rem;
@@ -319,7 +319,7 @@
       font-size: 0.85rem;
       height: 250px;
       overflow-y: auto;
-      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.8);
+      box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.02);
     }
 
     .terminal-header {
@@ -327,7 +327,7 @@
       align-items: center;
       justify-content: space-between;
       padding-bottom: 0.75rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(15, 23, 42, 0.05);
       margin-bottom: 0.75rem;
       color: var(--text-muted);
       font-size: 0.8rem;
@@ -356,14 +356,14 @@
     }
 
     .log-time {
-      color: #4b5563;
+      color: #94a3b8;
       margin-right: 0.5rem;
     }
 
-    .log-info { color: #38bdf8; }
-    .log-success { color: #34d399; }
-    .log-warn { color: #fbbf24; }
-    .log-error { color: #f87171; }
+    .log-info { color: #0284c7; }
+    .log-success { color: #16a34a; }
+    .log-warn { color: #d97706; }
+    .log-error { color: #dc2626; }
 
     /* Candidate Filters */
     .filter-bar {
@@ -390,7 +390,7 @@
 
     .search-input {
       width: 100%;
-      background: rgba(15, 23, 42, 0.6);
+      background: #ffffff;
       border: 1px solid var(--glass-border);
       border-radius: 12px;
       padding: 0.75rem 1rem 0.75rem 2.75rem;
@@ -402,7 +402,7 @@
     .search-input:focus {
       outline: none;
       border-color: var(--primary);
-      box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+      box-shadow: 0 0 10px rgba(79, 70, 229, 0.2);
     }
 
     /* Candidate Grid */
@@ -430,8 +430,8 @@
 
     .candidate-card:hover {
       transform: translateY(-4px);
-      border-color: rgba(99, 102, 241, 0.4);
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 15px rgba(99, 102, 241, 0.1);
+      border-color: rgba(79, 70, 229, 0.3);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05), 0 0 15px rgba(79, 70, 229, 0.05);
     }
 
     .card-top {
@@ -445,13 +445,13 @@
       width: 48px;
       height: 48px;
       border-radius: 12px;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(20, 184, 166, 0.2));
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.1), rgba(13, 148, 136, 0.1));
+      border: 1px solid rgba(15, 23, 42, 0.05);
       display: flex;
       align-items: center;
       justify-content: center;
       font-weight: 700;
-      color: white;
+      color: var(--primary);
       font-size: 1.2rem;
       font-family: 'Outfit', sans-serif;
     }
@@ -466,21 +466,21 @@
     }
 
     .badge-active {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.2);
+      background: rgba(22, 163, 74, 0.1);
+      color: #16a34a;
+      border: 1px solid rgba(22, 163, 74, 0.15);
     }
 
     .badge-verified {
-      background: rgba(99, 102, 241, 0.15);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.2);
+      background: rgba(79, 70, 229, 0.1);
+      color: #4f46e5;
+      border: 1px solid rgba(79, 70, 229, 0.15);
     }
 
     .badge-review {
-      background: rgba(245, 158, 11, 0.15);
-      color: #fbbf24;
-      border: 1px solid rgba(245, 158, 11, 0.2);
+      background: rgba(202, 138, 4, 0.1);
+      color: #ca8a04;
+      border: 1px solid rgba(202, 138, 4, 0.15);
     }
 
     .candidate-info {
@@ -517,11 +517,11 @@
 
     .skill-tag {
       font-size: 0.75rem;
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(15, 23, 42, 0.04);
       border: 1px solid var(--glass-border);
       padding: 0.2rem 0.65rem;
       border-radius: 6px;
-      color: #e2e8f0;
+      color: #334155;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
@@ -534,7 +534,7 @@
       align-items: center;
       margin-top: auto;
       padding-top: 0.75rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-top: 1px solid rgba(15, 23, 42, 0.05);
       font-size: 0.8rem;
       color: var(--text-muted);
     }
@@ -611,7 +611,7 @@
     .flow-connector {
       flex-grow: 1;
       height: 2px;
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(15, 23, 42, 0.08);
       position: relative;
       z-index: 1;
     }
@@ -643,7 +643,7 @@
       color: var(--secondary);
     }
     .flow-node.node-success .flow-node-title {
-      color: white;
+      color: var(--text-main);
     }
 
     @keyframes flowAnimation {
@@ -665,7 +665,7 @@
       top: 0;
       width: 100vw;
       height: 100vh;
-      background: rgba(5, 7, 10, 0.85);
+      background: rgba(15, 23, 42, 0.4);
       backdrop-filter: blur(8px);
       z-index: 100;
       display: none;
@@ -688,7 +688,7 @@
       max-width: 800px;
       max-height: 90vh;
       overflow-y: auto;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
       transform: translateY(20px);
       transition: transform 0.3s ease;
       display: flex;
@@ -744,10 +744,10 @@
     .profile-summary {
       font-size: 0.95rem;
       line-height: 1.6;
-      color: #d1d5db;
+      color: var(--text-main);
       margin-bottom: 2rem;
       padding: 1rem;
-      background: rgba(255, 255, 255, 0.02);
+      background: rgba(15, 23, 42, 0.02);
       border-left: 3px solid var(--primary);
       border-radius: 0 8px 8px 0;
     }
@@ -760,9 +760,9 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      border-bottom: 1px solid rgba(15, 23, 42, 0.06);
       padding-bottom: 0.5rem;
-      color: white;
+      color: var(--text-main);
     }
 
     .details-grid {
@@ -788,7 +788,7 @@
     .field-value {
       font-size: 0.95rem;
       color: var(--text-main);
-      background: rgba(255, 255, 255, 0.02);
+      background: #ffffff;
       border: 1px solid var(--glass-border);
       border-radius: 8px;
       padding: 0.5rem 0.75rem;
@@ -823,7 +823,7 @@
       height: 10px;
       border-radius: 50%;
       background: var(--primary);
-      border: 2px solid var(--bg-dark);
+      border: 2px solid var(--bg-space);
     }
 
     .timeline-date {
@@ -846,15 +846,15 @@
 
     .timeline-desc {
       font-size: 0.9rem;
-      color: #9ca3af;
+      color: #4b5563;
       line-height: 1.5;
     }
 
     /* Animation effects */
     @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
-      70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+      0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
+      70% { box-shadow: 0 0 0 8px rgba(22, 163, 74, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
     }
 
     @keyframes fadeIn {
@@ -875,7 +875,7 @@
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
       z-index: 1000;
       transform: translateY(100px);
       opacity: 0;
