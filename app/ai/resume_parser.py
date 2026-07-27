@@ -112,7 +112,11 @@ class ResumeParser:
                 return profile, extracted
                 
             except Exception as exc:
-                log.warning("Veris Resume API failed (%s). Falling back to local OCR + fallback parsing.", exc)
+                if not settings.anthropic_api_key:
+                    log.error("Veris Resume API failed and Anthropic fallback is not configured: %s", exc)
+                    raise AIParseError(f"Veris OCR extraction failed: {exc}") from exc
+                    
+                log.warning("Veris Resume API failed (%s). Falling back to local OCR + Anthropic parsing.", exc)
                 from app.extraction.text_extractor import extract_text
                 extracted = extract_text(file_data, filename)
                 profile = self.parse(extracted.text)
