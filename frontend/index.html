@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ingrechef AI — Resume Ingestion Automation</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --bg-space: #0d1117;
+      --glass-bg: rgba(22, 27, 34, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-hover: rgba(255, 255, 255, 0.12);
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.35);
+      --secondary: #14b8a6;
+      --secondary-glow: rgba(20, 184, 166, 0.35);
+      --accent: #ec4899;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    }
+
+    body {
+      background: radial-gradient(circle at 10% 20%, var(--bg-space) 0%, var(--bg-dark) 90%);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+    }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 260px;
+      background: var(--glass-bg);
+      border-right: 1px solid var(--glass-border);
+      backdrop-filter: blur(20px);
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 3rem;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 0 15px var(--primary-glow);
+    }
+
+    .brand-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 1.25rem;
+      letter-spacing: -0.5px;
+      background: linear-gradient(to right, #ffffff, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-menu {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      flex-grow: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid transparent;
+    }
+
+    .nav-item i {
+      width: 20px;
+      height: 20px;
+    }
+
+    .nav-item:hover, .nav-item.active {
+      color: var(--text-main);
+      background: var(--glass-hover);
+      border: 1px solid var(--glass-border);
+      transform: translateX(4px);
+    }
+
+    .nav-item.active {
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.15) 0%, rgba(20, 184, 166, 0.05) 100%);
+      border-left: 3px solid var(--primary);
+    }
+
+    .sidebar-footer {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+
+    /* Main Container */
+    .main-content {
+      margin-left: 260px;
+      padding: 2.5rem;
+      flex-grow: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .page-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(to right, #ffffff, #e2e8f0);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .page-subtitle {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    /* Trigger Ingest Button */
+    .btn {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      border: none;
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 15px var(--primary-glow);
+      transition: all 0.3s ease;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover {
+      background: var(--glass-hover);
+      box-shadow: 0 4px 15px rgba(255, 255, 255, 0.05);
+    }
+
+    /* Tab Layouts */
+    .tab-content {
+      display: none;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Cards */
+    .glass-card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      backdrop-filter: blur(12px);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    }
+
+    /* Dashboard Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      padding: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .stat-icon {
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+    }
+
+    .stat-card:nth-child(2) .stat-icon {
+      background: rgba(20, 184, 166, 0.1);
+      border: 1px solid rgba(20, 184, 166, 0.2);
+      color: var(--secondary);
+    }
+
+    .stat-card:nth-child(3) .stat-icon {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      color: var(--warning);
+    }
+
+    .stat-card:nth-child(4) .stat-icon {
+      background: rgba(236, 72, 153, 0.1);
+      border: 1px solid rgba(236, 72, 153, 0.2);
+      color: var(--accent);
+    }
+
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Terminal Console */
+    .terminal-container {
+      background: #05070a;
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 1.25rem;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      height: 250px;
+      overflow-y: auto;
+      box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.8);
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      margin-bottom: 0.75rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-output {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .log-entry {
+      line-height: 1.4;
+      word-break: break-all;
+    }
+
+    .log-time {
+      color: #4b5563;
+      margin-right: 0.5rem;
+    }
+
+    .log-info { color: #38bdf8; }
+    .log-success { color: #34d399; }
+    .log-warn { color: #fbbf24; }
+    .log-error { color: #f87171; }
+
+    /* Candidate Filters */
+    .filter-bar {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .search-input-wrapper {
+      position: relative;
+      flex-grow: 1;
+      min-width: 250px;
+    }
+
+    .search-input-wrapper i {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 0.75rem 1rem 0.75rem 2.75rem;
+      color: var(--text-main);
+      font-size: 0.95rem;
+      transition: all 0.3s ease;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+    }
+
+    /* Candidate Grid */
+    .candidate-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .candidate-card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: auto;
+      min-height: 275px;
+      gap: 0.75rem;
+    }
+
+    .candidate-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(99, 102, 241, 0.4);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 15px rgba(99, 102, 241, 0.1);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+    }
+
+    .candidate-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(20, 184, 166, 0.2));
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: white;
+      font-size: 1.2rem;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .badge-verified {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+
+    .badge-review {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    .candidate-info {
+      flex-grow: 1;
+    }
+
+    .candidate-name {
+      font-size: 1.15rem;
+      font-weight: 600;
+      font-family: 'Outfit', sans-serif;
+      margin-bottom: 0.25rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .candidate-title {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .skill-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      max-height: 76px;
+      overflow: hidden;
+      margin-bottom: 0.25rem;
+    }
+
+    .skill-tag {
+      font-size: 0.75rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      padding: 0.2rem 0.65rem;
+      border-radius: 6px;
+      color: #e2e8f0;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      max-width: 150px;
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: auto;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .card-footer-item {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    /* Flow Visualizer */
+    .flow-visualizer-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2.5rem;
+    }
+
+    .visualizer-title-desc {
+      text-align: center;
+      margin-bottom: 3rem;
+      max-width: 600px;
+    }
+
+    .visualizer-title-desc p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 0.5rem;
+    }
+
+    .flow-nodes {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      width: 100%;
+      max-width: 900px;
+      margin-bottom: 3.5rem;
+      position: relative;
+    }
+
+    .flow-node {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      width: 170px;
+      padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      text-align: center;
+      position: relative;
+      z-index: 2;
+      backdrop-filter: blur(20px);
+      transition: all 0.5s ease;
+    }
+
+    .flow-node i {
+      width: 32px;
+      height: 32px;
+      color: var(--text-muted);
+      transition: color 0.5s ease;
+    }
+
+    .flow-node-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      transition: color 0.5s ease;
+    }
+
+    .flow-connector {
+      flex-grow: 1;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.08);
+      position: relative;
+      z-index: 1;
+    }
+
+    .connector-pulse {
+      position: absolute;
+      width: 25px;
+      height: 2px;
+      background: linear-gradient(to right, transparent, var(--primary), transparent);
+      left: -25px;
+      display: none;
+    }
+
+    /* Active States for Ingestion Flow Visualizer */
+    .flow-node.node-active {
+      border-color: var(--primary);
+      box-shadow: 0 0 20px var(--primary-glow);
+      transform: scale(1.05);
+    }
+    .flow-node.node-active i, .flow-node.node-active .flow-node-title {
+      color: var(--text-main);
+    }
+
+    .flow-node.node-success {
+      border-color: var(--secondary);
+      box-shadow: 0 0 20px var(--secondary-glow);
+    }
+    .flow-node.node-success i {
+      color: var(--secondary);
+    }
+    .flow-node.node-success .flow-node-title {
+      color: white;
+    }
+
+    @keyframes flowAnimation {
+      0% { left: 0%; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { left: 100%; opacity: 0; }
+    }
+
+    .flow-connector.active .connector-pulse {
+      display: block;
+      animation: flowAnimation 1.5s linear infinite;
+    }
+
+    /* Modal Styling */
+    .modal-overlay {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(5, 7, 10, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      display: flex;
+      opacity: 1;
+    }
+
+    .modal-container {
+      background: radial-gradient(circle at top left, var(--bg-space), var(--bg-dark));
+      border: 1px solid var(--glass-border);
+      border-radius: 24px;
+      width: 90%;
+      max-width: 800px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      transform: translateY(20px);
+      transition: transform 0.3s ease;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-overlay.active .modal-container {
+      transform: translateY(0);
+    }
+
+    .modal-header {
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-close {
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      transition: color 0.2s ease;
+    }
+
+    .modal-close:hover {
+      color: var(--text-main);
+    }
+
+    .modal-body {
+      padding: 2rem;
+      overflow-y: auto;
+      flex-grow: 1;
+    }
+
+    .modal-footer {
+      padding: 1.25rem 2rem;
+      border-top: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 1rem;
+    }
+
+    /* Modal Form / Details */
+    .profile-header-block {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .profile-summary {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #d1d5db;
+      margin-bottom: 2rem;
+      padding: 1rem;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 3px solid var(--primary);
+      border-radius: 0 8px 8px 0;
+    }
+
+    .section-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 0.5rem;
+      color: white;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .field-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .field-value {
+      font-size: 0.95rem;
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 0.5rem 0.75rem;
+      width: 100%;
+    }
+
+    .field-value:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    /* Timeline components */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .timeline-item {
+      position: relative;
+      padding-left: 1.5rem;
+      border-left: 2px solid var(--glass-border);
+    }
+
+    .timeline-item::after {
+      content: '';
+      position: absolute;
+      left: -6px;
+      top: 4px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--primary);
+      border: 2px solid var(--bg-dark);
+    }
+
+    .timeline-date {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .timeline-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .timeline-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .timeline-desc {
+      font-size: 0.9rem;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+
+    /* Animation effects */
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+      70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Notification Toast */
+    .toast {
+      position: fixed;
+      right: 2rem;
+      bottom: 2rem;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(20px);
+      padding: 1rem 1.5rem;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .toast.active {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    .toast-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">
+        <i data-lucide="chef-hat"></i>
+      </div>
+      <span class="brand-title">Ingrechef AI</span>
+    </div>
+
+    <ul class="nav-menu">
+      <li>
+        <a class="nav-item active" onclick="switchTab('dashboard', this)">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Dashboard</span>
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" onclick="switchTab('candidates', this)">
+          <i data-lucide="users"></i>
+          <span>Candidates</span>
+        </a>
+      </li>
+      <li>
+        <a class="nav-item" onclick="switchTab('visualizer', this)">
+          <i data-lucide="git-merge"></i>
+          <span>Flow Visualizer</span>
+        </a>
+      </li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <div class="status-dot"></div>
+      <span>Pipeline Active (Veris LLM)</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <div class="header-bar">
+      <div>
+        <h1 class="page-title" id="page-title">Dashboard Overview</h1>
+        <p class="page-subtitle" id="page-subtitle">Real-time candidate ingestion statistics.</p>
+      </div>
+      <button class="btn" onclick="triggerPoll()">
+        <i data-lucide="refresh-cw" id="poll-btn-icon"></i>
+        <span id="poll-btn-text">Sync Gmail Inbox</span>
+      </button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB: DASHBOARD                             -->
+    <!-- ========================================== -->
+    <div id="tab-dashboard" class="tab-content active">
+      <div class="stats-grid">
+        <div class="glass-card stat-card">
+          <div class="stat-icon">
+            <i data-lucide="users"></i>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Total Candidates</div>
+          </div>
+        </div>
+        <div class="glass-card stat-card">
+          <div class="stat-icon">
+            <i data-lucide="check-circle2"></i>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-verified">0</div>
+            <div class="stat-label">Verified Candidates</div>
+          </div>
+        </div>
+        <div class="glass-card stat-card">
+          <div class="stat-icon">
+            <i data-lucide="eye"></i>
+          </div>
+          <div>
+            <div class="stat-value" id="stat-review">0</div>
+            <div class="stat-label">Pending Review</div>
+          </div>
+        </div>
+        <div class="glass-card stat-card">
+          <div class="stat-icon">
+            <i data-lucide="cpu"></i>
+          </div>
+          <div>
+            <div class="stat-value">100%</div>
+            <div class="stat-label">Veris LLM Acc</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <h2 class="section-title"><i data-lucide="terminal"></i> System Activity Logs</h2>
+        <div class="terminal-container">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <div class="terminal-dot" style="background:#ef4444;"></div>
+              <div class="terminal-dot" style="background:#f59e0b;"></div>
+              <div class="terminal-dot" style="background:#10b981;"></div>
+            </div>
+            <span>ingestion_engine.log</span>
+          </div>
+          <div class="terminal-output" id="terminal-logs">
+            <!-- Logs populate here -->
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <h2 class="section-title"><i data-lucide="sparkles"></i> Popular Candidate Skills</h2>
+        <div class="skill-tags" id="popular-skills" style="max-height: none; gap: 0.75rem;">
+          <!-- Popular skills tags populate here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB: CANDIDATES                            -->
+    <!-- ========================================== -->
+    <div id="tab-candidates" class="tab-content">
+      <div class="filter-bar">
+        <div class="search-input-wrapper">
+          <i data-lucide="search"></i>
+          <input type="text" class="search-input" id="search-bar" placeholder="Search by name, designation, location or skills..." oninput="filterCandidates()">
+        </div>
+      </div>
+
+      <div class="candidate-grid" id="candidate-grid">
+        <!-- Candidate cards load dynamically -->
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TAB: FLOW VISUALIZER                      -->
+    <!-- ========================================== -->
+    <div id="tab-visualizer" class="tab-content">
+      <div class="glass-card flow-visualizer-container">
+        <div class="visualizer-title-desc">
+          <h2 style="font-family:'Outfit',sans-serif; font-size:1.5rem; margin-bottom:0.5rem;">Pipeline Automation Flow</h2>
+          <p>This flow maps how resumes are fetched from unread emails, filtered, parsed directly using the Veris LLM, and successfully stored in MongoDB.</p>
+        </div>
+
+        <div class="flow-nodes">
+          <div class="flow-node" id="node-gmail">
+            <i data-lucide="mail"></i>
+            <span class="flow-node-title">Gmail Listener</span>
+          </div>
+          
+          <div class="flow-connector" id="conn-gmail-filter">
+            <div class="connector-pulse"></div>
+          </div>
+          
+          <div class="flow-node" id="node-filter">
+            <i data-lucide="shield-alert"></i>
+            <span class="flow-node-title">Score Filters</span>
+          </div>
+          
+          <div class="flow-connector" id="conn-filter-veris">
+            <div class="connector-pulse"></div>
+          </div>
+          
+          <div class="flow-node" id="node-veris">
+            <i data-lucide="binary"></i>
+            <span class="flow-node-title">Veris LLM Parser</span>
+          </div>
+          
+          <div class="flow-connector" id="conn-veris-db">
+            <div class="connector-pulse"></div>
+          </div>
+          
+          <div class="flow-node" id="node-db">
+            <i data-lucide="database"></i>
+            <span class="flow-node-title">MongoDB Atlas</span>
+          </div>
+        </div>
+
+        <button class="btn" style="padding:1rem 2rem; font-size:1.1rem; gap:0.75rem;" onclick="triggerPoll()">
+          <i data-lucide="play"></i>
+          <span>Trigger Live Pipeline Run</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div class="modal-overlay" id="candidate-modal">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2 class="page-title" style="font-size:1.35rem;" id="modal-candidate-name">Candidate Profile</h2>
+        <button class="modal-close" onclick="closeModal()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="profile-header-block">
+          <div class="candidate-avatar" id="modal-avatar">T</div>
+          <div>
+            <h3 class="page-title" style="font-size:1.25rem; font-weight:600;" id="modal-full-name">Tharun V</h3>
+            <p id="modal-designation" style="color:var(--text-muted); font-size:0.9rem;">Undergraduate Student</p>
+          </div>
+        </div>
+
+        <div class="profile-summary" id="modal-summary">
+          No candidate summary provided.
+        </div>
+
+        <h3 class="section-title"><i data-lucide="user"></i> Contact & General Info</h3>
+        <div class="details-grid">
+          <div class="field-group">
+            <label class="field-label">Email</label>
+            <input type="text" class="field-value" id="edit-email">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Phone</label>
+            <input type="text" class="field-value" id="edit-phone">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Location</label>
+            <input type="text" class="field-value" id="edit-location">
+          </div>
+          <div class="field-group">
+            <label class="field-label">Total Exp (Years)</label>
+            <input type="number" step="0.1" class="field-value" id="edit-exp">
+          </div>
+          <div class="field-group">
+            <label class="field-label">LinkedIn</label>
+            <input type="text" class="field-value" id="edit-linkedin">
+          </div>
+          <div class="field-group">
+            <label class="field-label">GitHub</label>
+            <input type="text" class="field-value" id="edit-github">
+          </div>
+        </div>
+
+        <h3 class="section-title"><i data-lucide="sparkles"></i> Technical & Core Skills</h3>
+        <div class="field-group" style="margin-bottom: 2rem;">
+          <input type="text" class="field-value" id="edit-skills" placeholder="Skills (comma separated)">
+        </div>
+
+        <h3 class="section-title"><i data-lucide="briefcase"></i> Work Experience</h3>
+        <div class="timeline" id="modal-experience-timeline">
+          <!-- Experience items load dynamically -->
+        </div>
+
+        <h3 class="section-title"><i data-lucide="graduation-cap"></i> Education History</h3>
+        <div class="timeline" id="modal-education-timeline">
+          <!-- Education items load dynamically -->
+        </div>
+
+        <h3 class="section-title"><i data-lucide="folder-git-2"></i> Projects</h3>
+        <div class="timeline" id="modal-projects-timeline">
+          <!-- Projects load dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-secondary" id="modal-download-btn" href="#" download>
+          <i data-lucide="download"></i> Download Resume
+        </a>
+        <button class="btn btn-secondary" style="border-color:var(--success); color:var(--success);" id="modal-verify-btn" onclick="verifyCurrentCandidate()">
+          <i data-lucide="check-circle2"></i> Verify Profile
+        </button>
+        <button class="btn" onclick="saveCurrentCandidateProfile()">
+          <i data-lucide="save"></i> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast" id="toast-notif">
+    <div class="toast-icon" id="toast-icon-wrapper">
+      <i data-lucide="info" id="toast-icon"></i>
+    </div>
+    <span id="toast-message">Message details</span>
+  </div>
+
+  <!-- App Logic -->
+  <script>
+    let apiHost = ''; // Empty defaults to relative origin (same port)
+    let candidatesList = [];
+    let activeCandidateId = null;
+
+    // Initialize Lucide Icons
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      fetchCandidates();
+      logToTerminal('System initialized. Connection to MongoDB Atlas established.', 'info');
+      logToTerminal('Waiting for Gmail sync requests...', 'info');
+    });
+
+    // Helper to log in terminal
+    function logToTerminal(message, type = 'info') {
+      const logsContainer = document.getElementById('terminal-logs');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      
+      let typeClass = 'log-info';
+      if (type === 'success') typeClass = 'log-success';
+      if (type === 'warn') typeClass = 'log-warn';
+      if (type === 'error') typeClass = 'log-error';
+
+      entry.innerHTML = `<span class="log-time">[${time}]</span><span class="${typeClass}">[${type.toUpperCase()}]</span> ${message}`;
+      logsContainer.appendChild(entry);
+      logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+
+    // Switch View Tabs
+    function switchTab(tabId, el) {
+      // Manage active nav item
+      document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+      el.classList.add('active');
+
+      // Manage active view content
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+      document.getElementById(`tab-${tabId}`).classList.add('active');
+
+      // Manage titles
+      const titleEl = document.getElementById('page-title');
+      const subtitleEl = document.getElementById('page-subtitle');
+      if (tabId === 'dashboard') {
+        titleEl.textContent = 'Dashboard Overview';
+        subtitleEl.textContent = 'Real-time candidate ingestion statistics.';
+      } else if (tabId === 'candidates') {
+        titleEl.textContent = 'Candidates Directory';
+        subtitleEl.textContent = 'Browse, filter, and inspect parsed profiles.';
+        fetchCandidates();
+      } else if (tabId === 'visualizer') {
+        titleEl.textContent = 'Automation Pipeline';
+        subtitleEl.textContent = 'Visually monitor the Gmail-to-MongoDB flow.';
+      }
+    }
+
+    // Fetch Candidates from API
+    async function fetchCandidates() {
+      try {
+        const response = await fetch(`${apiHost}/candidates`);
+        if (!response.ok) throw new Error('Failed to fetch candidates from DB.');
+        const data = await response.json();
+        
+        candidatesList = data.items || [];
+        updateDashboardStats(data.total, candidatesList);
+        renderCandidatesGrid(candidatesList);
+        renderPopularSkills(candidatesList);
+      } catch (err) {
+        logToTerminal(err.message, 'error');
+      }
+    }
+
+    // Update Metrics
+    function updateDashboardStats(total, items) {
+      document.getElementById('stat-total').textContent = total;
+      
+      const verified = items.filter(i => i.status === 'verified').length;
+      document.getElementById('stat-verified').textContent = verified;
+
+      const review = items.filter(i => i.profile && i.profile.confidence < 0.85).length;
+      document.getElementById('stat-review').textContent = review;
+    }
+
+    // Render Skills cloud
+    function renderPopularSkills(items) {
+      const counts = {};
+      items.forEach(c => {
+        const skills = c.profile.skills || [];
+        skills.forEach(s => {
+          counts[s] = (counts[s] || 0) + 1;
+        });
+      });
+
+      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+      const container = document.getElementById('popular-skills');
+      container.innerHTML = '';
+      
+      if (sorted.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted); font-size:0.9rem;">No candidate skills parsed yet.</span>';
+        return;
+      }
+
+      sorted.forEach(([skill, count]) => {
+        const tag = document.createElement('span');
+        tag.className = 'skill-tag';
+        tag.style.padding = '0.35rem 0.85rem';
+        tag.style.fontSize = '0.85rem';
+        tag.style.background = 'rgba(99, 102, 241, 0.08)';
+        tag.style.borderColor = 'rgba(99, 102, 241, 0.15)';
+        tag.innerHTML = `${skill} <span style="color:var(--secondary); margin-left:0.25rem; font-weight:600;">${count}</span>`;
+        container.appendChild(tag);
+      });
+    }
+
+    // Render Grid
+    function renderCandidatesGrid(items) {
+      const grid = document.getElementById('candidate-grid');
+      grid.innerHTML = '';
+
+      if (items.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding:3rem; color:var(--text-muted);"><i data-lucide="users-round" style="width:48px;height:48px;margin-bottom:1rem;opacity:0.5;"></i><p>No candidates found in database.</p></div>';
+        lucide.createIcons();
+        return;
+      }
+
+      items.forEach(c => {
+        const profile = c.profile || {};
+        const skills = profile.skills || [];
+        const initial = (profile.full_name || 'U').charAt(0).toUpperCase();
+        
+        let statusBadgeClass = 'badge-active';
+        if (c.status === 'verified') statusBadgeClass = 'badge-verified';
+        if (profile.confidence < 0.85) statusBadgeClass = 'badge-review';
+
+        const card = document.createElement('div');
+        card.className = 'candidate-card';
+        card.onclick = () => openCandidateModal(c);
+        
+        let skillsHtml = '';
+        skills.slice(0, 5).forEach(s => {
+          skillsHtml += `<span class="skill-tag">${s}</span>`;
+        });
+
+        card.innerHTML = `
+          <div class="card-top">
+            <div class="candidate-avatar">${initial}</div>
+            <span class="badge ${statusBadgeClass}">${c.status || 'Active'}</span>
+          </div>
+          <div class="candidate-info">
+            <h3 class="candidate-name">${profile.full_name || 'Unnamed Candidate'}</h3>
+            <p class="candidate-title">${profile.current_designation || 'Candidate Title'}</p>
+          </div>
+          <div class="skill-tags">
+            ${skillsHtml}
+          </div>
+          <div class="card-footer">
+            <div class="card-footer-item">
+              <i data-lucide="map-pin" style="width:14px;height:14px;"></i>
+              <span>${profile.location || 'Unknown'}</span>
+            </div>
+            <div class="card-footer-item">
+              <i data-lucide="calendar" style="width:14px;height:14px;"></i>
+              <span>${new Date(c.created_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+      lucide.createIcons();
+    }
+
+    // Filter list
+    function filterCandidates() {
+      const query = document.getElementById('search-bar').value.toLowerCase();
+      const filtered = candidatesList.filter(c => {
+        const profile = c.profile || {};
+        const name = (profile.full_name || '').toLowerCase();
+        const dest = (profile.current_designation || '').toLowerCase();
+        const loc = (profile.location || '').toLowerCase();
+        const skills = (profile.skills || []).join(' ').toLowerCase();
+
+        return name.includes(query) || dest.includes(query) || loc.includes(query) || skills.includes(query);
+      });
+      renderCandidatesGrid(filtered);
+    }
+
+    // Show Toast Notification
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast-notif');
+      const icon = document.getElementById('toast-icon');
+      const iconWrapper = document.getElementById('toast-icon-wrapper');
+      const msgText = document.getElementById('toast-message');
+
+      msgText.textContent = message;
+      toast.className = 'toast active';
+
+      if (type === 'success') {
+        icon.setAttribute('data-lucide', 'check-circle-2');
+        iconWrapper.style.color = 'var(--success)';
+      } else if (type === 'error') {
+        icon.setAttribute('data-lucide', 'alert-triangle');
+        iconWrapper.style.color = 'var(--error)';
+      } else {
+        icon.setAttribute('data-lucide', 'info');
+        iconWrapper.style.color = 'var(--primary)';
+      }
+      lucide.createIcons();
+
+      setTimeout(() => {
+        toast.classList.remove('active');
+      }, 4000);
+    }
+
+    // Interactive Visualizer Flow Logic
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function triggerPoll() {
+      // Check if visually currently running to prevent double submission
+      const pollText = document.getElementById('poll-btn-text');
+      const pollIcon = document.getElementById('poll-btn-icon');
+      if (pollText.textContent.includes('Running')) return;
+
+      pollText.textContent = 'Syncing...';
+      pollIcon.style.animation = 'flowAnimation 1s linear infinite';
+      logToTerminal('Polling Gmail inbox for unread resumes (is:unread)...', 'info');
+
+      // Visual Flow Elements
+      const nodeGmail = document.getElementById('node-gmail');
+      const nodeFilter = document.getElementById('node-filter');
+      const nodeVeris = document.getElementById('node-veris');
+      const nodeDb = document.getElementById('node-db');
+
+      const connGmailFilter = document.getElementById('conn-gmail-filter');
+      const connFilterVeris = document.getElementById('conn-filter-veris');
+      const connVerisDb = document.getElementById('conn-veris-db');
+
+      // Step 1: Active Gmail
+      nodeGmail.className = 'flow-node node-active';
+      await sleep(1000);
+      connGmailFilter.className = 'flow-connector active';
+      
+      // Step 2: Active Filters
+      nodeFilter.className = 'flow-node node-active';
+      nodeGmail.className = 'flow-node node-success';
+      logToTerminal('Applying baseline filters (attachment type & promotional keyword check)...', 'info');
+      await sleep(1200);
+      connFilterVeris.className = 'flow-connector active';
+
+      // Step 3: Veris Resume API
+      nodeVeris.className = 'flow-node node-active';
+      nodeFilter.className = 'flow-node node-success';
+      logToTerminal('Uploading attachment file to Veris OCR LLM parser endpoint...', 'info');
+      
+      // Call actual endpoint
+      try {
+        const response = await fetch(`${apiHost}/ingest/poll`, { method: 'POST' });
+        const summary = await response.json();
+        
+        await sleep(1500);
+        connVerisDb.className = 'flow-connector active';
+        
+        // Step 4: Storing in MongoDB
+        nodeDb.className = 'flow-node node-active';
+        nodeVeris.className = 'flow-node node-success';
+        
+        if (response.ok) {
+          logToTerminal(`Veris parsing completed successfully. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`, 'success');
+          
+          if (summary.ingested_candidates > 0) {
+            logToTerminal(`Writing candidate data to MongoDB Atlas collection 'candidates'...`, 'info');
+            await sleep(1000);
+            nodeDb.className = 'flow-node node-success';
+            showToast(`Ingestion completed! Added ${summary.ingested_candidates} new profile(s).`, 'success');
+          } else {
+            nodeDb.className = 'flow-node';
+            showToast('Sync done. No new candidate resumes found.', 'info');
+          }
+          
+          fetchCandidates();
+        } else {
+          nodeDb.className = 'flow-node';
+          nodeVeris.className = 'flow-node';
+          logToTerminal(`Inbound pipeline parsing failed. Check server logs.`, 'error');
+          showToast('Failed to poll Gmail inbox.', 'error');
+        }
+      } catch (err) {
+        nodeDb.className = 'flow-node';
+        nodeVeris.className = 'flow-node';
+        logToTerminal(`Request timed out or connection failed: ${err.message}`, 'error');
+        showToast('Connection timed out.', 'error');
+      }
+
+      // Cleanup visual connectors
+      await sleep(2000);
+      document.querySelectorAll('.flow-node').forEach(n => n.className = 'flow-node');
+      document.querySelectorAll('.flow-connector').forEach(c => c.className = 'flow-connector');
+      pollText.textContent = 'Sync Gmail Inbox';
+      pollIcon.style.animation = 'none';
+    }
+
+    // Modal Handler
+    function openCandidateModal(cand) {
+      activeCandidateId = cand.id;
+      const profile = cand.profile || {};
+      const initial = (profile.full_name || 'U').charAt(0).toUpperCase();
+
+      document.getElementById('modal-candidate-name').textContent = profile.full_name || 'Candidate Profile';
+      document.getElementById('modal-full-name').textContent = profile.full_name || 'Unnamed';
+      document.getElementById('modal-designation').textContent = profile.current_designation || 'Not Provided';
+      document.getElementById('modal-avatar').textContent = initial;
+      document.getElementById('modal-summary').textContent = profile.resume_summary || 'No professional summary found on the resume.';
+
+      // Set input fields values
+      document.getElementById('edit-email').value = profile.email || '';
+      document.getElementById('edit-phone').value = profile.phone || '';
+      document.getElementById('edit-location').value = profile.location || '';
+      document.getElementById('edit-exp').value = profile.total_experience_years !== undefined ? profile.total_experience_years : '';
+      document.getElementById('edit-linkedin').value = profile.linkedin_url || '';
+      document.getElementById('edit-github').value = profile.github_url || '';
+      document.getElementById('edit-skills').value = (profile.skills || []).join(', ');
+
+      // Set resume link
+      const dlBtn = document.getElementById('modal-download-btn');
+      dlBtn.href = `${apiHost}/candidates/${cand.id}/resume`;
+      dlBtn.setAttribute('download', cand.resume.original_filename);
+
+      // Set verify button visibility
+      const verifyBtn = document.getElementById('modal-verify-btn');
+      if (cand.status === 'verified') {
+        verifyBtn.style.display = 'none';
+      } else {
+        verifyBtn.style.display = 'inline-flex';
+      }
+
+      // Populate experience timeline
+      const expContainer = document.getElementById('modal-experience-timeline');
+      expContainer.innerHTML = '';
+      const experiences = profile.work_experience || [];
+      if (experiences.length === 0) {
+        expContainer.innerHTML = '<p style="color:var(--text-muted); font-size:0.9rem;">No professional experience parsed.</p>';
+      } else {
+        experiences.forEach(e => {
+          const dateStr = (e.start_date || '') + (e.end_date ? ` — ${e.end_date}` : ' — Present');
+          const item = document.createElement('div');
+          item.className = 'timeline-item';
+          item.innerHTML = `
+            <div class="timeline-date">${dateStr}</div>
+            <div class="timeline-title">${e.designation || 'Designation'}</div>
+            <div class="timeline-subtitle">${e.company || 'Company'} ${e.location ? `| ${e.location}` : ''}</div>
+            <p class="timeline-desc">${e.description || 'No job description extracted.'}</p>
+          `;
+          expContainer.appendChild(item);
+        });
+      }
+
+      // Populate education timeline
+      const eduContainer = document.getElementById('modal-education-timeline');
+      eduContainer.innerHTML = '';
+      const educations = profile.education || [];
+      if (educations.length === 0) {
+        eduContainer.innerHTML = '<p style="color:var(--text-muted); font-size:0.9rem;">No education history parsed.</p>';
+      } else {
+        educations.forEach(ed => {
+          const dateStr = (ed.start_date || '') + (ed.end_date ? ` — ${ed.end_date}` : '');
+          const item = document.createElement('div');
+          item.className = 'timeline-item';
+          item.innerHTML = `
+            <div class="timeline-date">${dateStr}</div>
+            <div class="timeline-title">${ed.degree || 'Degree'}</div>
+            <div class="timeline-subtitle">${ed.institution || 'Institution'} ${ed.grade ? `| Grade: ${ed.grade}` : ''}</div>
+          `;
+          eduContainer.appendChild(item);
+        });
+      }
+
+      // Populate projects timeline
+      const projectContainer = document.getElementById('modal-projects-timeline');
+      projectContainer.innerHTML = '';
+      const projects = profile.projects || [];
+      if (projects.length === 0) {
+        projectContainer.innerHTML = '<p style="color:var(--text-muted); font-size:0.9rem;">No projects listed.</p>';
+      } else {
+        projects.forEach(p => {
+          const item = document.createElement('div');
+          item.className = 'timeline-item';
+          item.innerHTML = `
+            <div class="timeline-title">${p.name || 'Project Name'}</div>
+            <p class="timeline-desc" style="margin-top:0.25rem;">${p.description || 'No description listed.'}</p>
+            <div style="margin-top:0.5rem; display:flex; gap:0.35rem; flex-wrap:wrap;">
+              ${(p.technologies || []).map(t => `<span class="skill-tag" style="font-size:0.7rem; background:rgba(20,184,166,0.05);">${t}</span>`).join('')}
+            </div>
+          `;
+          projectContainer.appendChild(item);
+        });
+      }
+
+      // Open Modal
+      document.getElementById('candidate-modal').classList.add('active');
+    }
+
+    function closeModal() {
+      document.getElementById('candidate-modal').classList.remove('active');
+      activeCandidateId = null;
+    }
+
+    // Save Changes
+    async function saveCurrentCandidateProfile() {
+      if (!activeCandidateId) return;
+
+      const profile = {
+        full_name: document.getElementById('modal-full-name').textContent,
+        email: document.getElementById('edit-email').value,
+        phone: document.getElementById('edit-phone').value,
+        location: document.getElementById('edit-location').value,
+        total_experience_years: parseFloat(document.getElementById('edit-exp').value) || 0,
+        linkedin_url: document.getElementById('edit-linkedin').value,
+        github_url: document.getElementById('edit-github').value,
+        skills: document.getElementById('edit-skills').value.split(',').map(s => s.trim()).filter(Boolean),
+        current_designation: document.getElementById('modal-designation').textContent
+      };
+
+      try {
+        const response = await fetch(`${apiHost}/candidates/${activeCandidateId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(profile)
+        });
+
+        if (response.ok) {
+          showToast('Candidate profile updated successfully.', 'success');
+          closeModal();
+          fetchCandidates();
+        } else {
+          showToast('Failed to save profile changes.', 'error');
+        }
+      } catch (err) {
+        showToast('Connection error saving profile.', 'error');
+      }
+    }
+
+    // Verify candidate
+    async function verifyCurrentCandidate() {
+      if (!activeCandidateId) return;
+
+      try {
+        const response = await fetch(`${apiHost}/candidates/${activeCandidateId}/verify`, {
+          method: 'POST'
+        });
+
+        if (response.ok) {
+          showToast('Candidate marked as verified.', 'success');
+          closeModal();
+          fetchCandidates();
+        } else {
+          showToast('Failed to verify candidate.', 'error');
+        }
+      } catch (err) {
+        showToast('Connection error verifying candidate.', 'error');
+      }
+    }
+  </script>
+</body>
+</html>

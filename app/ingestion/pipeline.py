@@ -1,0 +1,210 @@
+"""The ingestion pipeline — orchestrates one email end to end.
+
+    Gmail message
+        → detect (stage 1)
+        → for each resume attachment:
+              download → extract text (OCR fallback) → AI structure (stage 2)
+              → dedup (hash / email / phone) → store file + insert Mongo record
+
+Each stage is a small, independently-testable unit imported from its own module;
+this class only wires them together and owns error handling + status reporting.
+"""
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from app.ai.resume_parser import ResumeParser
+from app.core.exceptions import (
+    AIParseError,
+    NotAResumeError,
+    PipelineError,
+    TextExtractionError,
+    UnsupportedFileTypeError,
+)
+from app.core.models import (
+    Attachment,
+    CandidateProfile,
+    CandidateRecord,
+    EmailMessage,
+    SourceEmail,
+    StoredResume,
+)
+from app.db.dedup import normalize_email, normalize_phone, sha256_hex
+from app.db.repository import CandidateRepository
+from app.ingestion.detector import detect
+from app.logging_config import get_logger
+from app.storage.base import StorageBackend
+from app.storage.factory import get_storage_backend
+from app.extraction.text_extractor import extract_text
+
+log = get_logger(__name__)
+
+# Below this confidence we keep the record but flag it for human review.
+_MIN_CONFIDENCE = 0.55
+
+
+@dataclass
+class AttachmentResult:
+    filename: str
+    status: str                       # ingested | duplicate | not_resume | error
+    candidate_id: Optional[str] = None
+    detail: str = ""
+
+
+@dataclass
+class ProcessResult:
+    message_id: str
+    status: str                       # processed | skipped | error
+    reason: str = ""
+    attachments: List[AttachmentResult] = field(default_factory=list)
+
+    @property
+    def ingested_ids(self) -> List[str]:
+        return [a.candidate_id for a in self.attachments if a.status == "ingested" and a.candidate_id]
+
+
+class IngestionPipeline:
+    def __init__(
+        self,
+        repository: Optional[CandidateRepository] = None,
+        storage: Optional[StorageBackend] = None,
+        parser: Optional[ResumeParser] = None,
+    ):
+        self.repo = repository or CandidateRepository()
+        self.storage = storage or get_storage_backend()
+        self.parser = parser or ResumeParser()
+
+    # ---------------------------------------------------------------- #
+    def process_email(self, email: EmailMessage, gmail=None) -> ProcessResult:
+        """Process a fully-populated EmailMessage. ``gmail`` (optional) is used to
+        lazily download attachment bytes if they aren't already present."""
+        # Idempotency: skip messages we've already ingested.
+        existing = self.repo.find_by_message_id(email.message_id)
+        if existing:
+            return ProcessResult(email.message_id, "skipped", "already processed")
+
+        detection = detect(email)
+        if not detection.is_candidate:
+            return ProcessResult(email.message_id, "skipped", f"not a resume email: {detection.reason}")
+
+        results: List[AttachmentResult] = []
+        for att in detection.resume_attachments:
+            results.append(self._process_attachment(email, att, gmail))
+
+        overall = "processed" if any(r.status == "ingested" for r in results) else "skipped"
+        return ProcessResult(email.message_id, overall, detection.reason, results)
+
+    # ---------------------------------------------------------------- #
+    def _process_attachment(self, email: EmailMessage, att: Attachment, gmail) -> AttachmentResult:
+        try:
+            data = att.data
+            if data is None:
+                if gmail is None:
+                    raise PipelineError("Attachment bytes not loaded and no Gmail client supplied.")
+                data = gmail.download_attachment(email.message_id, att)
+
+            resume_hash = sha256_hex(data)
+
+            # (1) Exact-duplicate short-circuit before any expensive work.
+            dup = self.repo.find_by_resume_hash(resume_hash)
+            if dup:
+                return AttachmentResult(att.filename, "duplicate", dup.id, "identical file already ingested")
+
+            # (2) Extract text and AI structure.
+            if hasattr(self.parser, "parse_file"):
+                profile, extracted = self.parser.parse_file(data, att.filename)
+            else:
+                extracted = extract_text(data, att.filename)
+                # (3) AI structuring.
+                hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
+                profile = self.parser.parse(extracted.text, hint=hint)
+
+            if not profile.is_resume:
+                raise NotAResumeError(
+                    f"AI judged '{att.filename}' not a resume (confidence={profile.confidence:.2f})"
+                )
+
+            # (4) Person-level dedup (email / phone).
+            email_key = normalize_email(profile.email)
+            phone_key = normalize_phone(profile.phone)
+            person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
+            if person_dup:
+                return AttachmentResult(
+                    att.filename, "duplicate", person_dup.id,
+                    "same candidate (email/phone) already exists",
+                )
+
+            # (5) Store original file + insert record.
+            record = self._build_record(
+                email, att, data, resume_hash, extracted, profile, email_key, phone_key
+            )
+            if profile.confidence < _MIN_CONFIDENCE:
+                record.status = "needs_review"
+
+            self._store_file(record, data, att)
+            candidate_id = self.repo.insert(record)
+            return AttachmentResult(att.filename, "ingested", candidate_id, f"confidence={profile.confidence:.2f}")
+
+        except (NotAResumeError,) as exc:
+            log.info("Skipping attachment: %s", exc)
+            return AttachmentResult(att.filename, "not_resume", detail=str(exc))
+        except (UnsupportedFileTypeError, TextExtractionError, AIParseError) as exc:
+            log.warning("Attachment failed (%s): %s", att.filename, exc)
+            return AttachmentResult(att.filename, "error", detail=str(exc))
+        except Exception as exc:  # noqa: BLE001 — never let one attachment kill the batch
+            log.exception("Unexpected error on attachment %s", att.filename)
+            return AttachmentResult(att.filename, "error", detail=str(exc))
+
+    # ---------------------------------------------------------------- #
+    def _build_record(
+        self,
+        email: EmailMessage,
+        att: Attachment,
+        data: bytes,
+        resume_hash: str,
+        extracted,
+        profile: CandidateProfile,
+        email_key: Optional[str],
+        phone_key: Optional[str],
+    ) -> CandidateRecord:
+        candidate_id = uuid.uuid4().hex
+        storage_key = self._storage_key(candidate_id, att.filename)
+        stored = StoredResume(
+            original_filename=att.filename,
+            mime_type=att.mime_type,
+            size=len(data),
+            sha256=resume_hash,
+            storage_backend=self.storage.name,
+            storage_key=storage_key,
+            extraction_method=extracted.method,
+            ocr_used=extracted.ocr_used,
+        )
+        source = SourceEmail(
+            message_id=email.message_id,
+            thread_id=email.thread_id,
+            from_addr=email.from_addr,
+            from_name=email.from_name,
+            subject=email.subject,
+            received_date=email.date,
+        )
+        return CandidateRecord(
+            id=candidate_id,
+            profile=profile,
+            resume=stored,
+            source_email=source,
+            email_key=email_key,
+            phone_key=phone_key,
+            resume_hash=resume_hash,
+            status="ingested",
+        )
+
+    def _storage_key(self, candidate_id: str, filename: str) -> str:
+        now = datetime.now(timezone.utc)
+        safe = filename.replace("/", "_").replace("\\", "_")
+        return f"{now:%Y/%m}/{candidate_id}_{safe}"
+
+    def _store_file(self, record: CandidateRecord, data: bytes, att: Attachment) -> None:
+        self.storage.save(record.resume.storage_key, data, content_type=att.mime_type)

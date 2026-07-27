@@ -1,0 +1,48 @@
+"""MongoDB connection + index bootstrap.
+
+Sync PyMongo client (the pipeline and Celery workers are synchronous). The
+FastAPI layer reuses the same repository via a threadpool. A cached client is
+shared per-process.
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pymongo import ASCENDING, MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
+
+from app.config import settings
+from app.logging_config import get_logger
+
+log = get_logger(__name__)
+
+
+@lru_cache(maxsize=1)
+def get_client() -> MongoClient:
+    log.info("Connecting to MongoDB at %s", settings.mongo_uri)
+    return MongoClient(settings.mongo_uri, tz_aware=True, serverSelectionTimeoutMS=5000)
+
+
+def get_db() -> Database:
+    return get_client()[settings.mongo_db]
+
+
+def get_candidates_collection() -> Collection:
+    return get_db()[settings.mongo_candidates_collection]
+
+
+def ensure_indexes() -> None:
+    """Create the indexes the pipeline relies on. Safe to call repeatedly."""
+    coll = get_candidates_collection()
+    # Exact-duplicate detection: one candidate per resume file hash.
+    coll.create_index([("resume_hash", ASCENDING)], name="resume_hash_unique", unique=True, sparse=True)
+    # Person-level dedup lookups.
+    coll.create_index([("email_key", ASCENDING)], name="email_key_idx", sparse=True)
+    coll.create_index([("phone_key", ASCENDING)], name="phone_key_idx", sparse=True)
+    # Idempotency: don't reprocess the same Gmail message.
+    coll.create_index([("source_email.message_id", ASCENDING)], name="source_msg_idx")
+    # Common future query paths (search/filter extension).
+    coll.create_index([("profile.skills", ASCENDING)], name="skills_idx")
+    coll.create_index([("created_at", ASCENDING)], name="created_at_idx")
+    log.info("MongoDB indexes ensured on '%s'", coll.name)

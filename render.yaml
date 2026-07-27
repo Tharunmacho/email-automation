@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ingrechef-ai-automation
+    runtime: docker
+    plan: free
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MONGO_URI
+        sync: false
+        placeholder: "Paste your MongoDB Atlas connection string here (e.g. mongodb+srv://...)"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+        placeholder: "Paste your Anthropic API key here (starting with sk-ant-...)"
+      - key: GMAIL_QUERY
+        value: "has:attachment is:unread"

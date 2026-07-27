@@ -1,0 +1,39 @@
+# Local infrastructure for the resume ingestion pipeline.
+#   docker compose up -d          # start MongoDB + Redis
+#   docker compose down
+#
+# The Python app runs on your host (so the OAuth browser flow + Tesseract work
+# naturally). These containers just provide the datastores.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: resume_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: resume_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # Optional web UI to browse MongoDB at http://localhost:8081
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: resume_mongo_express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017
+      ME_CONFIG_BASICAUTH: "false"
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
