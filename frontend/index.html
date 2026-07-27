@@ -381,9 +381,48 @@
       transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
 
-    .stat-card:hover {
+    .stat-card:nth-child(1) {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.04) 0%, rgba(79, 70, 229, 0.01) 100%);
+      border: 1px solid rgba(79, 70, 229, 0.12);
+    }
+    .stat-card:nth-child(1):hover {
       transform: translateY(-4px);
-      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.05);
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.08) 0%, rgba(79, 70, 229, 0.02) 100%);
+      border-color: rgba(79, 70, 229, 0.25);
+      box-shadow: 0 10px 25px rgba(79, 70, 229, 0.08);
+    }
+
+    .stat-card:nth-child(2) {
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.04) 0%, rgba(13, 148, 136, 0.01) 100%);
+      border: 1px solid rgba(13, 148, 136, 0.12);
+    }
+    .stat-card:nth-child(2):hover {
+      transform: translateY(-4px);
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, rgba(13, 148, 136, 0.02) 100%);
+      border-color: rgba(13, 148, 136, 0.25);
+      box-shadow: 0 10px 25px rgba(13, 148, 136, 0.08);
+    }
+
+    .stat-card:nth-child(3) {
+      background: linear-gradient(135deg, rgba(202, 138, 4, 0.04) 0%, rgba(202, 138, 4, 0.01) 100%);
+      border: 1px solid rgba(202, 138, 4, 0.12);
+    }
+    .stat-card:nth-child(3):hover {
+      transform: translateY(-4px);
+      background: linear-gradient(135deg, rgba(202, 138, 4, 0.08) 0%, rgba(202, 138, 4, 0.02) 100%);
+      border-color: rgba(202, 138, 4, 0.25);
+      box-shadow: 0 10px 25px rgba(202, 138, 4, 0.08);
+    }
+
+    .stat-card:nth-child(4) {
+      background: linear-gradient(135deg, rgba(219, 39, 119, 0.04) 0%, rgba(219, 39, 119, 0.01) 100%);
+      border: 1px solid rgba(219, 39, 119, 0.12);
+    }
+    .stat-card:nth-child(4):hover {
+      transform: translateY(-4px);
+      background: linear-gradient(135deg, rgba(219, 39, 119, 0.08) 0%, rgba(219, 39, 119, 0.02) 100%);
+      border-color: rgba(219, 39, 119, 0.25);
+      box-shadow: 0 10px 25px rgba(219, 39, 119, 0.08);
     }
 
     .stat-icon {
@@ -1437,7 +1476,7 @@
     <div class="toast-icon" id="toast-icon-wrapper">
       <i data-lucide="info" id="toast-icon"></i>
     </div>
-    <span id="toast-message">Message details</span>
+    <span id="toast-message"></span>
   </div>
 
   <!-- App Logic -->
