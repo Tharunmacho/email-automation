@@ -158,6 +158,7 @@ class CandidateRecord(BaseModel):
 
     status: str = "ingested"    # ingested | duplicate | needs_review | error
     duplicate_of: Optional[str] = None
+    auto_reply_sent: bool = False
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

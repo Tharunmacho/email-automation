@@ -28,7 +28,7 @@ export default function Sidebar({
 
   const handleTabClick = (tabId: string) => {
     onTabChange(tabId);
-    onCloseMobile(); // auto-close drawer on mobile
+    onCloseMobile();
   };
 
   return (
@@ -65,8 +65,9 @@ export default function Sidebar({
             return (
               <li key={item.id}>
                 <button
+                  type="button"
                   className={`nav-item ${isActive ? "active" : ""}`}
-                  style={{ width: "100%", background: "none", border: "none", textAlign: "left", cursor: "pointer" }}
+                  style={{ width: "100%", background: "none", border: "none", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.75rem" }}
                   onClick={() => handleTabClick(item.id)}
                 >
                   <Icon size={20} />

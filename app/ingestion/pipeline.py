@@ -32,6 +32,8 @@ from app.core.models import (
     SourceEmail,
     StoredResume,
 )
+from app.ai.reply_generator import generate_contextual_reply
+from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
 from app.db.repository import CandidateRepository
 from app.ingestion.detector import detect
@@ -52,6 +54,7 @@ class AttachmentResult:
     status: str                       # ingested | duplicate | not_resume | error
     candidate_id: Optional[str] = None
     detail: str = ""
+    reply_sent: bool = False
 
 
 @dataclass
@@ -122,9 +125,9 @@ class IngestionPipeline:
                 hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                 profile = self.parser.parse(extracted.text, hint=hint)
 
-            if not profile.is_resume:
+            if not profile.is_resume or (not profile.email and not profile.phone and not profile.full_name):
                 raise NotAResumeError(
-                    f"AI judged '{att.filename}' not a resume (confidence={profile.confidence:.2f})"
+                    f"AI judged '{att.filename}' not a valid candidate resume (confidence={profile.confidence:.2f})"
                 )
 
             # (4) Person-level dedup (email / phone).
@@ -146,7 +149,34 @@ class IngestionPipeline:
 
             self._store_file(record, data, att)
             candidate_id = self.repo.insert(record)
-            return AttachmentResult(att.filename, "ingested", candidate_id, f"confidence={profile.confidence:.2f}")
+
+            # (6) Contextual Auto-Reply if enabled.
+            reply_sent = False
+            if settings.auto_reply_enabled:
+                try:
+                    reply_text = generate_contextual_reply(profile, email)
+                    if gmail and hasattr(gmail, "send_reply") and email.from_addr:
+                        gmail.send_reply(
+                            message_id=email.message_id,
+                            thread_id=email.thread_id,
+                            to_addr=email.from_addr,
+                            subject=email.subject,
+                            body_text=reply_text,
+                        )
+                        reply_sent = True
+                        log.info("Auto-reply sent to candidate %s (%s)", candidate_id, email.from_addr)
+                    else:
+                        log.info("Auto-reply generated for candidate %s (reply_sent=False, Gmail client not connected)", candidate_id)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Failed to send auto-reply to %s: %s", email.from_addr, exc)
+
+            return AttachmentResult(
+                att.filename,
+                "ingested",
+                candidate_id,
+                f"confidence={profile.confidence:.2f}",
+                reply_sent=reply_sent,
+            )
 
         except (NotAResumeError,) as exc:
             log.info("Skipping attachment: %s", exc)

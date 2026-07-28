@@ -90,8 +90,6 @@ export default function Home() {
   }, [log]);
 
   // ---- bootstrap -------------------------------------------------------- //
-  // The first load subscribes to the backend and reports the outcome honestly:
-  // state lands in the promise callbacks, never synchronously in the effect.
   useEffect(() => {
     let active = true;
 

@@ -240,5 +240,63 @@ def stats() -> None:
     typer.echo(f"candidates in DB: {CandidateRepository().count()}")
 
 
+@app.command("reply-existing")
+def reply_existing(
+    force: bool = typer.Option(False, "--force", "-f", help="Re-send auto reply even if candidate was already marked replied")
+) -> None:
+    """Send contextual auto-replies to candidates already stored in MongoDB."""
+    from app.ai.reply_generator import generate_contextual_reply
+    from app.core.models import EmailMessage
+    from app.db.repository import CandidateRepository
+    from app.gmail.client import GmailClient
+
+    repo = CandidateRepository()
+    candidates = repo.list_candidates(limit=1000)
+    if not candidates:
+        typer.echo("No candidate records found in MongoDB.")
+        return
+
+    gmail = GmailClient()
+    sent_count = 0
+    skipped_count = 0
+
+    for cand in candidates:
+        if getattr(cand, "auto_reply_sent", False) and not force:
+            skipped_count += 1
+            continue
+
+        source = cand.source_email
+        if not source or not source.from_addr:
+            log.warning("Candidate %s has no valid source email address. Skipping.", cand.id)
+            skipped_count += 1
+            continue
+
+        mock_email = EmailMessage(
+            message_id=source.message_id,
+            thread_id=source.thread_id,
+            from_addr=source.from_addr,
+            from_name=source.from_name,
+            subject=source.subject,
+            date=source.received_date,
+        )
+
+        reply_body = generate_contextual_reply(cand.profile, mock_email)
+        try:
+            gmail.send_reply(
+                message_id=source.message_id,
+                thread_id=source.thread_id,
+                to_addr=source.from_addr,
+                subject=source.subject,
+                body_text=reply_body,
+            )
+            repo.mark_auto_reply_sent(cand.id)
+            sent_count += 1
+            typer.echo(f"  [SENT] Candidate {cand.id} ({cand.profile.full_name or source.from_addr})")
+        except Exception as exc:  # noqa: BLE001
+            typer.secho(f"  [FAILED] Candidate {cand.id}: {exc}", fg=typer.colors.RED)
+
+    typer.echo(f"Done. Sent={sent_count}, Skipped={skipped_count}, Total={len(candidates)}")
+
+
 if __name__ == "__main__":
     app()

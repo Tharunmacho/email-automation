@@ -82,6 +82,14 @@ class CandidateRepository:
             },
         )
 
+    def mark_auto_reply_sent(self, candidate_id: str) -> None:
+        from app.core.models import utcnow
+
+        self._coll.update_one(
+            {"_id": candidate_id},
+            {"$set": {"auto_reply_sent": True, "updated_at": utcnow()}},
+        )
+
 
     # ---- read APIs (extension seam for search/dashboard) ------------------ #
     def list_candidates(self, limit: int = 50, skip: int = 0) -> List[CandidateRecord]:

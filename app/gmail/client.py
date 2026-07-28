@@ -41,7 +41,8 @@ class GmailClient:
 
     # ---- searching -------------------------------------------------------- #
     def search_message_ids(self, query: str | None = None, max_results: int | None = None) -> List[str]:
-        query = query or settings.gmail_query
+        if query is None:
+            query = settings.gmail_query
         max_results = max_results or settings.gmail_max_results
         resp = (
             self._service.users()
@@ -127,7 +128,34 @@ class GmailClient:
         attachment.data = data
         return data
 
-    # ---- post-processing -------------------------------------------------- #
+    # ---- post-processing & replies ---------------------------------------- #
+    def send_reply(
+        self,
+        message_id: str,
+        thread_id: str,
+        to_addr: str,
+        subject: str,
+        body_text: str,
+    ) -> dict:
+        import email.message
+
+        msg = email.message.EmailMessage()
+        msg["To"] = to_addr
+        reply_subject = subject if subject.lower().startswith("re:") else f"Re: {subject}"
+        msg["Subject"] = reply_subject
+        msg["In-Reply-To"] = message_id
+        msg["References"] = message_id
+        msg.set_content(body_text)
+
+        raw_b64 = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+        body = {
+            "raw": raw_b64,
+            "threadId": thread_id,
+        }
+        sent = self._service.users().messages().send(userId="me", body=body).execute()
+        log.info("Sent reply email to %s (threadId=%s, msgId=%s)", to_addr, thread_id, sent.get("id"))
+        return sent
+
     def mark_read(self, message_id: str) -> None:
         self._service.users().messages().modify(
             userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
 
 
 
+    # ---- Auto Reply ----
+    auto_reply_enabled: bool = True
+    auto_reply_signature: str = "Best regards,\nRecruitment Team"
+
     # ---- MongoDB ----
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "resume_ats"

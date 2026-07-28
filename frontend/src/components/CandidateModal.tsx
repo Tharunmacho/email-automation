@@ -59,7 +59,7 @@ export default function CandidateModal(props: CandidateModalProps) {
   // animate; the editable body remounts per candidate, which re-seeds the form
   // without an effect.
   if (!candidate) {
-    return <div className="modal-overlay"></div>;
+    return null;
   }
   return <CandidateModalBody {...props} key={candidate.id} candidate={candidate} />;
 }
