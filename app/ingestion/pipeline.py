@@ -164,6 +164,7 @@ class IngestionPipeline:
                             body_text=reply_text,
                         )
                         reply_sent = True
+                        self.repo.mark_auto_reply_sent(candidate_id)
                         log.info("Auto-reply sent to candidate %s (%s)", candidate_id, email.from_addr)
                     else:
                         log.info("Auto-reply generated for candidate %s (reply_sent=False, Gmail client not connected)", candidate_id)
