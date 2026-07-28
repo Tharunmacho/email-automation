@@ -125,9 +125,9 @@ class IngestionPipeline:
                 hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                 profile = self.parser.parse(extracted.text, hint=hint)
 
-            if not profile.is_resume or (not profile.email and not profile.phone and not profile.full_name):
+            if not profile.is_resume or (not profile.email and not profile.phone):
                 raise NotAResumeError(
-                    f"AI judged '{att.filename}' not a valid candidate resume (confidence={profile.confidence:.2f})"
+                    f"Attachment '{att.filename}' is not a valid candidate resume (missing email & phone)"
                 )
 
             # (4) Person-level dedup (email / phone).

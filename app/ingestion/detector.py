@@ -32,7 +32,8 @@ _RESUME_KEYWORDS = re.compile(
 _PROMO_SUBJECT = re.compile(
     r"\b(otp|one[-\s]?time\s*password|verify|verification code|newsletter|unsubscribe|"
     r"invoice|receipt|order|payment|sale|discount|offer|deal|promo|"
-    r"notification|alert|reminder|statement|subscription)\b",
+    r"notification|alert|reminder|statement|subscription|springboard|certificate|"
+    r"completion|course|learning|invite|invitation)\b",
     re.IGNORECASE,
 )
 
