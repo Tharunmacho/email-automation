@@ -119,10 +119,15 @@ export default function Home() {
       },
     );
 
+    const interval = setInterval(() => {
+      refreshCandidates();
+    }, 5000);
+
     return () => {
       active = false;
+      clearInterval(interval);
     };
-  }, []);
+  }, [refreshCandidates]);
 
   const handleTabChange = (tab: string) => {
     const next = tab as TabId;
