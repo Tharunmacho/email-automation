@@ -13,6 +13,7 @@ import os
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.models import CandidateProfile
 from app.db.mongo import ensure_indexes
@@ -130,4 +131,13 @@ def verify_candidate(candidate_id: str) -> dict:
     repository.update_status(candidate_id, "verified")
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
+
+
+# Serve the static files from the Next.js export.
+# This must be mounted AFTER all other routes so it acts as a fallback.
+frontend_out_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
+)
+if os.path.exists(frontend_out_dir):
+    app.mount("/", StaticFiles(directory=frontend_out_dir, html=True), name="frontend")
 
