@@ -39,21 +39,7 @@ def _startup() -> None:
     ensure_indexes()
 
 
-@app.get("/")
-def serve_index() -> FileResponse:
-    frontend_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "index.html")
-    )
-    if os.path.exists(frontend_path):
-        return FileResponse(
-            frontend_path,
-            headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            }
-        )
-    raise HTTPException(status_code=404, detail=f"Frontend index.html not found at: {frontend_path}")
+
 
 
 def repo() -> CandidateRepository:
