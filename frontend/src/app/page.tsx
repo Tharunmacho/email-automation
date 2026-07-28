@@ -4,9 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Menu, RefreshCw } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
-import DashboardView from "@/components/DashboardView";
-import CandidatesView from "@/components/CandidatesView";
-import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/components/FlowVisualizer";
+import DashboardView from "@/screens/DashboardView";
+import CandidatesView from "@/screens/CandidatesView";
+import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import CandidateModal from "@/components/CandidateModal";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/LogsConsole";
