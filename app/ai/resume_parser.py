@@ -75,22 +75,67 @@ class ResumeParser:
                 return block.input
         raise AIParseError("Model did not return the expected tool call.")
 
+    def parse_text_fallback(self, resume_text: str, hint: str = "") -> CandidateProfile:
+        if settings.anthropic_api_key:
+            try:
+                return self._parse_via_anthropic(resume_text, hint)
+            except Exception as exc:
+                log.warning("Anthropic parsing failed (%s); using heuristic fallback parser", exc)
+
+        import re
+        from pathlib import Path
+        text = (resume_text or "").strip()
+        emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
+        phones = re.findall(r"\+?\d[\d\s\-\(\)]{8,}\d", text)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+        name = None
+        for line in lines[:5]:
+            if "@" not in line and not re.search(r"http|www|\d{5}", line) and len(line) < 50:
+                name = line
+                break
+        if not name and hint:
+            name = Path(hint).stem.replace("_", " ").replace("-", " ").title()
+
+        email = emails[0] if emails else None
+        phone = phones[0] if phones else None
+
+        return CandidateProfile(
+            is_resume=True,
+            confidence=0.85,
+            full_name=name or "Candidate Profile",
+            email=email,
+            phone=phone,
+            resume_summary=text[:400] if text else "Word/Document resume content extracted.",
+        )
+
     def parse_file(self, file_data: bytes, filename: str) -> tuple[CandidateProfile, ExtractedDocument]:
         import tempfile
         from pathlib import Path
         from recursai.veris_ocr import VerisOCR
         from app.core.models import ExtractedDocument
-        
+        from app.extraction.text_extractor import extract_text
+        from app.extraction import file_type as ft
+
+        kind = ft.detect(file_data, filename)
+
+        # For text & document formats (.docx, .doc, .txt, .rtf), extract text directly
+        if kind.category in (ft.CATEGORY_DOCX, ft.CATEGORY_DOC, ft.CATEGORY_TEXT, ft.CATEGORY_RTF):
+            log.info("Extracting document text for %s (category=%s)", filename, kind.category)
+            extracted = extract_text(file_data, filename)
+            profile = self.parse_text_fallback(extracted.text, hint=filename)
+            return profile, extracted
+
         suffix = Path(filename).suffix or ".pdf"
         with tempfile.TemporaryDirectory() as tmp:
             temp_file = Path(tmp) / f"temp_ocr{suffix}"
             temp_file.write_bytes(file_data)
-            
+
             log.info("Sending resume to Veris OCR Resume API: %s", filename)
             try:
                 with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
                     res = client.resume.extract(str(temp_file))
-                    
+
                 pages = getattr(res, "pages", [])
                 if isinstance(pages, list):
                     extracted_text = "\n".join(
@@ -99,7 +144,7 @@ class ResumeParser:
                     )
                 else:
                     extracted_text = ""
-                    
+
                 extracted = ExtractedDocument(
                     text=extracted_text,
                     method="veris_resume_api",
@@ -107,19 +152,14 @@ class ResumeParser:
                     ocr_used=True,
                     char_count=len(extracted_text)
                 )
-                
+
                 profile = map_veris_to_profile(res)
                 return profile, extracted
-                
+
             except Exception as exc:
-                if not settings.anthropic_api_key:
-                    log.error("Veris Resume API failed and Anthropic fallback is not configured: %s", exc)
-                    raise AIParseError(f"Veris OCR extraction failed: {exc}") from exc
-                    
-                log.warning("Veris Resume API failed (%s). Falling back to local OCR + Anthropic parsing.", exc)
-                from app.extraction.text_extractor import extract_text
+                log.warning("Veris Resume API failed (%s). Falling back to local text extraction.", exc)
                 extracted = extract_text(file_data, filename)
-                profile = self.parse(extracted.text)
+                profile = self.parse_text_fallback(extracted.text, hint=filename)
                 return profile, extracted
 
 
