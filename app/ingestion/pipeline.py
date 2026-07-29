@@ -130,15 +130,9 @@ class IngestionPipeline:
                     f"Attachment '{att.filename}' is not a valid candidate resume (missing email & phone)"
                 )
 
-            # (4) Person-level dedup (email / phone).
+            # (4) Compute keys for search & indexing (allow multiple resumes per candidate).
             email_key = normalize_email(profile.email)
             phone_key = normalize_phone(profile.phone)
-            person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
-            if person_dup:
-                return AttachmentResult(
-                    att.filename, "duplicate", person_dup.id,
-                    "same candidate (email/phone) already exists",
-                )
 
             # (5) Store original file + insert record.
             record = self._build_record(
