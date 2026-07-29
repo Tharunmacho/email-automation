@@ -141,7 +141,7 @@ export default function Home() {
     syncingRef.current = true;
     setSyncing(true);
 
-    log("Polling Gmail inbox for unread resumes (has:attachment is:unread)...", "info");
+    log("Polling Gmail inbox for candidate resumes (has:attachment -label:Resumes/Processed)...", "info");
     setFlow({ ...IDLE_FLOW, gmail: "active" });
 
     try {
