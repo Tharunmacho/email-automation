@@ -18,8 +18,19 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 
+def _setup_dns_resolver() -> None:
+    try:
+        import dns.resolver
+        res = dns.resolver.Resolver(configure=True)
+        res.nameservers.extend(["8.8.8.8", "1.1.1.1"])
+        dns.resolver.default_resolver = res
+    except Exception:
+        pass
+
+
 @lru_cache(maxsize=1)
 def get_client() -> MongoClient:
+    _setup_dns_resolver()
     log.info("Connecting to MongoDB at %s", settings.mongo_uri)
     return MongoClient(settings.mongo_uri, tz_aware=True, serverSelectionTimeoutMS=5000)
 
