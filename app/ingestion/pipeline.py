@@ -125,20 +125,20 @@ class IngestionPipeline:
                 hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                 profile = self.parser.parse(extracted.text, hint=hint)
 
-            if not profile.email:
-                profile.email = email.from_addr
+            if not profile.is_resume or (not profile.email and not profile.phone):
+                raise NotAResumeError(
+                    f"Attachment '{att.filename}' is not a valid candidate resume (missing candidate email & phone in resume)"
+                )
 
-            # (4) Person-level dedup (email / phone / sender email).
-            email_key = normalize_email(profile.email) or normalize_email(email.from_addr)
+            # (4) Deduplication strictly using Candidate Email & Phone extracted from the resume.
+            email_key = normalize_email(profile.email)
             phone_key = normalize_phone(profile.phone)
-            person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
-            if not person_dup and email.from_addr:
-                person_dup = self.repo.find_by_email_or_phone(normalize_email(email.from_addr), None)
 
+            person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
                 return AttachmentResult(
                     att.filename, "duplicate", person_dup.id,
-                    "same candidate (email/phone) already exists",
+                    "same candidate (email/phone in resume) already exists",
                 )
 
             # (5) Store original file + insert record.
