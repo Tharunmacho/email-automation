@@ -105,12 +105,27 @@ export interface CandidateListResponse {
   items: CandidateRecord[];
 }
 
+export interface PollAttachmentResult {
+  filename: string;
+  status: string;
+  candidate_id?: string | null;
+  detail?: string | null;
+}
+
+export interface PollMessageResult {
+  message_id: string;
+  status: string;
+  reason?: string | null;
+  attachments: PollAttachmentResult[];
+}
+
 export interface PollSummary {
   fetched: number;
   processed: number;
   skipped: number;
   errors: number;
   ingested_candidates: number;
+  results?: PollMessageResult[];
 }
 
 /** Candidates below this parser confidence are surfaced for manual review. */

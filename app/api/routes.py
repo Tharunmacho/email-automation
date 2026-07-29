@@ -106,6 +106,23 @@ def trigger_poll(query: str | None = None) -> dict:
         "skipped": summary.skipped,
         "errors": summary.errors,
         "ingested_candidates": summary.ingested_candidates,
+        "results": [
+            {
+                "message_id": r.message_id,
+                "status": r.status,
+                "reason": r.reason,
+                "attachments": [
+                    {
+                        "filename": a.filename,
+                        "status": a.status,
+                        "candidate_id": a.candidate_id,
+                        "detail": a.detail,
+                    }
+                    for a in r.attachments
+                ],
+            }
+            for r in summary.results
+        ],
     }
 
 

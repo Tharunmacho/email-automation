@@ -150,6 +150,20 @@ export default function Home() {
 
       setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
 
+      if (summary.results && summary.results.length > 0) {
+        for (const msgRes of summary.results) {
+          for (const attRes of msgRes.attachments) {
+            if (attRes.status === "ingested") {
+              log(`[SUCCESS] Attachment '${attRes.filename}': Ingested into MongoDB Atlas cleanly.`, "success");
+            } else if (attRes.status === "duplicate") {
+              log(`[NOTICE] Attachment '${attRes.filename}': Skipped (${attRes.detail || "candidate/file already exists"}).`, "warning");
+            } else if (attRes.status === "failed") {
+              log(`[ERROR] Attachment '${attRes.filename}': ${attRes.detail || "failed to parse"}.`, "error");
+            }
+          }
+        }
+      }
+
       log(
         `Sync completed. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
         "success",
