@@ -141,44 +141,34 @@ export default function Home() {
     syncingRef.current = true;
     setSyncing(true);
 
-    log("Polling Gmail inbox for unread resumes (is:unread)...", "info");
-
+    log("Polling Gmail inbox for unread resumes (has:attachment is:unread)...", "info");
     setFlow({ ...IDLE_FLOW, gmail: "active" });
-    await sleep(1000);
-
-    setFlow((prev) => ({ ...prev, connGmailFilter: true, gmail: "success", filter: "active" }));
-    log("Applying baseline filters (attachment type & promotional keyword check)...", "info");
-    await sleep(1200);
-
-    setFlow((prev) => ({ ...prev, connFilterVeris: true, filter: "success", veris: "active" }));
-    log("Uploading attachment file to Veris OCR LLM parser endpoint...", "info");
 
     try {
+      setFlow((prev) => ({ ...prev, connGmailFilter: true, gmail: "success", filter: "active", connFilterVeris: true, veris: "active" }));
       const summary = await triggerPoll();
 
-      await sleep(1500);
-      setFlow((prev) => ({ ...prev, connVerisDb: true, veris: "success", db: "active" }));
+      setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
 
       log(
-        `Veris parsing completed successfully. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
+        `Sync completed. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
         "success",
       );
 
       if (summary.ingested_candidates > 0) {
         log("Writing candidate data to MongoDB Atlas collection 'candidates'...", "info");
-        await sleep(1000);
         setFlow((prev) => ({ ...prev, db: "success" }));
         showToast(
           `Ingestion completed! Added ${summary.ingested_candidates} new profile(s).`,
           "success",
         );
       } else {
-        setFlow((prev) => ({ ...prev, db: "idle" }));
+        setFlow((prev) => ({ ...prev, db: "success" }));
         showToast("Sync done. No new candidate resumes found.", "info");
       }
 
       await refreshCandidates();
-    } catch (err) {
+    } catch (err: unknown) {
       setFlow((prev) => ({ ...prev, veris: "idle", db: "idle" }));
       const message = err instanceof Error ? err.message : "Unknown error";
       log(`Inbound pipeline parsing failed: ${message}`, "error");
