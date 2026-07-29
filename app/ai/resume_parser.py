@@ -133,8 +133,14 @@ class ResumeParser:
 
             log.info("Sending resume to Veris OCR Resume API: %s", filename)
             try:
-                with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
-                    res = client.resume.extract(str(temp_file))
+                import concurrent.futures
+                def _do_veris():
+                    with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
+                        return client.resume.extract(str(temp_file))
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(_do_veris)
+                    res = future.result(timeout=10.0)
 
                 pages = getattr(res, "pages", [])
                 if isinstance(pages, list):
