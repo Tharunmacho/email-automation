@@ -25,8 +25,8 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 _RESUME_KEYWORDS = re.compile(
-    r"\b(resume|résumé|cv|curriculum\s*vitae|candidate|applicant|application|"
-    r"apply(ing)?|job|position|profile|hiring|vacancy|opening)\b",
+    r"\b(resume|résumé|cv|curriculum\s*vitae|bio|biodata|bio[-\s]?data|candidate|applicant|application|"
+    r"apply(ing)?|job|position|profile|hiring|vacancy|opening|career|portfolio|writeup|write[-\s]?up|details)\b",
     re.IGNORECASE,
 )
 _PROMO_SUBJECT = re.compile(
