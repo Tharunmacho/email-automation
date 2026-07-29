@@ -117,12 +117,10 @@ class ResumeParser:
         from app.extraction.text_extractor import extract_text
         from app.extraction import file_type as ft
 
-        kind = ft.detect(file_data, filename)
-
-        # For text & document formats (.docx, .doc, .txt, .rtf), extract text directly
-        if kind.category in (ft.CATEGORY_DOCX, ft.CATEGORY_DOC, ft.CATEGORY_TEXT, ft.CATEGORY_RTF):
-            log.info("Extracting document text for %s (category=%s)", filename, kind.category)
-            extracted = extract_text(file_data, filename)
+        # Try fast local text extraction first (works instantly for .pdf, .docx, .doc, .txt)
+        extracted = extract_text(file_data, filename)
+        if extracted.text and len(extracted.text.strip()) > 50:
+            log.info("Fast local extraction succeeded for %s (%d chars)", filename, len(extracted.text))
             profile = self.parse_text_fallback(extracted.text, hint=filename)
             return profile, extracted
 
