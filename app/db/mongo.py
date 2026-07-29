@@ -32,7 +32,18 @@ def _setup_dns_resolver() -> None:
 def get_client() -> MongoClient:
     _setup_dns_resolver()
     log.info("Connecting to MongoDB at %s", settings.mongo_uri)
-    return MongoClient(settings.mongo_uri, tz_aware=True, serverSelectionTimeoutMS=5000)
+    return MongoClient(
+        settings.mongo_uri,
+        tz_aware=True,
+        maxPoolSize=50,
+        minPoolSize=5,
+        maxIdleTimeMS=60000,
+        connectTimeoutMS=3000,
+        socketTimeoutMS=5000,
+        serverSelectionTimeoutMS=3000,
+        retryWrites=True,
+        retryReads=True,
+    )
 
 
 def get_db() -> Database:
