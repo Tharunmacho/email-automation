@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # ---- Gmail ----
     gmail_credentials_file: str = "secrets/gmail_credentials.json"
     gmail_token_file: str = "secrets/gmail_token.json"
-    gmail_query: str = "has:attachment in:anywhere"
+    gmail_query: str = "has:attachment is:unread"
     gmail_mark_read: bool = True
     gmail_processed_label: str = "Resumes/Processed"
     gmail_max_results: int = 25
