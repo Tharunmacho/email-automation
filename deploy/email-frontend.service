@@ -1,0 +1,14 @@
+[Unit]
+Description=Email Automation Next.js Frontend Service
+After=network.target
+
+[Service]
+User=adira
+WorkingDirectory=/home/adira/email-automation/frontend
+ExecStart=/usr/bin/npm start -- -p 3000
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/adira/email-automation/.env
+
+[Install]
+WantedBy=multi-user.target
