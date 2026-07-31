@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { LayoutDashboard, Users, GitMerge, ChevronLeft, ChefHat } from "lucide-react";
+import { LayoutDashboard, Users, GitMerge, Building2, FileText, ChevronLeft, ChefHat } from "lucide-react";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -24,6 +24,8 @@ export default function Sidebar({
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "candidates", label: "Candidates", icon: Users },
     { id: "visualizer", label: "Flow Visualizer", icon: GitMerge },
+    { id: "sourcing", label: "Sourcing Hub", icon: Building2 },
+    { id: "job-orders", label: "Job Orders", icon: FileText },
   ];
 
   const handleTabClick = (tabId: string) => {

@@ -1160,6 +1160,66 @@ body {
 
 
 
+/* Modal Backdrop Overlay & Centered Dialog Pop-up */
+.cm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(5px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.cm-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.cm-dialog,
+.client-modal-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  max-height: 85vh;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  z-index: 100000;
+  animation: modalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cm-dialog form,
+.client-modal-dialog form {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -1167,6 +1227,7 @@ body {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid #f1f5f9;
   background: #f8fafc;
+  flex-shrink: 0;
 }
 
 .modal-title {
@@ -1204,6 +1265,8 @@ body {
 .modal-body {
   padding: 1.5rem;
   overflow-y: auto;
+  flex-grow: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
@@ -1260,6 +1323,7 @@ body {
   padding: 1rem 1.5rem;
   border-top: 1px solid #f1f5f9;
   background: #ffffff;
+  flex-shrink: 0;
 }
 
 .modal-cancel-btn {
@@ -1295,4 +1359,444 @@ body {
 
 .modal-submit-btn:hover {
   background: #1d4ed8;
+}
+
+/* ==========================================
+   SOURCING HUB COMPONENT STYLES
+   ========================================== */
+.sourcing-hub-wrapper {
+  width: 100%;
+}
+
+.sourcing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.sourcing-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.sourcing-back-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border-main);
+  background: white;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.sourcing-back-btn:hover {
+  background: #f8fafc;
+  color: var(--text-main);
+  border-color: var(--border-hover);
+}
+
+.sourcing-title {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.sourcing-subtitle {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.btn-new-client {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.btn-new-client:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.35);
+}
+
+.sourcing-controls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.sourcing-tabs-container {
+  display: flex;
+  align-items: center;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 4px;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.sourcing-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1.15rem;
+  border-radius: 7px;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sourcing-tab-btn:hover {
+  color: #0f172a;
+}
+
+.sourcing-tab-btn.active {
+  background: white;
+  border-color: #2563eb;
+  color: #2563eb;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.1);
+}
+
+.sourcing-search-wrapper {
+  position: relative;
+  min-width: 260px;
+  max-width: 320px;
+  width: 100%;
+}
+
+.sourcing-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.sourcing-search-input {
+  width: 100%;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.55rem 2rem 0.55rem 2.25rem;
+  font-size: 0.875rem;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.sourcing-search-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.sourcing-search-clear {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.sourcing-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 340px));
+  gap: 1.25rem;
+}
+
+.sourcing-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.sourcing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+.sourcing-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sourcing-card-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #eeeafc;
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sourcing-menu-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  padding: 0.35rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sourcing-menu-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.sourcing-dropdown-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  padding: 4px;
+  min-width: 110px;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: none;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dropdown-item.danger {
+  color: #ef4444;
+}
+
+.dropdown-item.danger:hover {
+  background: #fef2f2;
+}
+
+.sourcing-card-title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sourcing-card-title {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.sourcing-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  width: fit-content;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sourcing-badge.status-active {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.sourcing-badge.status-pending {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.sourcing-badge.status-inactive {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.sourcing-fields-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.sourcing-field-row-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.sourcing-field-box {
+  background: #f8fafc;
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.field-label-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.field-icon {
+  flex-shrink: 0;
+}
+
+.icon-blue {
+  color: #3b82f6;
+}
+
+.icon-teal {
+  color: #10b981;
+}
+
+.mail-icon-bg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.field-value {
+  font-size: 0.925rem;
+  font-weight: 700;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sourcing-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+}
+
+.sourcing-card-id {
+  font-size: 0.775rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.sourcing-card-date {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #3b82f6;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.sourcing-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  color: #94a3b8;
+  background: white;
+  border: 1px dashed #cbd5e1;
+  border-radius: 16px;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+/* Toast Notification Popup */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-hover);
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 99999;
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast.active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

@@ -37,7 +37,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 def _startup() -> None:
-    ensure_indexes()
+    try:
+        ensure_indexes()
+    except Exception as exc:
+        import logging
+        logging.getLogger("uvicorn.error").warning("MongoDB index creation deferred: %s", exc)
 
 
 
@@ -94,6 +98,25 @@ def download_resume(candidate_id: str) -> Response:
     )
 
 
+@app.delete("/api/v1/candidates/{candidate_id}")
+def delete_candidate(candidate_id: str) -> dict:
+    rec = repo.get(candidate_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if rec.resume and rec.resume.storage_key:
+        try:
+            storage.delete(rec.resume.storage_key)
+        except Exception:
+            pass
+            
+    success = repo.delete(candidate_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete candidate")
+        
+    return {"status": "success", "message": f"Candidate {candidate_id} deleted permanently"}
+
+
 @app.post("/ingest/poll")
 def trigger_poll(query: str | None = None) -> dict:
     """Manually trigger one Gmail poll cycle (handy for testing / on-demand runs)."""
@@ -148,6 +171,72 @@ def verify_candidate(candidate_id: str) -> dict:
     repository.update_status(candidate_id, "verified")
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
+
+
+# ---- Sourcing Clients DB Endpoints ---------------------------------------- #
+@app.get("/sourcing-clients")
+def list_sourcing_clients() -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["sourcing_clients"]
+    items = list(coll.find({}, {"_id": 0}))
+    return {"items": items}
+
+
+@app.post("/sourcing-clients")
+def create_sourcing_client(client_data: dict) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["sourcing_clients"]
+    client_id = client_data.get("id")
+    if client_id:
+        coll.replace_one({"id": client_id}, client_data, upsert=True)
+    else:
+        coll.insert_one(client_data)
+    return {"status": "ok", "record": client_data}
+
+
+@app.delete("/sourcing-clients/{client_id}")
+def delete_sourcing_client(client_id: str) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["sourcing_clients"]
+    coll.delete_one({"id": client_id})
+    return {"status": "deleted", "id": client_id}
+
+
+# ---- Job Orders DB Endpoints --------------------------------------------- #
+@app.get("/job-orders")
+def list_job_orders() -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    items = list(coll.find({}, {"_id": 0}))
+    return {"items": items}
+
+
+@app.post("/job-orders")
+def create_job_order(order_data: dict) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    order_id = order_data.get("id")
+    if order_id:
+        coll.replace_one({"id": order_id}, order_data, upsert=True)
+    else:
+        coll.insert_one(order_data)
+    return {"status": "ok", "record": order_data}
+
+
+@app.put("/job-orders/{order_id}")
+def update_job_order(order_id: str, order_data: dict) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    coll.replace_one({"id": order_id}, order_data, upsert=True)
+    return {"status": "updated", "record": order_data}
+
+
+@app.delete("/job-orders/{order_id}")
+def delete_job_order(order_id: str) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    coll.delete_one({"id": order_id})
+    return {"status": "deleted", "id": order_id}
 
 
 # Serve the static files from the Next.js export.

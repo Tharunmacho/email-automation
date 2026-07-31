@@ -1,16 +1,19 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Menu, RefreshCw } from "lucide-react";
+import { Menu, Plus, RefreshCw } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
 import DashboardView from "@/screens/DashboardView";
 import CandidatesView from "@/screens/CandidatesView";
 import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
+import SourcingHub from "@/screens/SourcingHub";
+import JobOrders from "@/screens/JobOrders";
 import CandidateModal from "@/components/CandidateModal";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/LogsConsole";
 import {
+  deleteCandidateAPI,
   listCandidates,
   triggerPoll,
   updateCandidateProfile,
@@ -19,7 +22,7 @@ import {
   type CandidateRecord,
 } from "@/lib/api";
 
-type TabId = "dashboard" | "candidates" | "visualizer";
+type TabId = "dashboard" | "candidates" | "visualizer" | "sourcing" | "job-orders";
 
 const PAGE_META: Record<TabId, { title: string; subtitle: string }> = {
   dashboard: {
@@ -33,6 +36,14 @@ const PAGE_META: Record<TabId, { title: string; subtitle: string }> = {
   visualizer: {
     title: "Automation Pipeline",
     subtitle: "Visually monitor the Gmail-to-MongoDB flow.",
+  },
+  sourcing: {
+    title: "Sourcing Hub",
+    subtitle: "Manage Associations and Business Clients.",
+  },
+  "job-orders": {
+    title: "Job Orders",
+    subtitle: "Manage your open positions and client requirements.",
   },
 };
 
@@ -141,22 +152,28 @@ export default function Home() {
     syncingRef.current = true;
     setSyncing(true);
 
-    log("Polling Gmail inbox for candidate resumes (has:attachment -label:Resumes/Processed)...", "info");
+    log("Step 1: Connecting to Gmail API & searching for unread candidate emails...", "info");
     setFlow({ ...IDLE_FLOW, gmail: "active" });
+    await sleep(600);
 
     try {
-      setFlow((prev) => ({ ...prev, connGmailFilter: true, gmail: "success", filter: "active", connFilterVeris: true, veris: "active" }));
+      setFlow((prev) => ({ ...prev, gmail: "success", connGmailFilter: true, filter: "active" }));
+      log("Step 2: Applying resume detection filter & score validation...", "info");
+      await sleep(600);
+
       const summary = await triggerPoll();
 
-      setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
+      setFlow((prev) => ({ ...prev, filter: "success", connFilterVeris: true, veris: "active" }));
+      log("Step 3: Sending attachments to Veris LLM Resume API for character-by-character OCR & LLM extraction...", "info");
+      await sleep(700);
 
       if (summary.results && summary.results.length > 0) {
         for (const msgRes of summary.results) {
           for (const attRes of msgRes.attachments) {
             if (attRes.status === "ingested") {
-              log(`[SUCCESS] Attachment '${attRes.filename}': Ingested into MongoDB Atlas cleanly.`, "success");
+              log(`[SUCCESS] Attachment '${attRes.filename}': Extracted cleanly & saved to MongoDB Atlas.`, "success");
             } else if (attRes.status === "duplicate") {
-              log(`[NOTICE] Attachment '${attRes.filename}': Skipped (${attRes.detail || "candidate/file already exists"}).`, "warning");
+              log(`[NOTICE] Attachment '${attRes.filename}': Skipped (${attRes.detail || "candidate/file already exists"}).`, "warn");
             } else if (attRes.status === "failed") {
               log(`[ERROR] Attachment '${attRes.filename}': ${attRes.detail || "failed to parse"}.`, "error");
             }
@@ -164,32 +181,35 @@ export default function Home() {
         }
       }
 
+      setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
+      log("Step 4: Writing structured Candidate Profile to MongoDB Atlas collection 'candidates'...", "info");
+      await sleep(700);
+
+      setFlow((prev) => ({ ...prev, db: "success" }));
+
       log(
-        `Sync completed. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
+        `[COMPLETE] Pipeline finished. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
         "success",
       );
 
       if (summary.ingested_candidates > 0) {
-        log("Writing candidate data to MongoDB Atlas collection 'candidates'...", "info");
-        setFlow((prev) => ({ ...prev, db: "success" }));
         showToast(
-          `Ingestion completed! Added ${summary.ingested_candidates} new profile(s).`,
+          `Ingestion completed! Added ${summary.ingested_candidates} new candidate profile(s).`,
           "success",
         );
       } else {
-        setFlow((prev) => ({ ...prev, db: "success" }));
-        showToast("Sync done. No new candidate resumes found.", "info");
+        showToast("Sync completed. No new unread candidate resumes found in Gmail inbox.", "info");
       }
 
       await refreshCandidates();
     } catch (err: unknown) {
-      setFlow((prev) => ({ ...prev, veris: "idle", db: "idle" }));
+      setFlow(IDLE_FLOW);
       const message = err instanceof Error ? err.message : "Unknown error";
-      log(`Inbound pipeline parsing failed: ${message}`, "error");
+      log(`[ERROR] Inbound pipeline execution failed: ${message}`, "error");
       showToast("Failed to poll Gmail inbox.", "error");
     }
 
-    await sleep(2000);
+    await sleep(4000);
     setFlow(IDLE_FLOW);
     setSyncing(false);
     syncingRef.current = false;
@@ -227,6 +247,20 @@ export default function Home() {
       log(`Failed to verify ${candidateId}: ${message}`, "error");
     } finally {
       setVerifying(false);
+    }
+  };
+
+  const handleDeleteCandidate = async (candidateId: string) => {
+    try {
+      await deleteCandidateAPI(candidateId);
+      showToast("Candidate permanently deleted from MongoDB Atlas.", "success");
+      log(`Candidate ${candidateId} permanently deleted from MongoDB Atlas.`, "success");
+      setSelected(null);
+      await refreshCandidates();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Connection error deleting candidate.";
+      showToast("Failed to delete candidate.", "error");
+      log(`Failed to delete candidate ${candidateId}: ${message}`, "error");
     }
   };
 
@@ -276,6 +310,10 @@ export default function Home() {
         {activeTab === "visualizer" && (
           <FlowVisualizer flow={flow} syncing={syncing} onTrigger={runPipeline} />
         )}
+
+        {activeTab === "sourcing" && <SourcingHub />}
+
+        {activeTab === "job-orders" && <JobOrders candidates={candidates} />}
       </div>
 
       <CandidateModal
@@ -285,6 +323,7 @@ export default function Home() {
         onClose={() => setSelected(null)}
         onSave={handleSave}
         onVerify={handleVerify}
+        onDelete={handleDeleteCandidate}
       />
 
       <Toast toast={toast} />

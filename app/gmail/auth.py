@@ -48,17 +48,28 @@ def get_credentials() -> Credentials:
 
     if creds and creds.expired and creds.refresh_token:
         log.info("Refreshing expired Gmail token")
-        creds.refresh(Request())
-    else:
-        if not settings.credentials_path.exists():
+        try:
+            creds.refresh(Request())
+        except Exception as exc:
+            log.warning("Failed to refresh expired Gmail token: %s; re-authorisation required", exc)
+            creds = None
+
+    if not creds or not creds.valid:
+        if not settings.credentials_path.exists() and not gmail_creds_env:
             raise PipelineError(
                 f"Gmail OAuth client file not found at {settings.credentials_path}. "
-                "Create an OAuth 2.0 Client ID (Desktop app) in Google Cloud Console, "
-                "download the JSON, and place it there (or set GMAIL_CREDENTIALS_FILE)."
+                "Set GMAIL_CREDENTIALS_JSON env var or place secrets/gmail_credentials.json on server."
             )
-        log.info("Starting Gmail OAuth consent flow (a browser window will open)")
-        flow = InstalledAppFlow.from_client_secrets_file(str(settings.credentials_path), SCOPES)
-        creds = flow.run_local_server(port=0)
+        try:
+            log.info("Starting Gmail OAuth consent flow (a browser window will open)")
+            flow = InstalledAppFlow.from_client_secrets_file(str(settings.credentials_path), SCOPES)
+            creds = flow.run_local_server(port=0)
+        except Exception as exc:
+            raise PipelineError(
+                "Gmail OAuth token missing or invalid, and interactive browser flow failed (common on VPS/Docker). "
+                "FIX: Run 'python -m app.cli auth' locally once, then pass the contents of secrets/gmail_token.json "
+                "into the GMAIL_TOKEN_JSON environment variable on your VPS."
+            ) from exc
 
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text(creds.to_json(), encoding="utf-8")

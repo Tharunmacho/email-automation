@@ -7,7 +7,11 @@
  * NEXT_PUBLIC_API_BASE at the backend (CORS is already wide open server-side).
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ??
+  (typeof window !== "undefined" && (window.location.port === "3000" || window.location.hostname === "localhost")
+    ? "http://127.0.0.1:8000"
+    : "");
 
 export interface WorkExperience {
   company?: string | null;
@@ -171,8 +175,56 @@ export function verifyCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}/verify`, { method: "POST" });
 }
 
+export function deleteCandidateAPI(candidateId: string): Promise<{ status: string; message: string }> {
+  return request<{ status: string; message: string }>(`/api/v1/candidates/${candidateId}`, {
+    method: "DELETE",
+  });
+}
+
 export function resumeDownloadUrl(candidateId: string): string {
   return `${API_BASE}/candidates/${candidateId}/resume`;
+}
+
+// ---- Sourcing Clients DB API ----
+export function listSourcingClientsAPI(): Promise<{ items: any[] }> {
+  return request<{ items: any[] }>("/sourcing-clients");
+}
+
+export function createSourcingClientAPI(record: any): Promise<{ status: string; record: any }> {
+  return request<{ status: string; record: any }>("/sourcing-clients", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(record),
+  });
+}
+
+export function deleteSourcingClientAPI(clientId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/sourcing-clients/${clientId}`, { method: "DELETE" });
+}
+
+// ---- Job Orders DB API ----
+export function listJobOrdersAPI(): Promise<{ items: any[] }> {
+  return request<{ items: any[] }>("/job-orders");
+}
+
+export function createJobOrderAPI(record: any): Promise<{ status: string; record: any }> {
+  return request<{ status: string; record: any }>("/job-orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(record),
+  });
+}
+
+export function updateJobOrderAPI(orderId: string, record: any): Promise<{ status: string; record: any }> {
+  return request<{ status: string; record: any }>(`/job-orders/${orderId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(record),
+  });
+}
+
+export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/job-orders/${orderId}`, { method: "DELETE" });
 }
 
 

@@ -100,5 +100,9 @@ class CandidateRepository:
         doc = self._coll.find_one({"_id": candidate_id})
         return CandidateRecord.from_mongo(doc) if doc else None
 
+    def delete(self, candidate_id: str) -> bool:
+        res = self._coll.delete_one({"_id": candidate_id})
+        return res.deleted_count > 0
+
     def count(self) -> int:
         return self._coll.count_documents({})

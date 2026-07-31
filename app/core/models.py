@@ -115,7 +115,7 @@ class CandidateProfile(BaseModel):
 
     resume_summary: Optional[str] = None
     # Anything the AI found that doesn't fit the schema above.
-    additional_info: Dict[str, Any] = Field(default_factory=dict)
+    additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #
@@ -164,7 +164,7 @@ class CandidateRecord(BaseModel):
     updated_at: datetime = Field(default_factory=utcnow)
 
     def to_mongo(self) -> Dict[str, Any]:
-        doc = self.model_dump(mode="python")
+        doc = self.model_dump(mode="python", exclude_none=True)
         doc["_id"] = doc.pop("id")
         return doc
 

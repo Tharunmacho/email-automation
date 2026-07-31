@@ -54,9 +54,16 @@ def _sender_ignored(from_addr: str) -> bool:
 def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
     keep: List[Attachment] = []
     allowed = {e.lower() for e in settings.resume_extensions}
+    non_resume_patterns = re.compile(
+        r"\b(img|image|photo|pic|avatar|icon|logo|admin|guide|certificate|appreciation|capstone|workshop|invoice|receipt)\b",
+        re.IGNORECASE,
+    )
     for att in attachments:
         ext = os.path.splitext(att.filename)[1].lower()
         if ext in allowed:
+            fn = att.filename.lower()
+            if non_resume_patterns.search(fn) and not re.search(r"\b(resume|cv|biodata|profile)\b", fn):
+                continue
             keep.append(att)
     return keep
 

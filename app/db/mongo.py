@@ -56,6 +56,7 @@ def get_candidates_collection() -> Collection:
 
 def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
+    db = get_db()
     coll = get_candidates_collection()
     # Exact-duplicate detection: one candidate per resume file hash.
     coll.create_index([("resume_hash", ASCENDING)], name="resume_hash_unique", unique=True, sparse=True)
@@ -67,4 +68,9 @@ def ensure_indexes() -> None:
     # Common future query paths (search/filter extension).
     coll.create_index([("profile.skills", ASCENDING)], name="skills_idx")
     coll.create_index([("created_at", ASCENDING)], name="created_at_idx")
-    log.info("MongoDB indexes ensured on '%s'", coll.name)
+
+    # Sourcing Clients & Job Orders Collections
+    db["sourcing_clients"].create_index([("id", ASCENDING)], name="sourcing_client_id_idx", sparse=True)
+    db["job_orders"].create_index([("id", ASCENDING)], name="job_order_id_idx", sparse=True)
+
+    log.info("MongoDB indexes ensured on '%s', 'sourcing_clients', and 'job_orders'", coll.name)

@@ -35,30 +35,47 @@ class IngestionRunner:
 
     def run_once(self, query: str | None = None) -> BatchSummary:
         summary = BatchSummary()
-        message_ids = self.gmail.search_message_ids(query=query)
+        effective_query = query if query is not None else settings.gmail_query
+        message_ids = self.gmail.search_message_ids(query=effective_query)
         summary.fetched = len(message_ids)
-        log.info("Fetched %d message(s) matching query", summary.fetched)
+        log.info("Fetched %d message(s) matching query '%s'", summary.fetched, effective_query)
 
-        for mid in message_ids:
+        import concurrent.futures
+
+        def _process_one_message(mid: str) -> ProcessResult | None:
+            # Use thread-local Gmail client for thread-safety
+            gmail_client = GmailClient()
             try:
-                email = self.gmail.get_message(mid)
-                result = self.pipeline.process_email(email, gmail=self.gmail)
-                summary.results.append(result)
-
+                email = gmail_client.get_message(mid)
+                result = self.pipeline.process_email(email, gmail=gmail_client)
                 if result.status == "processed":
-                    summary.processed += 1
-                    summary.ingested_candidates += len(result.ingested_ids)
-                    self._finalize(mid)
-                elif result.status == "skipped":
-                    summary.skipped += 1
-                    # Optionally still mark read so we don't re-scan it forever.
                     if settings.gmail_mark_read:
-                        self.gmail.mark_read(mid)
-                else:
-                    summary.errors += 1
+                        gmail_client.mark_read(mid)
+                    if settings.gmail_processed_label:
+                        gmail_client.apply_label(mid, settings.gmail_processed_label)
+                elif result.status == "skipped" and settings.gmail_mark_read:
+                    gmail_client.mark_read(mid)
+                return result
             except Exception:  # noqa: BLE001
-                summary.errors += 1
                 log.exception("Failed to process message %s", mid)
+                return None
+
+        max_workers = min(10, max(1, len(message_ids)))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_mid = {executor.submit(_process_one_message, mid): mid for mid in message_ids}
+            for future in concurrent.futures.as_completed(future_to_mid):
+                res = future.result()
+                if res is None:
+                    summary.errors += 1
+                else:
+                    summary.results.append(res)
+                    if res.status == "processed":
+                        summary.processed += 1
+                        summary.ingested_candidates += len(res.ingested_ids)
+                    elif res.status == "skipped":
+                        summary.skipped += 1
+                    else:
+                        summary.errors += 1
 
         log.info(
             "Batch done: fetched=%d processed=%d skipped=%d errors=%d candidates=%d",
@@ -68,12 +85,20 @@ class IngestionRunner:
         return summary
 
     def watch(self, interval_seconds: int = 60, query: str | None = None) -> None:
-        log.info("Watching Gmail every %ds (Ctrl+C to stop)", interval_seconds)
+        log.info("Watching Gmail every %ds (auto-recovering background mode)", interval_seconds)
+        backoff = 0
         while True:
             try:
                 self.run_once(query=query)
-            except Exception:  # noqa: BLE001
-                log.exception("Poll cycle failed; will retry next interval")
+                backoff = 0
+            except Exception as exc:  # noqa: BLE001
+                backoff = min(backoff + 10, 60)
+                log.warning(
+                    "Poll cycle encountered error (%s); auto-recovering in %ds...",
+                    exc, backoff,
+                )
+                time.sleep(backoff)
+                continue
             time.sleep(interval_seconds)
 
     def _finalize(self, message_id: str) -> None:

@@ -42,7 +42,7 @@ def ocr_image_bytes(data: bytes) -> str:
         return pytesseract.image_to_string(img, lang=settings.ocr_languages)
 
 
-def ocr_pdf_pages(pdf_data: bytes, dpi: int = 300) -> str:
+def ocr_pdf_pages(pdf_data: bytes, dpi: int = 150) -> str:
     """Render each PDF page to an image and OCR it. Used when a PDF has no text layer."""
     pytesseract = _ensure_tesseract()
     import fitz  # PyMuPDF
@@ -65,7 +65,6 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
     """Run OCR via the Veris OCR cloud API, falling back to local Tesseract if it fails."""
     import tempfile
     from pathlib import Path
-    from recursai.veris_ocr import VerisOCR
 
     suffix = Path(filename).suffix or ".pdf"
     with tempfile.TemporaryDirectory() as tmp:
@@ -74,6 +73,7 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
 
         log.info("Running Veris OCR on file %s (%d bytes)", filename, len(file_data))
         try:
+            from recursai.veris_ocr import VerisOCR
             with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
                 res = client.resume.extract(str(temp_file))
                 pages = getattr(res, "pages", [])

@@ -37,5 +37,5 @@ redis>=5.0
 # ---- CLI ----
 typer>=0.12
 
-# ---- Dev / tests ----
-pytest>=8.2
+# ---- Local SDK packages ----
+-e ./clients/python

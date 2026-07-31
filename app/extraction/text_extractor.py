@@ -46,8 +46,27 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
     with fitz.open(stream=data, filetype="pdf") as doc:
         page_count = doc.page_count
         for page in doc:
-            text_parts.append(page.get_text("text"))
-    text = "\n".join(text_parts).strip()
+            # Group blocks into visual columns (left sidebar vs right main body) to prevent interleaving
+            blocks = page.get_text("blocks")
+            page_width = page.rect.width
+            mid_x = page_width * 0.4
+            
+            valid_blocks = [b for b in blocks if len(b) > 4 and b[4].strip()]
+            left_blocks = [b for b in valid_blocks if b[0] < mid_x]
+            right_blocks = [b for b in valid_blocks if b[0] >= mid_x]
+            
+            left_blocks.sort(key=lambda b: b[1])
+            right_blocks.sort(key=lambda b: b[1])
+            
+            if left_blocks and right_blocks and len(left_blocks) >= 2 and len(right_blocks) >= 2:
+                sorted_blocks = left_blocks + right_blocks
+            else:
+                sorted_blocks = sorted(valid_blocks, key=lambda b: (b[1], b[0]))
+                
+            block_texts = [b[4].strip() for b in sorted_blocks]
+            text_parts.append("\n\n".join(block_texts))
+
+    text = "\n\n".join(text_parts).strip()
 
     # Heuristic: too little text ⇒ scanned PDF ⇒ OCR fallback.
     if len(text) < settings.ocr_min_text_chars:
