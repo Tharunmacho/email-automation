@@ -35,6 +35,7 @@ from app.core.models import (
 from app.ai.reply_generator import generate_contextual_reply
 from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
+from app.db.ledger import IngestLedger
 from app.db.repository import CandidateRepository
 from app.ingestion.detector import detect
 from app.logging_config import get_logger
@@ -51,7 +52,7 @@ _MIN_CONFIDENCE = 0.55
 @dataclass
 class AttachmentResult:
     filename: str
-    status: str                       # ingested | duplicate | not_resume | error
+    status: str                       # ingested | duplicate | suppressed | not_resume | error
     candidate_id: Optional[str] = None
     detail: str = ""
     reply_sent: bool = False
@@ -75,16 +76,23 @@ class IngestionPipeline:
         repository: Optional[CandidateRepository] = None,
         storage: Optional[StorageBackend] = None,
         parser: Optional[ResumeParser] = None,
+        ledger: Optional[IngestLedger] = None,
     ):
         self.repo = repository or CandidateRepository()
         self.storage = storage or get_storage_backend()
         self.parser = parser or ResumeParser()
+        self.ledger = ledger or IngestLedger()
 
     # ---------------------------------------------------------------- #
     def process_email(self, email: EmailMessage, gmail=None) -> ProcessResult:
         """Process a fully-populated EmailMessage. ``gmail`` (optional) is used to
         lazily download attachment bytes if they aren't already present."""
-        # Idempotency: skip messages we've already ingested.
+        # Idempotency. The ledger is checked first because it outlives the
+        # candidate record: deleting a candidate used to erase the only proof
+        # that this message had been handled, so the next poll re-ingested it.
+        if self.ledger.message_seen(email.message_id):
+            return ProcessResult(email.message_id, "skipped", "already processed (ledger)")
+
         existing = self.repo.find_by_message_id(email.message_id)
         if existing:
             return ProcessResult(email.message_id, "skipped", "already processed")
@@ -111,10 +119,27 @@ class IngestionPipeline:
 
             resume_hash = sha256_hex(data)
 
+            # (0) The user deleted a candidate that came from this exact file.
+            #     Never bring it back, however many times the mail is re-fetched.
+            if self.ledger.is_suppressed(resume_hash):
+                return AttachmentResult(
+                    att.filename, "suppressed",
+                    detail="previously deleted by a user — not re-ingested",
+                )
+
             # (1) Exact-duplicate short-circuit before any expensive work.
             dup = self.repo.find_by_resume_hash(resume_hash)
             if dup:
+                self.ledger.record(email.message_id, resume_hash, dup.id, "duplicate")
                 return AttachmentResult(att.filename, "duplicate", dup.id, "identical file already ingested")
+
+            # Same file already seen under a different message id.
+            seen = self.ledger.find_by_hash(resume_hash)
+            if seen and seen.candidate_id:
+                return AttachmentResult(
+                    att.filename, "duplicate", seen.candidate_id,
+                    "identical file already ingested (ledger)",
+                )
 
             # (2) Extract text and AI structure.
             if hasattr(self.parser, "parse_file"):
@@ -136,6 +161,7 @@ class IngestionPipeline:
 
             person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
+                self.ledger.record(email.message_id, resume_hash, person_dup.id, "duplicate")
                 return AttachmentResult(
                     att.filename, "duplicate", person_dup.id,
                     "same candidate (email/phone in resume) already exists",
@@ -150,6 +176,7 @@ class IngestionPipeline:
 
             self._store_file(record, data, att)
             candidate_id = self.repo.insert(record)
+            self.ledger.record(email.message_id, resume_hash, candidate_id, "ingested")
 
             # (6) Contextual Auto-Reply if enabled.
             reply_sent = False

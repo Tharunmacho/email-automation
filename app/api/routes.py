@@ -103,18 +103,34 @@ def delete_candidate(candidate_id: str) -> dict:
     rec = repo.get(candidate_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    
+
     if rec.resume and rec.resume.storage_key:
         try:
             storage.delete(rec.resume.storage_key)
         except Exception:
             pass
-            
+
+    # Tombstone BEFORE deleting. If we removed the candidate first and the
+    # suppression then failed, the next Gmail poll would silently re-ingest the
+    # profile the user just deleted.
+    from app.db.ledger import IngestLedger
+
+    ledger = IngestLedger()
+    suppressed = ledger.suppress_candidate(candidate_id)
+    if suppressed == 0 and rec.resume_hash:
+        # Ingested before the ledger existed — suppress by file hash instead.
+        ledger.suppress_hash(rec.resume_hash)
+        suppressed = 1
+
     success = repo.delete(candidate_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete candidate")
-        
-    return {"status": "success", "message": f"Candidate {candidate_id} deleted permanently"}
+
+    return {
+        "status": "success",
+        "message": f"Candidate {candidate_id} deleted permanently",
+        "suppressed_entries": suppressed,
+    }
 
 
 @app.post("/ingest/poll")

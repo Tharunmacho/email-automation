@@ -5,6 +5,8 @@ matching our schema. We validate that JSON into a CandidateProfile pydantic mode
 """
 from __future__ import annotations
 
+import re
+
 from app.ai.schema import RESUME_TOOL_NAME, RESUME_TOOL_SCHEMA, SYSTEM_PROMPT
 from app.config import settings
 from app.core.exceptions import AIParseError
@@ -218,7 +220,9 @@ class ResumeParser:
             else:
                 resolved_name = "Candidate Profile"
 
-        current_des = work_list[0].designation if work_list else "Software Professional"
+        # Never invent a designation. An empty field is honest; a wrong one
+        # silently corrupts search, matching and the profile screen.
+        current_des = work_list[0].designation if work_list else None
         current_comp = work_list[0].company if work_list else None
 
         return CandidateProfile(
@@ -280,11 +284,240 @@ class ResumeParser:
                         log.info("Veris Resume API successfully parsed profile for %s (%s)", profile.full_name, profile.email)
                         return profile, veris_extracted
                 except Exception as exc:
-                    log.warning("Veris Resume API endpoint call failed (%s); using fallback parser", exc)
+                    # This used to be a quiet warning, so a Veris outage looked
+                    # identical to a successful parse — the record just silently
+                    # came back with heuristic-grade (often wrong) data.
+                    log.error(
+                        "Veris Resume API FAILED for '%s' (%s: %s). Falling back to the "
+                        "heuristic parser, which extracts far less. Profile quality for "
+                        "this candidate will be degraded.",
+                        filename, type(exc).__name__, exc,
+                    )
 
-        # Fall back to local text parsing / Anthropic LLM
+        # Fall back to local text parsing.
         profile = self.parse_text_fallback(extracted.text, hint=filename)
+        # Mark the provenance so a degraded profile is identifiable downstream
+        # rather than being indistinguishable from a full Veris extraction.
+        info = dict(profile.additional_info or {})
+        info.setdefault("extraction_source", "heuristic_fallback")
+        profile.additional_info = info
         return profile, extracted
+
+
+# --------------------------------------------------------------------------- #
+#  Generic value hygiene — deliberately content-agnostic.
+#  Anything resume-specific belongs in the extractor, not in a keyword list.
+# --------------------------------------------------------------------------- #
+_PLACEHOLDER_VALUES = {"", "null", "none", "n/a", "na", "-", "--", "not specified", "unknown"}
+
+
+def _is_meaningful(value, min_len: int = 3) -> bool:
+    """Reject blanks, placeholders and bare durations like '0 months'."""
+    if value is None:
+        return False
+    text = str(value).strip()
+    if len(text) < min_len:
+        return False
+    if text.lower() in _PLACEHOLDER_VALUES:
+        return False
+    # "0 months", "0 years", "0.0 yrs" carry no information.
+    if re.fullmatch(r"0+(\.0+)?\s*(month|months|year|years|yr|yrs)", text.lower()):
+        return False
+    return True
+
+
+def _collect_strings(raw, min_len: int = 3) -> list:
+    """Normalise a Veris list-of-strings-or-dicts into a deduped string list."""
+    out: list = []
+    seen = set()
+    for item in raw or []:
+        if isinstance(item, dict):
+            text = item.get("title") or item.get("name") or item.get("value") or ""
+        else:
+            text = str(item)
+        text = " ".join(str(text).split())
+        if not _is_meaningful(text, min_len=min_len):
+            continue
+        if text.lower() in seen:
+            continue
+        seen.add(text.lower())
+        out.append(text)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  Generic section reader.
+#
+#  Veris returns structured skills/education/experience reliably, but leaves
+#  achievements, certifications, languages and the personal-details block inside
+#  the raw page text. Rather than matching a hardcoded keyword list (which only
+#  ever worked for the one resume it was written against), find the section
+#  HEADINGS and take whatever sits under them. Works for any resume that uses
+#  conventional headings, in any domain.
+# --------------------------------------------------------------------------- #
+_SECTION_ALIASES = {
+    "achievements": ["achievement", "achievements", "accomplishments", "awards",
+                     "awards and achievements", "honors", "honours", "extra curricular",
+                     "extracurricular", "activities"],
+    "certifications": ["certification", "certifications", "certificates", "courses",
+                       "training", "trainings", "licenses"],
+    "languages": ["language", "languages", "languages known", "linguistic proficiency"],
+    "hobbies": ["hobbies", "interests", "hobbies and interests"],
+    "personal": ["personal information", "personal details", "personal profile",
+                 "personal data"],
+    "objective": ["objective", "career objective", "summary", "profile summary",
+                  "professional summary", "about me"],
+    "skills": ["skills", "key skills", "core competencies", "competencies",
+               "areas of expertise", "strengths", "technical skills"],
+}
+
+# Headings that end a section without starting one we want.
+_OTHER_HEADINGS = [
+    "education", "experience", "work experience", "employment",
+    "projects", "declaration", "references", "contact",
+    "contact info", "contact information", "qualification", "other qualification",
+]
+
+_BULLET = re.compile(r"^[\s\u2022\u25cf\u25aa\u00b7\*\-\u2013\u2014\d\.\)]+")
+
+# Glyphs the OCR invents around icons in styled resumes: ®, 下, ¢, |, box-drawing.
+_OCR_JUNK = re.compile(
+    r"[\u00a9\u00ae\u2122\u2020\u2021\u00a2\u00a4\u00a7\u00b6"
+    r"\u2500-\u257f\u25a0-\u25ff\u2b00-\u2bff\ue000-\uf8ff"
+    r"\u3000-\u303f\u4e00-\u9fff]+"
+)
+
+
+def _strip_ocr_junk(text: str) -> str:
+    """Remove icon-glyph noise the OCR emits, then collapse whitespace."""
+    return " ".join(_OCR_JUNK.sub(" ", text or "").split())
+
+
+def _heading_of(line: str):
+    """Return the canonical section name if this line is a heading, else None."""
+    text = re.sub(r"[^a-z\s&/]", "", _strip_ocr_junk(line).lower()).strip()
+    if not text or len(text) > 40:
+        return None
+    for canon, aliases in _SECTION_ALIASES.items():
+        if text in aliases:
+            return canon
+    if text in _OTHER_HEADINGS:
+        return "__other__"
+    return None
+
+
+def _stitched_headings(line: str) -> list:
+    """Headings from two columns can land on one line ("LANGUAGES  EDUCATION").
+
+    Returns every heading found, in order. NOTE: we deliberately do *not* try to
+    then split the body lines by column — those are stitched too, and guessing
+    the split point produces confidently wrong values ("Data science" recorded
+    as a language). Knowing which sections exist is useful; blindly assigning
+    stitched content to them is not.
+    """
+    cleaned = _strip_ocr_junk(line)
+    words = re.sub(r"[^A-Za-z\s&/]", " ", cleaned).split()
+    if not words or len(words) > 8:
+        return []
+
+    found, i = [], 0
+    while i < len(words):
+        matched = False
+        # Longest-first so "work experience" wins over "experience".
+        for size in (3, 2, 1):
+            phrase = " ".join(words[i:i + size]).lower()
+            if not phrase:
+                continue
+            for canon, aliases in _SECTION_ALIASES.items():
+                if phrase in aliases:
+                    found.append(canon)
+                    i += size
+                    matched = True
+                    break
+            if matched:
+                break
+            if phrase in _OTHER_HEADINGS:
+                found.append("__other__")
+                i += size
+                matched = True
+                break
+        if not matched:
+            # A leftover word means this is prose, not a heading row. Without
+            # this guard a sentence like "Strong command over English language
+            # & grammar" is read as a LANGUAGES heading and swallows the
+            # section it actually belongs to.
+            return []
+    return found
+
+
+def extract_sections(raw_text: str) -> dict:
+    """Split resume text into {section_name: [lines]} using its own headings."""
+    sections: dict = {}
+    stitched: set = set()
+    current: list = []
+    for raw_line in (raw_text or "").splitlines():
+        line = " ".join(raw_line.split())
+        if not line:
+            continue
+        heads = _stitched_headings(line)
+        if heads:
+            wanted = [h for h in heads if h != "__other__"]
+            for h in wanted:
+                sections.setdefault(h, [])
+            # Body lines after a stitched heading belong to *every* section it
+            # named, because the columns are interleaved on each line. Collect
+            # into all of them and flag them, so only vocabulary-validated
+            # fields (languages) read from them and free text does not.
+            current = wanted
+            if len(heads) > 1:
+                stitched.update(wanted)
+            continue
+        if current:
+            cleaned = _strip_ocr_junk(_BULLET.sub("", line))
+            if _is_meaningful(cleaned, min_len=3):
+                for target in current:
+                    sections.setdefault(target, []).append(cleaned)
+    sections["__stitched__"] = sorted(stitched)
+    return sections
+
+
+# Languages are a finite, closed set — unlike skills, a vocabulary here is
+# legitimate rather than a hardcoded guess, and it is what lets us pull
+# "Tamil English Telugu" out of a line stitched with education text.
+_KNOWN_LANGUAGES = {
+    "english", "hindi", "tamil", "telugu", "kannada", "malayalam", "marathi",
+    "bengali", "gujarati", "punjabi", "urdu", "odia", "oriya", "assamese",
+    "sanskrit", "konkani", "maithili", "nepali", "sindhi", "kashmiri", "bhojpuri",
+    "arabic", "french", "german", "spanish", "portuguese", "italian", "dutch",
+    "russian", "japanese", "chinese", "mandarin", "cantonese", "korean", "thai",
+    "vietnamese", "indonesian", "malay", "filipino", "tagalog", "turkish",
+    "persian", "farsi", "hebrew", "swahili", "polish", "swedish", "norwegian",
+    "danish", "finnish", "greek", "czech", "hungarian", "romanian", "ukrainian",
+}
+
+
+def _languages_from_lines(lines: list) -> list:
+    """Pick real language names out of possibly column-stitched text."""
+    out, seen = [], set()
+    for line in lines or []:
+        for token in re.split(r"[^A-Za-z]+", _strip_ocr_junk(line)):
+            key = token.lower()
+            if key in _KNOWN_LANGUAGES and key not in seen:
+                seen.add(key)
+                out.append(token.capitalize())
+    return out
+
+
+def _split_inline(values: list) -> list:
+    """"Hindi, English, Tamil" on one line is three languages, not one."""
+    out = []
+    for v in values:
+        parts = re.split(r"[,;/|]| and ", v)
+        for part in parts:
+            part = part.strip(" .:-")
+            if _is_meaningful(part, min_len=2):
+                out.append(part)
+    return out
 
 
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
@@ -368,41 +601,65 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
 
     skills = data.get("skills") or getattr(res, "skills", [])
     skills_list = []
+    seen_skills = set()
     for s in skills:
         skill_str = s.get("name", "") if isinstance(s, dict) else str(s)
         skill_str = skill_str.strip()
-        lower = skill_str.lower()
-        if any(noise in lower for noise in ["degree", "simats", "engineering", "2024-2028", "0 months", "graduation"]):
+        if not _is_meaningful(skill_str, min_len=2):
             continue
-        if len(skill_str) > 1 and skill_str not in skills_list:
-            skills_list.append(skill_str)
-
-    raw_ach = data.get("achievements") or data.get("certifications") or data.get("certificates") or data.get("awards") or getattr(res, "achievements", [])
-    achievements_list = []
-    for a in raw_ach:
-        item_str = a.get("title") or a.get("name") if isinstance(a, dict) else str(a)
-        item_str = item_str.strip()
-        lower = item_str.lower()
-        if any(noise in lower for noise in ["degree", "simats", "engineering", "2024-2028", "0 months", "graduation"]):
+        if skill_str.lower() in seen_skills:
             continue
-        if len(item_str) > 3 and item_str not in achievements_list:
-            achievements_list.append(item_str)
+        seen_skills.add(skill_str.lower())
+        skills_list.append(skill_str)
 
-    # Parse bullet points from raw OCR text
-    if veris_text:
-        ach_keywords = [
-            "topper", "scholarship", "hackathon", "carrom", "cricket", "volleyball",
-            "violin", "balvikas", "spirituality", "workshop", "certification", 
-            "certificate", "tata forge", "abacus", "edutou", "novitech"
-        ]
-        for line in veris_text.split("\n"):
-            clean_l = re.sub(r"^[•\*\-\u25cf\u22c6\U0001f947\U0001f393\U0001f680\U0001f40d\U0001f4dc\U0001f916\U0001f4bb\U0001f3e2\d\.\s]+", "", line).strip()
-            clean_l = re.sub(r"\s+", " ", clean_l)
-            lower_l = clean_l.lower()
-            if any(k in lower_l for k in ach_keywords) and len(clean_l) > 15 and len(clean_l) < 350:
-                if not any(noise in lower_l for noise in ["degree", "simats", "engineering", "2024-2028", "0 months", "gmail.com", "about me", "skills", "experience set", "undergraduate", "passionate", "full stack developer"]):
-                    if clean_l not in achievements_list:
-                        achievements_list.append(clean_l)
+    # Achievements and certifications are distinct fields on the profile; the
+    # old mapper collapsed them into one and dropped certifications entirely.
+    achievements_list = _collect_strings(
+        data.get("achievements") or data.get("awards") or getattr(res, "achievements", [])
+    )
+    certifications_list = _collect_strings(
+        data.get("certifications") or data.get("certificates")
+        or getattr(res, "certifications", [])
+    )
+    languages_list = _collect_strings(
+        data.get("languages") or getattr(res, "languages", []), min_len=2
+    )
+
+    # Veris reliably returns skills/education/experience but usually leaves
+    # achievements, certifications and languages in the page text. Recover them
+    # from the resume's own section headings — no per-candidate keywords.
+    page_text = veris_text or ""
+    for page in (data.get("pages") or []):
+        if isinstance(page, dict) and page.get("text"):
+            page_text += "\n" + page["text"]
+
+    sections = extract_sections(page_text)
+
+    stitched = set(sections.get("__stitched__") or [])
+
+    # Free-text sections are only trusted when their heading stood alone. A
+    # stitched heading means the lines below carry another column's text.
+    if not achievements_list and "achievements" not in stitched:
+        achievements_list = _collect_strings(
+            sections.get("achievements", []) + sections.get("hobbies", [])
+        )
+    if not certifications_list and "certifications" not in stitched:
+        certifications_list = _collect_strings(sections.get("certifications", []))
+    if not languages_list:
+        # Vocabulary-validated, so a column-stitched line yields the real
+        # languages and discards the education text glued onto it.
+        languages_list = _languages_from_lines(sections.get("languages", []))
+        if not languages_list:
+            languages_list = _collect_strings(
+                _split_inline(sections.get("languages", [])), min_len=2
+            )
+    if not skills_list and "skills" not in stitched:
+        # Non-technical resumes ("classroom management", "creative teaching")
+        # routinely come back with no skills from the extractor.
+        skills_list = _collect_strings(sections.get("skills", []), min_len=2)
+
+    personal_lines = sections.get("personal", [])
+    objective_lines = sections.get("objective", [])
 
     exp_years = data.get("total_experience_years")
     if exp_years is not None:
@@ -412,6 +669,8 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
             exp_years = None
 
     summary = data.get("summary") or getattr(res, "summary", None)
+    if not summary and objective_lines:
+        summary = " ".join(objective_lines)[:600]
     if summary and (summary.strip().lower() == "0 months" or len(summary.strip()) < 5):
         summary = None
 
@@ -437,6 +696,21 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
             continue
         clean_additional_info[k] = v
 
+    # Personal-information blocks (nationality, DOB, marital status, ...) are
+    # common on Indian-format resumes and had nowhere to live before.
+    if personal_lines:
+        details = {}
+        for line in personal_lines:
+            if ":" in line:
+                k2, v2 = line.split(":", 1)
+                k2, v2 = k2.strip(), v2.strip()
+                if _is_meaningful(k2, 2) and _is_meaningful(v2, 1):
+                    details[k2] = v2
+        if details:
+            clean_additional_info.setdefault("personal_details", details)
+        else:
+            clean_additional_info.setdefault("personal_details_raw", personal_lines)
+
     return CandidateProfile(
         is_resume=True,
         confidence=1.0,
@@ -446,8 +720,10 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         location=location,
         skills=skills_list,
         technical_skills=skills_list,
+        languages=languages_list,
         work_experience=work_list,
         education=education_list,
+        certifications=certifications_list,
         projects=projects_list,
         achievements=achievements_list,
         linkedin_url=linkedin_url,

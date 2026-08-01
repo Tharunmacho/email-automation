@@ -6,6 +6,7 @@ shared per-process.
 """
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from pymongo import ASCENDING, MongoClient
@@ -16,6 +17,12 @@ from app.config import settings
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _redact_uri(uri: str) -> str:
+    """Strip credentials before logging. The raw URI carries the DB password,
+    and log files are far more widely readable than .env is."""
+    return re.sub(r"://[^@/]+@", "://***:***@", uri)
 
 
 def _setup_dns_resolver() -> None:
@@ -31,7 +38,7 @@ def _setup_dns_resolver() -> None:
 @lru_cache(maxsize=1)
 def get_client() -> MongoClient:
     _setup_dns_resolver()
-    log.info("Connecting to MongoDB at %s", settings.mongo_uri)
+    log.info("Connecting to MongoDB at %s", _redact_uri(settings.mongo_uri))
     return MongoClient(
         settings.mongo_uri,
         tz_aware=True,
@@ -73,4 +80,12 @@ def ensure_indexes() -> None:
     db["sourcing_clients"].create_index([("id", ASCENDING)], name="sourcing_client_id_idx", sparse=True)
     db["job_orders"].create_index([("id", ASCENDING)], name="job_order_id_idx", sparse=True)
 
-    log.info("MongoDB indexes ensured on '%s', 'sourcing_clients', and 'job_orders'", coll.name)
+    # Durable "already ingested / user deleted" ledger.
+    from app.db.ledger import ensure_ledger_indexes
+
+    ensure_ledger_indexes()
+
+    log.info(
+        "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders' and 'ingest_ledger'",
+        coll.name,
+    )

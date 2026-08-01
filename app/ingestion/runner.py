@@ -48,13 +48,15 @@ class IngestionRunner:
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)
-                if result.status == "processed":
+                # Label BOTH processed and skipped messages. The Gmail query
+                # excludes `-label:Resumes/Processed`, so an unlabelled message
+                # comes back on every poll — which is how a deleted candidate
+                # kept reappearing.
+                if result.status in ("processed", "skipped"):
                     if settings.gmail_mark_read:
                         gmail_client.mark_read(mid)
                     if settings.gmail_processed_label:
                         gmail_client.apply_label(mid, settings.gmail_processed_label)
-                elif result.status == "skipped" and settings.gmail_mark_read:
-                    gmail_client.mark_read(mid)
                 return result
             except Exception:  # noqa: BLE001
                 log.exception("Failed to process message %s", mid)
