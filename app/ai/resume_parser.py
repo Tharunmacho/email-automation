@@ -19,6 +19,45 @@ log = get_logger(__name__)
 _MAX_INPUT_CHARS = 60_000
 
 
+# Labels from the contact / personal block. A line like "Mob: 9984013450" is a
+# field, not a project, but it matches the same "Title: body" shape.
+_CONTACT_LABELS = {
+    "mob", "mobile", "phone", "tel", "telephone", "cell", "contact", "email",
+    "e mail", "mail", "address", "addr", "dob", "date of birth", "birth",
+    "nationality", "gender", "sex", "age", "marital status", "religion",
+    "father", "father name", "mother", "mother name", "pin", "pincode",
+    "linkedin", "github", "website", "portfolio", "passport", "languages known",
+}
+
+_SECTION_WORDS = re.compile(
+    r"education|experience|skills|contact|summary|year|about|career|objective"
+    r"|strength|language|declaration|reference|hobb|interest|personal|qualification",
+    re.IGNORECASE,
+)
+
+
+def _is_project_candidate(title: str, body: str) -> bool:
+    """True only when 'Title: body' looks like a real project entry."""
+    t = title.strip()
+    if not (3 <= len(t) < 60):
+        return False
+    if t.lower().strip(" .:-") in _CONTACT_LABELS:
+        return False
+    if _SECTION_WORDS.search(t):
+        return False
+
+    b = (body or "").strip()
+    if len(b) < 20:
+        return False
+    # A body that is mostly digits is a phone number or an ID, not a description.
+    digits = sum(c.isdigit() for c in b)
+    if digits and digits / len(b) > 0.30:
+        return False
+    if re.match(r"^[\+\(]?\d[\d\s\-\(\)]{7,}", b):
+        return False
+    return True
+
+
 class ResumeParser:
     def __init__(self, api_key: str | None = None, model: str | None = None):
         self._api_key = api_key
@@ -176,7 +215,7 @@ class ResumeParser:
         for proj_title, proj_body in proj_matches:
             title_clean = proj_title.strip()
             body_clean = re.sub(r"\s+", " ", proj_body).strip()
-            if len(title_clean) < 60 and not re.search(r"education|experience|skills|contact|summary|year|about|career|objective|strength|language", title_clean, re.IGNORECASE):
+            if _is_project_candidate(title_clean, body_clean):
                 techs = [t for t in common_skills if re.search(r"\b" + re.escape(t) + r"\b", body_clean, re.IGNORECASE)]
                 project_list.append(Project(
                     name=title_clean,
@@ -186,7 +225,13 @@ class ResumeParser:
 
         # 4. Extract Education History
         edu_degree_match = re.search(r"(Bachelor[^\.\n\u2022]+|B\.\s*Tech[^\.\n\u2022]*|Master[^\.\n\u2022]+|M\.\s*Tech[^\.\n\u2022]*|B\.E\.[^\.\n\u2022]*|Diploma[^\.\n\u2022]*)", text, re.IGNORECASE)
-        edu_inst_match = re.search(r"([A-Z][A-Za-z0-9\s&\.\,]+(?:University|Institute|College|School|Academy)[A-Za-z0-9\s&\.\,]*)", text, re.IGNORECASE)
+        # Space, not \s: \s matches newlines, which let this run across the whole
+        # document and capture an entire page as the "institution".
+        edu_inst_match = re.search(
+            r"([A-Z][A-Za-z0-9 &.,'\-]{0,60}?(?:University|Institute|College|School|Academy)"
+            r"[A-Za-z0-9 &.,'\-]{0,40})",
+            text,
+        )
         edu_years_match = re.search(r"\b(20\d{2}\s*[\-\–\to]+\s*20\d{2})\b", text)
 
         if edu_degree_match or edu_inst_match:
@@ -225,6 +270,29 @@ class ResumeParser:
         current_des = work_list[0].designation if work_list else None
         current_comp = work_list[0].company if work_list else None
 
+        # The heuristic never populated languages, even when they sat in the
+        # text under a LANGUAGES heading. Reuse the same section reader and
+        # vocabulary check the Veris path uses.
+        sections = extract_sections(text)
+        heuristic_languages = _languages_from_lines(sections.get("languages", []))
+        if not heuristic_languages:
+            heuristic_languages = _languages_from_lines([text])
+
+        heuristic_certs = _collect_strings(sections.get("certifications", []))
+        if not skills_list:
+            skills_list = _collect_strings(sections.get("skills", []), min_len=2)
+        if not achievements_list:
+            achievements_list = _collect_strings(
+                sections.get("achievements", []) + sections.get("hobbies", [])
+            )
+
+        # A summary is a summary, not the whole document. Prefer the resume's
+        # own objective section; never dump raw OCR into the field.
+        objective = " ".join(sections.get("objective", [])).strip()
+        summary_text = objective or (clean_summary or "")
+        if len(summary_text) > 600 and not objective:
+            summary_text = ""
+
         return CandidateProfile(
             is_resume=True,
             confidence=0.85,
@@ -235,13 +303,15 @@ class ResumeParser:
             github_url=github_url,
             skills=skills_list,
             technical_skills=skills_list,
+            languages=heuristic_languages,
             work_experience=work_list,
             education=education_list,
+            certifications=heuristic_certs,
             projects=project_list,
             achievements=achievements_list,
             current_designation=current_des,
             current_company=current_comp,
-            resume_summary=clean_summary[:4000] if clean_summary else None,
+            resume_summary=summary_text[:600] or None,
         )
 
     def parse_file(self, file_data: bytes, filename: str) -> tuple[CandidateProfile, ExtractedDocument]:
