@@ -11,7 +11,7 @@ import SourcingHub from "@/screens/SourcingHub";
 import JobOrders from "@/screens/JobOrders";
 import CandidateModal from "@/components/CandidateModal";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
-import type { LogEntry } from "@/components/LogsConsole";
+import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import {
   deleteCandidateAPI,
   listCandidates,
@@ -300,7 +300,12 @@ export default function Home() {
         </div>
 
         {activeTab === "dashboard" && (
-          <DashboardView total={total} candidates={candidates} logs={logs} />
+          <DashboardView
+            total={total}
+            candidates={candidates}
+            logs={logs}
+            onOpenCandidate={setSelected}
+          />
         )}
 
         {activeTab === "candidates" && (

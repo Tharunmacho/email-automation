@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Plus,
   Users,
@@ -15,9 +15,23 @@ import {
   X,
   Trash2,
   ChevronDown,
+  Hash,
+  MapPin,
+  Tag,
+  Briefcase as BriefcaseIcon,
+  Target,
+  Layers,
 } from "lucide-react";
 
-import { listSourcingClientsAPI, createSourcingClientAPI, deleteSourcingClientAPI } from "@/lib/api";
+import MetricTile from "@/components/ui/MetricTile";
+import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
+import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
+import {
+  listSourcingClientsAPI,
+  createSourcingClientAPI,
+  deleteSourcingClientAPI,
+  listJobOrdersAPI,
+} from "@/lib/api";
 
 export interface SourcingRecord {
   id: string;
@@ -35,16 +49,38 @@ export interface SourcingRecord {
 
 const INITIAL_RECORDS: SourcingRecord[] = [];
 
-interface SourcingHubProps {
-  embedded?: boolean;
+/** Status drives the card's top cap and its badge, the same way it does on the
+ *  candidate cards — one visual language for "state of this record". */
+/** Every record is created ACTIVE and nothing can change it yet, so the badge
+ *  would be a constant on every card. Show it only when a record carries a
+ *  non-default status (set directly in the DB), where it actually means something. */
+function isDefaultStatus(status: SourcingRecord["status"]): boolean {
+  return status === "ACTIVE";
 }
 
-export default function SourcingHub({ embedded = false }: SourcingHubProps) {
+/** Records created before dates were normalised still carry M/D/YYYY. */
+function parseRecordDate(value: string | undefined): Date | null {
+  if (!value) return null;
+  const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const slash = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) return new Date(Number(slash[3]), Number(slash[1]) - 1, Number(slash[2]));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function displayDate(value: string | undefined): string {
+  const parsed = parseRecordDate(value);
+  return parsed ? formatDateFull(parsed) : "—";
+}
+
+export default function SourcingHub() {
   const [activeTab, setActiveTab] = useState<"association" | "business">("association");
   const [searchQuery, setSearchQuery] = useState("");
   const [records, setRecords] = useState<SourcingRecord[]>(INITIAL_RECORDS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [jobOrders, setJobOrders] = useState<JobOrderRecord[]>([]);
 
   // Form state for new client modal
   const [newType, setNewType] = useState<"association" | "business">("business");
@@ -55,6 +91,14 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newAddress, setNewAddress] = useState("");
+
+  // Job orders carry a `client` name, which is what ties a sourcing record to
+  // real demand. Without this the hub is just an address book.
+  useEffect(() => {
+    listJobOrdersAPI()
+      .then((res) => setJobOrders(res.items ?? []))
+      .catch(() => setJobOrders([]));
+  }, []);
 
   React.useEffect(() => {
     // 1. Sync any local storage records to MongoDB Atlas API
@@ -99,6 +143,27 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
       });
   }, []);
 
+  // The row menu only ever toggled from its own button, so clicking anywhere
+  // else left it hanging open. Any pointer-down outside a menu closes it.
+  useEffect(() => {
+    if (!activeMenuId) return;
+
+    const closeOnOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest?.(".sourcing-card-actions")) setActiveMenuId(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveMenuId(null);
+    };
+
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [activeMenuId]);
+
   React.useEffect(() => {
     const handleOpenModal = () => {
       setNewType(activeTab);
@@ -107,6 +172,39 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
     window.addEventListener("open-new-client-modal", handleOpenModal);
     return () => window.removeEventListener("open-new-client-modal", handleOpenModal);
   }, [activeTab]);
+
+  /**
+   * Demand per client, keyed on the client name the job order stores. Matching
+   * is case- and space-insensitive because both sides are free text.
+   */
+  const engagementByClient = useMemo(() => {
+    const key = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+    const map = new Map<string, { orders: number; live: number; seats: number; filled: number }>();
+
+    for (const order of jobOrders) {
+      const id = key(order.client || "");
+      if (!id) continue;
+
+      const entry = map.get(id) ?? { orders: 0, live: 0, seats: 0, filled: 0 };
+      const status = deriveStatus(order);
+      entry.orders += 1;
+      if (status === "OPEN" || status === "IN PROGRESS") entry.live += 1;
+      entry.seats += order.headcount || 1;
+      entry.filled += (order.shortlistedCandidateIds || []).length || order.fulfilledCount || 0;
+      map.set(id, entry);
+    }
+
+    return { map, key };
+  }, [jobOrders]);
+
+  const engagementOf = (name: string) =>
+    engagementByClient.map.get(engagementByClient.key(name));
+
+  const engagedClients = records.filter((r) => (engagementOf(r.name)?.live ?? 0) > 0).length;
+  const openSeats = records.reduce((sum, r) => {
+    const e = engagementOf(r.name);
+    return sum + (e && e.live > 0 ? Math.max(0, e.seats - e.filled) : 0);
+  }, 0);
 
   const filteredRecords = records.filter((rec) => {
     if (rec.type !== activeTab) return false;
@@ -130,7 +228,7 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
     const uniqueNum = Math.floor(100 + Math.random() * 900);
     const id = `${prefix}-${uniqueNum}-${Date.now().toString().slice(-4)}`;
     const today = new Date();
-    const formattedDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+    const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
     const newRecord: SourcingRecord = {
       id,
@@ -186,168 +284,39 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
 
   const isBusiness = newType === "business";
 
-  const totalCount = records.length;
   const associationCount = records.filter((r) => r.type === "association").length;
   const businessCount = records.filter((r) => r.type === "business").length;
-  const activeCount = records.filter((r) => r.status === "ACTIVE").length;
+
 
   return (
     <div className="sourcing-hub-wrapper" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Hero Statistics Bar */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #4f46e5",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(79, 70, 229, 0.08)",
-              color: "#4f46e5",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Building2 size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {totalCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Total Sourcing Clients
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #6366f1",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(99, 102, 241, 0.08)",
-              color: "#6366f1",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Users size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {associationCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Association Networks
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #0d9488",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(13, 148, 136, 0.08)",
-              color: "#0d9488",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Briefcase size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {businessCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Enterprise Businesses
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #10b981",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(16, 185, 129, 0.08)",
-              color: "#10b981",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Users size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {activeCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Active Client Status
-            </div>
-          </div>
-        </div>
+      {/* Now that clients link to job orders, these report real demand rather
+          than restating the per-type counts already on the tabs. */}
+      <div className="metric-tiles">
+        <MetricTile
+          label="Sourcing clients"
+          value={formatInt(records.length)}
+          icon={Building2}
+          caption={`${formatInt(associationCount)} association${associationCount === 1 ? "" : "s"} · ${formatInt(businessCount)} business${businessCount === 1 ? "" : "es"}`}
+        />
+        <MetricTile
+          label="Clients with live orders"
+          value={formatInt(engagedClients)}
+          icon={Target}
+          accent="#047857"
+          accentSoft="rgba(16, 185, 129, 0.10)"
+          caption={
+            records.length > 0
+              ? `${Math.round((engagedClients / records.length) * 100)}% of the portfolio engaged`
+              : "No clients yet"
+          }
+        />
+        <MetricTile
+          label="Open positions"
+          value={formatInt(openSeats)}
+          icon={Layers}
+          caption="Unfilled seats across live orders"
+        />
       </div>
 
       {/* Clean Tabs & Search Row */}
@@ -365,8 +334,8 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
                 fontWeight: 700,
                 padding: "2px 7px",
                 borderRadius: "999px",
-                background: activeTab === "association" ? "#dbeafe" : "#f1f5f9",
-                color: activeTab === "association" ? "#2563eb" : "#64748b",
+                background: activeTab === "association" ? "#eaf0fa" : "#f6f9fd",
+                color: activeTab === "association" ? "var(--primary)" : "#64748b",
               }}
             >
               {associationCount}
@@ -384,7 +353,7 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
                 fontWeight: 700,
                 padding: "2px 7px",
                 borderRadius: "999px",
-                background: activeTab === "business" ? "#ccfbf1" : "#f1f5f9",
+                background: activeTab === "business" ? "#ccfbf1" : "#f6f9fd",
                 color: activeTab === "business" ? "#0d9488" : "#64748b",
               }}
             >
@@ -437,88 +406,123 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
             <p>No {activeTab === "association" ? "associations" : "businesses"} found.</p>
           </div>
         ) : (
-          filteredRecords.map((item) => (
-            <div className="sourcing-card" key={item.id}>
-              {/* Card Header: Icon + Menu */}
-              <div className="sourcing-card-top">
-                <div className="sourcing-card-icon-box">
-                  <Building2 size={20} />
-                </div>
-                <div style={{ position: "relative" }}>
-                  <button
-                    className="sourcing-menu-btn"
-                    onClick={() =>
-                      setActiveMenuId((prev) => (prev === item.id ? null : item.id))
-                    }
-                  >
-                    <MoreVertical size={18} />
-                  </button>
+          filteredRecords.map((item) => {
+            const officeLabel = item.type === "business" ? "Head office" : "Registered office";
+            const rows: { icon: React.ReactNode; label: string; value: string; wrap?: boolean }[] = [
+              { icon: <User size={14} />, label: "Contact", value: item.contact },
+              { icon: <Phone size={14} />, label: "Phone", value: item.phone },
+              { icon: <Mail size={14} />, label: "Email", value: item.email },
+            ];
+            if (item.address) {
+              rows.push({
+                icon: <MapPin size={14} />,
+                label: officeLabel,
+                value: item.address,
+                wrap: true,
+              });
+            }
 
-                  {activeMenuId === item.id && (
-                    <div className="sourcing-dropdown-menu">
-                      <button
-                        className="dropdown-item danger"
-                        onClick={() => handleDeleteRecord(item.id)}
+            return (
+              <article className="sourcing-card" key={item.id}>
+                <span className="sourcing-card-cap" />
+
+                <header className="sc-head">
+                  <span className="sc-monogram">{initialsOf(item.name)}</span>
+
+                  <div className="sc-headings">
+                    <h3 className="sc-name" title={item.name}>
+                      {item.name}
+                    </h3>
+                    <div className="sc-meta">
+                      {item.industryOrCategory && (
+                        <span className="sourcing-chip" title={item.industryOrCategory}>
+                          <Tag size={11} />
+                          {item.industryOrCategory}
+                        </span>
+                      )}
+                      {item.industryOrCategory && !isDefaultStatus(item.status) && (
+                        <span className="sc-sep" aria-hidden="true" />
+                      )}
+                      {!isDefaultStatus(item.status) && (
+                        <span className={`sourcing-badge status-${item.status.toLowerCase()}`}>
+                          {item.status}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="sourcing-card-actions">
+                    <button
+                      className="sourcing-menu-btn"
+                      onClick={() =>
+                        setActiveMenuId((prev) => (prev === item.id ? null : item.id))
+                      }
+                      aria-label={`Actions for ${item.name}`}
+                    >
+                      <MoreVertical size={18} />
+                    </button>
+
+                    {activeMenuId === item.id && (
+                      <div className="sourcing-dropdown-menu">
+                        <button
+                          className="dropdown-item danger"
+                          onClick={() => handleDeleteRecord(item.id)}
+                        >
+                          <Trash2 size={14} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </header>
+
+                <dl className="sc-rows">
+                  {rows.map((row) => (
+                    <div className="sc-row" key={row.label}>
+                      <span className="sc-row-icon">{row.icon}</span>
+                      <dt className="sc-row-label">{row.label}</dt>
+                      <dd
+                        className={`sc-row-value ${row.wrap ? "sc-row-value-wrap" : ""}`}
+                        title={row.value}
                       >
-                        <Trash2 size={14} />
-                        <span>Delete</span>
-                      </button>
+                        {row.value}
+                      </dd>
                     </div>
-                  )}
-                </div>
-              </div>
+                  ))}
+                </dl>
 
-              {/* Title & Badge */}
-              <div className="sourcing-card-title-block">
-                <h3 className="sourcing-card-title">{item.name}</h3>
-                <span className={`sourcing-badge status-${item.status.toLowerCase()}`}>
-                  {item.status}
-                </span>
-              </div>
-
-              {/* Fields Container */}
-              <div className="sourcing-fields-grid">
-                {/* Contact & Phone row */}
-                <div className="sourcing-field-row-split">
-                  <div className="sourcing-field-box">
-                    <div className="field-label-wrapper">
-                      <User size={14} className="field-icon icon-blue" />
-                      <span className="field-label">CONTACT</span>
+                {(() => {
+                  const engagement = engagementOf(item.name);
+                  return (
+                    <div className={`sc-demand ${engagement?.live ? "is-live" : ""}`}>
+                      <BriefcaseIcon size={14} />
+                      {engagement ? (
+                        <span>
+                          <strong>{engagement.orders}</strong> job order
+                          {engagement.orders === 1 ? "" : "s"} · <strong>{engagement.seats}</strong>{" "}
+                          seat{engagement.seats === 1 ? "" : "s"} · <strong>{engagement.filled}</strong>{" "}
+                          filled
+                        </span>
+                      ) : (
+                        <span>No job orders raised yet</span>
+                      )}
                     </div>
-                    <div className="field-value">{item.contact}</div>
-                  </div>
+                  );
+                })()}
 
-                  <div className="sourcing-field-box">
-                    <div className="field-label-wrapper">
-                      <Phone size={14} className="field-icon icon-teal" />
-                      <span className="field-label">PHONE</span>
-                    </div>
-                    <div className="field-value">{item.phone}</div>
-                  </div>
-                </div>
-
-                {/* Email row */}
-                <div className="sourcing-field-box email-box">
-                  <div className="field-label-wrapper">
-                    <div className="mail-icon-bg">
-                      <Mail size={13} className="field-icon icon-blue" />
-                    </div>
-                    <span className="field-label">EMAIL ADDRESS</span>
-                  </div>
-                  <div className="field-value">{item.email}</div>
-                </div>
-              </div>
-
-              {/* Card Footer */}
-              <div className="sourcing-card-footer">
-                <span className="sourcing-card-id">ID: {item.id}</span>
-                <div className="sourcing-card-date">
-                  <Calendar size={14} />
-                  <span>{item.date}</span>
-                </div>
-              </div>
-            </div>
-          ))
+                <footer className="sc-foot">
+                  <span className="sc-ref" title={item.regNo || item.id}>
+                    <Hash size={12} />
+                    {item.regNo || item.id}
+                  </span>
+                  <span className="sc-date">
+                    <Calendar size={13} />
+                    {displayDate(item.date)}
+                  </span>
+                </footer>
+              </article>
+            );
+          })
         )}
       </div>
 
@@ -530,7 +534,7 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
             style={{ maxWidth: "600px", borderRadius: "16px", padding: 0 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f1f5f9" }}>
+            <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f6f9fd" }}>
               <div>
                 <h3 className="modal-title" style={{ fontSize: "1.4rem", fontWeight: 700 }}>
                   Create New Client
@@ -688,7 +692,7 @@ export default function SourcingHub({ embedded = false }: SourcingHubProps) {
                 </div>
               </div>
 
-              <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f1f5f9" }}>
+              <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f6f9fd" }}>
                 <button
                   type="button"
                   className="modal-cancel-btn"

@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { Search, UsersRound } from "lucide-react";
 import CandidateCard from "@/components/CandidateCard";
+import { formatInt } from "@/lib/format";
 import type { CandidateRecord } from "@/lib/api";
 
 interface CandidatesViewProps {
@@ -44,24 +45,25 @@ export default function CandidatesView({ candidates, onOpenCandidate }: Candidat
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+        <span className="result-count">
+          {formatInt(filtered.length)}
+          {filtered.length === candidates.length ? "" : ` of ${formatInt(candidates.length)}`}{" "}
+          candidate{filtered.length === 1 ? "" : "s"}
+        </span>
       </div>
 
       <div className="candidate-grid">
         {filtered.length === 0 ? (
-          <div
-            style={{
-              gridColumn: "1 / -1",
-              textAlign: "center",
-              padding: "3rem",
-              color: "var(--text-muted)",
-            }}
-          >
-            <UsersRound size={48} style={{ marginBottom: "1rem", opacity: 0.5 }} />
+          <div className="candidate-empty">
+            <UsersRound size={40} strokeWidth={1.5} />
             <p>
               {candidates.length === 0
-                ? "No candidates found in database."
-                : `No candidates match "${query}".`}
+                ? "No candidates in the database yet."
+                : `No candidates match “${query}”.`}
             </p>
+            {candidates.length === 0 && (
+              <span>Run a Gmail sync to ingest resumes from your inbox.</span>
+            )}
           </div>
         ) : (
           filtered.map((candidate) => (

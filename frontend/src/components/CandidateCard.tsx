@@ -3,6 +3,7 @@
 import React from "react";
 import { Calendar, MapPin } from "lucide-react";
 import { candidateTheme, type CandidateRecord } from "@/lib/api";
+import { formatDateFull, initialsOf } from "@/lib/format";
 
 interface CandidateCardProps {
   candidate: CandidateRecord;
@@ -37,12 +38,12 @@ export default function CandidateCard({ candidate, onOpen }: CandidateCardProps)
       ? experiences[0].company
       : "Software Professional");
 
-  const initial = displayName.charAt(0).toUpperCase();
+  const initial = initialsOf(displayName);
   const { cardClass, badgeClass } = candidateTheme(candidate);
 
   const createdAt = candidate.created_at ? new Date(candidate.created_at) : null;
   const createdLabel =
-    createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt.toLocaleDateString() : "Recent";
+    createdAt && !Number.isNaN(createdAt.getTime()) ? formatDateFull(createdAt) : "Recent";
 
   return (
     <div
@@ -66,6 +67,21 @@ export default function CandidateCard({ candidate, onOpen }: CandidateCardProps)
         <h3 className="candidate-name">{displayName}</h3>
         <p className="candidate-title">{displayTitle}</p>
       </div>
+
+      <dl className="cc-meta">
+        <div className="cc-meta-item">
+          <dd className="cc-meta-value">
+            {typeof profile.total_experience_years === "number"
+              ? `${profile.total_experience_years} yr${profile.total_experience_years === 1 ? "" : "s"}`
+              : "Fresher"}
+          </dd>
+          <dt className="cc-meta-label">Experience</dt>
+        </div>
+        <div className="cc-meta-item">
+          <dd className="cc-meta-value">{skills.length}</dd>
+          <dt className="cc-meta-label">Skills parsed</dt>
+        </div>
+      </dl>
 
       <div className="skill-tags">
         {skills.slice(0, 5).map((skill, index) => (

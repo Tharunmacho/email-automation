@@ -6,7 +6,6 @@ import {
   Search,
   Building2,
   Users,
-  IndianRupee,
   Calendar,
   X,
   Trash2,
@@ -23,17 +22,17 @@ import {
   RotateCcw,
   UserCheck,
   Mail,
-  Copy,
   SlidersHorizontal,
   ArrowUpDown,
   Clock,
-  Send,
   Loader2,
   Phone,
   MapPin,
   Inbox,
 } from "lucide-react";
 
+import MetricTile from "@/components/ui/MetricTile";
+import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import {
   listCandidates,
   listJobOrdersAPI,
@@ -65,11 +64,13 @@ const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
 
 export type JobOrderStatus = JobOrderRecord["status"];
 
+/** Status palette. Also feeds the card's top cap, so `color` doubles as the
+ *  cap fill — each value has to read clearly as a 3px bar, not just as text. */
 const STATUS_STYLES: Record<JobOrderStatus, { bg: string; color: string; border: string }> = {
   OPEN: { bg: "#fef3c7", color: "#b45309", border: "#fde68a" },
-  "IN PROGRESS": { bg: "#dbeafe", color: "#1d4ed8", border: "#bfdbfe" },
+  "IN PROGRESS": { bg: "#e6edfb", color: "var(--primary-hover)", border: "#c7d7f5" },
   FILLED: { bg: "#dcfce7", color: "#15803d", border: "#bbf7d0" },
-  CLOSED: { bg: "#f1f5f9", color: "#64748b", border: "#e2e8f0" },
+  CLOSED: { bg: "#f6f9fd", color: "#64748b", border: "var(--border-blue)" },
 };
 
 function getStatusStyle(status: string) {
@@ -77,7 +78,7 @@ function getStatusStyle(status: string) {
 }
 
 /** Live status derived from fulfillment — CLOSED is always honoured as manual. */
-function deriveStatus(order: JobOrderRecord): JobOrderStatus {
+export function deriveStatus(order: JobOrderRecord): JobOrderStatus {
   if (order.status === "CLOSED") return "CLOSED";
   const filled = (order.shortlistedCandidateIds || []).length || order.fulfilledCount || 0;
   const required = order.headcount || 1;
@@ -120,7 +121,7 @@ export interface DueMeta {
 
 /** Due-date urgency chip metadata — accepts both M/D/YYYY and ISO strings. */
 function getDueMeta(dueDate?: string): DueMeta {
-  const neutral = { color: "#475569", bg: "#f8fafc", border: "#e2e8f0", overdue: false, days: null };
+  const neutral = { color: "#475569", bg: "#f6f9fd", border: "var(--border-blue-faint)", overdue: false, days: null };
   if (!dueDate) return { label: "No due date", ...neutral };
 
   const parsed = parseDueDate(dueDate);
@@ -141,7 +142,7 @@ function getDueMeta(dueDate?: string): DueMeta {
 function formatDueDate(dueDate?: string): string {
   const parsed = parseDueDate(dueDate);
   if (!parsed) return dueDate || "—";
-  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return formatDateFull(parsed);
 }
 
 /** Default due date for new orders: 30 days out, stored as ISO yyyy-mm-dd. */
@@ -149,6 +150,17 @@ function defaultDueDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 30);
   return toDateInputValue(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+}
+
+/** A bare number reads as "100000"; group it the Indian way so it scans. */
+function formatSalary(raw?: string): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "—";
+  if (!/^\d+$/.test(value)) return value;
+
+  const last3 = value.slice(-3);
+  const rest = value.slice(0, -3);
+  return rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}` : last3;
 }
 
 // Helper: parse min experience years from string
@@ -340,42 +352,34 @@ export function calculateCandidateMatch(
   };
 }
 
-/** Builds the recruiter outreach email shown in the pitch modal. */
-export function buildPitchEmail(order: JobOrderRecord, res: MatchResult): { subject: string; body: string } {
-  const profile = res.candidate.profile || {};
-  const firstName = (profile.full_name || res.candidate.source_email?.from_name || "there").split(" ")[0];
-  const role = order.designation || order.title;
-  const strengths = res.matchedSkills.length > 0 ? res.matchedSkills.join(", ") : "your overall profile";
+function FulfilmentRing({ filled, headcount }: { filled: number; headcount: number }) {
+  const pct = Math.min(100, Math.round((filled / (headcount || 1)) * 100));
+  const radius = 20;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct >= 100 ? "var(--success)" : "var(--primary)";
 
-  const subject = `${role} opportunity at ${order.client}`;
-
-  const body = [
-    `Hi ${firstName},`,
-    "",
-    `I came across your profile while shortlisting for a ${role} position with ${order.client}, and your background lines up closely with what the team is looking for.`,
-    "",
-    "Why I think this is worth a conversation:",
-    `• Strong overlap on ${strengths}.`,
-    `• ${res.roleStatusText} for the ${role} track.`,
-    `• ${res.expStatusText}.`,
-    "",
-    "Role snapshot:",
-    `• Client: ${order.client}`,
-    `• Position: ${role}${order.industry ? ` (${order.industry})` : ""}`,
-    `• Experience expected: ${order.minExperience || "Open"}`,
-    `• Budget: ₹ ${order.salary}`,
-    `• Skills in focus: ${(order.skills || []).join(", ") || "General"}`,
-    ...(res.missingSkills.length > 0
-      ? ["", `A couple of areas I'd like to understand better: ${res.missingSkills.join(", ")}.`]
-      : []),
-    "",
-    "Would you be open to a short call this week to walk through the details?",
-    "",
-    "Best regards,",
-    "Talent Acquisition Team",
-  ].join("\n");
-
-  return { subject, body };
+  return (
+    <div className="jo-ring" title={`${filled} of ${headcount} filled`}>
+      <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
+        <circle cx="26" cy="26" r={radius} fill="none" stroke="var(--dash-track)" strokeWidth="4.5" />
+        <circle
+          cx="26"
+          cy="26"
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="4.5"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          transform="rotate(-90 26 26)"
+          style={{ transition: "stroke-dashoffset 0.6s cubic-bezier(0.16, 1, 0.3, 1)" }}
+        />
+      </svg>
+      <span className="jo-ring-value">{pct}%</span>
+    </div>
+  );
 }
 
 function ScoreRadialGauge({ score }: { score: number }) {
@@ -384,12 +388,12 @@ function ScoreRadialGauge({ score }: { score: number }) {
   const offset = circumference - (score / 100) * circumference;
 
   const color =
-    score >= 90 ? "#16a34a" : score >= 65 ? "#2563eb" : score >= 35 ? "#d97706" : "#e11d48";
+    score >= 90 ? "#16a34a" : score >= 65 ? "var(--primary)" : score >= 35 ? "#d97706" : "#e11d48";
 
   return (
     <div style={{ position: "relative", width: "56px", height: "56px", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <svg width="56" height="56" viewBox="0 0 56 56">
-        <circle cx="28" cy="28" r={radius} fill="none" stroke="#f1f5f9" strokeWidth="4.5" />
+        <circle cx="28" cy="28" r={radius} fill="none" stroke="#f6f9fd" strokeWidth="4.5" />
         <circle
           cx="28"
           cy="28"
@@ -452,11 +456,9 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
   const [editingOrder, setEditingOrder] = useState<JobOrderRecord | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
-  // Candidate Matching Filter & Pitch state
+  // Candidate matching filter + sort state
   const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SHORTLISTED" | "REJECTED" | "ROLE">("ALL");
   const [matchSort, setMatchSort] = useState<"SCORE" | "EXP" | "NAME">("SCORE");
-  const [pitchResult, setPitchResult] = useState<MatchResult | null>(null);
-  const [pitchCopied, setPitchCopied] = useState(false);
 
   // Form state for "Create New Order"
   const [selectedClient, setSelectedClient] = useState("");
@@ -611,11 +613,6 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, [activeMenuId]);
-
-  // Reset the "Copied" confirmation whenever a different pitch is opened
-  useEffect(() => {
-    setPitchCopied(false);
-  }, [pitchResult]);
 
   // Open Edit Modal pre-filled with the chosen order's values.
   // `editingOrder` is tracked separately from `selectedOrder` so an order can be
@@ -830,10 +827,46 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
   };
 
   // Hero statistics bar calculations
-  const totalOrdersCount = orders.length;
-  const activeOrdersCount = orders.filter((o) => o.status === "OPEN" || o.status === "IN PROGRESS").length;
+  // Everything else on this screen reads live status via deriveStatus(); using
+  // the stored `o.status` here made the tile disagree with the filter chips
+  // whenever an order had been filled but not re-saved.
+  const activeOrdersCount = orders.filter((o) => {
+    const live = deriveStatus(o);
+    return live === "OPEN" || live === "IN PROGRESS";
+  }).length;
   const totalHeadcount = orders.reduce((sum, o) => sum + (o.headcount || 1), 0);
   const totalShortlisted = orders.reduce((sum, o) => sum + (o.shortlistedCandidateIds?.length || o.fulfilledCount || 0), 0);
+  const openPositions = Math.max(0, totalHeadcount - totalShortlisted);
+  const fillRate = totalHeadcount > 0 ? Math.round((totalShortlisted / totalHeadcount) * 100) : 0;
+  const overdueCount = orders.filter(
+    (o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue,
+  ).length;
+
+  /**
+   * The matching engine already exists but only ever ran for the order you had
+   * opened. Running it across the list tells you which requisitions actually
+   * have talent waiting, without opening each one.
+   */
+  const matchSummaryByOrder = useMemo(() => {
+    const summary = new Map<string, { strong: number; best: number }>();
+    if (dbCandidates.length === 0) return summary;
+
+    for (const order of orders) {
+      const shortlisted = order.shortlistedCandidateIds || [];
+      const rejected = order.rejectedCandidateIds || [];
+      let strong = 0;
+      let best = 0;
+
+      for (const cand of dbCandidates) {
+        const result = calculateCandidateMatch(order, cand, shortlisted, rejected);
+        if (result.isRejected) continue;
+        if (result.matchScore >= 65) strong += 1;
+        if (result.matchScore > best) best = result.matchScore;
+      }
+      summary.set(order.id, { strong, best });
+    }
+    return summary;
+  }, [orders, dbCandidates]);
 
   // Compute matched candidates from Database OCR for selectedOrder
   const matchedCandidateResults = useMemo(() => {
@@ -906,7 +939,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
           style={{ maxWidth: "600px", borderRadius: "16px", padding: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f1f5f9" }}>
+          <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f6f9fd" }}>
             <div>
               <h3 className="modal-title" style={{ fontSize: "1.4rem", fontWeight: 700 }}>
                 Edit Job Order
@@ -965,8 +998,8 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                         type="button"
                         onClick={() => bumpEditDueDate(d)}
                         style={{
-                          background: "#f8fafc",
-                          border: "1px solid #e2e8f0",
+                          background: "#f6f9fd",
+                          border: "1px solid var(--border-blue)",
                           color: "#475569",
                           fontSize: "0.72rem",
                           fontWeight: 600,
@@ -1048,7 +1081,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               </div>
             </div>
 
-            <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f1f5f9" }}>
+            <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f6f9fd" }}>
               <button type="button" className="modal-cancel-btn" onClick={closeEditModal}>
                 Cancel
               </button>
@@ -1074,7 +1107,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
     const detailStatus = deriveStatus(selectedOrder);
     const statusStyle = getStatusStyle(detailStatus);
     const dueMeta = getDueMeta(selectedOrder.dueDate);
-    const progressColor = progressPct >= 100 ? "#16a34a" : progressPct > 0 ? "#3b82f6" : "#cbd5e1";
+    const progressColor = progressPct >= 100 ? "#16a34a" : progressPct > 0 ? "var(--primary)" : "var(--border-blue-strong)";
     const strongMatches = matchedCandidateResults.filter((r) => r.matchScore >= 65).length;
 
     return (
@@ -1091,7 +1124,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               height: "38px",
               borderRadius: "10px",
               background: "#ffffff",
-              border: "1px solid #e2e8f0",
+              border: "1px solid var(--border-blue)",
               color: "#475569",
               cursor: "pointer",
               boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
@@ -1177,7 +1210,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
         <div
           style={{
             background: "#ffffff",
-            border: "1px solid #e2e8f0",
+            border: "1px solid var(--border-blue)",
             borderRadius: "20px",
             padding: "1.75rem",
             display: "flex",
@@ -1191,7 +1224,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
               {/* Badges & Actions */}
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                <span style={{ background: "#dbeafe", color: "#2563eb", fontSize: "0.75rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>
+                <span style={{ background: "#e6edfb", color: "var(--primary)", fontSize: "0.75rem", fontWeight: 700, padding: "3px 10px", borderRadius: "6px" }}>
                   {selectedOrder.id}
                 </span>
 
@@ -1250,7 +1283,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                   style={{
                     background: "#ffffff",
                     color: "#475569",
-                    border: "1px solid #cbd5e1",
+                    border: "1px solid var(--border-blue-strong)",
                     fontSize: "0.75rem",
                     fontWeight: 700,
                     padding: "4px 12px",
@@ -1291,7 +1324,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                 <h1 style={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.75rem", fontWeight: 700, color: "#0f172a", margin: "0.2rem 0" }}>
                   {selectedOrder.title}
                 </h1>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.9rem", fontWeight: 600, color: "#2563eb" }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontSize: "0.9rem", fontWeight: 600, color: "var(--primary)" }}>
                   <Building2 size={15} />
                   <span>{selectedOrder.client}</span>
                 </div>
@@ -1302,11 +1335,11 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
             <div style={{ minWidth: "220px", display: "flex", flexDirection: "column", gap: "0.4rem", alignItems: "flex-end" }}>
               <div style={{ display: "flex", gap: "2rem", fontSize: "0.8rem", fontWeight: 700 }}>
                 <span style={{ color: "#64748b" }}>Fulfillment Progress</span>
-                <span style={{ color: progressColor === "#cbd5e1" ? "#94a3b8" : progressColor }}>
+                <span style={{ color: progressColor === "var(--border-blue-strong)" ? "#94a3b8" : progressColor }}>
                   {fulfilled} / {totalHead}
                 </span>
               </div>
-              <div style={{ width: "100%", height: "8px", background: "#f1f5f9", borderRadius: "999px", overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "8px", background: "#f6f9fd", borderRadius: "999px", overflow: "hidden" }}>
                 <div style={{ width: `${progressPct}%`, height: "100%", background: progressColor, borderRadius: "999px", transition: "width 0.3s ease" }}></div>
               </div>
               <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8" }}>
@@ -1321,7 +1354,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
           <div
             style={{
               background: "#ffffff",
-              border: "1px solid #f1f5f9",
+              border: "1px solid #f6f9fd",
               borderRadius: "14px",
               padding: "1.25rem 1.5rem",
               display: "grid",
@@ -1342,8 +1375,8 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                     <span
                       key={`req-${sk}`}
                       style={{
-                        background: "#eff6ff",
-                        color: "#1d4ed8",
+                        background: "#f6f9fd",
+                        color: "var(--primary-hover)",
                         border: "1px solid #bfdbfe",
                         fontSize: "0.72rem",
                         fontWeight: 600,
@@ -1420,56 +1453,64 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
           {/* Header & Match Counter */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "1.2rem", fontWeight: 700, color: "#0f172a" }}>
-              <Users size={20} style={{ color: "#2563eb" }} />
+              <Users size={20} style={{ color: "var(--primary)" }} />
               <span>Candidate Matches</span>
             </div>
-            <span style={{ background: "#ffffff", border: "1px solid #e2e8f0", color: "#64748b", fontSize: "0.8rem", fontWeight: 600, padding: "5px 14px", borderRadius: "999px", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
+            <span style={{ background: "#ffffff", border: "1px solid var(--border-blue)", color: "#64748b", fontSize: "0.8rem", fontWeight: 600, padding: "5px 14px", borderRadius: "999px", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
               {matchedCandidateResults.length} of {dbCandidates.length} profiles shown
             </span>
           </div>
 
-          {/* Talent Pool Summary Card */}
-          <div
-            style={{
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: "16px",
-              padding: "1.1rem 1.4rem",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "1.5rem",
-              flexWrap: "wrap",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-              <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: "rgba(37, 99, 235, 0.08)", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Target size={22} />
-              </div>
-              <div>
-                <h4 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
-                  Talent Pool Summary
-                </h4>
-                <p style={{ margin: "2px 0 0 0", fontSize: "0.82rem", color: "#475569" }}>
-                  Top Match: <strong style={{ color: "#16a34a" }}>{matchedCandidateResults[0]?.matchScore || 0}%</strong>
-                  {" • "}Strong fits (&ge;65%): <strong>{strongMatches}</strong>
-                  {" • "}Shortlisted: <strong>{shortlistedIds.length}</strong>
-                  {" • "}Rejected: <strong>{rejectedIds.length}</strong>
-                  {" • "}Pool evaluated: <strong>{dbCandidates.length} profiles</strong>
-                </p>
-              </div>
-            </div>
+          {/* Pool summary as tiles — same shell the dashboard and the orders
+              list use, so a number reads the same way everywhere. */}
+          <div className="metric-tiles">
+            <MetricTile
+              label="Top match"
+              value={`${matchedCandidateResults[0]?.matchScore ?? 0}%`}
+              icon={Target}
+              accent="#047857"
+              accentSoft="rgba(16, 185, 129, 0.10)"
+              caption={matchedCandidateResults[0]?.candidate.profile?.full_name || "No candidates evaluated"}
+            />
+            <MetricTile
+              label="Strong fits (65%+)"
+              value={formatInt(strongMatches)}
+              icon={UserCheck}
+              caption={`out of ${formatInt(dbCandidates.length)} profile${dbCandidates.length === 1 ? "" : "s"} evaluated`}
+            />
+            <MetricTile
+              label="Shortlisted"
+              value={formatInt(shortlistedIds.length)}
+              icon={CheckCircle}
+              accent="#047857"
+              accentSoft="rgba(16, 185, 129, 0.10)"
+              caption={`${formatInt(totalHead)} seat${totalHead === 1 ? "" : "s"} on this order`}
+            />
+            <MetricTile
+              label="Rejected"
+              value={formatInt(rejectedIds.length)}
+              icon={XCircle}
+              accent={rejectedIds.length > 0 ? "#b91c1c" : "var(--text-muted)"}
+              accentSoft={rejectedIds.length > 0 ? "rgba(239, 68, 68, 0.10)" : "var(--dash-track)"}
+              caption="Screened out of this order"
+            />
+          </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <span style={{ background: "#ffffff", border: "1px solid #cbd5e1", color: "#334155", fontSize: "0.75rem", fontWeight: 700, padding: "5px 12px", borderRadius: "8px" }}>
-                Target Skills: {selectedOrder.skills.join(", ")}
-              </span>
+          <div className="mc-targets">
+            <span className="mc-targets-label">
+              <Target size={13} /> Target skills
+            </span>
+            <div className="mc-targets-list">
+              {selectedOrder.skills.map((sk) => (
+                <span className="mc-target" key={`target-${sk}`}>
+                  {sk}
+                </span>
+              ))}
             </div>
           </div>
 
           {/* Filter & Sort Controls Bar */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", background: "#ffffff", border: "1px solid #e2e8f0", padding: "0.75rem 1.25rem", borderRadius: "14px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem", background: "#ffffff", border: "1px solid var(--border-blue)", padding: "0.75rem 1.25rem", borderRadius: "14px" }}>
             {/* Filter Pills */}
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
               <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#64748b", display: "flex", alignItems: "center", gap: "4px", marginRight: "0.25rem" }}>
@@ -1487,9 +1528,9 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                   key={tab.id}
                   onClick={() => setMatchFilter(tab.id as any)}
                   style={{
-                    background: matchFilter === tab.id ? "#2563eb" : "#f8fafc",
+                    background: matchFilter === tab.id ? "var(--primary)" : "#f6f9fd",
                     color: matchFilter === tab.id ? "#ffffff" : "#475569",
-                    border: matchFilter === tab.id ? "1px solid #2563eb" : "1px solid #e2e8f0",
+                    border: matchFilter === tab.id ? "1px solid var(--primary)" : "1px solid var(--border-blue)",
                     fontSize: "0.78rem",
                     fontWeight: 600,
                     padding: "4px 12px",
@@ -1512,8 +1553,8 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                 value={matchSort}
                 onChange={(e) => setMatchSort(e.target.value as any)}
                 style={{
-                  background: "#f8fafc",
-                  border: "1px solid #cbd5e1",
+                  background: "#f6f9fd",
+                  border: "1px solid var(--border-blue-strong)",
                   color: "#0f172a",
                   fontSize: "0.78rem",
                   fontWeight: 600,
@@ -1536,7 +1577,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               <div
                 style={{
                   background: "#ffffff",
-                  border: "1px solid #e2e8f0",
+                  border: "1px solid var(--border-blue)",
                   borderRadius: "20px",
                   padding: "3rem 1.5rem",
                   display: "flex",
@@ -1546,14 +1587,14 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                   color: "#64748b",
                 }}
               >
-                <Loader2 size={26} style={{ color: "#2563eb", animation: "job-order-spin 1s linear infinite" }} />
+                <Loader2 size={26} style={{ color: "var(--primary)", animation: "job-order-spin 1s linear infinite" }} />
                 <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Scanning the talent database for matches…</span>
               </div>
             ) : matchedCandidateResults.length === 0 ? (
               <div
                 style={{
                   background: "#ffffff",
-                  border: "1px dashed #cbd5e1",
+                  border: "1px dashed var(--border-blue-strong)",
                   borderRadius: "20px",
                   padding: "3rem 1.5rem",
                   display: "flex",
@@ -1563,7 +1604,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                   textAlign: "center",
                 }}
               >
-                <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: "#f1f5f9", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: "48px", height: "48px", borderRadius: "14px", background: "#f6f9fd", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <Inbox size={24} />
                 </div>
                 <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#334155" }}>
@@ -1583,7 +1624,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                     onClick={() => setMatchFilter("ALL")}
                     style={{
                       marginTop: "0.5rem",
-                      background: "#2563eb",
+                      background: "var(--primary)",
                       color: "#ffffff",
                       border: "none",
                       fontSize: "0.82rem",
@@ -1606,7 +1647,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               // Match badge styling based on realistic math score
               const getBadgeStyle = (score: number) => {
                 if (score >= 90) return { bg: "#dcfce7", color: "#15803d", border: "#bbf7d0", label: `${score}% PERFECT MATCH` };
-                if (score >= 65) return { bg: "#dbeafe", color: "#1d4ed8", border: "#bfdbfe", label: `${score}% HIGH MATCH` };
+                if (score >= 65) return { bg: "#e6edfb", color: "var(--primary-hover)", border: "#bfdbfe", label: `${score}% HIGH MATCH` };
                 if (score >= 35) return { bg: "#fef3c7", color: "#b45309", border: "#fde68a", label: `${score}% PARTIAL MATCH` };
                 return { bg: "#fee2e2", color: "#b91c1c", border: "#fca5a5", label: `${score}% LOW COMPATIBILITY` };
               };
@@ -1614,481 +1655,192 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               const badge = getBadgeStyle(res.matchScore);
 
               return (
-                <div
+                <article
                   key={res.candidate.id}
-                  style={{
-                    background: res.isRejected ? "#fefefe" : "#ffffff",
-                    border: res.isRejected
-                      ? "1px solid #fecdd3"
-                      : res.isSelected
-                      ? "2px solid #22c55e"
-                      : "1px solid #e2e8f0",
-                    borderRadius: "20px",
-                    padding: "1.5rem 1.75rem",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "1.15rem",
-                    opacity: res.isRejected ? 0.72 : 1,
-                    boxShadow: res.isSelected ? "0 4px 16px rgba(34, 197, 94, 0.12)" : "0 2px 8px rgba(0,0,0,0.03)",
-                    transition: "all 0.2s ease",
-                  }}
+                  className={`mc-card ${res.isSelected ? "is-shortlisted" : ""} ${
+                    res.isRejected ? "is-rejected" : ""
+                  }`}
                 >
-                  {/* Top Row: Radial Gauge, Candidate Meta & Action Buttons */}
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "1.1rem" }}>
-                      {/* SVG Circular Score Radial */}
-                      <ScoreRadialGauge score={res.matchScore} />
-
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>{name}</span>
-                          <span
-                            style={{
-                              background: badge.bg,
-                              color: badge.color,
-                              border: `1px solid ${badge.border}`,
-                              fontSize: "0.75rem",
-                              fontWeight: 700,
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              letterSpacing: "0.2px",
-                            }}
-                          >
-                            {badge.label}
-                          </span>
-
-                          {res.isRejected && (
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "4px",
-                                background: "#fee2e2",
-                                color: "#b91c1c",
-                                border: "1px solid #fca5a5",
-                                fontSize: "0.72rem",
-                                fontWeight: 700,
-                                padding: "3px 9px",
-                                borderRadius: "999px",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.3px",
-                              }}
-                            >
-                              <XCircle size={12} />
-                              Rejected
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "3px", fontWeight: 500 }}>
-                          {profile.current_designation || "Candidate"}
-                          {profile.current_company ? ` @ ${profile.current_company}` : ""} •{" "}
-                          <span style={{ color: "#334155", fontWeight: 600 }}>{expYears}</span>
-                        </div>
-
-                        {/* Contact strip pulled from the parsed resume */}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem 1rem", marginTop: "5px", fontSize: "0.76rem", color: "#94a3b8", fontWeight: 500 }}>
-                          {(profile.email || res.candidate.source_email?.from_addr) && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                              <Mail size={12} />
-                              {profile.email || res.candidate.source_email?.from_addr}
-                            </span>
-                          )}
-                          {profile.phone && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                              <Phone size={12} />
-                              {profile.phone}
-                            </span>
-                          )}
-                          {profile.location && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                              <MapPin size={12} />
-                              {profile.location}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                      {/* Recruiter Outreach Email */}
-                      <button
-                        onClick={() => setPitchResult(res)}
-                        style={{
-                          background: "#ffffff",
-                          color: "#475569",
-                          border: "1px solid #cbd5e1",
-                          padding: "0.6rem 1.1rem",
-                          borderRadius: "12px",
-                          fontSize: "0.82rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.4rem",
-                          transition: "all 0.15s ease",
-                        }}
-                        title="Draft a recruiter outreach email for this candidate"
-                      >
-                        <Mail size={15} style={{ color: "#64748b" }} />
-                        <span>Outreach Email</span>
-                      </button>
-
-                      {/* Reject Action */}
-                      <button
-                        onClick={() => handleToggleRejectCandidate(selectedOrder.id, res.candidate.id)}
-                        style={{
-                          background: res.isRejected ? "#fee2e2" : "#ffffff",
-                          color: res.isRejected ? "#b91c1c" : "#be123c",
-                          border: `1px solid ${res.isRejected ? "#fca5a5" : "#fecdd3"}`,
-                          padding: "0.6rem 1.1rem",
-                          borderRadius: "12px",
-                          fontSize: "0.82rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.4rem",
-                          transition: "all 0.15s ease",
-                        }}
-                        title={res.isRejected ? "Move this candidate back into the active pool" : "Reject this candidate for this order"}
-                      >
-                        {res.isRejected ? (
-                          <>
-                            <RotateCcw size={15} />
-                            <span>Undo Reject</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={15} />
-                            <span>Reject</span>
-                          </>
-                        )}
-                      </button>
-
-                      {/* Shortlist Action */}
-                      <button
-                        onClick={() => handleToggleShortlistCandidate(selectedOrder.id, res.candidate.id)}
-                        style={{
-                          background: res.isSelected ? "#22c55e" : "#2563eb",
-                          color: "#ffffff",
-                          border: "none",
-                          padding: "0.6rem 1.35rem",
-                          borderRadius: "12px",
-                          fontSize: "0.85rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.4rem",
-                          boxShadow: res.isSelected ? "0 2px 8px rgba(34, 197, 94, 0.35)" : "0 2px 8px rgba(37, 99, 235, 0.3)",
-                          transition: "all 0.15s ease",
-                        }}
-                      >
-                        {res.isSelected ? (
-                          <>
-                            <CheckCircle size={16} />
-                            <span>Shortlisted</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus size={16} />
-                            <span>{res.isRejected ? "Restore & Shortlist" : "Shortlist Candidate"}</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3-Pillar Match Meters */}
-                  <div
+                  {/* Cap keys the card to its match band before any text is read. */}
+                  <span
+                    className="mc-cap"
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                      gap: "0.75rem",
-                      background: "#f8fafc",
-                      border: "1px solid #f1f5f9",
-                      borderRadius: "14px",
-                      padding: "0.9rem 1.1rem",
+                      background: res.isRejected
+                        ? "#e11d48"
+                        : res.matchScore >= 90
+                        ? "#16a34a"
+                        : res.matchScore >= 65
+                        ? "var(--primary)"
+                        : res.matchScore >= 35
+                        ? "#d97706"
+                        : "#e11d48",
                     }}
-                  >
-                    {/* Pillar 1: Skill Fit (50 pts) */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", fontWeight: 700, color: "#475569" }}>
-                        <span>Skill Fit</span>
-                        <span style={{ color: "#2563eb" }}>{res.skillScore} / 50 pts</span>
+                  />
+
+                  <header className="mc-head">
+                    <ScoreRadialGauge score={res.matchScore} />
+
+                    <div className="mc-identity">
+                      <div className="mc-name-row">
+                        <h4 className="mc-name" title={name}>
+                          {name}
+                        </h4>
+                        <span
+                          className="mc-badge"
+                          style={{
+                            background: badge.bg,
+                            color: badge.color,
+                            border: `1px solid ${badge.border}`,
+                          }}
+                        >
+                          {badge.label}
+                        </span>
+                        {res.isRejected && (
+                          <span className="mc-badge mc-badge-rejected">
+                            <XCircle size={12} />
+                            Rejected
+                          </span>
+                        )}
                       </div>
-                      <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden" }}>
-                        <div style={{ width: `${(res.skillScore / 50) * 100}%`, height: "100%", background: "#2563eb", borderRadius: "999px" }} />
+
+                      <p className="mc-role">
+                        {profile.current_designation || "Candidate"}
+                        {profile.current_company ? ` @ ${profile.current_company}` : ""}
+                        {" · "}
+                        <strong>{expYears}</strong>
+                      </p>
+
+                      <div className="mc-contacts">
+                        {(profile.email || res.candidate.source_email?.from_addr) && (
+                          <span>
+                            <Mail size={12} />
+                            {profile.email || res.candidate.source_email?.from_addr}
+                          </span>
+                        )}
+                        {profile.phone && (
+                          <span>
+                            <Phone size={12} />
+                            {profile.phone}
+                          </span>
+                        )}
+                        {profile.location && (
+                          <span>
+                            <MapPin size={12} />
+                            {profile.location}
+                          </span>
+                        )}
                       </div>
-                      <span style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 500 }}>
+                    </div>
+                  </header>
+
+                  {/* The three scoring pillars, each a labelled meter. */}
+                  <div className="mc-meters">
+                    <div className="mc-meter">
+                      <div className="mc-meter-top">
+                        <span className="mc-meter-label">Skill fit</span>
+                        <span className="mc-meter-score">{res.skillScore}<i>/50</i></span>
+                      </div>
+                      <span className="mc-track">
+                        <span
+                          className="mc-track-fill"
+                          style={{
+                            width: `${(res.skillScore / 50) * 100}%`,
+                            background: "var(--primary)",
+                          }}
+                        />
+                      </span>
+                      <span className="mc-meter-note">
                         {res.matchedSkills.length} of {selectedOrder.skills.length} skills matched
                       </span>
                     </div>
 
-                    {/* Pillar 2: Role Fit (25 pts) */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", fontWeight: 700, color: "#475569" }}>
-                        <span>Role Fit</span>
-                        <span style={{ color: res.roleMatched ? "#15803d" : "#b45309" }}>{res.roleScore} / 25 pts</span>
+                    <div className="mc-meter">
+                      <div className="mc-meter-top">
+                        <span className="mc-meter-label">Role fit</span>
+                        <span className="mc-meter-score">{res.roleScore}<i>/25</i></span>
                       </div>
-                      <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden" }}>
-                        <div style={{ width: `${(res.roleScore / 25) * 100}%`, height: "100%", background: res.roleMatched ? "#16a34a" : "#f59e0b", borderRadius: "999px" }} />
-                      </div>
-                      <span style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 500 }}>
-                        {res.roleStatusText}
-                      </span>
-                    </div>
-
-                    {/* Pillar 3: Exp Fit (25 pts) */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", fontWeight: 700, color: "#475569" }}>
-                        <span>Experience Fit</span>
-                        <span style={{ color: res.expMatched ? "#15803d" : "#b45309" }}>{res.expScore} / 25 pts</span>
-                      </div>
-                      <div style={{ width: "100%", height: "6px", background: "#e2e8f0", borderRadius: "999px", overflow: "hidden" }}>
-                        <div style={{ width: `${(res.expScore / 25) * 100}%`, height: "100%", background: res.expMatched ? "#16a34a" : "#f59e0b", borderRadius: "999px" }} />
-                      </div>
-                      <span style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 500 }}>
-                        {res.expStatusText}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Screening Summary Callout Box */}
-                  <div
-                    style={{
-                      background: res.matchScore >= 65 ? "#f0fdf4" : res.matchScore >= 35 ? "#fefce8" : "#fff1f2",
-                      border: `1px solid ${res.matchScore >= 65 ? "#bbf7d0" : res.matchScore >= 35 ? "#fef08a" : "#fecdd3"}`,
-                      borderRadius: "12px",
-                      padding: "0.75rem 1rem",
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "0.6rem",
-                    }}
-                  >
-                    <Info size={16} style={{ color: res.matchScore >= 65 ? "#16a34a" : res.matchScore >= 35 ? "#d97706" : "#e11d48", marginTop: "2px", flexShrink: 0 }} />
-                    <div style={{ fontSize: "0.82rem", color: "#334155", fontWeight: 500, lineHeight: 1.4 }}>
-                      <strong style={{ color: "#0f172a" }}>Screening Summary: </strong>
-                      {res.summary}
-                    </div>
-                  </div>
-
-                  {/* Skills Grid: Matched Skills vs Missing Skills */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                    <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                      SKILL MATRIX EVALUATION
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                      {/* Matched Skills (Green) */}
-                      {res.matchedSkills.map((sk) => (
+                      <span className="mc-track">
                         <span
-                          key={`matched-${sk}`}
+                          className="mc-track-fill"
                           style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            padding: "3px 10px",
-                            borderRadius: "6px",
-                            background: "#f0fdf4",
-                            color: "#15803d",
-                            border: "1px solid #bbf7d0",
+                            width: `${(res.roleScore / 25) * 100}%`,
+                            background: res.roleMatched ? "var(--success)" : "var(--warning)",
                           }}
-                        >
-                          <Check size={13} style={{ color: "#16a34a" }} />
-                          <span>{sk}</span>
-                        </span>
-                      ))}
+                        />
+                      </span>
+                      <span className="mc-meter-note">{res.roleStatusText}</span>
+                    </div>
 
-                      {/* Missing Skills (Rose/Red) */}
-                      {res.missingSkills.map((sk) => (
+                    <div className="mc-meter">
+                      <div className="mc-meter-top">
+                        <span className="mc-meter-label">Experience fit</span>
+                        <span className="mc-meter-score">{res.expScore}<i>/25</i></span>
+                      </div>
+                      <span className="mc-track">
                         <span
-                          key={`missing-${sk}`}
+                          className="mc-track-fill"
                           style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "4px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            padding: "3px 10px",
-                            borderRadius: "6px",
-                            background: "#fff1f2",
-                            color: "#be123c",
-                            border: "1px solid #fecdd3",
+                            width: `${(res.expScore / 25) * 100}%`,
+                            background: res.expMatched ? "var(--success)" : "var(--warning)",
                           }}
-                        >
-                          <X size={13} style={{ color: "#e11d48" }} />
-                          <span>{sk}</span>
-                        </span>
-                      ))}
+                        />
+                      </span>
+                      <span className="mc-meter-note">{res.expStatusText}</span>
                     </div>
                   </div>
-                </div>
+
+                  {/* Matched vs missing, against the order's required skills. */}
+                  <div className="mc-matrix">
+                    {res.matchedSkills.map((sk) => (
+                      <span className="mc-chip mc-chip-hit" key={`matched-${sk}`}>
+                        <Check size={12} />
+                        {sk}
+                      </span>
+                    ))}
+                    {res.missingSkills.map((sk) => (
+                      <span className="mc-chip mc-chip-miss" key={`missing-${sk}`}>
+                        <X size={12} />
+                        {sk}
+                      </span>
+                    ))}
+                  </div>
+
+                  <p className="mc-summary">
+                    <Info size={14} />
+                    <span>{res.summary}</span>
+                  </p>
+
+                  {/* Actions live in a footer bar rather than competing with the
+                      candidate's name for the top-right corner. */}
+                  <footer className="mc-foot">
+                    <button
+                      className={`mc-btn mc-btn-reject ${res.isRejected ? "is-on" : ""}`}
+                      onClick={() => handleToggleRejectCandidate(selectedOrder.id, res.candidate.id)}
+                    >
+                      {res.isRejected ? <RotateCcw size={15} /> : <XCircle size={15} />}
+                      <span>{res.isRejected ? "Restore" : "Reject"}</span>
+                    </button>
+
+                    <button
+                      className={`mc-btn mc-btn-primary ${res.isSelected ? "is-on" : ""}`}
+                      onClick={() => handleToggleShortlistCandidate(selectedOrder.id, res.candidate.id)}
+                    >
+                      {res.isSelected ? <CheckCircle size={15} /> : <Plus size={15} />}
+                      <span>
+                        {res.isSelected
+                          ? "Shortlisted"
+                          : res.isRejected
+                          ? "Restore & shortlist"
+                          : "Shortlist candidate"}
+                      </span>
+                    </button>
+                  </footer>
+                </article>
               );
               })
             )}
           </div>
         </div>
-
-        {/* Recruiter Outreach Email Modal */}
-        {pitchResult && (() => {
-          const pitch = buildPitchEmail(selectedOrder, pitchResult);
-          const pitchProfile = pitchResult.candidate.profile || {};
-          const pitchName =
-            pitchProfile.full_name || pitchResult.candidate.source_email?.from_name || "Candidate";
-          const pitchEmail = pitchProfile.email || pitchResult.candidate.source_email?.from_addr || "";
-          const mailto = `mailto:${pitchEmail}?subject=${encodeURIComponent(pitch.subject)}&body=${encodeURIComponent(pitch.body)}`;
-
-          const copyPitch = async () => {
-            const text = `Subject: ${pitch.subject}\n\n${pitch.body}`;
-            try {
-              await navigator.clipboard.writeText(text);
-              setPitchCopied(true);
-            } catch {
-              setPitchCopied(false);
-            }
-          };
-
-          return (
-            <div className="cm-overlay active" onClick={() => setPitchResult(null)}>
-              <div
-                className="cm-dialog client-modal-dialog"
-                style={{ maxWidth: "640px", borderRadius: "16px", padding: 0 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="modal-header" style={{ padding: "1.4rem 1.75rem", borderBottom: "1px solid #f1f5f9" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                    <div style={{ width: "38px", height: "38px", borderRadius: "11px", background: "rgba(37, 99, 235, 0.08)", color: "#2563eb", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Mail size={19} />
-                    </div>
-                    <div>
-                      <h3 className="modal-title" style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0 }}>
-                        Outreach Email
-                      </h3>
-                      <p className="modal-subtitle" style={{ fontSize: "0.82rem", color: "#64748b", margin: "2px 0 0 0" }}>
-                        Drafted for {pitchName} • {pitchResult.matchScore}% match
-                      </p>
-                    </div>
-                  </div>
-                  <button className="modal-close-btn" onClick={() => setPitchResult(null)}>
-                    <X size={20} />
-                  </button>
-                </div>
-
-                <div className="modal-body" style={{ padding: "1.5rem 1.75rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
-                  {/* Candidate contact strip */}
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem 1.25rem", fontSize: "0.8rem", color: "#475569", fontWeight: 500 }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                      <Mail size={13} style={{ color: "#94a3b8" }} />
-                      {pitchEmail || "No email on file"}
-                    </span>
-                    {pitchProfile.phone && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                        <Phone size={13} style={{ color: "#94a3b8" }} />
-                        {pitchProfile.phone}
-                      </span>
-                    )}
-                    {pitchProfile.location && (
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
-                        <MapPin size={13} style={{ color: "#94a3b8" }} />
-                        {pitchProfile.location}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="modal-label">Subject</label>
-                    <div
-                      style={{
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "10px",
-                        padding: "0.65rem 0.9rem",
-                        fontSize: "0.87rem",
-                        fontWeight: 600,
-                        color: "#0f172a",
-                      }}
-                    >
-                      {pitch.subject}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="modal-label">Email body</label>
-                    <pre
-                      style={{
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "12px",
-                        padding: "1rem 1.1rem",
-                        fontSize: "0.83rem",
-                        lineHeight: 1.6,
-                        color: "#334155",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-word",
-                        fontFamily: "inherit",
-                        margin: 0,
-                        maxHeight: "300px",
-                        overflowY: "auto",
-                      }}
-                    >
-                      {pitch.body}
-                    </pre>
-                  </div>
-                </div>
-
-                <div className="modal-footer" style={{ padding: "1.15rem 1.75rem", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    onClick={copyPitch}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.4rem",
-                      background: pitchCopied ? "#f0fdf4" : "#ffffff",
-                      color: pitchCopied ? "#15803d" : "#475569",
-                      border: `1px solid ${pitchCopied ? "#bbf7d0" : "#cbd5e1"}`,
-                      fontSize: "0.85rem",
-                      fontWeight: 600,
-                      padding: "0.6rem 1.1rem",
-                      borderRadius: "10px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {pitchCopied ? <Check size={15} /> : <Copy size={15} />}
-                    <span>{pitchCopied ? "Copied" : "Copy email"}</span>
-                  </button>
-
-                  <a
-                    href={pitchEmail ? mailto : undefined}
-                    onClick={(e) => {
-                      if (!pitchEmail) e.preventDefault();
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "0.4rem",
-                      background: pitchEmail ? "#2563eb" : "#e2e8f0",
-                      color: pitchEmail ? "#ffffff" : "#94a3b8",
-                      fontSize: "0.85rem",
-                      fontWeight: 600,
-                      padding: "0.6rem 1.2rem",
-                      borderRadius: "10px",
-                      textDecoration: "none",
-                      cursor: pitchEmail ? "pointer" : "not-allowed",
-                      boxShadow: pitchEmail ? "0 2px 8px rgba(37,99,235,0.3)" : "none",
-                    }}
-                    title={pitchEmail ? "Open in your mail client" : "No email address on this profile"}
-                  >
-                    <Send size={15} />
-                    <span>Open in mail client</span>
-                  </a>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
 
         {renderEditModal()}
       </div>
@@ -2100,276 +1852,121 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
   // -------------------------------------------------------------
   return (
     <div className="job-orders-wrapper" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Hero Statistics Bar */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #2563eb",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(37, 99, 235, 0.08)",
-              color: "#2563eb",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Briefcase size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {totalOrdersCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Total Job Orders
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #d97706",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(217, 119, 6, 0.08)",
-              color: "#d97706",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Target size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {activeOrdersCount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Active Orders Open
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #8b5cf6",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(139, 92, 246, 0.08)",
-              color: "#8b5cf6",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Users size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {totalHeadcount}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Positions Headcount
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderLeft: "4px solid #10b981",
-            borderRadius: "14px",
-            padding: "1.15rem 1.25rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
-          }}
-        >
-          <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              background: "rgba(16, 185, 129, 0.08)",
-              color: "#10b981",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <UserCheck size={20} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.4rem", fontWeight: 700, color: "#0f172a", fontFamily: "var(--font-outfit), sans-serif", lineHeight: 1 }}>
-              {totalShortlisted}
-            </div>
-            <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#64748b", marginTop: "0.25rem" }}>
-              Shortlisted Candidates
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* Search & Action Controls Row */}
-      <div className="job-orders-controls-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        <div className="job-orders-search-wrapper" style={{ position: "relative", flexGrow: 1, minWidth: "260px" }}>
-          <Search size={18} className="job-orders-search-icon" style={{ position: "absolute", left: "1rem", top: "50%", transform: "translateY(-50%)", color: "#94a3b8" }} />
-          <input
-            type="text"
-            className="job-orders-search-input"
-            placeholder="Search by job title or required skills..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%",
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: "12px",
-              padding: "0.75rem 1rem 0.75rem 2.65rem",
-              fontSize: "0.9rem",
-              color: "#0f172a",
-              outline: "none",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-            }}
-          />
-          {searchQuery && (
-            <button
-              className="job-orders-search-clear"
-              onClick={() => setSearchQuery("")}
-              style={{ position: "absolute", right: "1rem", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#94a3b8", cursor: "pointer" }}
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
-
-        <button
-          className="btn-new-client"
-          onClick={() => setIsCreateModalOpen(true)}
-        >
-          <Plus size={16} />
-          <span>Create New Order</span>
-        </button>
+      {/* The status chips below already count orders by state, so these report
+          what the chips cannot: seats, progress and what has slipped. */}
+      <div className="metric-tiles">
+        <MetricTile
+          label="Positions to fill"
+          value={formatInt(openPositions)}
+          icon={Target}
+          caption={`${formatInt(totalHeadcount)} seat${totalHeadcount === 1 ? "" : "s"} across ${formatInt(activeOrdersCount)} active order${activeOrdersCount === 1 ? "" : "s"}`}
+        />
+        <MetricTile
+          label="Shortlisted candidates"
+          value={formatInt(totalShortlisted)}
+          icon={UserCheck}
+          accent="#047857"
+          accentSoft="rgba(16, 185, 129, 0.10)"
+          caption={`${fillRate}% of all seats filled`}
+        />
+        <MetricTile
+          label="Overdue orders"
+          value={formatInt(overdueCount)}
+          icon={AlertTriangle}
+          accent={overdueCount > 0 ? "#b91c1c" : "var(--text-muted)"}
+          accentSoft={overdueCount > 0 ? "rgba(239, 68, 68, 0.10)" : "var(--dash-track)"}
+          caption={overdueCount > 0 ? "Past their due date" : "Nothing past due"}
+        />
       </div>
 
-      {/* Status Filter Chips */}
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginTop: "-0.85rem" }}>
-        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#64748b", display: "flex", alignItems: "center", gap: "5px", marginRight: "0.25rem" }}>
-          <SlidersHorizontal size={14} /> STATUS:
-        </span>
-        {(["ALL", "OPEN", "IN PROGRESS", "FILLED", "CLOSED", "OVERDUE"] as const).map((st) => {
-          const isActive = statusFilter === st;
-          const count =
-            st === "ALL"
-              ? orders.length
-              : st === "OVERDUE"
-              ? orders.filter((o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue).length
-              : orders.filter((o) => deriveStatus(o) === st).length;
-          const style =
-            st === "ALL"
-              ? { bg: "#f8fafc", color: "#475569", border: "#e2e8f0" }
-              : st === "OVERDUE"
-              ? { bg: "#fff1f2", color: "#be123c", border: "#fecdd3" }
-              : getStatusStyle(st);
-          return (
-            <button
-              key={st}
-              className="job-order-status-chip"
-              onClick={() => setStatusFilter(st)}
-              style={{
-                background: isActive ? "#0f172a" : style.bg,
-                color: isActive ? "#ffffff" : style.color,
-                border: `1px solid ${isActive ? "#0f172a" : style.border}`,
-              }}
-            >
-              {st === "ALL" ? "All Orders" : st === "OVERDUE" ? "Overdue" : st} ({count})
-            </button>
-          );
-        })}
-      </div>
+      {/* Search + filters share one surface instead of floating as two loose
+          rows — the same "controls live in a card" rule the dashboard follows. */}
+      <section className="jo-toolbar">
+        <div className="jo-toolbar-top">
+          <div className="search-input-wrapper">
+            <Search size={18} />
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search by job title or required skills..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className="sourcing-search-clear"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+
+          <button className="btn-new-client" onClick={() => setIsCreateModalOpen(true)}>
+            <Plus size={16} />
+            <span>Create New Order</span>
+          </button>
+        </div>
+
+        <div className="jo-filters">
+          <span className="jo-filters-label">
+            <SlidersHorizontal size={14} /> STATUS
+          </span>
+          {(["ALL", "OPEN", "IN PROGRESS", "FILLED", "CLOSED", "OVERDUE"] as const).map((st) => {
+            const isActive = statusFilter === st;
+            const count =
+              st === "ALL"
+                ? orders.length
+                : st === "OVERDUE"
+                ? orders.filter((o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue).length
+                : orders.filter((o) => deriveStatus(o) === st).length;
+            return (
+              <button
+                key={st}
+                className={`job-order-status-chip ${isActive ? "active" : ""}`}
+                onClick={() => setStatusFilter(st)}
+                aria-pressed={isActive}
+              >
+                {st === "ALL" ? "All orders" : st === "OVERDUE" ? "Overdue" : st}
+                <span className="jo-chip-count">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Cards Grid */}
-      <div className="job-orders-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "1.25rem" }}>
+      <div className="jo-grid">
         {ordersLoading ? (
-          <div style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.75rem", padding: "3rem 1rem", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "16px", color: "#64748b" }}>
-            <Loader2 size={26} style={{ color: "#2563eb", animation: "job-order-spin 1s linear infinite" }} />
-            <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>Loading job orders…</span>
+          <div className="jo-state">
+            <Loader2 size={26} className="jo-spinner" />
+            <p>Loading job orders…</p>
           </div>
         ) : filteredOrders.length === 0 ? (
-          <div className="job-orders-empty" style={{ gridColumn: "1 / -1", textAlign: "center", padding: "3rem 1rem", background: "white", border: "1px dashed #cbd5e1", borderRadius: "16px", color: "#94a3b8" }}>
-            <Briefcase size={40} style={{ marginBottom: "0.5rem" }} />
-            <p style={{ fontWeight: 700, color: "#334155", margin: "0 0 0.25rem 0" }}>
-              {orders.length === 0 ? "No job orders yet" : "No orders match the current view"}
-            </p>
-            <p style={{ margin: 0, fontSize: "0.85rem" }}>
+          <div className="jo-state jo-state-empty">
+            <Briefcase size={40} strokeWidth={1.5} />
+            <p>{orders.length === 0 ? "No job orders yet" : "No orders match the current view"}</p>
+            <span>
               {orders.length === 0
                 ? "Create your first requisition to start matching candidates from the talent database."
                 : "Clear the search box or pick a different status filter."}
-            </p>
+            </span>
             {orders.length === 0 ? (
-              <button
-                className="btn-new-client"
-                style={{ marginTop: "1rem" }}
-                onClick={() => setIsCreateModalOpen(true)}
-              >
+              <button className="btn-new-client" onClick={() => setIsCreateModalOpen(true)}>
                 <Plus size={16} />
                 <span>Create New Order</span>
               </button>
             ) : (
               <button
+                className="btn-new-client"
                 onClick={() => {
                   setSearchQuery("");
                   setStatusFilter("ALL");
                 }}
-                style={{ marginTop: "1rem", background: "#2563eb", color: "#ffffff", border: "none", fontSize: "0.85rem", fontWeight: 600, padding: "0.55rem 1.2rem", borderRadius: "10px", cursor: "pointer" }}
               >
-                Reset filters
+                <RotateCcw size={15} />
+                <span>Reset filters</span>
               </button>
             )}
           </div>
@@ -2379,271 +1976,203 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
             const cardStatus = deriveStatus(item);
             const cardStatusStyle = getStatusStyle(cardStatus);
             const cardDue = getDueMeta(item.dueDate);
-            const cardPct = Math.min(100, Math.round((fulfilled / (item.headcount || 1)) * 100));
+            const isLate = cardDue.overdue && cardStatus !== "CLOSED";
+            const extraSkills = Math.max(0, (item.skills || []).length - 4);
+            const match = matchSummaryByOrder.get(item.id);
+
             return (
-              <div
-                className="job-order-card"
+              <article
+                className={`job-order-card ${isLate ? "is-late" : ""}`}
                 key={item.id}
                 onClick={() => setSelectedOrder(item)}
-                style={{
-                  background: "#ffffff",
-                  border: cardDue.overdue && cardStatus !== "CLOSED" ? "1px solid #fecdd3" : "1px solid #e2e8f0",
-                  borderTop: cardDue.overdue && cardStatus !== "CLOSED" ? "3px solid #f43f5e" : "1px solid #e2e8f0",
-                  borderRadius: "16px",
-                  padding: "1.35rem",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.85rem",
-                  height: "100%",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-                  position: "relative",
-                  cursor: "pointer",
-                  transition: "all 0.2s ease",
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedOrder(item);
+                  }
                 }}
               >
-                {/* Header: Title + Badge + Options */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
-                  <div>
-                    <h3 style={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.25rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.35rem" }}>
+                <span
+                  className="jo-cap"
+                  style={{ background: isLate ? "#e11d48" : cardStatusStyle.color }}
+                />
+
+                {/* Monogram anchors the card the way the sourcing cards do;
+                    the ring closes the row with progress at a glance. */}
+                <header className="jo-head">
+                  <span className="jo-monogram">{initialsOf(item.client)}</span>
+
+                  <div className="jo-headings">
+                    <h3 className="jo-title" title={item.title}>
                       {item.title}
                     </h3>
-                    {/* Client Sub-tag */}
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "0.35rem",
-                        background: "#f8fafc",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "6px",
-                        padding: "2px 8px",
-                        fontSize: "0.8rem",
-                        fontWeight: 600,
-                        color: "#475569",
-                      }}
-                    >
-                      <Building2 size={13} style={{ color: "#3b82f6" }} />
-                      <span>{item.client}</span>
+                    <div className="jo-head-meta">
+                      <span className="jo-client" title={item.client}>
+                        <Building2 size={12} />
+                        {item.client}
+                      </span>
+                      <span className="jo-sep" aria-hidden="true" />
+                      <span
+                        className="jo-status"
+                        style={{
+                          background: cardStatusStyle.bg,
+                          color: cardStatusStyle.color,
+                        }}
+                      >
+                        {cardStatus}
+                      </span>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                    <span
-                      style={{
-                        fontSize: "0.7rem",
-                        fontWeight: 700,
-                        padding: "3px 8px",
-                        borderRadius: "6px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.5px",
-                        whiteSpace: "nowrap",
-                        background: cardStatusStyle.bg,
-                        color: cardStatusStyle.color,
-                        border: `1px solid ${cardStatusStyle.border}`,
-                      }}
-                    >
-                      {cardStatus}
-                    </span>
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditModal(item);
-                      }}
-                      title="Edit this job order"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "28px",
-                        height: "28px",
-                        background: "#ffffff",
-                        border: "1px solid #e2e8f0",
-                        borderRadius: "8px",
-                        color: "#64748b",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Pencil size={14} />
-                    </button>
-
-                    <div style={{ position: "relative" }}>
+                  <div className="jo-head-end">
+                    <FulfilmentRing filled={fulfilled} headcount={item.headcount} />
+                    <div className="jo-actions">
                       <button
+                        className="jo-icon-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setActiveMenuId((prev) => (prev === item.id ? null : item.id));
+                          openEditModal(item);
                         }}
-                        style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", padding: "2px" }}
+                        title="Edit this job order"
+                        aria-label={`Edit ${item.title}`}
                       >
-                        <MoreVertical size={16} />
+                        <Pencil size={14} />
                       </button>
 
-                      {activeMenuId === item.id && (
-                        <div className="sourcing-dropdown-menu">
-                          <button
-                            className="dropdown-item"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(null);
-                              openEditModal(item);
-                            }}
-                          >
-                            <Pencil size={14} />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            className="dropdown-item"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveMenuId(null);
-                              handleToggleCloseOrder(item);
-                            }}
-                          >
-                            <CheckCircle size={14} />
-                            <span>{item.status === "CLOSED" ? "Reopen order" : "Close order"}</span>
-                          </button>
-                          <button
-                            className="dropdown-item danger"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteOrder(item.id);
-                            }}
-                          >
-                            <Trash2 size={14} />
-                            <span>Delete</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                      <div className="jo-menu-wrap">
+                        <button
+                          className="jo-icon-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveMenuId((prev) => (prev === item.id ? null : item.id));
+                          }}
+                          aria-label={`Actions for ${item.title}`}
+                        >
+                          <MoreVertical size={15} />
+                        </button>
 
-                {/* Headcount & Salary Split Boxes */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginTop: "0.25rem" }}>
-                  <div style={{ background: "#ffffff", border: "1px solid #f1f5f9", borderRadius: "10px", padding: "0.65rem 0.85rem", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <Users size={14} style={{ color: "#a855f7" }} />
-                      <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#64748b", letterSpacing: "0.5px" }}>HEADCOUNT</span>
-                    </div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-                      {fulfilled} / {item.headcount} filled
-                    </div>
-                    <div style={{ width: "100%", height: "4px", background: "#f1f5f9", borderRadius: "999px", overflow: "hidden", marginTop: "6px" }}>
-                      <div
-                        style={{
-                          width: `${cardPct}%`,
-                          height: "100%",
-                          background: cardPct >= 100 ? "#16a34a" : "#a855f7",
-                          borderRadius: "999px",
-                          transition: "width 0.3s ease",
-                        }}
-                      />
+                        {activeMenuId === item.id && (
+                          <div className="sourcing-dropdown-menu">
+                            <button
+                              className="dropdown-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuId(null);
+                                openEditModal(item);
+                              }}
+                            >
+                              <Pencil size={14} />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              className="dropdown-item"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuId(null);
+                                handleToggleCloseOrder(item);
+                              }}
+                            >
+                              <CheckCircle size={14} />
+                              <span>
+                                {item.status === "CLOSED" ? "Reopen order" : "Close order"}
+                              </span>
+                            </button>
+                            <button
+                              className="dropdown-item danger"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteOrder(item.id);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
+                </header>
 
-                  <div style={{ background: "#ffffff", border: "1px solid #f1f5f9", borderRadius: "10px", padding: "0.65rem 0.85rem", boxShadow: "0 1px 2px rgba(0,0,0,0.02)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                      <IndianRupee size={14} style={{ color: "#10b981" }} />
-                      <span style={{ fontSize: "0.65rem", fontWeight: 700, color: "#64748b", letterSpacing: "0.5px" }}>SALARY</span>
-                    </div>
-                    <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-                      {item.salary}
-                    </div>
-                    <div style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 600, marginTop: "6px" }}>
-                      {item.minExperience && item.minExperience !== "Any" ? `${item.minExperience} exp` : "Experience: open"}
-                    </div>
+                {/* Figures carried by type, not by boxes — value over label. */}
+                <dl className="jo-meta">
+                  <div className="jo-meta-item">
+                    <dd className="jo-meta-value" title={item.salary}>
+                      {formatSalary(item.salary)}
+                    </dd>
+                    <dt className="jo-meta-label">Salary</dt>
                   </div>
-                </div>
+                  <div className="jo-meta-item">
+                    <dd className="jo-meta-value">
+                      {item.minExperience && item.minExperience !== "Any"
+                        ? item.minExperience
+                        : "Open"}
+                    </dd>
+                    <dt className="jo-meta-label">Experience</dt>
+                  </div>
+                  <div className="jo-meta-item">
+                    <dd className="jo-meta-value">
+                      {fulfilled} <i>of</i> {item.headcount}
+                    </dd>
+                    <dt className="jo-meta-label">Headcount</dt>
+                  </div>
+                </dl>
 
-                {/* Required Skills */}
-                <div style={{ marginTop: "0.15rem" }}>
-                  <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#94a3b8", letterSpacing: "0.5px", marginBottom: "0.35rem" }}>
-                    REQUIRED SKILLS
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                {(item.skills || []).length > 0 && (
+                  <div className="jo-skill-tags">
                     {(item.skills || []).slice(0, 4).map((sk) => (
-                      <span
-                        key={`${item.id}-${sk}`}
-                        style={{
-                          background: "#f8fafc",
-                          color: "#475569",
-                          border: "1px solid #e2e8f0",
-                          fontSize: "0.72rem",
-                          fontWeight: 600,
-                          padding: "2px 8px",
-                          borderRadius: "6px",
-                        }}
-                      >
+                      <span className="jo-skill" key={`${item.id}-${sk}`}>
                         {sk}
                       </span>
                     ))}
-                    {(item.skills || []).length > 4 && (
-                      <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#94a3b8", padding: "2px 4px" }}>
-                        +{item.skills.length - 4} more
+                    {extraSkills > 0 && <span className="jo-skill-more">+{extraSkills} more</span>}
+                  </div>
+                )}
+
+                {match && (
+                  <p className={`jo-match ${match.strong > 0 ? "has-matches" : ""}`}>
+                    <Target size={14} />
+                    {match.strong > 0 ? (
+                      <span>
+                        <strong>{match.strong}</strong> strong match
+                        {match.strong === 1 ? "" : "es"} · best <strong>{match.best}%</strong>
+                      </span>
+                    ) : (
+                      <span>
+                        No strong matches yet{match.best > 0 ? ` · best ${match.best}%` : ""}
                       </span>
                     )}
-                  </div>
-                  {item.description && (
-                    <div style={{ fontStyle: "italic", color: "#64748b", fontSize: "0.775rem", marginTop: "0.5rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {item.description}
-                    </div>
-                  )}
-                </div>
+                  </p>
+                )}
 
-                {/* Overdue strip — extend the deadline without leaving the list */}
-                {cardDue.overdue && cardStatus !== "CLOSED" && (
-                  <div
-                    style={{
-                      background: "#fff1f2",
-                      border: "1px solid #fecdd3",
-                      borderRadius: "10px",
-                      padding: "0.6rem 0.75rem",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.78rem", fontWeight: 700, color: "#9f1239" }}>
-                      <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                      <span>{cardDue.days === 0 ? "Due today" : cardDue.label}</span>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#be123c" }}>EXTEND:</span>
+                {/* An alert is the one thing that still earns a filled box. */}
+                {isLate && (
+                  <div className="jo-late">
+                    <span className="jo-late-head">
+                      <AlertTriangle size={14} />
+                      {cardDue.days === 0 ? "Due today" : cardDue.label}
+                    </span>
+                    <div className="jo-late-actions">
+                      <span className="jo-late-label">Extend</span>
                       {[7, 15, 30].map((d) => (
                         <button
                           key={d}
+                          className="jo-late-btn"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleExtendDueDate(item, d);
-                          }}
-                          style={{
-                            background: "#ffffff",
-                            border: "1px solid #fda4af",
-                            color: "#be123c",
-                            fontSize: "0.72rem",
-                            fontWeight: 700,
-                            padding: "2px 9px",
-                            borderRadius: "6px",
-                            cursor: "pointer",
                           }}
                         >
                           +{d}d
                         </button>
                       ))}
                       <button
+                        className="jo-late-btn jo-late-btn-solid"
                         onClick={(e) => {
                           e.stopPropagation();
                           openEditModal(item);
-                        }}
-                        style={{
-                          background: "#e11d48",
-                          border: "none",
-                          color: "#ffffff",
-                          fontSize: "0.72rem",
-                          fontWeight: 700,
-                          padding: "2px 9px",
-                          borderRadius: "6px",
-                          cursor: "pointer",
                         }}
                       >
                         Pick date
@@ -2652,34 +2181,17 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
                   </div>
                 )}
 
-                {/* Card Footer: Due Date & Order ID */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", paddingTop: "0.65rem", marginTop: "auto", borderTop: "1px solid #f1f5f9" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem", color: "#475569", fontSize: "0.78rem", fontWeight: 600 }}>
-                      <Calendar size={13} style={{ color: "#94a3b8" }} />
-                      {formatDueDate(item.dueDate)}
-                    </span>
-                    <span
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        background: cardDue.bg,
-                        color: cardDue.color,
-                        border: `1px solid ${cardDue.border}`,
-                        fontSize: "0.7rem",
-                        fontWeight: 700,
-                        padding: "2px 7px",
-                        borderRadius: "999px",
-                      }}
-                    >
-                      <Clock size={11} />
-                      {cardDue.label}
-                    </span>
-                  </div>
-                  <span style={{ color: "#94a3b8", fontSize: "0.72rem", fontWeight: 600 }}>{item.id}</span>
-                </div>
-              </div>
+                <footer className="jo-foot">
+                  <span className="jo-due">
+                    <Calendar size={13} />
+                    {formatDueDate(item.dueDate)}
+                  </span>
+                  <span className="jo-due-chip" style={{ color: cardDue.color }}>
+                    <Clock size={11} />
+                    {cardDue.label}
+                  </span>
+                </footer>
+              </article>
             );
           })
         )}
@@ -2696,7 +2208,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f1f5f9" }}>
+            <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f6f9fd" }}>
               <div>
                 <h3 className="modal-title" style={{ fontSize: "1.4rem", fontWeight: 700 }}>
                   Create New Order
@@ -2859,7 +2371,7 @@ export default function JobOrders({ candidates: initialCandidates = [] }: JobOrd
               </div>
 
               {/* Modal Footer */}
-              <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f1f5f9" }}>
+              <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f6f9fd" }}>
                 <button
                   type="button"
                   className="modal-cancel-btn"

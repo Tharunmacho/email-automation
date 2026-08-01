@@ -46,9 +46,12 @@ export default function Sidebar({
         <div className="brand">
           <div className="brand-logo-wrapper">
             <div className="brand-logo">
-              <ChefHat size={22} strokeWidth={2.5} />
+              <ChefHat size={20} strokeWidth={2.4} />
             </div>
-            <span className="brand-title">Ingrechef AI</span>
+            <span className="brand-text">
+              <span className="brand-title">Ingrechef AI</span>
+              <span className="brand-caption">Recruitment workspace</span>
+            </span>
           </div>
           <button
             className="sidebar-toggle"
@@ -60,6 +63,8 @@ export default function Sidebar({
           </button>
         </div>
 
+        <p className="nav-section-label">Workspace</p>
+
         <ul className="nav-menu">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -69,10 +74,11 @@ export default function Sidebar({
                 <button
                   type="button"
                   className={`nav-item ${isActive ? "active" : ""}`}
-                  style={{ width: "100%", background: "none", border: "none", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.75rem" }}
                   onClick={() => handleTabClick(item.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  title={collapsed ? item.label : undefined}
                 >
-                  <Icon size={20} />
+                  <Icon size={18} strokeWidth={2} />
                   <span>{item.label}</span>
                 </button>
               </li>
@@ -82,7 +88,7 @@ export default function Sidebar({
 
         <div className="sidebar-footer">
           <div className="status-dot"></div>
-          <span>Pipeline Active (Veris LLM)</span>
+          <span>Pipeline active</span>
         </div>
       </div>
     </>
