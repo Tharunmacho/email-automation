@@ -9,15 +9,20 @@ import CandidatesView from "@/screens/CandidatesView";
 import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import SourcingHub from "@/screens/SourcingHub";
 import JobOrders from "@/screens/JobOrders";
+import LoginScreen from "@/screens/LoginScreen";
 import CandidateModal from "@/components/CandidateModal";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import {
+  fetchMe,
+  getToken,
+  logout as clearSession,
   deleteCandidateAPI,
   listCandidates,
   triggerPoll,
   updateCandidateProfile,
   verifyCandidate,
+  type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
 } from "@/lib/api";
@@ -56,6 +61,12 @@ const logEntry = (message: string, type: LogEntry["type"] = "info"): LogEntry =>
 });
 
 export default function Home() {
+  // null = signed out. `checking` covers the first paint, where a stored token
+  // exists but has not been validated yet — without it the login screen would
+  // flash on every refresh for an already-signed-in user.
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checking, setChecking] = useState(true);
+
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -100,8 +111,44 @@ export default function Home() {
     }
   }, [log]);
 
+  // ---- session ---------------------------------------------------------- //
+  useEffect(() => {
+    let active = true;
+    const token = getToken();
+    // Resolve through a promise even when there is no token, so every state
+    // update happens in a callback rather than synchronously inside the effect.
+    const check = token ? fetchMe() : Promise.reject(new Error("no session"));
+
+    check.then(
+      (me) => {
+        if (!active) return;
+        setUser(me);
+        setChecking(false);
+      },
+      () => {
+        // No token, or expired/tampered — api.ts has already cleared it.
+        if (active) setChecking(false);
+      },
+    );
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSignOut = useCallback(() => {
+    clearSession();
+    setUser(null);
+    setCandidates([]);
+    setTotal(0);
+    setLogs([]);
+    setSelected(null);
+    setActiveTab("dashboard");
+  }, []);
+
   // ---- bootstrap -------------------------------------------------------- //
   useEffect(() => {
+    if (!user) return;
     let active = true;
 
     listCandidates().then(
@@ -138,7 +185,7 @@ export default function Home() {
       active = false;
       clearInterval(interval);
     };
-  }, [refreshCandidates]);
+  }, [refreshCandidates, user]);
 
   const handleTabChange = (tab: string) => {
     const next = tab as TabId;
@@ -266,6 +313,18 @@ export default function Home() {
 
   const meta = PAGE_META[activeTab];
 
+  if (checking) {
+    return (
+      <div className="app-boot">
+        <span className="app-boot-spinner" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onSuccess={setUser} />;
+  }
+
   return (
     <>
       <Sidebar
@@ -275,6 +334,8 @@ export default function Home() {
         onCloseMobile={() => setMobileOpen(false)}
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        user={user}
+        onSignOut={handleSignOut}
       />
 
       <div className={`main-content ${collapsed ? "sidebar-collapsed" : ""}`}>

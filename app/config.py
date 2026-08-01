@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     auto_reply_enabled: bool = True
     auto_reply_signature: str = "Best regards,\nRecruitment Team"
 
+    # ---- Auth ----
+    # Signs session tokens. MUST be set in production: leaving the default
+    # means anyone who reads this file can mint a valid admin token.
+    auth_secret: str = "dev-only-change-me"
+    auth_token_ttl_hours: int = 12
+    # Seed account, created once on startup if it does not already exist.
+    admin_email: str = "admin@gmail.com"
+    admin_password: str = "admin@123"
+
     # ---- MongoDB ----
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "resume_ats"

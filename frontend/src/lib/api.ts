@@ -135,8 +135,103 @@ export interface PollSummary {
 /** Candidates below this parser confidence are surfaced for manual review. */
 export const REVIEW_CONFIDENCE_THRESHOLD = 0.85;
 
+// --------------------------------------------------------------------------- //
+//  Auth
+// --------------------------------------------------------------------------- //
+const TOKEN_KEY = "ats_token";
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+}
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    // sessionStorage first: a "don't remember me" login must win over a stale
+    // localStorage token left by a previous session.
+    return (
+      window.sessionStorage.getItem(TOKEN_KEY) ??
+      window.localStorage.getItem(TOKEN_KEY)
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param remember true  -> localStorage, survives closing the browser
+ *                 false -> sessionStorage, cleared when the tab closes
+ */
+export function setToken(token: string | null, remember = true): void {
+  if (typeof window === "undefined") return;
+  try {
+    // Always clear both, so a token never lingers in the store we aren't using.
+    window.localStorage.removeItem(TOKEN_KEY);
+    window.sessionStorage.removeItem(TOKEN_KEY);
+    if (!token) return;
+    (remember ? window.localStorage : window.sessionStorage).setItem(TOKEN_KEY, token);
+  } catch {
+    // Private browsing with storage disabled — the session just won't persist.
+  }
+}
+
+/** Thrown when the API rejects the token, so callers can send the user back to login. */
+export class UnauthorizedError extends Error {
+  constructor(message = "Session expired") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+export async function login(
+  email: string,
+  password: string,
+  remember = true,
+): Promise<{ token: string; user: AuthUser }> {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!response.ok) {
+    let detail = "Invalid email or password";
+    try {
+      const body = await response.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch {
+      // keep the default
+    }
+    throw new Error(detail);
+  }
+  const data = await response.json();
+  setToken(data.token, remember);
+  return { token: data.token, user: data.user };
+}
+
+/** Validates a stored token on page load. */
+export async function fetchMe(): Promise<AuthUser> {
+  return (await request<{ user: AuthUser }>("/auth/me")).user;
+}
+
+export function logout(): void {
+  setToken(null);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init);
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  if (response.status === 401) {
+    // The token is gone or expired — drop it so the app returns to login
+    // instead of retrying forever against a 401.
+    setToken(null);
+    throw new UnauthorizedError();
+  }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
     try {

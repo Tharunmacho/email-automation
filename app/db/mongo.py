@@ -82,8 +82,10 @@ def ensure_indexes() -> None:
 
     # Durable "already ingested / user deleted" ledger.
     from app.db.ledger import ensure_ledger_indexes
+    from app.db.users import ensure_user_indexes
 
     ensure_ledger_indexes()
+    ensure_user_indexes()
 
     log.info(
         "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders' and 'ingest_ledger'",

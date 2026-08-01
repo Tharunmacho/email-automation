@@ -1,7 +1,10 @@
 "use client";
 
 import React from "react";
-import { LayoutDashboard, Users, GitMerge, Building2, FileText, ChevronLeft, ChefHat } from "lucide-react";
+import { LayoutDashboard, Users, GitMerge, Building2, FileText, ChevronLeft, ChefHat, LogOut } from "lucide-react";
+
+import { initialsOf } from "@/lib/format";
+import type { AuthUser } from "@/lib/api";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -10,6 +13,8 @@ interface SidebarProps {
   onCloseMobile: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  user?: AuthUser | null;
+  onSignOut?: () => void;
 }
 
 export default function Sidebar({
@@ -19,6 +24,8 @@ export default function Sidebar({
   onCloseMobile,
   activeTab,
   onTabChange,
+  user,
+  onSignOut,
 }: SidebarProps) {
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -85,6 +92,31 @@ export default function Sidebar({
             );
           })}
         </ul>
+
+        {user && (
+          <div className="sidebar-account">
+            <span className="sidebar-avatar">{initialsOf(user.name || user.email)}</span>
+            <span className="sidebar-account-text">
+              <span className="sidebar-account-name" title={user.name}>
+                {user.name}
+              </span>
+              <span className="sidebar-account-mail" title={user.email}>
+                {user.email}
+              </span>
+            </span>
+            {onSignOut && (
+              <button
+                type="button"
+                className="sidebar-signout"
+                onClick={onSignOut}
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                <LogOut size={15} />
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="sidebar-footer">
           <div className="status-dot"></div>

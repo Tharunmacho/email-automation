@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import app, repo
+from app.api.routes import app, current_user, repo
 from app.core.models import CandidateProfile, CandidateRecord, SourceEmail, StoredResume
 
 
@@ -80,8 +80,18 @@ def test_client():
     mock_repo.candidates["candidate-alice"] = record
 
     with patch("app.api.routes.repo", return_value=mock_repo):
+        # Data endpoints require a bearer token. These tests cover the route
+        # logic, not authentication, so stub the dependency rather than logging
+        # in for each one — auth itself is covered by test_auth.py.
+        app.dependency_overrides[current_user] = lambda: {
+            "id": "test-user", "email": "test@example.com",
+            "name": "Test User", "role": "admin",
+        }
         client = TestClient(app)
-        yield client
+        try:
+            yield client
+        finally:
+            app.dependency_overrides.pop(current_user, None)
 
 
 
