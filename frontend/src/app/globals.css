@@ -3817,29 +3817,63 @@ body {
   }
 }
 
-/* --- head: left-aligned, not centred ------------------------------------- */
+/* --- head: brand lockup, then heading ------------------------------------ */
 .login-head {
-  margin-bottom: 2rem;
+  margin-bottom: 1.9rem;
+  text-align: center;
+}
+
+/* Logo and wordmark on one baseline-aligned row. */
+.login-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding-bottom: 1.35rem;
+  margin-bottom: 1.35rem;
+  border-bottom: 1px solid var(--border-blue-faint);
 }
 
 .login-logo {
-  width: 46px;
-  height: 46px;
-  border-radius: 13px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   background: linear-gradient(140deg, var(--primary), var(--primary-deep));
   color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 1.5rem;
+  flex-shrink: 0;
   box-shadow:
-    0 6px 16px rgba(29, 78, 216, 0.26),
+    0 5px 14px rgba(29, 78, 216, 0.26),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.login-brandline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.login-brandname {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--dash-ink);
+}
+
+.login-brandsub {
+  font-size: 0.73rem;
+  color: var(--dash-muted);
+  margin-top: 0.1rem;
 }
 
 .login-title {
   font-family: var(--font-outfit), sans-serif;
-  font-size: 1.65rem;
+  font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   color: var(--dash-ink);
@@ -3847,8 +3881,8 @@ body {
 }
 
 .login-sub {
-  margin-top: 0.45rem;
-  font-size: 0.87rem;
+  margin-top: 0.4rem;
+  font-size: 0.86rem;
   line-height: 1.5;
   color: var(--dash-ink-2);
 }
@@ -3937,7 +3971,7 @@ body {
   color: var(--dash-ink-2);
   cursor: pointer;
   user-select: none;
-  margin: 0.25rem 0 1.4rem;
+  margin: 0.25rem auto 1.4rem;
   width: fit-content;
 }
 
@@ -4048,42 +4082,60 @@ body {
   animation: icon-spin 0.8s linear infinite;
 }
 
-/* --- demo hint: one quiet line, no panel --------------------------------- */
-.login-hint {
+/* --- demo credentials, shown outright ------------------------------------ */
+.login-creds {
+  display: block;
+  width: 100%;
+  text-align: left;
   margin-top: 1.5rem;
-  padding-top: 1.3rem;
-  border-top: 1px solid var(--border-blue-faint);
-  font-size: 0.79rem;
-  color: var(--dash-muted);
-  text-align: center;
-}
-
-.login-hint button {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: inherit;
-  font-weight: 600;
-  color: var(--primary);
+  padding: 0.9rem 1rem;
+  background: #f6f9fd;
+  border: 1px dashed var(--border-blue-strong);
+  border-radius: 11px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.login-hint button:hover:not(:disabled) {
-  color: var(--primary-hover);
-  text-decoration: underline;
+.login-creds:hover:not(:disabled) {
+  background: #eef3fb;
+  border-color: var(--primary);
 }
 
-.login-hint button:disabled {
-  color: var(--dash-muted);
+.login-creds:disabled {
   cursor: not-allowed;
+  opacity: 0.7;
 }
 
-.login-foot {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.75rem;
+.login-creds-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--dash-muted);
+  margin-bottom: 0.55rem;
 }
+
+.login-creds-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.15rem 0;
+}
+
+.login-creds-row > span {
+  font-size: 0.79rem;
+  color: var(--dash-ink-2);
+}
+
+.login-creds-row code {
+  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--dash-ink);
+}
+
 
 @media (max-width: 480px) {
   .login-card {

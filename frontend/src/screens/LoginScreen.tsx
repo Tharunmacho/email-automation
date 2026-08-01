@@ -43,14 +43,21 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
     <div className="login-page">
       <div className="login-shell">
         <div className="login-card">
+          {/* Brand lockup, then the heading. Two aligned blocks read as
+              deliberate; a logo floating above centred text does not. */}
           <header className="login-head">
-            <span className="login-logo">
-              <ChefHat size={22} strokeWidth={2.3} />
-            </span>
-            <h1 className="login-title">Sign in</h1>
-            <p className="login-sub">
-              Welcome back. Enter your details to access the workspace.
-            </p>
+            <div className="login-brand">
+              <span className="login-logo">
+                <ChefHat size={20} strokeWidth={2.3} />
+              </span>
+              <span className="login-brandline">
+                <span className="login-brandname">Ingrechef AI</span>
+                <span className="login-brandsub">Recruitment workspace</span>
+              </span>
+            </div>
+
+            <h1 className="login-title">Login</h1>
+            <p className="login-sub">Welcome back</p>
           </header>
 
           <form onSubmit={handleSubmit} noValidate>
@@ -123,33 +130,39 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
               {busy ? (
                 <>
                   <Loader2 size={17} className="login-spin" />
-                  <span>Signing in…</span>
+                  <span>Logging in…</span>
                 </>
               ) : (
-                <span>Sign in</span>
+                <span>Login</span>
               )}
             </button>
           </form>
 
-          {/* Deliberately understated — credentials shown in a bordered panel
-              make a product look like a prototype. */}
-          <p className="login-hint">
-            Demo access ·{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("admin@gmail.com");
-                setPassword("admin@123");
-                setError(null);
-              }}
-              disabled={busy}
-            >
-              use sample credentials
-            </button>
-          </p>
+          {/* Credentials shown outright, as requested. Clicking the block
+              fills the form so they never have to be typed by hand. */}
+          <button
+            type="button"
+            className="login-creds"
+            onClick={() => {
+              setEmail("admin@gmail.com");
+              setPassword("admin@123");
+              setError(null);
+            }}
+            disabled={busy}
+            title="Fill the form with these credentials"
+          >
+            <span className="login-creds-label">Demo credentials</span>
+            <span className="login-creds-row">
+              <span>Email</span>
+              <code>admin@gmail.com</code>
+            </span>
+            <span className="login-creds-row">
+              <span>Password</span>
+              <code>admin@123</code>
+            </span>
+          </button>
         </div>
 
-        <p className="login-foot">Ingrechef AI · Recruitment workspace</p>
       </div>
     </div>
   );
