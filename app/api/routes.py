@@ -166,13 +166,13 @@ def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> R
 
 @app.delete("/api/v1/candidates/{candidate_id}")
 def delete_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dict:
-    rec = repo.get(candidate_id)
+    rec = repo().get(candidate_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     if rec.resume and rec.resume.storage_key:
         try:
-            storage.delete(rec.resume.storage_key)
+            get_storage_backend().delete(rec.resume.storage_key)
         except Exception:
             pass
 
