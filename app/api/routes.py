@@ -188,7 +188,7 @@ def delete_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> 
         ledger.suppress_hash(rec.resume_hash)
         suppressed = 1
 
-    success = repo.delete(candidate_id)
+    success = repo().delete(candidate_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete candidate")
 
