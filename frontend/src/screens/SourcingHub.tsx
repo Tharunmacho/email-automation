@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Plus,
   Users,
@@ -18,14 +18,21 @@ import {
   Hash,
   MapPin,
   Tag,
-  Briefcase as BriefcaseIcon,
-  Target,
+  Pencil,
+  Copy,
+  Check,
+  Zap,
   Layers,
+  Target,
+  Inbox,
+  AlertTriangle,
+  type LucideIcon,
 } from "lucide-react";
 
-import MetricTile from "@/components/ui/MetricTile";
-import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
+import StatTile, { type StatTone } from "@/components/ui/StatTile";
+import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
+import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
 import {
   listSourcingClientsAPI,
   createSourcingClientAPI,
@@ -47,10 +54,44 @@ export interface SourcingRecord {
   address?: string;
 }
 
+type TypeFilter = "all" | "association" | "business";
+type SortKey = "recent" | "name" | "demand";
+
+/** Demand a client is carrying, rolled up from its job orders. */
+interface Engagement {
+  orders: number;
+  live: number;
+  seats: number;
+  filled: number;
+}
+
+/**
+ * What state a client is in, which is the one thing a card is colour-coded by.
+ * `live` = hiring right now, `filled` = every seat covered, `idle` = no demand.
+ */
+type ClientTone = "live" | "filled" | "idle";
+
+/** Client state mapped onto the product's shared tone vocabulary. */
+const CLIENT_TONE: Record<ClientTone, StatTone> = {
+  live: "blue",
+  filled: "green",
+  idle: "slate",
+};
+
 const INITIAL_RECORDS: SourcingRecord[] = [];
 
-/** Status drives the card's top cap and its badge, the same way it does on the
- *  candidate cards — one visual language for "state of this record". */
+const TYPE_TABS: { key: TypeFilter; label: string; icon: LucideIcon }[] = [
+  { key: "all", label: "All clients", icon: Building2 },
+  { key: "association", label: "Associations", icon: Users },
+  { key: "business", label: "Businesses", icon: Briefcase },
+];
+
+const SORT_LABELS: Record<SortKey, string> = {
+  recent: "Recently added",
+  name: "Name (A–Z)",
+  demand: "Most demand",
+};
+
 /** Every record is created ACTIVE and nothing can change it yet, so the badge
  *  would be a constant on every card. Show it only when a record carries a
  *  non-default status (set directly in the DB), where it actually means something. */
@@ -74,15 +115,51 @@ function displayDate(value: string | undefined): string {
   return parsed ? formatDateFull(parsed) : "—";
 }
 
-export default function SourcingHub() {
-  const [activeTab, setActiveTab] = useState<"association" | "business">("association");
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** A blank phone/email is stored as the literal "N/A" by the create form. */
+function hasValue(value: string | undefined): boolean {
+  const v = (value || "").trim();
+  return v !== "" && v.toUpperCase() !== "N/A";
+}
+
+function toneOf(engagement: Engagement | undefined): ClientTone {
+  if (!engagement || engagement.orders === 0) return "idle";
+  if (engagement.live > 0) return "live";
+  return "filled";
+}
+
+interface SourcingHubProps {
+  /** Reports what happened, by name, to the dashboard's activity log. */
+  onActivity?: (message: string, type?: LogEntry["type"]) => void;
+}
+
+export default function SourcingHub({ onActivity }: SourcingHubProps) {
+  const activity = useCallback(
+    (message: string, type: LogEntry["type"] = "info") => onActivity?.(message, type),
+    [onActivity],
+  );
+
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("recent");
+  const [liveOnly, setLiveOnly] = useState(false);
+
   const [records, setRecords] = useState<SourcingRecord[]>(INITIAL_RECORDS);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [jobOrders, setJobOrders] = useState<JobOrderRecord[]>([]);
 
-  // Form state for new client modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [formError, setFormError] = useState("");
+
+  // Form state, shared by the create and edit flows
   const [newType, setNewType] = useState<"association" | "business">("business");
   const [newName, setNewName] = useState("");
   const [newIndustryOrCategory, setNewIndustryOrCategory] = useState("");
@@ -100,7 +177,7 @@ export default function SourcingHub() {
       .catch(() => setJobOrders([]));
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     // 1. Sync any local storage records to MongoDB Atlas API
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("sourcing_records");
@@ -114,6 +191,15 @@ export default function SourcingHub() {
       }
     }
 
+    const fallbackToLocal = () => {
+      if (typeof window === "undefined") return;
+      const saved = localStorage.getItem("sourcing_records");
+      if (!saved) return;
+      try {
+        setRecords(JSON.parse(saved));
+      } catch {}
+    };
+
     // 2. Fetch all real client records from MongoDB database API
     listSourcingClientsAPI()
       .then((res) => {
@@ -122,25 +208,12 @@ export default function SourcingHub() {
           if (typeof window !== "undefined") {
             localStorage.setItem("sourcing_records", JSON.stringify(res.items));
           }
-        } else if (typeof window !== "undefined") {
-          const saved = localStorage.getItem("sourcing_records");
-          if (saved) {
-            try {
-              setRecords(JSON.parse(saved));
-            } catch {}
-          }
+        } else {
+          fallbackToLocal();
         }
       })
-      .catch(() => {
-        if (typeof window !== "undefined") {
-          const saved = localStorage.getItem("sourcing_records");
-          if (saved) {
-            try {
-              setRecords(JSON.parse(saved));
-            } catch {}
-          }
-        }
-      });
+      .catch(fallbackToLocal)
+      .finally(() => setLoading(false));
   }, []);
 
   // The row menu only ever toggled from its own button, so clicking anywhere
@@ -150,10 +223,16 @@ export default function SourcingHub() {
 
     const closeOnOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
-      if (!target?.closest?.(".sourcing-card-actions")) setActiveMenuId(null);
+      if (!target?.closest?.(".sh-actions")) {
+        setActiveMenuId(null);
+        setConfirmDeleteId(null);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setActiveMenuId(null);
+      if (event.key === "Escape") {
+        setActiveMenuId(null);
+        setConfirmDeleteId(null);
+      }
     };
 
     document.addEventListener("mousedown", closeOnOutside);
@@ -164,14 +243,44 @@ export default function SourcingHub() {
     };
   }, [activeMenuId]);
 
-  React.useEffect(() => {
-    const handleOpenModal = () => {
-      setNewType(activeTab);
-      setIsModalOpen(true);
-    };
+  const resetForm = useCallback(() => {
+    setNewName("");
+    setNewIndustryOrCategory("");
+    setNewRegNo("");
+    setNewContact("");
+    setNewPhone("");
+    setNewEmail("");
+    setNewAddress("");
+    setFormError("");
+  }, []);
+
+  const openCreateModal = useCallback(() => {
+    setEditingId(null);
+    resetForm();
+    setNewType(typeFilter === "association" ? "association" : "business");
+    setIsModalOpen(true);
+  }, [resetForm, typeFilter]);
+
+  const openEditModal = useCallback((item: SourcingRecord) => {
+    setEditingId(item.id);
+    setNewType(item.type);
+    setNewName(item.name);
+    setNewIndustryOrCategory(item.industryOrCategory || "");
+    setNewRegNo(item.regNo || "");
+    setNewContact(item.contact);
+    setNewPhone(hasValue(item.phone) ? item.phone : "");
+    setNewEmail(hasValue(item.email) ? item.email : "");
+    setNewAddress(item.address || "");
+    setFormError("");
+    setIsModalOpen(true);
+    setActiveMenuId(null);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenModal = () => openCreateModal();
     window.addEventListener("open-new-client-modal", handleOpenModal);
     return () => window.removeEventListener("open-new-client-modal", handleOpenModal);
-  }, [activeTab]);
+  }, [openCreateModal]);
 
   /**
    * Demand per client, keyed on the client name the job order stores. Matching
@@ -179,7 +288,7 @@ export default function SourcingHub() {
    */
   const engagementByClient = useMemo(() => {
     const key = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
-    const map = new Map<string, { orders: number; live: number; seats: number; filled: number }>();
+    const map = new Map<string, Engagement>();
 
     for (const order of jobOrders) {
       const id = key(order.client || "");
@@ -197,188 +306,538 @@ export default function SourcingHub() {
     return { map, key };
   }, [jobOrders]);
 
-  const engagementOf = (name: string) =>
-    engagementByClient.map.get(engagementByClient.key(name));
-
-  const engagedClients = records.filter((r) => (engagementOf(r.name)?.live ?? 0) > 0).length;
-  const openSeats = records.reduce((sum, r) => {
-    const e = engagementOf(r.name);
-    return sum + (e && e.live > 0 ? Math.max(0, e.seats - e.filled) : 0);
-  }, 0);
-
-  const filteredRecords = records.filter((rec) => {
-    if (rec.type !== activeTab) return false;
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      rec.name.toLowerCase().includes(q) ||
-      rec.contact.toLowerCase().includes(q) ||
-      rec.phone.toLowerCase().includes(q) ||
-      rec.email.toLowerCase().includes(q) ||
-      rec.id.toLowerCase().includes(q) ||
-      (rec.industryOrCategory && rec.industryOrCategory.toLowerCase().includes(q))
-    );
-  });
-
-  const handleCreateClient = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName.trim() || !newContact.trim()) return;
-
-    const prefix = newType === "association" ? "ASS" : "BUS";
-    const uniqueNum = Math.floor(100 + Math.random() * 900);
-    const id = `${prefix}-${uniqueNum}-${Date.now().toString().slice(-4)}`;
-    const today = new Date();
-    const formattedDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-    const newRecord: SourcingRecord = {
-      id,
-      name: newName,
-      type: newType,
-      contact: newContact,
-      phone: newPhone || "N/A",
-      email: newEmail || "N/A",
-      date: formattedDate,
-      status: "ACTIVE",
-      industryOrCategory: newIndustryOrCategory,
-      regNo: newRegNo,
-      address: newAddress,
-    };
-
-    // Save to MongoDB API & LocalStorage
-    createSourcingClientAPI(newRecord).catch(() => {});
-
-    setRecords((prev) => {
-      const updated = [newRecord, ...prev];
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("sourcing_records", JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
-    });
-    setIsModalOpen(false);
-
-    // Reset form fields
-    setNewName("");
-    setNewIndustryOrCategory("");
-    setNewRegNo("");
-    setNewContact("");
-    setNewPhone("");
-    setNewEmail("");
-    setNewAddress("");
-  };
-
-  const handleDeleteRecord = (id: string) => {
-    deleteSourcingClientAPI(id).catch(() => {});
-    setRecords((prev) => {
-      const updated = prev.filter((r) => r.id !== id);
-      if (typeof window !== "undefined") {
-        try {
-          localStorage.setItem("sourcing_records", JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
-    });
-    setActiveMenuId(null);
-  };
-
-  const isBusiness = newType === "business";
+  const engagementOf = useCallback(
+    (name: string): Engagement | undefined => engagementByClient.map.get(engagementByClient.key(name)),
+    [engagementByClient],
+  );
 
   const associationCount = records.filter((r) => r.type === "association").length;
   const businessCount = records.filter((r) => r.type === "business").length;
 
+  const countFor = (key: TypeFilter) =>
+    key === "all" ? records.length : key === "association" ? associationCount : businessCount;
+
+  /** Portfolio roll-up that feeds the four tiles. */
+  const portfolio = useMemo(() => {
+    let engaged = 0;
+    let openSeats = 0;
+    let seats = 0;
+    let filled = 0;
+
+    for (const rec of records) {
+      const e = engagementOf(rec.name);
+      if (!e) continue;
+      if (e.live > 0) {
+        engaged += 1;
+        openSeats += Math.max(0, e.seats - e.filled);
+      }
+      seats += e.seats;
+      filled += e.filled;
+    }
+
+    return {
+      engaged,
+      openSeats,
+      fillRate: seats > 0 ? Math.round((filled / seats) * 100) : 0,
+      engagedShare: records.length > 0 ? Math.round((engaged / records.length) * 100) : 0,
+    };
+  }, [records, engagementOf]);
+
+  const visibleRecords = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    const filtered = records.filter((rec) => {
+      if (typeFilter !== "all" && rec.type !== typeFilter) return false;
+      if (liveOnly && (engagementOf(rec.name)?.live ?? 0) === 0) return false;
+      if (!q) return true;
+      return (
+        rec.name.toLowerCase().includes(q) ||
+        rec.contact.toLowerCase().includes(q) ||
+        rec.phone.toLowerCase().includes(q) ||
+        rec.email.toLowerCase().includes(q) ||
+        rec.id.toLowerCase().includes(q) ||
+        (rec.regNo || "").toLowerCase().includes(q) ||
+        (rec.address || "").toLowerCase().includes(q) ||
+        (rec.industryOrCategory || "").toLowerCase().includes(q)
+      );
+    });
+
+    const sorted = [...filtered];
+    if (sortKey === "name") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (sortKey === "demand") {
+      sorted.sort((a, b) => {
+        const ea = engagementOf(a.name);
+        const eb = engagementOf(b.name);
+        return (
+          (eb?.live ?? 0) - (ea?.live ?? 0) ||
+          (eb?.seats ?? 0) - (ea?.seats ?? 0) ||
+          a.name.localeCompare(b.name)
+        );
+      });
+    } else {
+      sorted.sort((a, b) => {
+        const da = parseRecordDate(a.date)?.getTime() ?? 0;
+        const db = parseRecordDate(b.date)?.getTime() ?? 0;
+        return db - da || a.name.localeCompare(b.name);
+      });
+    }
+    return sorted;
+  }, [records, typeFilter, liveOnly, searchQuery, sortKey, engagementOf]);
+
+  const isFiltered = Boolean(searchQuery.trim()) || liveOnly || typeFilter !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setLiveOnly(false);
+    setTypeFilter("all");
+  };
+
+  const persist = (updated: SourcingRecord[]) => {
+    setRecords(updated);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("sourcing_records", JSON.stringify(updated));
+      } catch {}
+    }
+  };
+
+  const handleSubmitClient = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) {
+      setFormError("A client name is required.");
+      return;
+    }
+    if (!newContact.trim()) {
+      setFormError("A contact person is required — it is who the job order gets chased through.");
+      return;
+    }
+
+    // Two clients with the same name cannot be told apart by the job orders,
+    // which match on name alone. Catch it here rather than silently merging
+    // both clients' demand into one card.
+    const nameKey = engagementByClient.key(newName);
+    const clash = records.some(
+      (r) => r.id !== editingId && engagementByClient.key(r.name) === nameKey,
+    );
+    if (clash) {
+      setFormError("Another client already uses this name. Job orders match clients by name, so names must be unique.");
+      return;
+    }
+
+    if (editingId) {
+      const existing = records.find((r) => r.id === editingId);
+      if (!existing) return;
+
+      const updatedRecord: SourcingRecord = {
+        ...existing,
+        name: newName.trim(),
+        type: newType,
+        contact: newContact.trim(),
+        phone: newPhone.trim() || "N/A",
+        email: newEmail.trim() || "N/A",
+        industryOrCategory: newIndustryOrCategory.trim(),
+        regNo: newRegNo.trim(),
+        address: newAddress.trim(),
+      };
+
+      activity(
+        existing.name === updatedRecord.name
+          ? `Updated client: ${updatedRecord.name}.`
+          : `Updated client: ${existing.name} — renamed to ${updatedRecord.name}.`,
+        "success",
+      );
+      // POST /sourcing-clients upserts on `id`, so the same call saves an edit.
+      createSourcingClientAPI(updatedRecord).catch(() => {});
+      persist(records.map((r) => (r.id === editingId ? updatedRecord : r)));
+    } else {
+      const prefix = newType === "association" ? "ASS" : "BUS";
+      const uniqueNum = Math.floor(100 + Math.random() * 900);
+      const id = `${prefix}-${uniqueNum}-${Date.now().toString().slice(-4)}`;
+
+      const newRecord: SourcingRecord = {
+        id,
+        name: newName.trim(),
+        type: newType,
+        contact: newContact.trim(),
+        phone: newPhone.trim() || "N/A",
+        email: newEmail.trim() || "N/A",
+        date: todayISO(),
+        status: "ACTIVE",
+        industryOrCategory: newIndustryOrCategory.trim(),
+        regNo: newRegNo.trim(),
+        address: newAddress.trim(),
+      };
+
+      activity(`Added ${newType === "business" ? "business" : "association"} client: ${newRecord.name}.`, "success");
+      createSourcingClientAPI(newRecord).catch(() => {});
+      persist([newRecord, ...records]);
+    }
+
+    setIsModalOpen(false);
+    setEditingId(null);
+    resetForm();
+  };
+
+  const handleDeleteRecord = (id: string) => {
+    // Resolved before the record leaves the list.
+    const target = records.find((r) => r.id === id);
+    activity(`Deleted client: ${target?.name ?? id}.`, "warn");
+
+    deleteSourcingClientAPI(id).catch(() => {});
+    persist(records.filter((r) => r.id !== id));
+    setActiveMenuId(null);
+    setConfirmDeleteId(null);
+  };
+
+  const handleCopyEmail = async (item: SourcingRecord) => {
+    if (!hasValue(item.email)) return;
+    try {
+      await navigator.clipboard.writeText(item.email);
+      setCopiedId(item.id);
+      setTimeout(() => setCopiedId((prev) => (prev === item.id ? null : prev)), 1600);
+    } catch {
+      /* clipboard unavailable (insecure origin) — nothing useful to say */
+    }
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingId(null);
+  };
+
+  const isBusiness = newType === "business";
+
+  // ---- pieces ------------------------------------------------------------ //
+
+  const renderCard = (item: SourcingRecord) => {
+    const e = engagementOf(item.name);
+    const tone = toneOf(e);
+    const seats = e?.seats ?? 0;
+    const filled = e?.filled ?? 0;
+    const pct = seats > 0 ? Math.min(100, Math.round((filled / seats) * 100)) : 0;
+    const officeLabel = item.type === "business" ? "Head office" : "Registered office";
+
+    // Every card renders the same four rows and the same demand block, whether
+    // or not the values exist. Optional rows made the footers sit at different
+    // heights, so the grid never lined up.
+    const rows: { key: string; icon: React.ReactNode; label: string; body: React.ReactNode }[] = [
+      {
+        key: "contact",
+        icon: <User size={14} />,
+        label: "Contact",
+        body: <span title={item.contact}>{item.contact}</span>,
+      },
+      {
+        key: "phone",
+        icon: <Phone size={14} />,
+        label: "Phone",
+        body: hasValue(item.phone) ? (
+          <a className="sh-link" href={`tel:${item.phone.replace(/\s+/g, "")}`} title={item.phone}>
+            {item.phone}
+          </a>
+        ) : (
+          <span className="sh-row-empty">Not provided</span>
+        ),
+      },
+      {
+        key: "email",
+        icon: <Mail size={14} />,
+        label: "Email",
+        body: hasValue(item.email) ? (
+          <>
+            <a className="sh-link" href={`mailto:${item.email}`} title={item.email}>
+              {item.email}
+            </a>
+            <button
+              className="sh-copy"
+              onClick={() => handleCopyEmail(item)}
+              title="Copy email address"
+              aria-label={`Copy email address for ${item.name}`}
+            >
+              {copiedId === item.id ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+          </>
+        ) : (
+          <span className="sh-row-empty">Not provided</span>
+        ),
+      },
+      {
+        key: "office",
+        icon: <MapPin size={14} />,
+        label: officeLabel,
+        body: item.address ? (
+          <span title={item.address}>{item.address}</span>
+        ) : (
+          <span className="sh-row-empty">Not provided</span>
+        ),
+      },
+    ];
+
+    return (
+      <article className={`sh-card tone-${CLIENT_TONE[tone]}`} key={item.id}>
+        <header className="sh-card-head">
+          <span className="sh-monogram">{initialsOf(item.name)}</span>
+
+          <div className="sh-headings">
+            <h3 className="sh-name" title={item.name}>
+              {item.name}
+            </h3>
+            <div className="sh-meta">
+              <span className={`sh-type-chip ${item.type}`}>
+                {item.type === "business" ? <Briefcase size={11} /> : <Users size={11} />}
+                {item.type === "business" ? "Business" : "Association"}
+              </span>
+              {item.industryOrCategory ? (
+                <span className="sh-chip" title={item.industryOrCategory}>
+                  <Tag size={11} />
+                  {item.industryOrCategory}
+                </span>
+              ) : (
+                <span className="sh-chip sh-chip-empty">
+                  <Tag size={11} />
+                  {item.type === "business" ? "No sector set" : "No category set"}
+                </span>
+              )}
+              {!isDefaultStatus(item.status) && (
+                <span className={`sh-status status-${item.status.toLowerCase()}`}>{item.status}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="sh-actions">
+            <button
+              className="sh-icon-btn"
+              onClick={() => {
+                setActiveMenuId((prev) => (prev === item.id ? null : item.id));
+                setConfirmDeleteId(null);
+              }}
+              aria-label={`Actions for ${item.name}`}
+              aria-expanded={activeMenuId === item.id}
+            >
+              <MoreVertical size={18} />
+            </button>
+
+            {activeMenuId === item.id && (
+              <div className="sourcing-dropdown-menu sh-menu">
+                {confirmDeleteId === item.id ? (
+                  <div className="sh-confirm">
+                    <p className="sh-confirm-title">
+                      <AlertTriangle size={13} />
+                      Delete {item.name}?
+                    </p>
+                    <p className="sh-confirm-note">
+                      Its job orders stay, but they will no longer match a client.
+                    </p>
+                    <div className="sh-confirm-row">
+                      <button className="sh-confirm-cancel" onClick={() => setConfirmDeleteId(null)}>
+                        Cancel
+                      </button>
+                      <button className="sh-confirm-go" onClick={() => handleDeleteRecord(item.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button className="dropdown-item" onClick={() => openEditModal(item)}>
+                      <Pencil size={14} />
+                      <span>Edit details</span>
+                    </button>
+                    <button className="dropdown-item danger" onClick={() => setConfirmDeleteId(item.id)}>
+                      <Trash2 size={14} />
+                      <span>Delete</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </header>
+
+        <dl className="sh-rows">
+          {rows.map((row) => (
+            <div className="sh-row" key={row.key}>
+              <span className="sh-row-icon">{row.icon}</span>
+              <dt className="sh-row-label">{row.label}</dt>
+              <dd className="sh-row-value">{row.body}</dd>
+            </div>
+          ))}
+        </dl>
+
+        {/* Demand strip — colour and copy both come from `tone`. */}
+        <div className="sh-demand">
+          <div className="sh-demand-head">
+            <span className="sh-demand-title">
+              <Briefcase size={13} />
+              {e ? `${formatInt(e.orders)} job order${e.orders === 1 ? "" : "s"}` : "No job orders"}
+            </span>
+            {tone === "live" ? (
+              <span className="sh-live-pill">
+                <span className="sh-live-dot" />
+                {formatInt(e?.live ?? 0)} live
+              </span>
+            ) : tone === "filled" ? (
+              <span className="sh-done-pill">
+                <Check size={11} />
+                All closed
+              </span>
+            ) : (
+              <span className="sh-demand-quiet">Not engaged</span>
+            )}
+          </div>
+
+          <div className="sh-bar">
+            <span className="sh-bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+
+          <span className="sh-demand-foot">
+            {e
+              ? `${formatInt(filled)} of ${formatInt(seats)} seat${seats === 1 ? "" : "s"} filled · ${pct}%`
+              : "No hiring demand raised against this client yet"}
+          </span>
+        </div>
+
+        <footer className="sh-card-foot">
+          <span className="sh-ref" title={item.regNo || item.id}>
+            <Hash size={12} />
+            {item.regNo || item.id}
+          </span>
+          <span className="sh-date">
+            <Calendar size={13} />
+            {displayDate(item.date)}
+          </span>
+        </footer>
+      </article>
+    );
+  };
+
+  const renderEmpty = () => (
+    <div className="sh-empty">
+      <span className="sh-empty-icon">{isFiltered ? <Search size={26} /> : <Inbox size={26} />}</span>
+      {isFiltered ? (
+        <>
+          <p className="sh-empty-title">Nothing matches these filters</p>
+          <span className="sh-empty-note">
+            {searchQuery.trim() ? `No client matches “${searchQuery.trim()}”. ` : ""}
+            Try widening the search or clearing the filters.
+          </span>
+          <button className="sh-empty-btn" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </>
+      ) : (
+        <>
+          <p className="sh-empty-title">No sourcing clients yet</p>
+          <span className="sh-empty-note">
+            Add the associations and businesses you source through. Job orders raised
+            against them will then roll up here as live demand.
+          </span>
+          <button className="sh-empty-btn primary" onClick={openCreateModal}>
+            <Plus size={15} />
+            Add your first client
+          </button>
+        </>
+      )}
+    </div>
+  );
+
+  const renderSkeleton = () => (
+    <div className="sh-grid">
+      {[0, 1, 2].map((i) => (
+        <div className="sh-skeleton" key={i}>
+          <div className="sh-skeleton-head">
+            <span className="sh-sk-block sh-sk-mono" />
+            <div className="sh-sk-lines">
+              <span className="sh-sk-block sh-sk-line lg" />
+              <span className="sh-sk-block sh-sk-line sm" />
+            </div>
+          </div>
+          <span className="sh-sk-block sh-sk-line" />
+          <span className="sh-sk-block sh-sk-line" />
+          <span className="sh-sk-block sh-sk-line md" />
+          <span className="sh-sk-block sh-sk-bar" />
+        </div>
+      ))}
+    </div>
+  );
+
+  // ---- render ------------------------------------------------------------ //
 
   return (
-    <div className="sourcing-hub-wrapper" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* Now that clients link to job orders, these report real demand rather
-          than restating the per-type counts already on the tabs. */}
-      <div className="metric-tiles">
-        <MetricTile
+    <div className="sh-root">
+      {/* Portfolio figures. White tiles, one coloured edge each — the colour is
+          what the figure means, not decoration. */}
+      <div className="stat-tiles">
+        <StatTile
+          tone="blue"
+          icon={Building2}
           label="Sourcing clients"
           value={formatInt(records.length)}
-          icon={Building2}
-          caption={`${formatInt(associationCount)} association${associationCount === 1 ? "" : "s"} · ${formatInt(businessCount)} business${businessCount === 1 ? "" : "es"}`}
+          note={`${formatInt(associationCount)} association${associationCount === 1 ? "" : "s"} · ${formatInt(businessCount)} business${businessCount === 1 ? "" : "es"}`}
         />
-        <MetricTile
-          label="Clients with live orders"
-          value={formatInt(engagedClients)}
-          icon={Target}
-          accent="#047857"
-          accentSoft="rgba(16, 185, 129, 0.10)"
-          caption={
-            records.length > 0
-              ? `${Math.round((engagedClients / records.length) * 100)}% of the portfolio engaged`
-              : "No clients yet"
-          }
+        <StatTile
+          tone="green"
+          icon={Zap}
+          label="Clients hiring now"
+          value={formatInt(portfolio.engaged)}
+          note={records.length > 0 ? `${portfolio.engagedShare}% of the portfolio engaged` : "No clients yet"}
         />
-        <MetricTile
-          label="Open positions"
-          value={formatInt(openSeats)}
+        <StatTile
+          tone="cyan"
           icon={Layers}
-          caption="Unfilled seats across live orders"
+          label="Open positions"
+          value={formatInt(portfolio.openSeats)}
+          note="Unfilled seats across live orders"
+        />
+        <StatTile
+          tone="green"
+          icon={Target}
+          label="Fill rate"
+          value={`${portfolio.fillRate}%`}
+          note="Seats covered across every order"
         />
       </div>
 
-      {/* Clean Tabs & Search Row */}
-      <div className="sourcing-controls-row">
-        <div className="sourcing-tabs-container">
-          <button
-            className={`sourcing-tab-btn ${activeTab === "association" ? "active" : ""}`}
-            onClick={() => setActiveTab("association")}
-          >
-            <Users size={16} />
-            <span>Associations</span>
-            <span
-              style={{
-                fontSize: "0.72rem",
-                fontWeight: 700,
-                padding: "2px 7px",
-                borderRadius: "999px",
-                background: activeTab === "association" ? "#eaf0fa" : "#f6f9fd",
-                color: activeTab === "association" ? "var(--primary)" : "#64748b",
-              }}
-            >
-              {associationCount}
-            </span>
-          </button>
-          <button
-            className={`sourcing-tab-btn ${activeTab === "business" ? "active" : ""}`}
-            onClick={() => setActiveTab("business")}
-          >
-            <Briefcase size={16} />
-            <span>Businesses</span>
-            <span
-              style={{
-                fontSize: "0.72rem",
-                fontWeight: 700,
-                padding: "2px 7px",
-                borderRadius: "999px",
-                background: activeTab === "business" ? "#ccfbf1" : "#f6f9fd",
-                color: activeTab === "business" ? "#0d9488" : "#64748b",
-              }}
-            >
-              {businessCount}
-            </span>
-          </button>
+      {/* Controls */}
+      <div className="sh-toolbar">
+        <div className="sh-segment" role="tablist" aria-label="Client type">
+          {TYPE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = typeFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                role="tab"
+                aria-selected={active}
+                className={`sh-segment-btn ${active ? "active" : ""}`}
+                onClick={() => setTypeFilter(tab.key)}
+              >
+                <Icon size={15} />
+                <span>{tab.label}</span>
+                <span className="sh-segment-count">{formatInt(countFor(tab.key))}</span>
+              </button>
+            );
+          })}
         </div>
 
-        <div className="sourcing-controls-right" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div className="sourcing-search-wrapper">
-            <Search size={16} className="sourcing-search-icon" />
+        <div className="sh-toolbar-right">
+          <div className="sh-search">
+            <Search size={16} className="sh-search-icon" />
             <input
               type="text"
-              className="sourcing-search-input"
-              placeholder={
-                activeTab === "association" ? "Search associations..." : "Search businesses..."
-              }
+              className="sh-search-input"
+              placeholder="Search name, contact, email, sector…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search clients"
             />
             {searchQuery && (
               <button
                 className="sourcing-search-clear"
                 onClick={() => setSearchQuery("")}
                 title="Clear search"
+                aria-label="Clear search"
               >
                 <X size={14} />
               </button>
@@ -386,249 +845,178 @@ export default function SourcingHub() {
           </div>
 
           <button
-            className="btn-new-client"
-            onClick={() => {
-              setNewType(activeTab);
-              setIsModalOpen(true);
-            }}
+            className={`sh-toggle ${liveOnly ? "active" : ""}`}
+            onClick={() => setLiveOnly((prev) => !prev)}
+            aria-pressed={liveOnly}
+            title="Show only clients with an open or in-progress job order"
           >
+            <Zap size={14} />
+            <span>Hiring now</span>
+          </button>
+
+          <div className="sh-select">
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort clients"
+            >
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                <option key={key} value={key}>
+                  {SORT_LABELS[key]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} />
+          </div>
+
+          <button className="sh-new-btn" onClick={openCreateModal}>
             <Plus size={16} />
-            <span>New Client</span>
+            <span>New client</span>
           </button>
         </div>
       </div>
 
-      {/* Cards Grid */}
-      <div className="sourcing-cards-grid">
-        {filteredRecords.length === 0 ? (
-          <div className="sourcing-empty-state">
-            <Building2 size={40} className="empty-icon" />
-            <p>No {activeTab === "association" ? "associations" : "businesses"} found.</p>
-          </div>
-        ) : (
-          filteredRecords.map((item) => {
-            const officeLabel = item.type === "business" ? "Head office" : "Registered office";
-            const rows: { icon: React.ReactNode; label: string; value: string; wrap?: boolean }[] = [
-              { icon: <User size={14} />, label: "Contact", value: item.contact },
-              { icon: <Phone size={14} />, label: "Phone", value: item.phone },
-              { icon: <Mail size={14} />, label: "Email", value: item.email },
-            ];
-            if (item.address) {
-              rows.push({
-                icon: <MapPin size={14} />,
-                label: officeLabel,
-                value: item.address,
-                wrap: true,
-              });
-            }
-
-            return (
-              <article className="sourcing-card" key={item.id}>
-                <span className="sourcing-card-cap" />
-
-                <header className="sc-head">
-                  <span className="sc-monogram">{initialsOf(item.name)}</span>
-
-                  <div className="sc-headings">
-                    <h3 className="sc-name" title={item.name}>
-                      {item.name}
-                    </h3>
-                    <div className="sc-meta">
-                      {item.industryOrCategory && (
-                        <span className="sourcing-chip" title={item.industryOrCategory}>
-                          <Tag size={11} />
-                          {item.industryOrCategory}
-                        </span>
-                      )}
-                      {item.industryOrCategory && !isDefaultStatus(item.status) && (
-                        <span className="sc-sep" aria-hidden="true" />
-                      )}
-                      {!isDefaultStatus(item.status) && (
-                        <span className={`sourcing-badge status-${item.status.toLowerCase()}`}>
-                          {item.status}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="sourcing-card-actions">
-                    <button
-                      className="sourcing-menu-btn"
-                      onClick={() =>
-                        setActiveMenuId((prev) => (prev === item.id ? null : item.id))
-                      }
-                      aria-label={`Actions for ${item.name}`}
-                    >
-                      <MoreVertical size={18} />
-                    </button>
-
-                    {activeMenuId === item.id && (
-                      <div className="sourcing-dropdown-menu">
-                        <button
-                          className="dropdown-item danger"
-                          onClick={() => handleDeleteRecord(item.id)}
-                        >
-                          <Trash2 size={14} />
-                          <span>Delete</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </header>
-
-                <dl className="sc-rows">
-                  {rows.map((row) => (
-                    <div className="sc-row" key={row.label}>
-                      <span className="sc-row-icon">{row.icon}</span>
-                      <dt className="sc-row-label">{row.label}</dt>
-                      <dd
-                        className={`sc-row-value ${row.wrap ? "sc-row-value-wrap" : ""}`}
-                        title={row.value}
-                      >
-                        {row.value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-
-                {(() => {
-                  const engagement = engagementOf(item.name);
-                  return (
-                    <div className={`sc-demand ${engagement?.live ? "is-live" : ""}`}>
-                      <BriefcaseIcon size={14} />
-                      {engagement ? (
-                        <span>
-                          <strong>{engagement.orders}</strong> job order
-                          {engagement.orders === 1 ? "" : "s"} · <strong>{engagement.seats}</strong>{" "}
-                          seat{engagement.seats === 1 ? "" : "s"} · <strong>{engagement.filled}</strong>{" "}
-                          filled
-                        </span>
-                      ) : (
-                        <span>No job orders raised yet</span>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                <footer className="sc-foot">
-                  <span className="sc-ref" title={item.regNo || item.id}>
-                    <Hash size={12} />
-                    {item.regNo || item.id}
-                  </span>
-                  <span className="sc-date">
-                    <Calendar size={13} />
-                    {displayDate(item.date)}
-                  </span>
-                </footer>
-              </article>
-            );
-          })
+      <div className="sh-resultbar">
+        <span className="sh-result-count">
+          {loading
+            ? "Loading clients…"
+            : `${formatInt(visibleRecords.length)} of ${formatInt(records.length)} client${records.length === 1 ? "" : "s"}`}
+        </span>
+        {isFiltered && !loading && (
+          <button className="sh-clear-link" onClick={clearFilters}>
+            <X size={13} />
+            Clear filters
+          </button>
         )}
       </div>
 
-      {/* Create New Client Modal - Dynamic for Business and Association */}
+      {loading ? renderSkeleton() : visibleRecords.length === 0 ? renderEmpty() : (
+        <div className="sh-grid">{visibleRecords.map(renderCard)}</div>
+      )}
+
+      {/* Create / edit client */}
       {isModalOpen && (
-        <div className="cm-overlay active" onClick={() => setIsModalOpen(false)}>
+        <div className="cm-overlay active" onClick={closeModal}>
           <div
-            className="cm-dialog client-modal-dialog"
-            style={{ maxWidth: "600px", borderRadius: "16px", padding: 0 }}
+            className="cm-dialog sh-modal"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingId ? "Edit client" : "Create new client"}
           >
-            <div className="modal-header" style={{ padding: "1.5rem 1.75rem", borderBottom: "1px solid #f6f9fd" }}>
+            <div className="sh-modal-head">
               <div>
-                <h3 className="modal-title" style={{ fontSize: "1.4rem", fontWeight: 700 }}>
-                  Create New Client
-                </h3>
-                <p className="modal-subtitle" style={{ fontSize: "0.85rem", color: "#64748b", marginTop: "0.2rem" }}>
-                  Fill in the client details below
+                <h3 className="sh-modal-title">{editingId ? "Edit client" : "New sourcing client"}</h3>
+                <p className="sh-modal-sub">
+                  {editingId
+                    ? "Job orders match clients by name — renaming this one detaches the orders raised under the old name."
+                    : "Register an association or business you source candidates through."}
                 </p>
               </div>
-              <button className="modal-close-btn" onClick={() => setIsModalOpen(false)}>
-                <X size={20} />
+              <button className="sh-modal-close" onClick={closeModal} aria-label="Close">
+                <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateClient}>
-              <div className="modal-body" style={{ padding: "1.75rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-                {/* Row 1: Client Type & Company/Association Name */}
-                <div className="modal-row-2">
-                  <div>
-                    <label className="modal-label">Client Type</label>
-                    <div style={{ position: "relative" }}>
-                      <select
-                        className="modal-select"
-                        value={newType}
-                        onChange={(e) =>
-                          setNewType(e.target.value as "association" | "business")
-                        }
-                        style={{ appearance: "none", paddingRight: "2.25rem" }}
-                      >
-                        <option value="business">Business</option>
-                        <option value="association">Association</option>
-                      </select>
-                      <ChevronDown size={16} style={{ position: "absolute", right: "0.85rem", top: "50%", transform: "translateY(-50%)", color: "#94a3b8", pointerEvents: "none" }} />
-                    </div>
+            <form onSubmit={handleSubmitClient}>
+              <div className="modal-body sh-modal-body">
+                <div className="sh-field">
+                  <label className="modal-label">Client type</label>
+                  <div className="sh-type-switch" role="group" aria-label="Client type">
+                    <button
+                      type="button"
+                      className={newType === "business" ? "active" : ""}
+                      onClick={() => setNewType("business")}
+                    >
+                      <Briefcase size={14} />
+                      Business
+                    </button>
+                    <button
+                      type="button"
+                      className={newType === "association" ? "active" : ""}
+                      onClick={() => setNewType("association")}
+                    >
+                      <Users size={14} />
+                      Association
+                    </button>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="modal-label">
-                      {isBusiness ? "Company Name *" : "Association Name *"}
+                <div className="modal-row-2">
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-name">
+                      {isBusiness ? "Company name *" : "Association name *"}
                     </label>
                     <input
+                      id="sh-name"
                       type="text"
                       className="modal-input"
-                      placeholder={isBusiness ? "e.g. Apex Inc." : "e.g. activ"}
+                      placeholder={isBusiness ? "e.g. Apex Inc." : "e.g. Activ Guild"}
                       required
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                     />
                   </div>
-                </div>
 
-                {/* Row 2: Industry/Category & Registration No */}
-                <div className="modal-row-2">
-                  <div>
-                    <label className="modal-label">
-                      {isBusiness ? "Industry / Sector" : "Category / Domain"}
-                    </label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        type="text"
-                        list="sourcing-industry-datalist"
-                        className="modal-input"
-                        placeholder={isBusiness ? "Select or type Industry (e.g. IT Services)" : "Select or type Category (e.g. Professional Guild)"}
-                        value={newIndustryOrCategory}
-                        onChange={(e) => setNewIndustryOrCategory(e.target.value)}
-                      />
-                      <datalist id="sourcing-industry-datalist">
-                        {isBusiness ? (
-                          <>
-                            <option value="IT Services" />
-                            <option value="Software & Tech" />
-                            <option value="Healthcare" />
-                            <option value="Finance & Banking" />
-                            <option value="Manufacturing" />
-                            <option value="Consulting" />
-                            <option value="Logistics & Transport" />
-                          </>
-                        ) : (
-                          <>
-                            <option value="Professional Guild" />
-                            <option value="Technology Hub" />
-                            <option value="Trade Association" />
-                            <option value="Educational Network" />
-                            <option value="Non-Profit" />
-                          </>
-                        )}
-                      </datalist>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="modal-label">
-                      {isBusiness ? "Company Registration No." : "Association Registration No."}
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-industry">
+                      {isBusiness ? "Industry / sector" : "Category / domain"}
                     </label>
                     <input
+                      id="sh-industry"
+                      type="text"
+                      list="sourcing-industry-datalist"
+                      className="modal-input"
+                      placeholder={isBusiness ? "e.g. IT Services" : "e.g. Professional Guild"}
+                      value={newIndustryOrCategory}
+                      onChange={(e) => setNewIndustryOrCategory(e.target.value)}
+                    />
+                    <datalist id="sourcing-industry-datalist">
+                      {isBusiness ? (
+                        <>
+                          <option value="IT Services" />
+                          <option value="Software & Tech" />
+                          <option value="Healthcare" />
+                          <option value="Finance & Banking" />
+                          <option value="Manufacturing" />
+                          <option value="Consulting" />
+                          <option value="Logistics & Transport" />
+                        </>
+                      ) : (
+                        <>
+                          <option value="Professional Guild" />
+                          <option value="Technology Hub" />
+                          <option value="Trade Association" />
+                          <option value="Educational Network" />
+                          <option value="Non-Profit" />
+                        </>
+                      )}
+                    </datalist>
+                  </div>
+                </div>
+
+                <div className="modal-row-2">
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-contact">
+                      {isBusiness ? "HR contact person *" : "Primary contact person *"}
+                    </label>
+                    <input
+                      id="sh-contact"
+                      type="text"
+                      className="modal-input"
+                      placeholder="e.g. Jane Doe"
+                      required
+                      value={newContact}
+                      onChange={(e) => setNewContact(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-reg">
+                      {isBusiness ? "Company registration no." : "Association registration no."}
+                    </label>
+                    <input
+                      id="sh-reg"
                       type="text"
                       className="modal-input"
                       placeholder={isBusiness ? "e.g. CRN-12345" : "e.g. ASSOC-9921"}
@@ -638,70 +1026,63 @@ export default function SourcingHub() {
                   </div>
                 </div>
 
-                {/* Row 3: HR / Contact Person & Phone */}
                 <div className="modal-row-2">
-                  <div>
-                    <label className="modal-label">
-                      {isBusiness ? "HR Contact Person *" : "Primary Contact Person *"}
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-phone">
+                      Phone number
                     </label>
                     <input
-                      type="text"
+                      id="sh-phone"
+                      type="tel"
                       className="modal-input"
-                      placeholder={isBusiness ? "e.g. Jane Doe" : "e.g. thamizh"}
-                      required
-                      value={newContact}
-                      onChange={(e) => setNewContact(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="modal-label">Phone Number</label>
-                    <input
-                      type="text"
-                      className="modal-input"
-                      placeholder={isBusiness ? "e.g. +1 555-0199" : "e.g. 909764578"}
+                      placeholder="e.g. +91 90976 45780"
                       value={newPhone}
                       onChange={(e) => setNewPhone(e.target.value)}
                     />
                   </div>
+
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-email">
+                      Email address
+                    </label>
+                    <input
+                      id="sh-email"
+                      type="email"
+                      className="modal-input"
+                      placeholder="e.g. contact@company.com"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                    />
+                  </div>
                 </div>
 
-                {/* Row 4: Email Address */}
-                <div>
-                  <label className="modal-label">Email Address</label>
-                  <input
-                    type="email"
-                    className="modal-input"
-                    placeholder={isBusiness ? "e.g. contact@company.com" : "e.g. tharun@gmail.com"}
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                  />
-                </div>
-
-                {/* Row 5: Address */}
-                <div>
-                  <label className="modal-label">
-                    {isBusiness ? "Head Office Address" : "Registered Office Address"}
+                <div className="sh-field">
+                  <label className="modal-label" htmlFor="sh-address">
+                    {isBusiness ? "Head office address" : "Registered office address"}
                   </label>
                   <textarea
+                    id="sh-address"
                     className="modal-textarea"
-                    placeholder={isBusiness ? "123 Corporate Blvd..." : "456 Association Ave..."}
+                    placeholder={isBusiness ? "123 Corporate Blvd…" : "456 Association Ave…"}
                     value={newAddress}
                     onChange={(e) => setNewAddress(e.target.value)}
                   />
                 </div>
+
+                {formError && (
+                  <p className="sh-form-error" role="alert">
+                    <AlertTriangle size={14} />
+                    {formError}
+                  </p>
+                )}
               </div>
 
-              <div className="modal-footer" style={{ padding: "1.25rem 1.75rem", borderTop: "1px solid #f6f9fd" }}>
-                <button
-                  type="button"
-                  className="modal-cancel-btn"
-                  onClick={() => setIsModalOpen(false)}
-                >
+              <div className="modal-footer">
+                <button type="button" className="modal-cancel-btn" onClick={closeModal}>
                   Cancel
                 </button>
                 <button type="submit" className="modal-submit-btn">
-                  Create Client
+                  {editingId ? "Save changes" : "Create client"}
                 </button>
               </div>
             </form>

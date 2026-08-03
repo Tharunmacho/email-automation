@@ -62,6 +62,33 @@ export function timeAgo(value: string | undefined, now: Date = new Date()): stri
   return formatDayShort(parsed);
 }
 
+/**
+ * How a candidate should be referred to in any human-facing string — the
+ * activity log above all, where a raw Mongo id says nothing about who was
+ * viewed, edited or deleted. Structurally typed so this module stays free of
+ * an import cycle with `lib/api`.
+ */
+export function candidateNameOf(
+  candidate:
+    | {
+        id?: string;
+        profile?: { full_name?: string | null } | null;
+        source_email?: { from_name?: string | null } | null;
+      }
+    | null
+    | undefined,
+): string {
+  const parsed = candidate?.profile?.full_name?.trim();
+  if (parsed) return parsed;
+
+  const sender = candidate?.source_email?.from_name?.trim();
+  if (sender) return sender;
+
+  // Nothing was extracted and the sender was anonymous — a short ref beats a
+  // 32-character hex string, and still identifies the record.
+  return candidate?.id ? `unnamed profile ${candidate.id.slice(0, 6)}` : "unknown candidate";
+}
+
 export function initialsOf(name: string | null | undefined, fallback = "?"): string {
   const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return fallback;

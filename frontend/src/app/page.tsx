@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Menu, Plus, RefreshCw } from "lucide-react";
+import { Menu, RefreshCw } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
 import DashboardView from "@/screens/DashboardView";
-import CandidatesView from "@/screens/CandidatesView";
+import CandidatesView, { type CandidateLog } from "@/screens/CandidatesView";
 import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import SourcingHub from "@/screens/SourcingHub";
 import JobOrders from "@/screens/JobOrders";
@@ -13,6 +13,7 @@ import LoginScreen from "@/screens/LoginScreen";
 import CandidateModal from "@/components/CandidateModal";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
+import { candidateNameOf } from "@/lib/format";
 import {
   fetchMe,
   getToken,
@@ -74,24 +75,45 @@ export default function Home() {
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [candidateLogs, setCandidateLogs] = useState<CandidateLog[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   const [selected, setSelected] = useState<CandidateRecord | null>(null);
+  const [openInEdit, setOpenInEdit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
   const [flow, setFlow] = useState<FlowState>(IDLE_FLOW);
   const [syncing, setSyncing] = useState(false);
   const syncingRef = useRef(false);
+  const bootLoggedRef = useRef(false);
 
   // ---- helpers ---------------------------------------------------------- //
-  const log = useCallback((message: string, type: LogEntry["type"] = "info") => {
-    setLogs((prev) => [...prev, logEntry(message, type)]);
+  /**
+   * Two logs, and an entry belongs to exactly one of them. Anything scoped to a
+   * candidate — viewed, edited, verified, deleted — is that person's history and
+   * lives on their row in the directory. The dashboard's trace is reserved for
+   * the pipeline and for record-level changes, so a few minutes of browsing
+   * profiles no longer buries the sync it is there to show.
+   */
+  const log = useCallback((message: string, type: LogEntry["type"] = "info", candidateId?: string) => {
+    const entry = logEntry(message, type);
+    if (candidateId) {
+      setCandidateLogs((prev) => [...prev, { ...entry, candidateId }]);
+      return;
+    }
+    setLogs((prev) => [...prev, entry]);
   }, []);
 
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type, key: Date.now() });
   }, []);
+
+  /** Resolve an id to the person's name so the log reads like a sentence. */
+  const nameOf = useCallback(
+    (candidateId: string) => candidateNameOf(candidates.find((c) => c.id === candidateId)),
+    [candidates],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -142,6 +164,9 @@ export default function Home() {
     setCandidates([]);
     setTotal(0);
     setLogs([]);
+    setCandidateLogs([]);
+    // So the next session opens with its own connect banner.
+    bootLoggedRef.current = false;
     setSelected(null);
     setActiveTab("dashboard");
   }, []);
@@ -156,6 +181,11 @@ export default function Home() {
         if (!active) return;
         setCandidates(data.items ?? []);
         setTotal(data.total ?? 0);
+        // The connect banner is a once-per-session statement. A remount — a
+        // dev fast-refresh, a re-run of this effect — was appending a second
+        // identical pair, so the trace opened with the same two lines twice.
+        if (bootLoggedRef.current) return;
+        bootLoggedRef.current = true;
         setLogs((prev) => [
           ...prev,
           logEntry(
@@ -166,7 +196,8 @@ export default function Home() {
         ]);
       },
       (err: unknown) => {
-        if (!active) return;
+        if (!active || bootLoggedRef.current) return;
+        bootLoggedRef.current = true;
         setLogs((prev) => [
           ...prev,
           logEntry(
@@ -265,16 +296,29 @@ export default function Home() {
   // ---- candidate mutations ---------------------------------------------- //
   const handleSave = async (candidateId: string, profile: CandidateProfile) => {
     setSaving(true);
+    // Read the name before the save lands — an edit can rename the record, and
+    // the log should say who was edited, not who they became.
+    const previousName = nameOf(candidateId);
+    const nextName = profile.full_name?.trim() || previousName;
+    const renamed = nextName !== previousName;
+
     try {
       await updateCandidateProfile(candidateId, profile);
       showToast("Candidate profile updated successfully.", "success");
-      log(`Profile ${candidateId} updated.`, "success");
+      log(
+        renamed
+          ? `Updated profile: ${previousName} — renamed to ${nextName}.`
+          : `Updated profile: ${nextName}.`,
+        "success",
+        candidateId,
+      );
       setSelected(null);
+      setOpenInEdit(false);
       await refreshCandidates();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error saving profile.";
       showToast("Failed to save profile changes.", "error");
-      log(`Failed to save profile ${candidateId}: ${message}`, "error");
+      log(`Failed to update profile: ${previousName} — ${message}`, "error", candidateId);
     } finally {
       setSaving(false);
     }
@@ -282,33 +326,49 @@ export default function Home() {
 
   const handleVerify = async (candidateId: string) => {
     setVerifying(true);
+    const who = nameOf(candidateId);
     try {
       await verifyCandidate(candidateId);
       showToast("Candidate marked as verified.", "success");
-      log(`Candidate ${candidateId} marked verified.`, "success");
+      log(`Verified profile: ${who}.`, "success", candidateId);
       setSelected(null);
       await refreshCandidates();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error verifying candidate.";
       showToast("Failed to verify candidate.", "error");
-      log(`Failed to verify ${candidateId}: ${message}`, "error");
+      log(`Failed to verify: ${who} — ${message}`, "error", candidateId);
     } finally {
       setVerifying(false);
     }
   };
 
   const handleDeleteCandidate = async (candidateId: string) => {
+    // Resolved up front: once the record is gone the name cannot be looked up.
+    const who = nameOf(candidateId);
     try {
+      log(`Deleting profile: ${who}…`, "warn", candidateId);
       await deleteCandidateAPI(candidateId);
       showToast("Candidate permanently deleted from MongoDB Atlas.", "success");
-      log(`Candidate ${candidateId} permanently deleted from MongoDB Atlas.`, "success");
+      log(`Deleted profile: ${who} — removed from MongoDB Atlas.`, "success", candidateId);
       setSelected(null);
       await refreshCandidates();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error deleting candidate.";
       showToast("Failed to delete candidate.", "error");
-      log(`Failed to delete candidate ${candidateId}: ${message}`, "error");
+      log(`Failed to delete: ${who} — ${message}`, "error", candidateId);
     }
+  };
+
+  const handleOpenCandidate = (candidate: CandidateRecord) => {
+    setOpenInEdit(false);
+    setSelected(candidate);
+    log(`Viewed profile: ${candidateNameOf(candidate)}.`, "info", candidate.id);
+  };
+
+  const handleEditCandidate = (candidate: CandidateRecord) => {
+    setOpenInEdit(true);
+    setSelected(candidate);
+    log(`Opened editor: ${candidateNameOf(candidate)}.`, "info", candidate.id);
   };
 
   const meta = PAGE_META[activeTab];
@@ -370,23 +430,30 @@ export default function Home() {
         )}
 
         {activeTab === "candidates" && (
-          <CandidatesView candidates={candidates} onOpenCandidate={setSelected} />
+          <CandidatesView
+            candidates={candidates}
+            logs={candidateLogs}
+            onOpenCandidate={handleOpenCandidate}
+            onEditCandidate={handleEditCandidate}
+            onDeleteCandidate={handleDeleteCandidate}
+          />
         )}
 
         {activeTab === "visualizer" && (
           <FlowVisualizer flow={flow} syncing={syncing} onTrigger={runPipeline} />
         )}
 
-        {activeTab === "sourcing" && <SourcingHub />}
+        {activeTab === "sourcing" && <SourcingHub onActivity={log} />}
 
-        {activeTab === "job-orders" && <JobOrders candidates={candidates} />}
+        {activeTab === "job-orders" && <JobOrders candidates={candidates} onActivity={log} />}
       </div>
 
       <CandidateModal
         candidate={selected}
         saving={saving}
         verifying={verifying}
-        onClose={() => setSelected(null)}
+        initialEditMode={openInEdit}
+        onClose={() => { setSelected(null); setOpenInEdit(false); }}
         onSave={handleSave}
         onVerify={handleVerify}
         onDelete={handleDeleteCandidate}

@@ -35,6 +35,7 @@ interface CandidateModalProps {
   candidate: CandidateRecord | null;
   saving: boolean;
   verifying: boolean;
+  initialEditMode?: boolean;
   onClose: () => void;
   onSave: (candidateId: string, profile: CandidateProfile) => void;
   onVerify: (candidateId: string) => void;
@@ -164,12 +165,13 @@ function CandidateModalBody({
   candidate,
   saving,
   verifying,
+  initialEditMode,
   onClose,
   onSave,
   onVerify,
   onDelete,
 }: CandidateModalProps & { candidate: CandidateRecord }) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(initialEditMode ?? false);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
   const revealField = (key: string) => setRevealedFields((prev) => ({ ...prev, [key]: true }));
 
@@ -447,7 +449,7 @@ function CandidateModalBody({
               alignItems: "center",
               gap: "1.25rem",
               padding: "1.25rem",
-              background: "linear-gradient(135deg, rgba(29, 78, 216, 0.08) 0%, rgba(30, 58, 138, 0.05) 100%)",
+              background: "linear-gradient(135deg, rgba(11, 95, 255, 0.08) 0%, rgba(10, 36, 114, 0.05) 100%)",
               borderRadius: "0.75rem",
               border: "1px solid var(--border-blue)",
               marginBottom: "1.5rem",
@@ -462,7 +464,7 @@ function CandidateModalBody({
                 fontWeight: 700,
                 background: "linear-gradient(140deg, var(--primary) 0%, var(--primary-deep) 100%)",
                 color: "#fff",
-                boxShadow: "0 4px 14px rgba(29, 78, 216, 0.3)",
+                boxShadow: "0 4px 14px rgba(11, 95, 255, 0.3)",
               }}
             >
               {initial}
@@ -542,7 +544,7 @@ function CandidateModalBody({
                   style={{
                     padding: "1rem 1.25rem",
                     borderRadius: "0.6rem",
-                    background: "#f6f9fd",
+                    background: "var(--tint-1)",
                     borderLeft: "4px solid var(--primary)",
                     fontSize: "0.92rem",
                     lineHeight: "1.65",
@@ -652,7 +654,7 @@ function CandidateModalBody({
                       gap: "0.5rem",
                       padding: "0.5rem 0.85rem",
                       borderRadius: "0.5rem",
-                      background: "rgba(29, 78, 216, 0.08)",
+                      background: "rgba(11, 95, 255, 0.08)",
                       color: "var(--primary)",
                       fontSize: "0.85rem",
                       fontWeight: 500,
@@ -716,7 +718,7 @@ function CandidateModalBody({
                       gap: "0.5rem",
                       padding: "0.5rem 0.85rem",
                       borderRadius: "0.5rem",
-                      background: "#f6f9fd",
+                      background: "var(--tint-1)",
                       color: "var(--text-main)",
                       fontSize: "0.85rem",
                       fontWeight: 500,
@@ -735,7 +737,7 @@ function CandidateModalBody({
                       gap: "0.5rem",
                       padding: "0.5rem 0.85rem",
                       borderRadius: "0.5rem",
-                      background: "#f6f9fd",
+                      background: "var(--tint-1)",
                       color: "var(--text-muted)",
                       fontSize: "0.85rem",
                     }}
@@ -802,8 +804,8 @@ function CandidateModalBody({
                     style={{
                       padding: "0.4rem 0.85rem",
                       borderRadius: "2rem",
-                      background: "linear-gradient(135deg, rgba(29, 78, 216, 0.12) 0%, rgba(139,92,246,0.12) 100%)",
-                      border: "1px solid rgba(29, 78, 216, 0.25)",
+                      background: "linear-gradient(135deg, rgba(11, 95, 255, 0.12) 0%, rgba(0, 194, 255,0.12) 100%)",
+                      border: "1px solid rgba(11, 95, 255, 0.25)",
                       color: "var(--text-main)",
                       fontSize: "0.82rem",
                       fontWeight: 600,
@@ -858,7 +860,7 @@ function CandidateModalBody({
                           padding: "0.5rem 0.75rem",
                           borderRadius: "0.4rem",
                           border: "1px solid var(--border-blue)",
-                          background: "#f6f9fd",
+                          background: "var(--tint-1)",
                           color: "var(--text-main)",
                           fontSize: "0.85rem",
                         }}
@@ -908,8 +910,8 @@ function CandidateModalBody({
                         style={{
                           padding: "0.6rem 0.85rem",
                           borderRadius: "0.5rem",
-                          background: "rgba(29, 78, 216, 0.06)",
-                          border: "1px solid rgba(29, 78, 216, 0.2)",
+                          background: "rgba(11, 95, 255, 0.06)",
+                          border: "1px solid rgba(11, 95, 255, 0.2)",
                           color: "var(--text-main)",
                           fontSize: "0.88rem",
                           fontWeight: 500,
@@ -972,7 +974,7 @@ function CandidateModalBody({
                         padding: "1rem",
                         borderRadius: "0.6rem",
                         border: "1px solid var(--border-blue)",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
@@ -1092,7 +1094,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`exp_${index}_company`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Company
                             </button>
@@ -1101,7 +1103,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`exp_${index}_start_date`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Start Date
                             </button>
@@ -1110,7 +1112,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`exp_${index}_end_date`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add End Date
                             </button>
@@ -1119,7 +1121,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`exp_${index}_location`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Location
                             </button>
@@ -1128,7 +1130,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`exp_${index}_description`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Description
                             </button>
@@ -1154,7 +1156,7 @@ function CandidateModalBody({
                         style={{
                           padding: "1rem 1.25rem",
                           borderRadius: "0.6rem",
-                          background: "#f6f9fd",
+                          background: "var(--tint-1)",
                           border: "1px solid var(--border-blue)",
                           marginBottom: "0.75rem",
                         }}
@@ -1221,7 +1223,7 @@ function CandidateModalBody({
                         padding: "1rem",
                         borderRadius: "0.6rem",
                         border: "1px solid var(--border-blue)",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
@@ -1295,7 +1297,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`proj_${index}_desc`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Description
                             </button>
@@ -1304,7 +1306,7 @@ function CandidateModalBody({
                             <button
                               type="button"
                               onClick={() => revealField(`proj_${index}_tech`)}
-                              style={{ background: "#f6f9fd", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
+                              style={{ background: "var(--tint-1)", border: "1px dashed var(--border-blue)", color: "var(--primary)", fontSize: "0.72rem", padding: "2px 8px", borderRadius: "4px", cursor: "pointer" }}
                             >
                               + Add Technologies
                             </button>
@@ -1325,7 +1327,7 @@ function CandidateModalBody({
                       style={{
                         padding: "1rem 1.25rem",
                         borderRadius: "0.6rem",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                         border: "1px solid var(--border-blue)",
                         marginBottom: "0.75rem",
                       }}
@@ -1347,8 +1349,10 @@ function CandidateModalBody({
                                 fontSize: "0.72rem",
                                 padding: "0.2rem 0.5rem",
                                 borderRadius: "0.25rem",
-                                background: "rgba(20,184,166,0.1)",
-                                color: "#14b8a6",
+                                background: "rgba(0, 194, 255, 0.12)",
+                                /* --secondary is only 3.3:1 on this tint —
+                                   the deeper step keeps the chip readable. */
+                                color: "var(--secondary-hover)",
                               }}
                             >
                               {tech}
@@ -1392,7 +1396,7 @@ function CandidateModalBody({
                         padding: "1rem",
                         borderRadius: "0.6rem",
                         border: "1px solid var(--border-blue)",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
@@ -1445,7 +1449,7 @@ function CandidateModalBody({
                       style={{
                         padding: "1rem 1.25rem",
                         borderRadius: "0.6rem",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                         border: "1px solid var(--border-blue)",
                         marginBottom: "0.75rem",
                       }}
@@ -1512,7 +1516,7 @@ function CandidateModalBody({
                       style={{
                         padding: "0.85rem 1rem",
                         borderRadius: "0.6rem",
-                        background: "#f6f9fd",
+                        background: "var(--tint-1)",
                         border: "1px solid var(--border-blue)",
                         fontSize: "0.88rem",
                         lineHeight: "1.5",

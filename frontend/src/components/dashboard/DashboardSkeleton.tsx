@@ -13,8 +13,10 @@ export default function DashboardSkeleton() {
   return (
     <div className="tab-content active dash-root" aria-hidden="true">
       <div className="metric-tiles">
-        {[0, 1, 2, 3].map((index) => (
-          <div key={index} className="metric-tile">
+        {/* Same tones, in the same order, as the live tiles — otherwise the
+            accent edges change colour as the real cards swap in. */}
+        {(["blue", "green", "yellow", "navy"] as const).map((tone, index) => (
+          <div key={index} className={`metric-tile tone-${tone}`}>
             <div className="metric-tile-head">
               <span className="dash-skel dash-skel-chip" />
               <span className="dash-skel dash-skel-spark" />

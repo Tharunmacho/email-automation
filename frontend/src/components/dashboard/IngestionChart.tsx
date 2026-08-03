@@ -13,10 +13,14 @@ interface IngestionChartProps {
   onRangeChange: (range: RangeOption) => void;
 }
 
-/** Dark blue — the line is the loudest thing on an otherwise white surface. */
-const ACCENT = "#1e40af";
-/* Gridlines stay recessive, but tinted from the same navy as every border. */
-const GRID = "#e3eaf7";
+/** Electric azure — the line is the loudest thing on an otherwise white
+ *  surface, and it is the same accent the rest of the shell is keyed to. */
+const ACCENT = "#0b5fff";
+/** Cyan tail on the area fill — the gradient runs accent → spark → nothing,
+ *  which is what gives the plot its depth without adding a second data hue. */
+const ACCENT_SOFT = "#00c2ff";
+/* Gridlines stay recessive, but tinted from the same blue as every border. */
+const GRID = "#e3ebfb";
 
 const PAD = { top: 18, right: 18, bottom: 30, left: 40 };
 const HEIGHT = 268;
@@ -138,8 +142,9 @@ export default function IngestionChart({ buckets, range, onRangeChange }: Ingest
         >
           <defs>
             <linearGradient id="dash-area-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={ACCENT} stopOpacity="0.16" />
-              <stop offset="100%" stopColor={ACCENT} stopOpacity="0" />
+              <stop offset="0%" stopColor={ACCENT} stopOpacity="0.18" />
+              <stop offset="62%" stopColor={ACCENT_SOFT} stopOpacity="0.07" />
+              <stop offset="100%" stopColor={ACCENT_SOFT} stopOpacity="0" />
             </linearGradient>
           </defs>
 

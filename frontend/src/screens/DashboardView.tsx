@@ -93,9 +93,7 @@ export default function DashboardView({
           label="Total candidates"
           value={compactNumber(total)}
           icon={Users}
-          accent="#1d4ed8"
-          accentSoft="rgba(29, 78, 216, 0.10)"
-          accentMuted="#bfdbfe"
+          tone="blue"
           trend={totalTrend.map((point) => point.value)}
           delta={windowDelta(totalTrend, DELTA_WINDOW)}
           formatDelta={(change) => `${change > 0 ? "+" : "−"}${formatInt(Math.abs(change))}`}
@@ -105,9 +103,7 @@ export default function DashboardView({
           label="Verified profiles"
           value={compactNumber(verified)}
           icon={CheckCircle2}
-          accent="#10b981"
-          accentSoft="rgba(16, 185, 129, 0.10)"
-          accentMuted="#a7f3d0"
+          tone="green"
           trend={verifiedTrend.map((point) => point.value)}
           delta={windowDelta(verifiedTrend, DELTA_WINDOW)}
           formatDelta={(change) => `${change > 0 ? "+" : "−"}${formatInt(Math.abs(change))}`}
@@ -118,9 +114,7 @@ export default function DashboardView({
           label="Pending review"
           value={compactNumber(review)}
           icon={Eye}
-          accent="#f59e0b"
-          accentSoft="rgba(245, 158, 11, 0.12)"
-          accentMuted="#fde68a"
+          tone="yellow"
           trend={reviewTrend.map((point) => point.value)}
           delta={windowDelta(reviewTrend, DELTA_WINDOW)}
           formatDelta={(change) => `${change > 0 ? "+" : "−"}${formatInt(Math.abs(change))}`}
@@ -131,9 +125,7 @@ export default function DashboardView({
           label="Avg extraction confidence"
           value={`${avgConfidence.toFixed(1)}%`}
           icon={Cpu}
-          accent="#7c3aed"
-          accentSoft="rgba(124, 58, 237, 0.10)"
-          accentMuted="#ddd6fe"
+          tone="navy"
           trend={confidenceTrend.map((point) => point.value)}
           delta={windowDelta(confidenceTrend, DELTA_WINDOW)}
           formatDelta={(change) => `${change > 0 ? "+" : "−"}${Math.abs(change).toFixed(1)} pts`}

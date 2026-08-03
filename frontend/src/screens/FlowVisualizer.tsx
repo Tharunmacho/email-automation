@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Binary, Database, Mail, Play, ShieldCheck } from "lucide-react";
+import { Binary, Check, Database, Loader2, Mail, Play, ShieldCheck } from "lucide-react";
 
 export type NodeState = "idle" | "active" | "success";
 
@@ -47,24 +47,28 @@ export default function FlowVisualizer({ flow, syncing, onTrigger }: FlowVisuali
 
   const connectors = [flow.connGmailFilter, flow.connFilterVeris, flow.connVerisDb];
 
+  // Which stage the run is on, for the compact readout that replaces the
+  // diagram's left-to-right reading when it stacks.
+  const activeIndex = nodes.findIndex((node) => node.state === "active");
+  const doneCount = nodes.filter((node) => node.state === "success").length;
+  const stageLabel = syncing
+    ? activeIndex >= 0
+      ? `Step ${activeIndex + 1} of ${nodes.length} — ${nodes[activeIndex].title}`
+      : `${doneCount} of ${nodes.length} stages complete`
+    : doneCount === nodes.length
+    ? "Last run completed all four stages"
+    : "Idle — waiting for a run";
+
   return (
     <div className="tab-content active">
-      <div className="glass-card flow-visualizer-container">
-        <div className="visualizer-title-desc">
-          <h2
-            style={{
-              fontFamily: "var(--font-outfit), sans-serif",
-              fontSize: "1.5rem",
-              marginBottom: "0.5rem",
-            }}
-          >
-            Pipeline Automation Flow
-          </h2>
-          <p>
-            This flow maps how resumes are fetched from unread emails, filtered, parsed directly
-            using the Veris LLM, and successfully stored in MongoDB.
+      <section className="glass-card flow-card">
+        <header className="flow-head">
+          <h2 className="flow-title">Pipeline automation flow</h2>
+          <p className="flow-sub">
+            How resumes travel from an unread email, through the score filters and the Veris
+            LLM parser, into MongoDB.
           </p>
-        </div>
+        </header>
 
         <div className="flow-nodes">
           {nodes.map((node, index) => {
@@ -72,12 +76,20 @@ export default function FlowVisualizer({ flow, syncing, onTrigger }: FlowVisuali
             return (
               <React.Fragment key={node.key}>
                 <div className={nodeClass(node.state)}>
-                  <Icon size={32} />
+                  <span className="flow-node-step">
+                    {node.state === "success" ? <Check size={13} strokeWidth={3} /> : index + 1}
+                  </span>
+                  <span className="flow-node-icon">
+                    <Icon size={26} />
+                  </span>
                   <span className="flow-node-title">{node.title}</span>
                 </div>
                 {index < connectors.length && (
-                  <div className={`flow-connector ${connectors[index] ? "active" : ""}`}>
-                    <div className="connector-pulse"></div>
+                  <div
+                    className={`flow-connector ${connectors[index] ? "active" : ""}`}
+                    aria-hidden="true"
+                  >
+                    <span className="connector-pulse" />
                   </div>
                 )}
               </React.Fragment>
@@ -85,16 +97,21 @@ export default function FlowVisualizer({ flow, syncing, onTrigger }: FlowVisuali
           })}
         </div>
 
-        <button
-          className="btn"
-          style={{ padding: "1rem 2rem", fontSize: "1.1rem", gap: "0.75rem" }}
-          onClick={onTrigger}
-          disabled={syncing}
-        >
-          <Play size={20} />
-          <span>{syncing ? "Pipeline Running..." : "Trigger Live Pipeline Run"}</span>
+        <p className={`flow-stage ${syncing ? "is-running" : ""}`} aria-live="polite">
+          {syncing && <span className="flow-stage-dot" />}
+          {stageLabel}
+        </p>
+
+        {/* One control, two labels: the phone gets a button it can actually fit
+            rather than a shrunken copy of the desktop one. */}
+        <button className="flow-cta" onClick={onTrigger} disabled={syncing}>
+          {syncing ? <Loader2 size={18} className="icon-spin" /> : <Play size={18} />}
+          <span className="flow-cta-full">
+            {syncing ? "Pipeline running…" : "Trigger live pipeline run"}
+          </span>
+          <span className="flow-cta-short">{syncing ? "Running…" : "Run pipeline"}</span>
         </button>
-      </div>
+      </section>
     </div>
   );
 }
