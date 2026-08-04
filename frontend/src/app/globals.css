@@ -3940,6 +3940,35 @@ body {
   color: var(--text-light);
 }
 
+/* Names the two halves of the row. Without it the groups are told apart only
+   by tint and a 12px tick — which is nothing at a glance, nothing in a copied
+   card, and nothing at all if you do not separate red from green. */
+.mc-matrix-label {
+  align-self: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #047857;
+  margin-right: 0.1rem;
+}
+
+.mc-matrix-label.is-gap {
+  color: var(--dash-muted);
+  /* The gap group is pushed off the held group rather than spaced evenly, so
+     the row reads as two lists instead of one long one. */
+  margin-left: 0.35rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--border-blue);
+}
+
+/* A chip the skill filter is currently keyed to. Ringed rather than recoloured
+   — it still has to read as a held skill first, and as the reason this card
+   survived the filter second. */
+.mc-chip-hit.is-filtered {
+  box-shadow: 0 0 0 1.5px #047857;
+}
+
 /* --- the folded tail ----------------------------------------------------- */
 .mc-more {
   display: flex;
@@ -6338,6 +6367,247 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* --- skill filter --------------------------------------------------------
+   One dropdown rather than a chip per requirement: the toolbar stays a fixed
+   width however many skills the order lists, where the chip row grew it by a
+   line every few skills and pushed the sort control off the surface.
+   ------------------------------------------------------------------------- */
+.jod-skillsel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jod-dd {
+  position: relative;
+}
+
+/* Reads as a sibling of the sort control beside it — same height, radius and
+   border — so the two controls sit as a pair rather than as two designs. */
+.jod-dd-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.48rem 0.7rem;
+  border-radius: 9px;
+  border: 1px solid var(--border-blue);
+  background: #ffffff;
+  color: var(--dash-ink-2);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.jod-dd-trigger:hover {
+  border-color: var(--border-blue-strong);
+  color: var(--dash-ink);
+}
+
+.jod-dd-trigger.is-open {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* A filter that is actually narrowing the list has to look different from one
+   sitting at its default, or it hides results with no visible cause. Green,
+   not brand blue: blue is navigation here, and green already means "has this
+   skill" on the cards below. */
+.jod-dd-trigger.is-set {
+  border-color: #10b981;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.06);
+}
+
+/* The count on the trigger is the surviving candidates, not the tick count —
+   the number you want when deciding whether to widen the filter. */
+.jod-dd-trigger.is-set .jo-chip-count {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+.jod-dd-trigger svg {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.jod-dd-trigger svg.is-open {
+  transform: rotate(180deg);
+}
+
+/* --- panel --------------------------------------------------------------- */
+.jod-dd-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 260px;
+  background: #ffffff;
+  border: 1px solid var(--border-blue);
+  border-radius: 12px;
+  box-shadow: 0 16px 34px -12px rgba(11, 30, 66, 0.28);
+  overflow: hidden;
+}
+
+/* Caps at roughly six rows and scrolls past that, so an order with a long
+   requirements list cannot run the panel off the bottom of the viewport. */
+.jod-dd-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.jod-dd-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--dash-ink);
+  transition: background 0.15s ease;
+}
+
+.jod-dd-opt:hover {
+  background: var(--tint-1);
+}
+
+.jod-dd-opt input {
+  width: 15px;
+  height: 15px;
+  accent-color: #047857;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.jod-dd-opt-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A requirement nobody in the pool holds. Dimmed, but deliberately still
+   selectable — confirming the pool really is empty is a fair thing to want. */
+.jod-dd-opt.is-empty .jod-dd-opt-name {
+  color: var(--text-light);
+}
+
+/* --- any / all ----------------------------------------------------------- */
+.jod-dd-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.jod-dd-mode label {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.79rem;
+  font-weight: 500;
+  color: var(--dash-ink-2);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.jod-dd-mode label:hover {
+  background: var(--tint-1);
+}
+
+.jod-dd-mode label.is-on {
+  color: var(--dash-ink);
+  font-weight: 600;
+}
+
+.jod-dd-mode input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* --- footer -------------------------------------------------------------- */
+.jod-dd-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
+
+.jod-dd-clear,
+.jod-dd-done {
+  border: none;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.6rem;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.jod-dd-clear {
+  color: var(--dash-muted);
+}
+
+.jod-dd-clear:hover:not(:disabled) {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.jod-dd-clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.jod-dd-done {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-primary);
+}
+
+.jod-dd-done:hover {
+  background: var(--primary-hover);
+}
+
+/* The toolbar is a wrap container; on a narrow screen the skill control drops
+   to its own line rather than squeezing the sort select next to it. */
+@media (max-width: 720px) {
+  .jod-skillsel {
+    flex-basis: 100%;
+  }
+
+  .jod-dd,
+  .jod-dd-trigger {
+    width: 100%;
+  }
+
+  .jod-dd-trigger {
+    justify-content: space-between;
+  }
+
+  .jod-dd-panel {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
 }
 
 .jod-match-list {
