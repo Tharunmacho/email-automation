@@ -10,8 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set up working directory
 WORKDIR /app
 
-# Copy and install python dependencies
+# Copy and install python dependencies. `clients/` has to come along here, not
+# with the rest of the source below: requirements.txt ends with an editable
+# install of ./clients/python, and pip fails outright if that path is missing.
+# It is copied separately so a source edit does not invalidate this layer.
 COPY requirements.txt .
+COPY clients ./clients
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code

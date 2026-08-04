@@ -1,0 +1,38 @@
+[Unit]
+Description=Resume ingestion Celery worker
+# Redis is the broker: without it the worker starts, fails to connect, and
+# retries in a loop. Ordering it after redis just avoids the noise on boot.
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=REPLACE_WITH_SERVICE_USER
+Group=REPLACE_WITH_SERVICE_USER
+WorkingDirectory=/opt/resume-ingest
+EnvironmentFile=/opt/resume-ingest/.env
+
+# --concurrency: each worker process holds its own Mongo connection and can be
+# running OCR on a PDF, so this is bounded by RAM more than by CPU. Two is a
+# safe start on a small VPS; raise it once you know a batch's memory profile.
+ExecStart=/opt/resume-ingest/.venv/bin/celery \
+    -A app.tasks.celery_app worker \
+    --loglevel=INFO \
+    --concurrency=2
+
+Restart=always
+RestartSec=10
+
+# A poll cycle can legitimately run for minutes (OCR + LLM per attachment).
+# Give it time to finish the current task before SIGKILL, or a restart during
+# a batch leaves messages half-processed.
+KillSignal=SIGTERM
+TimeoutStopSec=300
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=resume-worker
+
+[Install]
+WantedBy=multi-user.target

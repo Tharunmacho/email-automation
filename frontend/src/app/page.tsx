@@ -20,7 +20,7 @@ import {
   logout as clearSession,
   deleteCandidateAPI,
   listCandidates,
-  triggerPoll,
+  runPollCycle,
   updateCandidateProfile,
   verifyCandidate,
   type AuthUser,
@@ -239,7 +239,7 @@ export default function Home() {
       log("Step 2: Applying resume detection filter & score validation...", "info");
       await sleep(600);
 
-      const summary = await triggerPoll();
+      const summary = await runPollCycle();
 
       setFlow((prev) => ({ ...prev, filter: "success", connFilterVeris: true, veris: "active" }));
       log("Step 3: Sending attachments to Veris LLM Resume API for character-by-character OCR & LLM extraction...", "info");
@@ -265,18 +265,25 @@ export default function Home() {
 
       setFlow((prev) => ({ ...prev, db: "success" }));
 
-      log(
-        `[COMPLETE] Pipeline finished. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
-        "success",
-      );
-
-      if (summary.ingested_candidates > 0) {
-        showToast(
-          `Ingestion completed! Added ${summary.ingested_candidates} new candidate profile(s).`,
+      // A cycle that declined the lock did no work at all. Saying "no new
+      // resumes found" there would be a lie — nothing was even looked at.
+      if (summary.skipped_reason) {
+        log(`[NOTICE] ${summary.skipped_reason}`, "warn");
+        showToast("A sync is already running. Its results will appear shortly.", "info");
+      } else {
+        log(
+          `[COMPLETE] Pipeline finished. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
           "success",
         );
-      } else {
-        showToast("Sync completed. No new unread candidate resumes found in Gmail inbox.", "info");
+
+        if (summary.ingested_candidates > 0) {
+          showToast(
+            `Ingestion completed! Added ${summary.ingested_candidates} new candidate profile(s).`,
+            "success",
+          );
+        } else {
+          showToast("Sync completed. No new unread candidate resumes found in Gmail inbox.", "info");
+        }
       }
 
       await refreshCandidates();
@@ -398,7 +405,15 @@ export default function Home() {
         onSignOut={handleSignOut}
       />
 
-      <div className={`main-content ${collapsed ? "sidebar-collapsed" : ""}`}>
+      {/* `screen-dashboard` carries the dashboard's own typeface. It sits on the
+          content column rather than on the dashboard view itself so the header
+          bar above the tiles is set in the same face — scoping it any tighter
+          splits one screen across two fonts at the page title. */}
+      <div
+        className={`main-content ${collapsed ? "sidebar-collapsed" : ""} ${
+          activeTab === "dashboard" ? "screen-dashboard" : ""
+        }`}
+      >
         <div className="header-bar">
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <button

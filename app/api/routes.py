@@ -201,34 +201,74 @@ def delete_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> 
 
 @app.post("/ingest/poll")
 def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
-    """Manually trigger one Gmail poll cycle (handy for testing / on-demand runs)."""
-    from app.ingestion.runner import IngestionRunner
+    """Run one Gmail poll cycle inline and return its summary.
 
-    summary = IngestionRunner().run_once(query=query)
-    return {
-        "fetched": summary.fetched,
-        "processed": summary.processed,
-        "skipped": summary.skipped,
-        "errors": summary.errors,
-        "ingested_candidates": summary.ingested_candidates,
-        "results": [
-            {
-                "message_id": r.message_id,
-                "status": r.status,
-                "reason": r.reason,
-                "attachments": [
-                    {
-                        "filename": a.filename,
-                        "status": a.status,
-                        "candidate_id": a.candidate_id,
-                        "detail": a.detail,
-                    }
-                    for a in r.attachments
-                ],
-            }
-            for r in summary.results
-        ],
-    }
+    Blocks for the whole batch (OCR + LLM per attachment), so it only suits
+    small inboxes and local testing. Prefer `/ingest/poll/async` when a worker
+    is running; this stays as the no-worker fallback.
+    """
+    from app.ingestion.runner import IngestionRunner
+    from app.tasks.jobs import summary_to_dict
+
+    return summary_to_dict(IngestionRunner().run_once(query=query))
+
+
+# ---- Background ingestion ------------------------------------------------- #
+@app.get("/ingest/workers")
+def ingest_workers(_user: dict = Depends(current_user)) -> dict:
+    """Lets the frontend pick the async path only when it will actually work."""
+    from app.tasks.health import workers_online
+
+    return {"available": workers_online()}
+
+
+@app.post("/ingest/poll/async")
+def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
+    """Queue a poll cycle on a worker and return immediately with its task id."""
+    from app.tasks.health import reset_cache, workers_online
+
+    if not workers_online():
+        raise HTTPException(
+            status_code=503,
+            detail="No ingestion worker is running. Start one with: "
+                   "celery -A app.tasks.celery_app worker --loglevel=INFO --pool=solo",
+        )
+
+    from app.tasks.jobs import run_poll_cycle
+
+    try:
+        async_result = run_poll_cycle.delay(query)
+    except Exception as exc:  # noqa: BLE001
+        # The ping passed but the enqueue did not — the broker died in between,
+        # so the memoised "yes" is now wrong. Drop it rather than serve it for
+        # the rest of its TTL.
+        reset_cache()
+        raise HTTPException(status_code=503, detail=f"Could not queue the poll: {exc}")
+
+    return {"task_id": async_result.id, "state": "PENDING"}
+
+
+@app.get("/ingest/tasks/{task_id}")
+def ingest_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
+    """Poll a queued cycle. `result` is the batch summary once state is SUCCESS."""
+    try:
+        from app.tasks.celery_app import celery_app
+
+        async_result = celery_app.AsyncResult(task_id)
+        state = async_result.state
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Result backend unavailable: {exc}")
+
+    payload: dict = {"task_id": task_id, "state": state, "ready": state in ("SUCCESS", "FAILURE")}
+
+    if state == "SUCCESS":
+        payload["result"] = async_result.result
+    elif state == "FAILURE":
+        # str() rather than the exception object: the traceback stays in the
+        # worker log, and the frontend only needs something to show.
+        payload["error"] = str(async_result.result)
+
+    return payload
 
 
 @app.put("/candidates/{candidate_id}")

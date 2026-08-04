@@ -75,6 +75,19 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
 
+    # ---- Redis (Celery broker + distributed locks) ----
+    redis_url: str = "redis://localhost:6379/0"
+    # Kept short on purpose: every probe of "is a worker up?" pays this when
+    # Redis is down, and it runs inside a request. On Windows a `localhost`
+    # connect tries IPv6 then IPv4, so the real wait is roughly double this.
+    # A broker that cannot accept a TCP connection within a second is down as
+    # far as an interactive request is concerned.
+    redis_socket_timeout: float = 1.0
+    # A poll cycle holding the lock longer than this is assumed dead. Must
+    # exceed a realistic worst-case batch (OCR + LLM over a full inbox page),
+    # because expiring early lets a second cycle start on top of a live one.
+    poll_lock_ttl_seconds: int = 1800
+
     # ---- Derived helpers ----
     # File extensions the pre-filter treats as a possible resume attachment.
     resume_extensions: List[str] = Field(

@@ -130,6 +130,8 @@ export interface PollSummary {
   errors: number;
   ingested_candidates: number;
   results?: PollMessageResult[];
+  /** Set when the cycle declined to run because another one held the lock. */
+  skipped_reason?: string;
 }
 
 /** Candidates below this parser confidence are surfaced for manual review. */
@@ -251,8 +253,91 @@ export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResp
   });
 }
 
+/** Runs the poll inline; the request is held open for the whole batch. */
 export function triggerPoll(): Promise<PollSummary> {
   return request<PollSummary>("/ingest/poll", { method: "POST" });
+}
+
+interface QueuedPoll {
+  task_id: string;
+  state: string;
+}
+
+interface PollTaskStatus {
+  task_id: string;
+  state: string;
+  ready: boolean;
+  result?: PollSummary;
+  error?: string;
+}
+
+/** How long to wait for a queued cycle before giving up on it. */
+const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const POLL_INTERVAL_MS = 2000;
+/** Consecutive status-check failures tolerated before calling the run lost. */
+const POLL_MAX_CONSECUTIVE_ERRORS = 5;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run a Gmail poll, off the request path when that is possible.
+ *
+ * With a Celery worker up, the cycle is queued and this polls for its result,
+ * so no single HTTP request is held open through OCR and the LLM. With no
+ * worker, it falls back to the inline endpoint — the app works either way, and
+ * running a worker is an optimisation rather than a deployment requirement.
+ */
+export async function runPollCycle(): Promise<PollSummary> {
+  let queued: QueuedPoll;
+  try {
+    queued = await request<QueuedPoll>("/ingest/poll/async", { method: "POST" });
+  } catch (err) {
+    // A dead session must still send the user to login, not silently retry
+    // against an endpoint that will reject them the same way.
+    if (err instanceof UnauthorizedError) throw err;
+    return triggerPoll();
+  }
+
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let consecutiveErrors = 0;
+
+  for (;;) {
+    await sleep(POLL_INTERVAL_MS);
+
+    let status: PollTaskStatus;
+    try {
+      status = await request<PollTaskStatus>(`/ingest/tasks/${queued.task_id}`, {
+        cache: "no-store",
+      });
+      consecutiveErrors = 0;
+    } catch (err) {
+      if (err instanceof UnauthorizedError) throw err;
+      // The batch is running on a worker, not in this request. A blip while
+      // asking after it says nothing about whether it is still going, so keep
+      // asking rather than reporting a failure that did not happen.
+      consecutiveErrors += 1;
+      if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+        throw new Error(
+          "Lost contact with the API while the poll was running. It may still " +
+            "finish in the background — refresh to see what was ingested.",
+        );
+      }
+      continue;
+    }
+
+    if (status.state === "FAILURE") {
+      throw new Error(status.error || "The ingestion worker failed to run the poll.");
+    }
+    if (status.state === "SUCCESS" && status.result) {
+      return status.result;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        "The poll is still running after 10 minutes. It will finish in the background — " +
+          "refresh to see the candidates it ingested.",
+      );
+    }
+  }
 }
 
 export function updateCandidateProfile(

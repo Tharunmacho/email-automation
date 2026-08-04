@@ -1,9 +1,12 @@
-# Local infrastructure for the resume ingestion pipeline.
+# Local development infrastructure for the resume ingestion pipeline.
 #   docker compose up -d          # start MongoDB + Redis
 #   docker compose down
 #
 # The Python app runs on your host (so the OAuth browser flow + Tesseract work
 # naturally). These containers just provide the datastores.
+#
+# This file is for local dev only — server deployment runs Redis and the Celery
+# services natively under systemd. See deploy/README.md.
 
 services:
   mongo:
@@ -19,8 +22,10 @@ services:
     image: redis:7-alpine
     container_name: resume_redis
     restart: unless-stopped
+    # Loopback only: this Redis holds the job queue and the poll lock, and it
+    # has no password. Nothing off this machine needs to reach it.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   # Optional web UI to browse MongoDB at http://localhost:8081
   mongo-express:

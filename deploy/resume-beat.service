@@ -1,0 +1,33 @@
+[Unit]
+Description=Resume ingestion Celery beat scheduler
+After=network-online.target redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=REPLACE_WITH_SERVICE_USER
+Group=REPLACE_WITH_SERVICE_USER
+WorkingDirectory=/opt/resume-ingest
+EnvironmentFile=/opt/resume-ingest/.env
+
+# Run exactly one beat, on one host. A second scheduler means two ticks per
+# interval; they collide on the poll lock rather than double-ingesting, but
+# then half the scheduled polls do nothing.
+#
+# --schedule writes beat's own state file. Point it somewhere writable and
+# persistent, not the working directory, so a redeploy does not lose it.
+ExecStart=/opt/resume-ingest/.venv/bin/celery \
+    -A app.tasks.celery_app beat \
+    --loglevel=INFO \
+    --schedule /var/lib/resume-ingest/celerybeat-schedule
+
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=resume-beat
+
+[Install]
+WantedBy=multi-user.target
