@@ -39,6 +39,7 @@ import {
   deleteSourcingClientAPI,
   listJobOrdersAPI,
 } from "@/lib/api";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
 export interface SourcingRecord {
   id: string;
@@ -177,43 +178,32 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       .catch(() => setJobOrders([]));
   }, []);
 
+  // The DB is the source of truth. Whatever it returns replaces the table
+  // outright — an empty list means the user deleted everything, not that the
+  // lookup missed. The cache is only consulted when the request fails, and is
+  // never pushed back to the API.
   useEffect(() => {
-    // 1. Sync any local storage records to MongoDB Atlas API
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("sourcing_records");
-      if (saved) {
-        try {
-          const localRecords: SourcingRecord[] = JSON.parse(saved);
-          localRecords.forEach((rec) => {
-            createSourcingClientAPI(rec).catch(() => {});
-          });
-        } catch {}
-      }
-    }
+    let active = true;
 
-    const fallbackToLocal = () => {
-      if (typeof window === "undefined") return;
-      const saved = localStorage.getItem("sourcing_records");
-      if (!saved) return;
-      try {
-        setRecords(JSON.parse(saved));
-      } catch {}
-    };
-
-    // 2. Fetch all real client records from MongoDB database API
     listSourcingClientsAPI()
       .then((res) => {
-        if (res.items && res.items.length > 0) {
-          setRecords(res.items);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("sourcing_records", JSON.stringify(res.items));
-          }
-        } else {
-          fallbackToLocal();
-        }
+        if (!active) return;
+        const items = (res.items ?? []) as SourcingRecord[];
+        setRecords(items);
+        writeCache(CACHE_KEYS.sourcingClients, items);
       })
-      .catch(fallbackToLocal)
-      .finally(() => setLoading(false));
+      .catch(() => {
+        // API unreachable — fall back to the last response we saw.
+        const cached = readCache<SourcingRecord>(CACHE_KEYS.sourcingClients);
+        if (active && cached) setRecords(cached);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   // The row menu only ever toggled from its own button, so clicking anywhere
@@ -395,11 +385,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   const persist = (updated: SourcingRecord[]) => {
     setRecords(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("sourcing_records", JSON.stringify(updated));
-      } catch {}
-    }
+    writeCache(CACHE_KEYS.sourcingClients, updated);
   };
 
   const handleSubmitClient = (e: React.FormEvent) => {

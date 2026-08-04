@@ -29,6 +29,7 @@ import {
   Phone,
   MapPin,
   Inbox,
+  Sparkles,
 } from "lucide-react";
 
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -42,6 +43,7 @@ import {
   deleteJobOrderAPI,
   type CandidateRecord,
 } from "@/lib/api";
+import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
 export interface JobOrderRecord {
   id: string;
@@ -499,6 +501,15 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   // are folded away so the handful worth reading is not buried under them.
   const [showWeakMatches, setShowWeakMatches] = useState(false);
 
+  // Skill filter. The score already weighs all three required skills equally,
+  // which is not how hiring actually works — one of them is usually the thing
+  // you cannot train. Selecting it here filters on that skill directly instead
+  // of hoping it surfaces through the aggregate.
+  const [skillFilter, setSkillFilter] = useState<string[]>([]);
+  // ANY widens the pool, ALL narrows it to the people who clear every box.
+  const [skillMode, setSkillMode] = useState<"ANY" | "ALL">("ANY");
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+
   // Form state for "Create New Order"
   const [selectedClient, setSelectedClient] = useState("");
   const [designationRole, setDesignationRole] = useState("");
@@ -521,49 +532,32 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [editSkills, setEditSkills] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
 
-  // Fetch job orders from DB API
+  // Fetch job orders from the DB API. Whatever the server returns replaces the
+  // list outright — including an empty response, which means "you deleted them
+  // all", not "the lookup missed". The cache is only consulted when the request
+  // fails, and is never pushed back to the API.
   useEffect(() => {
-    // 1. Sync local orders to MongoDB Atlas API
-    if (typeof window !== "undefined") {
-      const savedOrders = localStorage.getItem("job_orders_records");
-      if (savedOrders) {
-        try {
-          const localOrders: JobOrderRecord[] = JSON.parse(savedOrders);
-          localOrders.forEach((ord) => {
-            createJobOrderAPI(ord).catch(() => {});
-          });
-        } catch {}
-      }
-    }
+    let active = true;
 
-    // 2. Fetch latest job orders from MongoDB Atlas API
     listJobOrdersAPI()
       .then((res) => {
-        if (res.items && res.items.length > 0) {
-          setOrders(res.items);
-          if (typeof window !== "undefined") {
-            localStorage.setItem("job_orders_records", JSON.stringify(res.items));
-          }
-        } else if (typeof window !== "undefined") {
-          const savedOrders = localStorage.getItem("job_orders_records");
-          if (savedOrders) {
-            try {
-              setOrders(JSON.parse(savedOrders));
-            } catch {}
-          }
-        }
+        if (!active) return;
+        const items = (res.items ?? []) as JobOrderRecord[];
+        setOrders(items);
+        writeCache(CACHE_KEYS.jobOrders, items);
       })
       .catch(() => {
-        if (typeof window !== "undefined") {
-          const savedOrders = localStorage.getItem("job_orders_records");
-          if (savedOrders) {
-            try {
-              setOrders(JSON.parse(savedOrders));
-            } catch {}
-          }
-        }
+        // API unreachable — fall back to the last response we saw.
+        const cached = readCache<JobOrderRecord>(CACHE_KEYS.jobOrders);
+        if (active && cached) setOrders(cached);
       })
-      .finally(() => setOrdersLoading(false));
+      .finally(() => {
+        if (active) setOrdersLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Only fetch when the parent has nothing to give us.
@@ -587,54 +581,34 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   }, [hasParentCandidates]);
 
   // Load clients directly from Sourcing Hub Database API
+  // Client names for the create/edit dropdowns, owned by the Sourcing Hub. Only
+  // a failed request falls back to that screen's cache — an empty response is a
+  // real answer and must not resurrect clients the user removed there.
   useEffect(() => {
-    const fetchSourcingClients = () => {
-      import("@/lib/api").then(({ listSourcingClientsAPI }) => {
-        listSourcingClientsAPI()
-          .then((res) => {
-            if (res.items && res.items.length > 0) {
-              const names = res.items.map((r: { name: string }) => r.name).filter(Boolean);
-              setClientOptions(Array.from(new Set(names)));
-            } else if (typeof window !== "undefined") {
-              const saved = localStorage.getItem("sourcing_records");
-              if (saved) {
-                try {
-                  const records = JSON.parse(saved);
-                  const names = records.map((r: { name: string }) => r.name).filter(Boolean);
-                  setClientOptions(Array.from(new Set(names)));
-                } catch {}
-              }
-            }
-          })
-          .catch(() => {
-            if (typeof window !== "undefined") {
-              const saved = localStorage.getItem("sourcing_records");
-              if (saved) {
-                try {
-                  const records = JSON.parse(saved);
-                  const names = records.map((r: { name: string }) => r.name).filter(Boolean);
-                  setClientOptions(Array.from(new Set(names)));
-                } catch {}
-              }
-            }
-          });
-      });
+    const namesOf = (records: { name?: string }[]) =>
+      Array.from(new Set(records.map((r) => r.name).filter(Boolean) as string[]));
+
+    let active = true;
+
+    import("@/lib/api").then(({ listSourcingClientsAPI }) => {
+      listSourcingClientsAPI()
+        .then((res) => {
+          if (active) setClientOptions(namesOf(res.items ?? []));
+        })
+        .catch(() => {
+          const cached = readCache<{ name?: string }>(CACHE_KEYS.sourcingClients);
+          if (active && cached) setClientOptions(namesOf(cached));
+        });
+    });
+
+    return () => {
+      active = false;
     };
-
-    fetchSourcingClients();
   }, [isCreateModalOpen, isEditModalOpen]);
-
-  // No separate localStorage read here: the fetch effect above already falls
-  // back to the cache when the API returns nothing or fails. A second reader
-  // raced it and could overwrite fresh records with stale ones.
 
   const saveOrdersToStorage = (updated: JobOrderRecord[]) => {
     setOrders(updated);
-    if (typeof window !== "undefined") {
-      try {
-        localStorage.setItem("job_orders_records", JSON.stringify(updated));
-      } catch {}
-    }
+    writeCache(CACHE_KEYS.jobOrders, updated);
   };
 
   useEffect(() => {
@@ -650,6 +624,22 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, [activeMenuId]);
+
+  // Same idiom for the skill dropdown. Clicks inside the panel are stopped at
+  // its wrapper, so anything reaching the window is by definition outside.
+  useEffect(() => {
+    if (!skillMenuOpen) return;
+    const close = () => setSkillMenuOpen(false);
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSkillMenuOpen(false);
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onEsc);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onEsc);
+    };
+  }, [skillMenuOpen]);
 
   // Open Edit Modal pre-filled with the chosen order's values.
   // `editingOrder` is tracked separately from `selectedOrder` so an order can be
@@ -935,6 +925,64 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return summary;
   }, [orders, dbCandidates]);
 
+  /**
+   * Required skills are per-order, so a selection left over from the last one
+   * could name a skill this order never asked for — and since nothing here
+   * holds a skill that was never required, the list would silently empty.
+   *
+   * Intersecting on read rather than clearing in an effect is what makes that
+   * unreachable: there is no render in which the filter can hold a skill the
+   * open order does not list, so no call site can forget to reset it.
+   */
+  const activeSkillFilter = useMemo(() => {
+    const required = new Set(selectedOrder?.skills || []);
+    return skillFilter.filter((s) => required.has(s));
+  }, [skillFilter, selectedOrder]);
+
+  /**
+   * What the closed dropdown reads. One selection names the skill outright —
+   * "React" is more use at a glance than "1 skill selected"; beyond that the
+   * name would truncate, so it falls back to a count and the mode, since with
+   * two or more ticked the ANY/ALL distinction changes what the list means.
+   */
+  const skillTriggerLabel = useMemo(() => {
+    if (activeSkillFilter.length === 0) return "All skills";
+    if (activeSkillFilter.length === 1) return activeSkillFilter[0];
+    return `${activeSkillFilter.length} skills · ${skillMode === "ALL" ? "all" : "any"}`;
+  }, [activeSkillFilter, skillMode]);
+
+  const toggleSkillFilter = (skill: string) => {
+    setSkillFilter((prev) =>
+      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
+    );
+  };
+
+  /**
+   * How many live candidates hold each required skill. Printed on the filter
+   * chips so the coverage gap on the order is visible before anything is
+   * clicked — a skill sitting at 0 is a sourcing problem, not a filter.
+   * Counted off the unrejected pool so the numbers do not move as the list
+   * below is filtered.
+   */
+  const skillCoverage = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!selectedOrder) return counts;
+
+    const shortlistedIds = selectedOrder.shortlistedCandidateIds || [];
+    const rejectedIds = selectedOrder.rejectedCandidateIds || [];
+
+    for (const skill of selectedOrder.skills || []) counts.set(skill, 0);
+
+    for (const cand of dbCandidates) {
+      const res = calculateCandidateMatch(selectedOrder, cand, shortlistedIds, rejectedIds);
+      if (res.isRejected) continue;
+      for (const skill of res.matchedSkills) {
+        counts.set(skill, (counts.get(skill) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [selectedOrder, dbCandidates]);
+
   // Compute matched candidates from Database OCR for selectedOrder
   const matchedCandidateResults = useMemo(() => {
     if (!selectedOrder) return [];
@@ -961,6 +1009,17 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       }
     }
 
+    // Skill filter runs last, over whichever set the chips above left behind,
+    // so "Shortlisted + React" reads as the intersection the user expects.
+    if (activeSkillFilter.length > 0) {
+      results = results.filter((r) => {
+        const held = new Set(r.matchedSkills.map((s) => s.toLowerCase()));
+        return skillMode === "ALL"
+          ? activeSkillFilter.every((s) => held.has(s.toLowerCase()))
+          : activeSkillFilter.some((s) => held.has(s.toLowerCase()));
+      });
+    }
+
     // Apply Sort
     if (matchSort === "SCORE") {
       results.sort((a, b) => b.matchScore - a.matchScore);
@@ -977,7 +1036,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     }
 
     return results;
-  }, [selectedOrder, dbCandidates, matchFilter, matchSort]);
+  }, [selectedOrder, dbCandidates, matchFilter, matchSort, activeSkillFilter, skillMode]);
 
   // -------------------------------------------------------------
   // EDIT MODAL — rendered by BOTH the list and the detail view so an
@@ -1320,19 +1379,37 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             </div>
           </div>
 
+          {/* Held and missing skills used to run together as one undifferentiated
+              row — the only thing separating them was a tint and a 12px glyph,
+              which disappears the moment the card is skimmed, copied or read by
+              anyone who does not see the green. The two groups are now named. */}
           <div className="mc-matrix">
-            {res.matchedSkills.map((sk) => (
-              <span className="mc-chip mc-chip-hit" key={`matched-${sk}`}>
-                <Check size={12} />
-                {sk}
-              </span>
-            ))}
-            {res.missingSkills.map((sk) => (
-              <span className="mc-chip mc-chip-miss" key={`missing-${sk}`}>
-                <X size={12} />
-                {sk}
-              </span>
-            ))}
+            {res.matchedSkills.length > 0 && (
+              <>
+                <span className="mc-matrix-label">Has</span>
+                {res.matchedSkills.map((sk) => (
+                  <span
+                    className={`mc-chip mc-chip-hit ${activeSkillFilter.includes(sk) ? "is-filtered" : ""}`}
+                    key={`matched-${sk}`}
+                  >
+                    <Check size={12} />
+                    {sk}
+                  </span>
+                ))}
+              </>
+            )}
+
+            {res.missingSkills.length > 0 && (
+              <>
+                <span className="mc-matrix-label is-gap">Missing</span>
+                {res.missingSkills.map((sk) => (
+                  <span className="mc-chip mc-chip-miss" key={`missing-${sk}`}>
+                    <X size={12} />
+                    {sk}
+                  </span>
+                ))}
+              </>
+            )}
           </div>
         </article>
       );
@@ -1613,6 +1690,105 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 <ChevronDown size={14} />
               </div>
             </div>
+
+            {/* Skill filter. A single control that stays one line wide however
+                many skills the order lists — the chips this replaced grew the
+                toolbar by a row every few requirements. The counts still ride
+                along inside, so the panel doubles as a coverage read: a skill
+                sitting at 0 is a sourcing problem, not a filter. */}
+            {(selectedOrder.skills || []).length > 0 && (
+              <div className="jod-skillsel">
+                <span className="jo-filters-label">
+                  <Sparkles size={14} /> SKILLS
+                </span>
+
+                <div className="jod-dd">
+                  {/* Stops the window-level close handler below from firing on
+                      the click that opens the panel, and on clicks inside it. */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <button
+                      className={`jod-dd-trigger ${skillMenuOpen ? "is-open" : ""} ${
+                        activeSkillFilter.length > 0 ? "is-set" : ""
+                      }`}
+                      onClick={() => setSkillMenuOpen((prev) => !prev)}
+                      aria-expanded={skillMenuOpen}
+                      aria-haspopup="true"
+                    >
+                      <span>{skillTriggerLabel}</span>
+                      {activeSkillFilter.length > 0 && (
+                        <span className="jo-chip-count">{matchedCandidateResults.length}</span>
+                      )}
+                      <ChevronDown size={14} className={skillMenuOpen ? "is-open" : ""} />
+                    </button>
+
+                    {skillMenuOpen && (
+                      <div className="jod-dd-panel" role="dialog" aria-label="Filter by skill">
+                        <div className="jod-dd-list">
+                          {(selectedOrder.skills || []).map((skill) => {
+                            const count = skillCoverage.get(skill) ?? 0;
+                            const on = activeSkillFilter.includes(skill);
+                            return (
+                              <label
+                                key={skill}
+                                className={`jod-dd-opt ${count === 0 ? "is-empty" : ""}`}
+                                title={
+                                  count === 0
+                                    ? `No candidate in this pool has ${skill}`
+                                    : `${count} candidate${count === 1 ? "" : "s"} with ${skill}`
+                                }
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() => toggleSkillFilter(skill)}
+                                />
+                                <span className="jod-dd-opt-name">{skill}</span>
+                                <span className="jo-chip-count">{count}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+
+                        {/* Any/All only means something once two are ticked —
+                            with one selected the two queries are identical, so
+                            the switch stays out of the way until it matters. */}
+                        {activeSkillFilter.length > 1 && (
+                          <div className="jod-dd-mode" role="radiogroup" aria-label="Skill match mode">
+                            {(["ANY", "ALL"] as const).map((mode) => (
+                              <label key={mode} className={skillMode === mode ? "is-on" : ""}>
+                                <input
+                                  type="radio"
+                                  name="skill-mode"
+                                  checked={skillMode === mode}
+                                  onChange={() => setSkillMode(mode)}
+                                />
+                                <span>{mode === "ANY" ? "Any of these" : "All of these"}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* The list filters as you tick, so there is nothing to
+                            apply — this button only dismisses the panel, and is
+                            labelled for what it actually does. */}
+                        <div className="jod-dd-foot">
+                          <button
+                            className="jod-dd-clear"
+                            onClick={() => setSkillFilter([])}
+                            disabled={activeSkillFilter.length === 0}
+                          >
+                            Clear
+                          </button>
+                          <button className="jod-dd-done" onClick={() => setSkillMenuOpen(false)}>
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Candidate Match Cards */}
@@ -1630,15 +1806,27 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                     ? "No candidate profiles in the database yet"
                     : matchFilter === "REJECTED"
                     ? "No rejected candidates for this order"
+                    : activeSkillFilter.length > 0
+                    ? `Nobody in this pool has ${
+                        skillMode === "ALL" ? "all of" : "any of"
+                      } ${activeSkillFilter.join(", ")}`
                     : "No candidates match this filter"}
                 </p>
                 <span>
                   {dbCandidates.length === 0
                     ? "Run the inbox poller to ingest resumes — matches will appear here automatically."
+                    : activeSkillFilter.length > 1 && skillMode === "ALL"
+                    ? "Switch the skill filter to “Any of these” to see who covers part of the requirement."
                     : "Try switching back to “All matches”, or widen the required skills on this order."}
                 </span>
-                {dbCandidates.length > 0 && matchFilter !== "ALL" && (
-                  <button className="btn-new-client" onClick={() => setMatchFilter("ALL")}>
+                {dbCandidates.length > 0 && (matchFilter !== "ALL" || activeSkillFilter.length > 0) && (
+                  <button
+                    className="btn-new-client"
+                    onClick={() => {
+                      setMatchFilter("ALL");
+                      setSkillFilter([]);
+                    }}
+                  >
                     <RotateCcw size={15} />
                     <span>Show all matches</span>
                   </button>
