@@ -54,15 +54,23 @@ def _sender_ignored(from_addr: str) -> bool:
 def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
     keep: List[Attachment] = []
     allowed = {e.lower() for e in settings.resume_extensions}
+    image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
     non_resume_patterns = re.compile(
-        r"\b(img|image|photo|pic|avatar|icon|logo|admin|guide|certificate|appreciation|capstone|workshop|invoice|receipt)\b",
+        r"(img|image|photo|pic|avatar|icon|logo|admin|guide|certificate|appreciation|capstone|workshop|invoice|receipt|payment|invite|ticket|banner|poster|qr)",
+        re.IGNORECASE,
+    )
+    resume_keyword_pattern = re.compile(
+        r"(resume|cv|biodata|profile|curriculum|applicant)",
         re.IGNORECASE,
     )
     for att in attachments:
         ext = os.path.splitext(att.filename)[1].lower()
         if ext in allowed:
             fn = att.filename.lower()
-            if non_resume_patterns.search(fn) and not re.search(r"\b(resume|cv|biodata|profile)\b", fn):
+            # Image attachments (.png, .jpg, etc.) must explicitly contain a resume keyword in filename
+            if ext in image_exts and not resume_keyword_pattern.search(fn):
+                continue
+            if non_resume_patterns.search(fn) and not resume_keyword_pattern.search(fn):
                 continue
             keep.append(att)
     return keep

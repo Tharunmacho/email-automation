@@ -11,9 +11,9 @@ from app.config import settings
 from app.storage.base import StorageBackend
 
 
-@lru_cache(maxsize=1)
-def get_storage_backend() -> StorageBackend:
-    backend = settings.storage_backend.lower()
+@lru_cache(maxsize=4)
+def get_storage_backend(name: str | None = None) -> StorageBackend:
+    backend = (name or settings.storage_backend).lower()
     if backend == "gridfs":
         from app.storage.gridfs import GridFSStorageBackend
 
@@ -26,6 +26,6 @@ def get_storage_backend() -> StorageBackend:
     # if backend == "s3":  return S3StorageBackend(...)
     # if backend == "gcs": return GCSStorageBackend(...)
     raise ValueError(
-        f"Unsupported STORAGE_BACKEND={settings.storage_backend!r}. "
+        f"Unsupported STORAGE_BACKEND={backend!r}. "
         "Supported: 'gridfs', 'local'."
     )

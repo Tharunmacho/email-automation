@@ -2,13 +2,18 @@ import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ensure project root is in sys.path when run from scripts directory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 from app.extraction.text_extractor import extract_text
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python test_ocr.py <path_to_image_or_pdf>")
+        print("Usage: python scripts/test_ocr.py <path_to_image_or_pdf>")
         sys.exit(1)
         
     file_path = Path(sys.argv[1])

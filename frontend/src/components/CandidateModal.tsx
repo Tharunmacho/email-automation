@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  getToken,
   resumeDownloadUrl,
   type CandidateProfile,
   type CandidateRecord,
@@ -172,8 +173,43 @@ function CandidateModalBody({
   onDelete,
 }: CandidateModalProps & { candidate: CandidateRecord }) {
   const [isEditing, setIsEditing] = useState(initialEditMode ?? false);
+  const [downloading, setDownloading] = useState(false);
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
   const revealField = (key: string) => setRevealedFields((prev) => ({ ...prev, [key]: true }));
+
+  const handleDownload = async () => {
+    if (!candidate) return;
+    setDownloading(true);
+    try {
+      const token = getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(resumeDownloadUrl(candidate.id), { headers });
+      if (!res.ok) {
+        let msg = "Failed to download resume";
+        try {
+          const body = await res.json();
+          if (body?.detail) msg = String(body.detail);
+        } catch {}
+        throw new Error(msg);
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = candidate.resume?.original_filename ?? `${candidate.profile?.full_name || "resume"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err?.message || "Could not download resume file.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const [state, setState] = useState<EditableState>(() =>
     toEditableState(candidate.profile ?? ({} as CandidateProfile), candidate),
@@ -1533,13 +1569,14 @@ function CandidateModalBody({
         </div>
 
         <div className="modal-footer" style={{ borderTop: "1px solid var(--border-blue)", paddingTop: "1rem" }}>
-          <a
+          <button
+            type="button"
             className="btn btn-secondary"
-            href={resumeDownloadUrl(candidate.id)}
-            download={candidate.resume?.original_filename ?? "resume.pdf"}
+            onClick={handleDownload}
+            disabled={downloading}
           >
-            <Download size={16} /> Download Resume PDF
-          </a>
+            <Download size={16} /> {downloading ? "Downloading..." : "Download Resume PDF"}
+          </button>
 
           {candidate.status !== "verified" && (
             <button

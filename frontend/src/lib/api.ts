@@ -13,141 +13,46 @@ export const API_BASE =
     ? "http://127.0.0.1:8000"
     : "");
 
-export interface WorkExperience {
-  company?: string | null;
-  designation?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  location?: string | null;
-  description?: string | null;
-}
+import type {
+  WorkExperience,
+  Education,
+  Project,
+  CandidateProfile,
+  StoredResume,
+  SourceEmail,
+  CandidateRecord,
+  CandidateListResponse,
+  PollAttachmentResult,
+  PollMessageResult,
+  PollSummary,
+  AuthUser,
+  SourcingClientRecord,
+  JobOrderRecord,
+} from "@/types";
 
-export interface Education {
-  institution?: string | null;
-  degree?: string | null;
-  field_of_study?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  grade?: string | null;
-}
+export type {
+  WorkExperience,
+  Education,
+  Project,
+  CandidateProfile,
+  StoredResume,
+  SourceEmail,
+  CandidateRecord,
+  CandidateListResponse,
+  PollAttachmentResult,
+  PollMessageResult,
+  PollSummary,
+  AuthUser,
+  SourcingClientRecord,
+  JobOrderRecord,
+};
 
-export interface Project {
-  name?: string | null;
-  description?: string | null;
-  technologies?: string[];
-  url?: string | null;
-}
-
-export interface CandidateProfile {
-  is_resume: boolean;
-  confidence: number;
-
-  full_name?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  location?: string | null;
-
-  skills?: string[];
-  technical_skills?: string[];
-  languages?: string[];
-
-  work_experience?: WorkExperience[];
-  education?: Education[];
-  certifications?: string[];
-  projects?: Project[];
-  achievements?: string[];
-
-  linkedin_url?: string | null;
-  github_url?: string | null;
-  portfolio_url?: string | null;
-
-  current_company?: string | null;
-  current_designation?: string | null;
-  total_experience_years?: number | null;
-
-  resume_summary?: string | null;
-  additional_info?: Record<string, unknown>;
-}
-
-export interface StoredResume {
-  original_filename: string;
-  mime_type: string;
-  size: number;
-  sha256: string;
-  storage_backend: string;
-  storage_key: string;
-  extraction_method?: string;
-  ocr_used?: boolean;
-}
-
-export interface SourceEmail {
-  message_id: string;
-  thread_id: string;
-  from_addr: string;
-  from_name?: string | null;
-  subject?: string;
-  received_date?: string | null;
-}
-
-export interface CandidateRecord {
-  id: string;
-  profile: CandidateProfile;
-  resume: StoredResume;
-  source_email: SourceEmail;
-  email_key?: string | null;
-  phone_key?: string | null;
-  resume_hash?: string;
-  status: string;
-  duplicate_of?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CandidateListResponse {
-  total: number;
-  count: number;
-  items: CandidateRecord[];
-}
-
-export interface PollAttachmentResult {
-  filename: string;
-  status: string;
-  candidate_id?: string | null;
-  detail?: string | null;
-}
-
-export interface PollMessageResult {
-  message_id: string;
-  status: string;
-  reason?: string | null;
-  attachments: PollAttachmentResult[];
-}
-
-export interface PollSummary {
-  fetched: number;
-  processed: number;
-  skipped: number;
-  errors: number;
-  ingested_candidates: number;
-  results?: PollMessageResult[];
-  /** Set when the cycle declined to run because another one held the lock. */
-  skipped_reason?: string;
-}
-
-/** Candidates below this parser confidence are surfaced for manual review. */
 export const REVIEW_CONFIDENCE_THRESHOLD = 0.85;
 
 // --------------------------------------------------------------------------- //
 //  Auth
 // --------------------------------------------------------------------------- //
 const TOKEN_KEY = "ats_token";
-
-export interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-}
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -362,7 +267,9 @@ export function deleteCandidateAPI(candidateId: string): Promise<{ status: strin
 }
 
 export function resumeDownloadUrl(candidateId: string): string {
-  return `${API_BASE}/candidates/${candidateId}/resume`;
+  const token = getToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${API_BASE}/candidates/${candidateId}/resume${query}`;
 }
 
 // ---- Sourcing Clients DB API ----

@@ -25,6 +25,10 @@ from app.db.repository import CandidateRepository
 from app.db.users import UserRepository, ensure_seed_user
 from app.storage.factory import get_storage_backend
 
+from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse
+
 app = FastAPI(
     title="Resume Ingestion API",
     version="0.1.0",
@@ -38,6 +42,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(ServerSelectionTimeoutError)
+async def mongo_timeout_exception_handler(request: Request, exc: ServerSelectionTimeoutError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database connection timeout. Please verify internet connection or MongoDB Atlas IP whitelist."},
+    )
+
+
+@app.exception_handler(PyMongoError)
+async def mongo_exception_handler(request: Request, exc: PyMongoError):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Database operation failed: {exc}"},
+    )
 
 
 @app.on_event("startup")
@@ -76,12 +96,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
-def current_user(authorization: str | None = Header(default=None)) -> dict:
-    """Resolve `Authorization: Bearer <token>` into a user, or 401."""
-    token = ""
+def current_user(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> dict:
+    """Resolve `Authorization: Bearer <token>` or `?token=<token>` into a user, or 401."""
+    raw_token = ""
     if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    subject = read_token(token, settings.auth_secret)
+        raw_token = authorization[7:].strip()
+    elif token:
+        raw_token = token.strip()
+    subject = read_token(raw_token, settings.auth_secret)
     if not subject:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = users.get(subject)
@@ -147,9 +172,23 @@ def get_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dic
 def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> Response:
     import urllib.parse
     record = repo().get(candidate_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    data = get_storage_backend().load(record.resume.storage_key)
+    if not record or not record.resume or not record.resume.storage_key:
+        raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
+    
+    backend_name = record.resume.storage_backend or settings.storage_backend
+    try:
+        data = get_storage_backend(backend_name).load(record.resume.storage_key)
+    except Exception:
+        # Fallback check: if record backend failed, try alternate storage backend (local vs gridfs)
+        try:
+            alt_backend = "local" if backend_name == "gridfs" else "gridfs"
+            data = get_storage_backend(alt_backend).load(record.resume.storage_key)
+        except Exception:
+            filename = record.resume.original_filename or "resume.pdf"
+            raise HTTPException(
+                status_code=404,
+                detail=f"Resume file '{filename}' is missing from server storage."
+            )
     
     original_name = record.resume.original_filename or "resume.pdf"
     safe_filename = original_name.replace('"', '').replace("'", "")
@@ -157,7 +196,7 @@ def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> R
     
     return Response(
         content=data,
-        media_type=record.resume.mime_type,
+        media_type=record.resume.mime_type or "application/octet-stream",
         headers={
             "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}'
         },

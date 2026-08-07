@@ -30,6 +30,12 @@ import {
   MapPin,
   Inbox,
   Sparkles,
+  Download,
+  Copy,
+  Share2,
+  Send,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -67,27 +73,13 @@ const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
 
 export type JobOrderStatus = JobOrderRecord["status"];
 
-/**
- * Status mapped onto the product's shared tone vocabulary. This is the only
- * status palette on the screen: the card edge, the figures panel, the status
- * pill and the fulfilment ring all resolve back to it, so an open order and a
- * filled one are told apart by colour before a word is read.
- */
 const STATUS_TONE: Record<JobOrderStatus, StatTone> = {
-  // Blue is "this is live work", exactly as it is on the sourcing cards. OPEN
-  // and IN PROGRESS are both live — the fulfilment ring and the pill say which,
-  // so the colour does not need to. Amber as a card edge read as brown, and it
-  // was on nearly every card, since most orders sit at OPEN.
   OPEN: "blue",
   "IN PROGRESS": "blue",
   FILLED: "green",
   CLOSED: "slate",
 };
 
-/** Match bands use the same vocabulary, so a strong fit and an in-progress
- *  order read as the same kind of "good" across the two screens. A partial
- *  match is neutral rather than amber — amber read as brown at these sizes,
- *  and a middling score is not a warning. */
 function scoreTone(score: number): StatTone {
   if (score >= 90) return "green";
   if (score >= 65) return "blue";
@@ -95,7 +87,6 @@ function scoreTone(score: number): StatTone {
   return "red";
 }
 
-/** Live status derived from fulfillment — CLOSED is always honoured as manual. */
 export function deriveStatus(order: JobOrderRecord): JobOrderStatus {
   if (order.status === "CLOSED") return "CLOSED";
   const filled = (order.shortlistedCandidateIds || []).length || order.fulfilledCount || 0;
@@ -105,7 +96,6 @@ export function deriveStatus(order: JobOrderRecord): JobOrderStatus {
   return "OPEN";
 }
 
-/** Parses both the legacy M/D/YYYY records and ISO yyyy-mm-dd values as *local* dates. */
 function parseDueDate(dueDate?: string): Date | null {
   if (!dueDate) return null;
 
@@ -119,7 +109,6 @@ function parseDueDate(dueDate?: string): Date | null {
   return Number.isNaN(fallback.getTime()) ? null : fallback;
 }
 
-/** Value for an `<input type="date">` (yyyy-mm-dd), or "" when unparseable. */
 function toDateInputValue(dueDate?: string): string {
   const parsed = parseDueDate(dueDate);
   if (!parsed) return "";
@@ -137,7 +126,6 @@ export interface DueMeta {
   days: number | null;
 }
 
-/** Due-date urgency chip metadata — accepts both M/D/YYYY and ISO strings. */
 function getDueMeta(dueDate?: string): DueMeta {
   const neutral = { color: "var(--text-muted)", bg: "var(--tint-1)", border: "var(--border-blue-faint)", overdue: false, days: null };
   if (!dueDate) return { label: "No due date", ...neutral };
@@ -163,14 +151,12 @@ function formatDueDate(dueDate?: string): string {
   return formatDateFull(parsed);
 }
 
-/** Default due date for new orders: 30 days out, stored as ISO yyyy-mm-dd. */
 function defaultDueDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 30);
   return toDateInputValue(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
 }
 
-/** A bare number reads as "100000"; group it the Indian way so it scans. */
 function formatSalary(raw?: string): string {
   const value = (raw ?? "").trim();
   if (!value) return "—";
@@ -181,7 +167,6 @@ function formatSalary(raw?: string): string {
   return rest ? `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${last3}` : last3;
 }
 
-// Helper: parse min experience years from string
 function parseMinExperienceYears(expStr?: string): number {
   if (!expStr) return 0;
   const lower = expStr.toLowerCase();
@@ -190,15 +175,14 @@ function parseMinExperienceYears(expStr?: string): number {
   return match ? parseInt(match[0], 10) : 0;
 }
 
-// Matching Engine Score Calculation
 export interface MatchResult {
   candidate: CandidateRecord;
-  matchScore: number; // 0 to 100%
+  matchScore: number;
   matchedSkills: string[];
   missingSkills: string[];
-  skillScore: number; // max 50
-  expScore: number;   // max 25
-  roleScore: number;  // max 25
+  skillScore: number;
+  expScore: number;
+  roleScore: number;
   expMatched: boolean;
   expStatusText: string;
   roleMatched: boolean;
@@ -246,11 +230,9 @@ export function calculateCandidateMatch(
     }
   });
 
-  // 1. Skill Match Weight (50% max)
   const skillRatio = reqSkills.length > 0 ? matchedSkills.length / reqSkills.length : 1;
   const skillScore = Math.round(skillRatio * 50);
 
-  // 2. Experience Match Weight (25% max)
   const reqExpYears = parseMinExperienceYears(order.minExperience);
   const candExpYears = profile.total_experience_years ?? (candRole.includes("intern") || candRole.includes("fresher") ? 0 : 1);
 
@@ -269,7 +251,6 @@ export function calculateCandidateMatch(
       expStatusText = `Exp Gap (${candExpYears}/${reqExpYears} yrs)`;
     }
   } else {
-    // If job accepts Fresher/Any
     if (candExpYears > 12) {
       expScore = 15;
       expMatched = false;
@@ -281,7 +262,6 @@ export function calculateCandidateMatch(
     }
   }
 
-  // 3. Designation / Industry Weight (25% max)
   const targetRole = (order.designation || order.title || "").toLowerCase();
   const STOP_WORDS = new Set(["and", "for", "the", "in", "with", "or", "of", "a", "an", "at", "to", "senior", "junior", "lead", "intern", "developer", "engineer"]);
 
@@ -300,7 +280,6 @@ export function calculateCandidateMatch(
       .map((t) => t.trim())
       .filter((t) => t.length > 2);
 
-    // Check exact token overlap in designation
     const tokenMatches = roleTokens.filter((tok) =>
       candRoleTokens.some((crt) => crt.includes(tok) || tok.includes(crt))
     );
@@ -325,22 +304,18 @@ export function calculateCandidateMatch(
     roleStatusText = "Role General";
   }
 
-  // Overall Score Calculation (Strict & Realistic)
   let finalScore = Math.round(skillScore + expScore + roleScore);
 
-  // If candidate matched ZERO required skills, cap final score at 25% max!
   if (reqSkills.length > 0 && matchedSkills.length === 0) {
     finalScore = Math.min(finalScore, 25);
   }
 
-  // Only assign 100% if ALL skills, experience, and role match cleanly
   if (matchedSkills.length === reqSkills.length && expMatched && roleMatched && finalScore >= 95) {
     finalScore = 100;
   } else {
     finalScore = Math.min(98, Math.max(10, finalScore));
   }
 
-  // Screening summary
   let summary = "";
   if (finalScore >= 90) {
     summary = `Exceptional fit. Matched ${matchedSkills.length}/${reqSkills.length} required skills with an aligned designation and experience band.`;
@@ -349,7 +324,7 @@ export function calculateCandidateMatch(
   } else if (finalScore >= 40) {
     summary = `Partial match. Some overlapping experience (${matchedSkills.join(", ") || "General"}), but missing key required skills.`;
   } else {
-    summary = `Low compatibility (${finalScore}%). Missing key skills (${missingSkills.join(", ") || "None"}) and the designation differs from the requirement.`;
+    summary = `Low compatibility (${finalScore}%). Missing key skills (${missingSkills.join(", ") || "None"}) and designation differs from requirement.`;
   }
 
   return {
@@ -370,11 +345,6 @@ export function calculateCandidateMatch(
   };
 }
 
-/**
- * The ring is stroked in the card's own tone rather than a fixed gradient, so
- * an amber (open) order, a blue (in progress) one and a green (filled) one are
- * legible from the ring alone — the same way the sourcing cards work.
- */
 function FulfilmentRing({ filled, headcount }: { filled: number; headcount: number }) {
   const pct = Math.min(100, Math.round((filled / (headcount || 1)) * 100));
   const radius = 20;
@@ -404,12 +374,6 @@ function FulfilmentRing({ filled, headcount }: { filled: number; headcount: numb
   );
 }
 
-/**
- * The arc length already says how strong the match is, and the number is
- * printed inside it — so the stroke stays brand blue rather than running a
- * second traffic-light scale over the top of it. It only leaves blue to say
- * something the number cannot: this one is shortlisted, or screened out.
- */
 function ScoreRadialGauge({ score, state }: { score: number; state: "open" | "on" | "off" }) {
   const radius = 22;
   const circumference = 2 * Math.PI * radius;
@@ -439,9 +403,10 @@ function ScoreRadialGauge({ score, state }: { score: number; state: "open" | "on
   );
 }
 
+
+
 interface JobOrdersProps {
   candidates?: CandidateRecord[];
-  /** Reports what happened, by name, to the dashboard's activity log. */
   onActivity?: (message: string, type?: LogEntry["type"]) => void;
 }
 
@@ -475,17 +440,13 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       );
     });
   }, [orders, searchQuery, statusFilter]);
+
   const [selectedOrder, setSelectedOrder] = useState<JobOrderRecord | null>(null);
 
-  // The parent polls candidates every few seconds and passes them down. When it
-  // has them we read the prop directly rather than copying it into state — the
-  // copy meant every poll re-rendered this screen twice and the effect that did
-  // the copying could never settle.
   const [fetchedCandidates, setFetchedCandidates] = useState<CandidateRecord[]>([]);
   const dbCandidates = initialCandidates.length > 0 ? initialCandidates : fetchedCandidates;
   const candidatesLoading = initialCandidates.length === 0 && fetchingCandidates;
 
-  // Dynamic Client Options from Sourcing Hub Database API
   const [clientOptions, setClientOptions] = useState<string[]>([]);
 
   // Modals state
@@ -494,23 +455,18 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [editingOrder, setEditingOrder] = useState<JobOrderRecord | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
+  const [copiedSummary, setCopiedSummary] = useState(false);
+
   // Candidate matching filter + sort state
   const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SHORTLISTED" | "REJECTED" | "ROLE">("ALL");
   const [matchSort, setMatchSort] = useState<"SCORE" | "EXP" | "NAME">("SCORE");
-  // Most of a 15-profile pool scores under 35% and is never actioned. Those
-  // are folded away so the handful worth reading is not buried under them.
   const [showWeakMatches, setShowWeakMatches] = useState(false);
 
-  // Skill filter. The score already weighs all three required skills equally,
-  // which is not how hiring actually works — one of them is usually the thing
-  // you cannot train. Selecting it here filters on that skill directly instead
-  // of hoping it surfaces through the aggregate.
   const [skillFilter, setSkillFilter] = useState<string[]>([]);
-  // ANY widens the pool, ALL narrows it to the people who clear every box.
   const [skillMode, setSkillMode] = useState<"ANY" | "ALL">("ANY");
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
 
-  // Form state for "Create New Order"
+  // Form state
   const [selectedClient, setSelectedClient] = useState("");
   const [designationRole, setDesignationRole] = useState("");
   const [minExperience, setMinExperience] = useState("");
@@ -521,7 +477,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [newHeadcount, setNewHeadcount] = useState("1");
   const [newDueDate, setNewDueDate] = useState("");
 
-  // Form state for "Edit Job Order"
   const [editTitle, setEditTitle] = useState("");
   const [editHeadcount, setEditHeadcount] = useState("1");
   const [editDueDate, setEditDueDate] = useState("");
@@ -532,13 +487,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [editSkills, setEditSkills] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
 
-  // Fetch job orders from the DB API. Whatever the server returns replaces the
-  // list outright — including an empty response, which means "you deleted them
-  // all", not "the lookup missed". The cache is only consulted when the request
-  // fails, and is never pushed back to the API.
   useEffect(() => {
     let active = true;
-
     listJobOrdersAPI()
       .then((res) => {
         if (!active) return;
@@ -547,7 +497,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         writeCache(CACHE_KEYS.jobOrders, items);
       })
       .catch(() => {
-        // API unreachable — fall back to the last response we saw.
         const cached = readCache<JobOrderRecord>(CACHE_KEYS.jobOrders);
         if (active && cached) setOrders(cached);
       })
@@ -560,7 +509,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     };
   }, []);
 
-  // Only fetch when the parent has nothing to give us.
   const hasParentCandidates = initialCandidates.length > 0;
   useEffect(() => {
     if (hasParentCandidates) return;
@@ -580,16 +528,11 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     };
   }, [hasParentCandidates]);
 
-  // Load clients directly from Sourcing Hub Database API
-  // Client names for the create/edit dropdowns, owned by the Sourcing Hub. Only
-  // a failed request falls back to that screen's cache — an empty response is a
-  // real answer and must not resurrect clients the user removed there.
   useEffect(() => {
     const namesOf = (records: { name?: string }[]) =>
       Array.from(new Set(records.map((r) => r.name).filter(Boolean) as string[]));
 
     let active = true;
-
     import("@/lib/api").then(({ listSourcingClientsAPI }) => {
       listSourcingClientsAPI()
         .then((res) => {
@@ -617,7 +560,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return () => window.removeEventListener("open-new-order-modal", handleOpenModal);
   }, []);
 
-  // Dismiss the card row menu on any outside click
   useEffect(() => {
     if (!activeMenuId) return;
     const closeMenu = () => setActiveMenuId(null);
@@ -625,8 +567,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return () => window.removeEventListener("click", closeMenu);
   }, [activeMenuId]);
 
-  // Same idiom for the skill dropdown. Clicks inside the panel are stopped at
-  // its wrapper, so anything reaching the window is by definition outside.
   useEffect(() => {
     if (!skillMenuOpen) return;
     const close = () => setSkillMenuOpen(false);
@@ -641,9 +581,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     };
   }, [skillMenuOpen]);
 
-  // Open Edit Modal pre-filled with the chosen order's values.
-  // `editingOrder` is tracked separately from `selectedOrder` so an order can be
-  // edited straight from the list card without opening the detail view first.
   const openEditModal = (item: JobOrderRecord) => {
     setEditingOrder(item);
     setEditTitle(item.title);
@@ -697,7 +634,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     closeEditModal();
   };
 
-  /** Quick "extend deadline" action — counts from today when the order is already overdue. */
   const handleExtendDueDate = (item: JobOrderRecord, days: number) => {
     const parsed = parseDueDate(item.dueDate);
     const today = new Date();
@@ -706,11 +642,10 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     const base = parsed && parsed.getTime() > today.getTime() ? parsed : today;
     base.setDate(base.getDate() + days);
 
-    // Build the ISO value from local parts — toISOString() would shift the day by the UTC offset
     const nextDue = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
     const updated: JobOrderRecord = { ...item, dueDate: nextDue };
 
-    activity(`Extended the deadline on ${item.title} (${item.client}) by ${days} days.`, "info");
+    activity(`Extended deadline on ${item.title} (${item.client}) by ${days} days.`, "info");
     updateJobOrderAPI(updated.id, updated).catch(() => {});
     const newOrders = orders.map((ord) => (ord.id === updated.id ? updated : ord));
     saveOrdersToStorage(newOrders);
@@ -737,7 +672,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     }
   };
 
-  /** Who this candidate is, for the log — never the raw id. */
   const candidateLabel = (candidateId: string) =>
     candidateNameOf(dbCandidates.find((c) => c.id === candidateId));
 
@@ -751,7 +685,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     const who = candidateLabel(candidateId);
     activity(
       isCurrentlySelected
-        ? `Removed ${who} from the shortlist for ${currentOrder.title} (${currentOrder.client}).`
+        ? `Removed ${who} from shortlist for ${currentOrder.title} (${currentOrder.client}).`
         : `Shortlisted ${who} for ${currentOrder.title} (${currentOrder.client}).`,
       isCurrentlySelected ? "warn" : "success",
     );
@@ -764,10 +698,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       ...currentOrder,
       shortlistedCandidateIds: newShortlisted,
       fulfilledCount: newShortlisted.length,
-      // Shortlisting clears any earlier rejection — the two states are exclusive
       rejectedCandidateIds: (currentOrder.rejectedCandidateIds || []).filter((id) => id !== candidateId),
     };
-    // Keep the status in step with fulfilment (OPEN → IN PROGRESS → FILLED)
     const updatedOrder: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
 
     updateJobOrderAPI(orderId, updatedOrder).catch(() => {});
@@ -789,7 +721,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     const who = candidateLabel(candidateId);
     activity(
       isCurrentlyRejected
-        ? `Restored ${who} to the pool for ${currentOrder.title} (${currentOrder.client}).`
+        ? `Restored ${who} to pool for ${currentOrder.title} (${currentOrder.client}).`
         : `Rejected ${who} for ${currentOrder.title} (${currentOrder.client}).`,
       isCurrentlyRejected ? "info" : "warn",
     );
@@ -798,7 +730,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       ? currentRejected.filter((id) => id !== candidateId)
       : [...currentRejected, candidateId];
 
-    // Rejecting also pulls the candidate out of the shortlist
     const newShortlisted = isCurrentlyRejected
       ? currentOrder.shortlistedCandidateIds || []
       : (currentOrder.shortlistedCandidateIds || []).filter((id) => id !== candidateId);
@@ -853,7 +784,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     saveOrdersToStorage([newRecord, ...orders]);
     setIsCreateModalOpen(false);
 
-    // Reset form fields
     setSelectedClient("");
     setDesignationRole("");
     setMinExperience("");
@@ -883,10 +813,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setActiveMenuId(null);
   };
 
-  // Hero statistics bar calculations
-  // Everything else on this screen reads live status via deriveStatus(); using
-  // the stored `o.status` here made the tile disagree with the filter chips
-  // whenever an order had been filled but not re-saved.
   const activeOrdersCount = orders.filter((o) => {
     const live = deriveStatus(o);
     return live === "OPEN" || live === "IN PROGRESS";
@@ -899,11 +825,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     (o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue,
   ).length;
 
-  /**
-   * The matching engine already exists but only ever ran for the order you had
-   * opened. Running it across the list tells you which requisitions actually
-   * have talent waiting, without opening each one.
-   */
   const matchSummaryByOrder = useMemo(() => {
     const summary = new Map<string, { strong: number; best: number }>();
     if (dbCandidates.length === 0) return summary;
@@ -925,26 +846,11 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return summary;
   }, [orders, dbCandidates]);
 
-  /**
-   * Required skills are per-order, so a selection left over from the last one
-   * could name a skill this order never asked for — and since nothing here
-   * holds a skill that was never required, the list would silently empty.
-   *
-   * Intersecting on read rather than clearing in an effect is what makes that
-   * unreachable: there is no render in which the filter can hold a skill the
-   * open order does not list, so no call site can forget to reset it.
-   */
   const activeSkillFilter = useMemo(() => {
     const required = new Set(selectedOrder?.skills || []);
     return skillFilter.filter((s) => required.has(s));
   }, [skillFilter, selectedOrder]);
 
-  /**
-   * What the closed dropdown reads. One selection names the skill outright —
-   * "React" is more use at a glance than "1 skill selected"; beyond that the
-   * name would truncate, so it falls back to a count and the mode, since with
-   * two or more ticked the ANY/ALL distinction changes what the list means.
-   */
   const skillTriggerLabel = useMemo(() => {
     if (activeSkillFilter.length === 0) return "All skills";
     if (activeSkillFilter.length === 1) return activeSkillFilter[0];
@@ -957,13 +863,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     );
   };
 
-  /**
-   * How many live candidates hold each required skill. Printed on the filter
-   * chips so the coverage gap on the order is visible before anything is
-   * clicked — a skill sitting at 0 is a sourcing problem, not a filter.
-   * Counted off the unrejected pool so the numbers do not move as the list
-   * below is filtered.
-   */
   const skillCoverage = useMemo(() => {
     const counts = new Map<string, number>();
     if (!selectedOrder) return counts;
@@ -983,7 +882,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return counts;
   }, [selectedOrder, dbCandidates]);
 
-  // Compute matched candidates from Database OCR for selectedOrder
   const matchedCandidateResults = useMemo(() => {
     if (!selectedOrder) return [];
     const shortlistedIds = selectedOrder.shortlistedCandidateIds || [];
@@ -995,7 +893,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       calculateCandidateMatch(selectedOrder, cand, shortlistedIds, rejectedIds)
     );
 
-    // Apply Filter — rejected candidates stay hidden unless explicitly requested
     if (matchFilter === "REJECTED") {
       results = results.filter((r) => r.isRejected);
     } else {
@@ -1009,8 +906,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       }
     }
 
-    // Skill filter runs last, over whichever set the chips above left behind,
-    // so "Shortlisted + React" reads as the intersection the user expects.
     if (activeSkillFilter.length > 0) {
       results = results.filter((r) => {
         const held = new Set(r.matchedSkills.map((s) => s.toLowerCase()));
@@ -1020,7 +915,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       });
     }
 
-    // Apply Sort
     if (matchSort === "SCORE") {
       results.sort((a, b) => b.matchScore - a.matchScore);
     } else if (matchSort === "EXP") {
@@ -1038,10 +932,36 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return results;
   }, [selectedOrder, dbCandidates, matchFilter, matchSort, activeSkillFilter, skillMode]);
 
-  // -------------------------------------------------------------
-  // EDIT MODAL — rendered by BOTH the list and the detail view so an
-  // order can be updated from wherever the user happens to be.
-  // -------------------------------------------------------------
+  const handleCopyShortlistSummary = () => {
+    if (!selectedOrder) return;
+
+    const shortlisted = matchedCandidateResults.filter((r) => r.isSelected);
+    let summaryText = `📋 EXECUTIVE SHORTLIST SUMMARY: ${selectedOrder.title} (${selectedOrder.client})\n`;
+    summaryText += `Requisition ID: ${selectedOrder.id} | Headcount: ${selectedOrder.headcount} | Budget: ₹${formatSalary(selectedOrder.salary)}\n`;
+    summaryText += `Required Skills: ${selectedOrder.skills.join(", ")}\n`;
+    summaryText += `--------------------------------------------------\n`;
+
+    if (shortlisted.length === 0) {
+      summaryText += `No candidates currently shortlisted for this requisition.\n`;
+    } else {
+      shortlisted.forEach((res, i) => {
+        const name = res.candidate.profile?.full_name || "Candidate";
+        const email = res.candidate.profile?.email || "N/A";
+        const phone = res.candidate.profile?.phone || "N/A";
+        const exp = res.candidate.profile?.total_experience_years || 0;
+        summaryText += `${i + 1}. ${name} (${res.matchScore}% Match)\n`;
+        summaryText += `   • Designation: ${res.candidate.profile?.current_designation || "N/A"}\n`;
+        summaryText += `   • Experience: ${exp} yrs | Email: ${email} | Phone: ${phone}\n`;
+        summaryText += `   • Matched Skills: ${res.matchedSkills.join(", ")}\n\n`;
+      });
+    }
+
+    navigator.clipboard.writeText(summaryText);
+    setCopiedSummary(true);
+    activity(`Copied executive shortlist summary for ${selectedOrder.title} to clipboard.`, "success");
+    setTimeout(() => setCopiedSummary(false), 2500);
+  };
+
   const bumpEditDueDate = (days: number) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1109,7 +1029,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                     onChange={(e) => setEditDueDate(e.target.value)}
                   />
 
-                  {/* Quick deadline extension */}
                   <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", marginTop: "6px" }}>
                     <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-light)" }}>EXTEND:</span>
                     {[7, 15, 30].map((d) => (
@@ -1226,18 +1145,10 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     const progressPct = Math.min(100, Math.round((fulfilled / totalHead) * 100));
     const order = selectedOrder;
 
-    /**
-     * One candidate, at a glance: score, who they are, how to reach them, and
-     * the two decisions you can make — then a single breakdown strip and the
-     * skill matrix. The prose summary that used to sit at the bottom is gone:
-     * it restated the score and the skill counts in a sentence, fifteen times
-     * over.
-     */
     const renderMatchCard = (res: MatchResult) => {
       const profile = res.candidate.profile || {};
       const name = profile.full_name || res.candidate.source_email?.from_name || "Extracted candidate";
       const designation = profile.current_designation || "Candidate";
-      // The parser sometimes writes the designation into the company field too.
       const company =
         profile.current_company && profile.current_company !== designation ? profile.current_company : "";
       const expLabel = profile.total_experience_years
@@ -1245,17 +1156,14 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         : "Fresher";
       const email = profile.email || res.candidate.source_email?.from_addr;
 
-      // Band and the three readings are colour- and weight-coded by risk: what
-      // is fine reads green, what is a gap reads yellow, what disqualifies
-      // reads red. The neutral middle stays quiet so the gaps stand out.
       const band =
         res.matchScore >= 90
           ? { key: "perfect", label: "Perfect match" }
           : res.matchScore >= 65
-          ? { key: "strong", label: "Strong match" }
-          : res.matchScore >= 35
-          ? { key: "partial", label: "Partial match" }
-          : { key: "low", label: "Low compatibility" };
+            ? { key: "strong", label: "Strong match" }
+            : res.matchScore >= 35
+              ? { key: "partial", label: "Partial match" }
+              : { key: "low", label: "Low compatibility" };
 
       const required = order.skills.length;
       const skillRisk =
@@ -1321,7 +1229,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               </div>
             </div>
 
-            <div className="mc-actions">
+            <div className="mc-actions" style={{ flexWrap: "wrap", gap: "6px" }}>
+
               <button
                 className={`mc-btn mc-btn-reject ${res.isRejected ? "is-on" : ""}`}
                 onClick={() => handleToggleRejectCandidate(order.id, res.candidate.id)}
@@ -1340,7 +1249,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             </div>
           </div>
 
-          {/* Three readings on one strip, rather than three stacked meters. */}
           <div className="mc-breakdown">
             <div className={`mc-stat is-${skillRisk}`}>
               <div className="mc-stat-top">
@@ -1379,10 +1287,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             </div>
           </div>
 
-          {/* Held and missing skills used to run together as one undifferentiated
-              row — the only thing separating them was a tint and a 12px glyph,
-              which disappears the moment the card is skimmed, copied or read by
-              anyone who does not see the green. The two groups are now named. */}
+          {/* AI Fit Diagnostic Text */}
+          <div style={{ padding: "6px 12px", background: "var(--tint-1, #f8fafc)", borderRadius: "6px", fontSize: "0.76rem", color: "var(--text-muted)", margin: "8px 0 4px 0", display: "flex", alignItems: "center", gap: "6px" }}>
+            <Info size={13} style={{ color: "var(--primary)", flexShrink: 0 }} />
+            <span>{res.summary}</span>
+          </div>
+
           <div className="mc-matrix">
             {res.matchedSkills.length > 0 && (
               <>
@@ -1415,7 +1325,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       );
     };
 
-    /** Anything under 35% is folded away behind a count on the unfiltered list. */
     const renderMatchList = () => {
       const weak = matchedCandidateResults.filter((r) => r.matchScore < 35);
       if (matchFilter !== "ALL" || weak.length === 0) {
@@ -1455,7 +1364,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
           </button>
         </div>
 
-        {/* Overdue banner with one-click deadline extension */}
         {dueMeta.overdue && selectedOrder.status !== "CLOSED" && (
           <div className="jod-alert">
             <div className="jod-alert-text">
@@ -1485,8 +1393,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
           </div>
         )}
 
-        {/* Order summary — identity and state on the left, fulfilment on the
-            right, specifications in a single labelled grid underneath. */}
         <section className={`jod-card tone-${dueMeta.overdue && detailStatus !== "CLOSED" ? "red" : STATUS_TONE[detailStatus]}`}>
           <div className="jod-top">
             <div className="jod-identity">
@@ -1510,7 +1416,13 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 </span>
               </div>
 
-              <div className="jod-actions">
+              <div className="jod-actions" style={{ flexWrap: "wrap", gap: "8px" }}>
+                {/* Executive Share Shortlist Summary Button */}
+                <button className="jod-btn" onClick={handleCopyShortlistSummary} title="Copy Executive Shortlist Summary">
+                  {copiedSummary ? <Check size={14} style={{ color: "#16a34a" }} /> : <Share2 size={14} />}
+                  <span>{copiedSummary ? "Shortlist Copied!" : "Share Shortlist"}</span>
+                </button>
+
                 <button className="jod-btn" onClick={() => openEditModal(selectedOrder)}>
                   <Pencil size={14} />
                   <span>Edit order</span>
@@ -1599,7 +1511,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
           </dl>
         </section>
 
-        {/* Candidate Matching Section with Real-Time Database Matches */}
         <div className="jod-matches">
           <div className="jod-section-head">
             <h2 className="jod-section-title">
@@ -1611,8 +1522,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             </span>
           </div>
 
-          {/* Pool summary as tiles — same shell the dashboard and the orders
-              list use, so a number reads the same way everywhere. */}
           <div className="stat-tiles">
             <StatTile
               tone={scoreTone(matchedCandidateResults[0]?.matchScore ?? 0)}
@@ -1644,11 +1553,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             />
           </div>
 
-          {/* No "target skills" bar here — it restated the Required skills row
-              in the specification grid a few hundred pixels above it. */}
-
-          {/* Filter and sort share one surface, in the same chip language the
-              orders list uses. */}
           <div className="jo-toolbar jod-toolbar">
             <div className="jo-filters">
               <span className="jo-filters-label">
@@ -1691,11 +1595,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               </div>
             </div>
 
-            {/* Skill filter. A single control that stays one line wide however
-                many skills the order lists — the chips this replaced grew the
-                toolbar by a row every few requirements. The counts still ride
-                along inside, so the panel doubles as a coverage read: a skill
-                sitting at 0 is a sourcing problem, not a filter. */}
             {(selectedOrder.skills || []).length > 0 && (
               <div className="jod-skillsel">
                 <span className="jo-filters-label">
@@ -1703,13 +1602,9 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 </span>
 
                 <div className="jod-dd">
-                  {/* Stops the window-level close handler below from firing on
-                      the click that opens the panel, and on clicks inside it. */}
                   <div onClick={(e) => e.stopPropagation()}>
                     <button
-                      className={`jod-dd-trigger ${skillMenuOpen ? "is-open" : ""} ${
-                        activeSkillFilter.length > 0 ? "is-set" : ""
-                      }`}
+                      className={`jod-dd-trigger ${skillMenuOpen ? "is-open" : ""} ${activeSkillFilter.length > 0 ? "is-set" : ""}`}
                       onClick={() => setSkillMenuOpen((prev) => !prev)}
                       aria-expanded={skillMenuOpen}
                       aria-haspopup="true"
@@ -1749,9 +1644,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                           })}
                         </div>
 
-                        {/* Any/All only means something once two are ticked —
-                            with one selected the two queries are identical, so
-                            the switch stays out of the way until it matters. */}
                         {activeSkillFilter.length > 1 && (
                           <div className="jod-dd-mode" role="radiogroup" aria-label="Skill match mode">
                             {(["ANY", "ALL"] as const).map((mode) => (
@@ -1768,9 +1660,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                           </div>
                         )}
 
-                        {/* The list filters as you tick, so there is nothing to
-                            apply — this button only dismisses the panel, and is
-                            labelled for what it actually does. */}
                         <div className="jod-dd-foot">
                           <button
                             className="jod-dd-clear"
@@ -1791,7 +1680,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             )}
           </div>
 
-          {/* Candidate Match Cards */}
           <div className="jod-match-list">
             {candidatesLoading ? (
               <div className="jo-state">
@@ -1805,19 +1693,18 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   {dbCandidates.length === 0
                     ? "No candidate profiles in the database yet"
                     : matchFilter === "REJECTED"
-                    ? "No rejected candidates for this order"
-                    : activeSkillFilter.length > 0
-                    ? `Nobody in this pool has ${
-                        skillMode === "ALL" ? "all of" : "any of"
-                      } ${activeSkillFilter.join(", ")}`
-                    : "No candidates match this filter"}
+                      ? "No rejected candidates for this order"
+                      : activeSkillFilter.length > 0
+                        ? `Nobody in this pool has ${skillMode === "ALL" ? "all of" : "any of"
+                        } ${activeSkillFilter.join(", ")}`
+                        : "No candidates match this filter"}
                 </p>
                 <span>
                   {dbCandidates.length === 0
                     ? "Run the inbox poller to ingest resumes — matches will appear here automatically."
                     : activeSkillFilter.length > 1 && skillMode === "ALL"
-                    ? "Switch the skill filter to “Any of these” to see who covers part of the requirement."
-                    : "Try switching back to “All matches”, or widen the required skills on this order."}
+                      ? "Switch the skill filter to “Any of these” to see who covers part of the requirement."
+                      : "Try switching back to “All matches”, or widen the required skills on this order."}
                 </span>
                 {dbCandidates.length > 0 && (matchFilter !== "ALL" || activeSkillFilter.length > 0) && (
                   <button
@@ -1848,8 +1735,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   // -------------------------------------------------------------
   return (
     <div className="job-orders-wrapper" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      {/* The status chips below already count orders by state, so these report
-          what the chips cannot: seats, progress and what has slipped. */}
       <div className="stat-tiles">
         <StatTile
           tone="blue"
@@ -1881,8 +1766,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         />
       </div>
 
-      {/* Search + filters share one surface instead of floating as two loose
-          rows — the same "controls live in a card" rule the dashboard follows. */}
       <section className="jo-toolbar">
         <div className="jo-toolbar-top">
           <div className="search-input-wrapper">
@@ -1921,8 +1804,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               st === "ALL"
                 ? orders.length
                 : st === "OVERDUE"
-                ? orders.filter((o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue).length
-                : orders.filter((o) => deriveStatus(o) === st).length;
+                  ? orders.filter((o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue).length
+                  : orders.filter((o) => deriveStatus(o) === st).length;
             return (
               <button
                 key={st}
@@ -1938,7 +1821,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         </div>
       </section>
 
-      {/* Cards Grid */}
       <div className="jo-grid">
         {ordersLoading ? (
           <div className="jo-state">
@@ -1995,8 +1877,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   }
                 }}
               >
-                {/* Monogram anchors the card the way the sourcing cards do;
-                    the ring closes the row with progress at a glance. */}
                 <header className="jo-head">
                   <span className="jo-monogram">{initialsOf(item.client)}</span>
 
@@ -2084,7 +1964,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
                 </header>
 
-                {/* Figures carried by type, not by boxes — value over label. */}
                 <dl className="jo-meta">
                   <div className="jo-meta-item">
                     <dd className="jo-meta-value" title={item.salary}>
@@ -2108,8 +1987,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
                 </dl>
 
-                {/* Skills and the match line always render, empty or not — an
-                    optional block made every card in the row a different height. */}
                 <div className="jo-skill-tags">
                   {(item.skills || []).length > 0 ? (
                     <>
@@ -2143,7 +2020,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   )}
                 </p>
 
-                {/* An alert is the one thing that still earns a filled box. */}
                 {isLate && (
                   <div className="jo-late">
                     <span className="jo-late-head">
@@ -2195,7 +2071,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
 
       {renderEditModal()}
 
-      {/* Create New Order Pop-up Modal */}
       {isCreateModalOpen && (
         <div className="cm-overlay active" onClick={() => setIsCreateModalOpen(false)}>
           <div className="cm-dialog sh-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
@@ -2213,7 +2088,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
 
             <form onSubmit={handleCreateOrder}>
               <div className="modal-body sh-modal-body">
-                {/* Row 1: Client (Company) & Designation / Role */}
                 <div className="modal-row-2">
                   <div>
                     <label className="modal-label">Client (Company)</label>
@@ -2248,7 +2122,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
                 </div>
 
-                {/* Row 2: Min. Experience (Years) & Industry */}
                 <div className="modal-row-2">
                   <div>
                     <label className="modal-label">Min. Experience (Years)</label>
@@ -2294,7 +2167,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
                 </div>
 
-                {/* Row 3: Headcount & Target Close Date */}
                 <div className="modal-row-2">
                   <div>
                     <label className="modal-label">Headcount (Positions)</label>
@@ -2323,7 +2195,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
                 </div>
 
-                {/* Row 4: Required Skills & Expertise */}
                 <div>
                   <label className="modal-label">Required Skills & Expertise</label>
                   <input
@@ -2335,7 +2206,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   />
                 </div>
 
-                {/* Row 4: Salary Range / Budget */}
                 <div>
                   <label className="modal-label">Salary Range / Budget</label>
                   <input
@@ -2347,7 +2217,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   />
                 </div>
 
-                {/* Row 5: Internal Remarks / Notes */}
                 <div>
                   <label className="modal-label">Internal Remarks / Notes</label>
                   <textarea

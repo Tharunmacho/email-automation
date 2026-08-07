@@ -339,7 +339,7 @@ class ResumeParser:
 
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(_do_veris)
-                        res = future.result(timeout=90.0)
+                        res = future.result(timeout=5.0)
 
                     veris_text = extracted.text or ""
                     veris_extracted = ExtractedDocument(
