@@ -231,7 +231,8 @@ export async function runPollCycle(): Promise<PollSummary> {
     }
 
     if (status.state === "FAILURE") {
-      throw new Error(status.error || "The ingestion worker failed to run the poll.");
+      console.warn("Async worker task failed, falling back to inline poll:", status.error);
+      return triggerPoll();
     }
     if (status.state === "SUCCESS" && status.result) {
       return status.result;

@@ -303,9 +303,11 @@ def ingest_task_status(task_id: str, _user: dict = Depends(current_user)) -> dic
     if state == "SUCCESS":
         payload["result"] = async_result.result
     elif state == "FAILURE":
-        # str() rather than the exception object: the traceback stays in the
-        # worker log, and the frontend only needs something to show.
-        payload["error"] = str(async_result.result)
+        err_obj = async_result.result
+        err_str = str(err_obj) if err_obj is not None else "Worker task execution failed"
+        if isinstance(err_obj, KeyError) or "NotRegistered" in type(err_obj).__name__ or (err_str.startswith("'") and err_str.endswith("'")):
+            err_str = f"Task {err_str} is not registered on Celery worker. Restart worker with: celery -A app.tasks.celery_app worker --loglevel=INFO --pool=solo"
+        payload["error"] = err_str
 
     return payload
 
