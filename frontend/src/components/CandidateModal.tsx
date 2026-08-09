@@ -919,21 +919,26 @@ function CandidateModalBody({
             borderTopRightRadius: "0.75rem",
           }}
         >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <h2 className="page-title" style={{ fontSize: "1.35rem", fontWeight: 700, margin: 0, color: "#1e40af" }}>
-                Resume Result
-              </h2>
-              <span
-                className={`badge ${candidate.status === "verified" ? "badge-verified" : "badge-active"}`}
-                style={{ fontSize: "0.75rem", background: candidate.status === "verified" ? "rgba(16,185,129,0.12)" : "rgba(37,99,235,0.12)", color: candidate.status === "verified" ? "#059669" : "#2563eb", fontWeight: 700 }}
-              >
-                {candidate.status || "Ingested"}
-              </span>
+          <div className="cmv-header-title-box">
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+                <h2 className="page-title" style={{ fontSize: "1.35rem", fontWeight: 700, margin: 0, color: "#1e40af" }}>
+                  Resume Result
+                </h2>
+                <span
+                  className={`badge ${candidate.status === "verified" ? "badge-verified" : "badge-active"}`}
+                  style={{ fontSize: "0.75rem", background: candidate.status === "verified" ? "rgba(16,185,129,0.12)" : "rgba(37,99,235,0.12)", color: candidate.status === "verified" ? "#059669" : "#2563eb", fontWeight: 700 }}
+                >
+                  {candidate.status || "Ingested"}
+                </span>
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "#64748b", marginTop: "0.2rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {candidate.resume?.original_filename || "temp_ocr.pdf"} · {new Date(candidate.created_at || Date.now()).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </div>
             </div>
-            <div style={{ fontSize: "0.82rem", color: "#64748b", marginTop: "0.25rem" }}>
-              {candidate.resume?.original_filename || "temp_ocr.pdf"} · {new Date(candidate.created_at || Date.now()).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-            </div>
+            <button className="modal-close" onClick={onClose} aria-label="Close profile" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "0.375rem", padding: "0.4rem", cursor: "pointer", color: "#64748b" }}>
+              <X size={18} />
+            </button>
           </div>
 
           {/* VIEW MODES & TOP ACTION CONTROLS */}
@@ -951,7 +956,7 @@ function CandidateModalBody({
                 fontWeight: 600,
               }}
             >
-              <FileText size={14} /> Executive View Mode
+              <FileText size={14} /> Executive
             </button>
 
             <button
@@ -967,7 +972,7 @@ function CandidateModalBody({
                 fontWeight: 600,
               }}
             >
-              <Edit3 size={14} /> {isEditing ? "Done Editing" : "Edit Profile"}
+              <Edit3 size={14} /> {isEditing ? "Done" : "Edit"}
             </button>
 
             <button
@@ -983,11 +988,7 @@ function CandidateModalBody({
                 fontWeight: 600,
               }}
             >
-              <Code size={14} /> OCR Raw JSON
-            </button>
-
-            <button className="modal-close" onClick={onClose} aria-label="Close profile" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "0.375rem", padding: "0.4rem", cursor: "pointer", color: "#64748b" }}>
-              <X size={18} />
+              <Code size={14} /> Raw JSON
             </button>
           </div>
         </div>
