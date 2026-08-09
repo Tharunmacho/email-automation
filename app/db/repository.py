@@ -80,25 +80,31 @@ class CandidateRepository:
 
         profile_dump = profile.model_dump(mode="python")
 
+        # `raw_ocr` is the extractor's verbatim output, not a mirror of the
+        # edited profile. It used to be rewritten here on every save — the
+        # profile was copied into `raw_ocr["profile"]`, which on the next save
+        # was copied in again *inside* that copy, so the document grew a nested
+        # doll of itself and the Raw JSON tab no longer showed what Veris
+        # returned. The stored payload is now immutable: an edit changes
+        # `profile`, never `raw_ocr`.
+        existing_doc = self._coll.find_one({"_id": candidate_id})
+        stored_raw = existing_doc.get("raw_ocr") if existing_doc else None
+        if not isinstance(stored_raw, dict) or not stored_raw:
+            stored_raw = getattr(profile, "raw_ocr", None)
+
+        # Both copies of the payload (record-level and profile-level) must stay
+        # byte-identical; the incoming profile carries whatever the browser sent
+        # back, so the stored one wins.
+        profile_dump["raw_ocr"] = stored_raw if isinstance(stored_raw, dict) and stored_raw else None
+
         update_dict = {
             "profile": profile_dump,
             "email_key": email_key,
             "phone_key": phone_key,
             "updated_at": utcnow(),
         }
-
-        # Sync updates into raw_ocr document in MongoDB Atlas if present
-        existing_doc = self._coll.find_one({"_id": candidate_id})
-        if existing_doc and "raw_ocr" in existing_doc and isinstance(existing_doc["raw_ocr"], dict):
-            raw_ocr = dict(existing_doc["raw_ocr"])
-            raw_ocr["profile"] = profile_dump
-            if profile.work_experience:
-                raw_ocr["experience"] = [w.model_dump(mode="python") for w in profile.work_experience]
-            if profile.education and len(profile.education) > 0:
-                raw_ocr["highest_qualification"] = profile.education[0].degree
-            update_dict["raw_ocr"] = raw_ocr
-        elif getattr(profile, "raw_ocr", None):
-            update_dict["raw_ocr"] = profile.raw_ocr
+        if isinstance(stored_raw, dict) and stored_raw:
+            update_dict["raw_ocr"] = stored_raw
 
         self._coll.update_one(
             {"_id": candidate_id},

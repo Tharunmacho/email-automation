@@ -89,17 +89,23 @@ class ResumeResult:
         self.skills = skills
         for k, v in kwargs.items():
             setattr(self, k, v)
+        # The exact JSON body the API returned, before this class filled in any
+        # default for a key the response omitted. Callers that need to persist
+        # or display "what Veris said" must read this, not __dict__.
+        self._raw_response: dict = {}
 
     @classmethod
     def from_dict(cls, data: dict) -> "ResumeResult":
         if not data:
             return cls(name="", total_experience_human="", skills=[])
-        return cls(
+        result = cls(
             name=data.get("name", ""),
             total_experience_human=data.get("total_experience_human", ""),
             skills=data.get("skills", []),
             **{k: v for k, v in data.items() if k not in ("name", "total_experience_human", "skills")}
         )
+        result._raw_response = data
+        return result
 
     def __repr__(self) -> str:
         return f"<ResumeResult name={self.name!r} total_experience_human={self.total_experience_human!r}>"

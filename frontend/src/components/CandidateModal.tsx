@@ -396,6 +396,7 @@ function toEditableState(profile: CandidateProfile, candidate?: CandidateRecord)
 
 function RawOcrViewer({ candidate }: { candidate: CandidateRecord }) {
   const [activePage, setActivePage] = useState<number>(0);
+  const [copied, setCopied] = useState<boolean>(false);
   const rawData = candidate.raw_ocr || candidate.profile?.raw_ocr;
 
   const jsonString = useMemo(() => {
@@ -411,6 +412,24 @@ function RawOcrViewer({ candidate }: { candidate: CandidateRecord }) {
     };
     return JSON.stringify(fallbackObj, null, 2);
   }, [rawData, candidate]);
+
+  const handleCopyJson = () => {
+    if (!jsonString) return;
+    navigator.clipboard.writeText(jsonString).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Fallback if clipboard API is blocked in non-secure context
+      const textarea = document.createElement("textarea");
+      textarea.value = jsonString;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const pages = (rawData?.pages as any[]) || [];
 
@@ -484,9 +503,32 @@ function RawOcrViewer({ candidate }: { candidate: CandidateRecord }) {
           <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>
             Full JSON Payload (MongoDB Atlas Document)
           </span>
-          <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
-            {jsonString.length.toLocaleString()} bytes
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <button
+              type="button"
+              onClick={handleCopyJson}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.4rem",
+                padding: "0.35rem 0.75rem",
+                borderRadius: "0.4rem",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                border: copied ? "1px solid #16a34a" : "1px solid #2563eb",
+                background: copied ? "#f0fdf4" : "#eff6ff",
+                color: copied ? "#15803d" : "#2563eb",
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+              }}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied!" : "Copy JSON"}
+            </button>
+            <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
+              {jsonString.length.toLocaleString()} bytes
+            </span>
+          </div>
         </div>
         <pre style={{
           maxHeight: "440px",

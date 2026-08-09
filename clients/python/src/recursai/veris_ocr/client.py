@@ -5,9 +5,10 @@ from .models import PassportResult, DocumentResult, ResumeResult
 
 
 class VerisOCR:
-    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+    def __init__(self, api_key: str | None = None, base_url: str | None = None, timeout: float = 180.0):
         self.api_key = api_key or os.environ.get("VERIS_OCR_API_KEY")
         self.base_url = base_url or os.environ.get("VERIS_OCR_BASE_URL") or "https://veris.recursai.in"
+        self.timeout = timeout
         
         if not self.api_key:
             raise AuthenticationError(
@@ -43,17 +44,18 @@ class VerisOCR:
             self._session.close()
             self._session = None
 
-    def request(self, endpoint: str, file_path: str, data: dict | None = None, field_name: str = "file") -> dict:
+    def request(self, endpoint: str, file_path: str, data: dict | None = None, field_name: str = "file", timeout: float | None = None) -> dict:
         if not os.path.exists(file_path):
             raise VerisOCRError(f"File not found at: {file_path}")
             
         url = f"{self.base_url}{endpoint}"
+        req_timeout = timeout if timeout is not None else self.timeout
         
         try:
             filename = os.path.basename(file_path)
             with open(file_path, "rb") as f:
                 files = {field_name: (filename, f)}
-                response = self.session.post(url, files=files, data=data, timeout=45)
+                response = self.session.post(url, files=files, data=data, timeout=req_timeout)
         except IOError as e:
             raise VerisOCRError(f"Failed to read file {file_path}: {e}")
         except requests.RequestException as e:

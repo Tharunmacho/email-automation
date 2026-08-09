@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 def utcnow() -> datetime:
@@ -60,16 +60,24 @@ class ExtractedDocument(BaseModel):
 #  Structured candidate (the AI's job)
 # --------------------------------------------------------------------------- #
 class WorkExperience(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     company: Optional[str] = None
     designation: Optional[str] = None
     title: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     location: Optional[str] = None
+    country: Optional[str] = None
+    is_overseas: Optional[bool] = None
+    duration_human: Optional[str] = None
+    duration_months: Optional[int] = None
     description: Optional[str] = None
 
 
 class Education(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     institution: Optional[str] = None
     degree: Optional[str] = None
     field_of_study: Optional[str] = None
@@ -79,6 +87,8 @@ class Education(BaseModel):
 
 
 class Project(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     name: Optional[str] = None
     description: Optional[str] = None
     technologies: List[str] = Field(default_factory=list)
@@ -87,6 +97,7 @@ class Project(BaseModel):
 
 class CandidateProfile(BaseModel):
     """The structured key/value profile the AI extracts from resume text."""
+    model_config = ConfigDict(extra="allow")
 
     is_resume: bool = True
     confidence: float = 0.0     # 0..1 — the AI's confidence this is a real resume

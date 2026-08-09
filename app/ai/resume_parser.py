@@ -5,6 +5,7 @@ matching our schema. We validate that JSON into a CandidateProfile pydantic mode
 """
 from __future__ import annotations
 
+import copy
 import re
 
 from app.ai.schema import RESUME_TOOL_NAME, RESUME_TOOL_SCHEMA, SYSTEM_PROMPT
@@ -31,7 +32,8 @@ _CONTACT_LABELS = {
 
 _SECTION_WORDS = re.compile(
     r"education|experience|skills|contact|summary|year|about|career|objective"
-    r"|strength|language|declaration|reference|hobb|interest|personal|qualification",
+    r"|strength|language|declaration|reference|hobb|interest|personal|qualification"
+    r"|software|certification|welding|specialization|academics|signature|place|date",
     re.IGNORECASE,
 )
 
@@ -138,8 +140,11 @@ class ResumeParser:
         lines = [l.strip() for l in text.splitlines() if l.strip()]
 
         name = None
-        for line in lines[:5]:
-            if "@" not in line and not re.search(r"http|www|\d{5}|skill|experience", line, re.IGNORECASE) and len(line) < 50:
+        HEADER_TITLES = r"^(?:curriculum\s+vitae|curriculum|vitae|resume|biodata|profile\s+summary|personal\s+details|contact\s+details|page\s+\d+|cv)$"
+        for line in lines[:8]:
+            if re.search(HEADER_TITLES, line.strip(), re.IGNORECASE):
+                continue
+            if "@" not in line and not re.search(r"http|www|\d{5}|skill|experience", line, re.IGNORECASE) and 2 <= len(line) < 50:
                 name = line
                 break
 
@@ -150,7 +155,7 @@ class ResumeParser:
         linkedin_match = re.search(r"https?://(?:www\.)?linkedin\.com/in/([\w\-]+)/?", text, re.IGNORECASE)
         linkedin_url = linkedin_match.group(0) if linkedin_match else None
 
-        if not name or name.lower() in ("candidate profile", "skill experience", "unnamed"):
+        if not name or name.lower() in ("candidate profile", "skill experience", "unnamed", "curriculum vitae", "resume", "cv"):
             if linkedin_match:
                 handle = linkedin_match.group(1)
                 # Split camelCase or dot/dash (e.g. MohamedNasirS -> Mohamed Nasir S)
@@ -186,19 +191,51 @@ class ResumeParser:
                 skills_set.add(s)
 
         # 2. Extract Work Experience
-        exp_matches = re.findall(
-            r"([A-Za-z0-9\s]+(?:Intern|Engineer|Developer|Manager|Lead|Architect|Specialist|Designer))\s*[\-\–\|:]\s*([A-Za-z0-9\s\.\,]+?):\s*(.+?)(?=\n[A-Z\s]{4,}:|\n[\u2022\*\-\u25cf]|\n\n[A-Z]|$)",
-            text,
-            re.DOTALL | re.IGNORECASE
-        )
-        if exp_matches:
-            for des, comp, desc in exp_matches:
-                clean_desc = re.sub(r"\s+", " ", desc).strip()
-                work_list.append(WorkExperience(
-                    designation=des.strip().title(),
-                    company=comp.strip().title() if len(comp.strip()) < 50 else None,
-                    description=clean_desc if clean_desc else None
-                ))
+        MONTH_NAME = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+        DATE_TOKEN = rf"(?:{MONTH_NAME}\s*\d{{4}}|\d{{4}}\s*{MONTH_NAME}|{MONTH_NAME}|\d{{4}}|Present|Current)"
+        DATE_RANGE_REGEX = re.compile(rf"({DATE_TOKEN})\s*[\-\–\u2013\u2014\to]+\s*({DATE_TOKEN})", re.IGNORECASE)
+
+        for line in lines:
+            if "|" in line:
+                m = DATE_RANGE_REGEX.search(line)
+                if m:
+                    sdate = m.group(1).strip()
+                    edate = m.group(2).strip()
+                    parts = [p.strip() for p in line.split("|")]
+                    comp_loc = parts[0]
+                    role = parts[1] if len(parts) > 1 else ""
+
+                    company = comp_loc
+                    loc = None
+                    if "," in comp_loc:
+                        c_parts = comp_loc.rsplit(",", 1)
+                        company = c_parts[0].strip()
+                        loc = c_parts[1].strip()
+
+                    work_list.append(WorkExperience(
+                        company=company,
+                        designation=role,
+                        title=role,
+                        location=loc,
+                        start_date=sdate,
+                        end_date=edate,
+                    ))
+
+        if not work_list:
+            exp_matches = re.findall(
+                r"([A-Za-z0-9\s]+(?:Intern|Engineer|Developer|Manager|Lead|Architect|Specialist|Designer))\s*[\-\–\|:]\s*([A-Za-z0-9\s\.\,]+?):\s*(.+?)(?=\n[A-Z\s]{4,}:|\n[\u2022\*\-\u25cf]|\n\n[A-Z]|$)",
+                text,
+                re.DOTALL | re.IGNORECASE
+            )
+            if exp_matches:
+                for des, comp, desc in exp_matches:
+                    clean_desc = re.sub(r"\s+", " ", desc).strip()
+                    work_list.append(WorkExperience(
+                        designation=des.strip().title(),
+                        title=des.strip().title(),
+                        company=comp.strip().title() if len(comp.strip()) < 50 else None,
+                        description=clean_desc if clean_desc else None
+                    ))
 
         if not work_list:
             # Extract section lines specifically from work experience section
@@ -207,7 +244,7 @@ class ResumeParser:
             if exp_lines:
                 clean_exp_desc = " ".join(exp_lines[:5]).strip()
                 work_list.append(WorkExperience(
-                    designation=lines[0] if lines else "Candidate Role",
+                    designation=name + " Role" if name else "Candidate Role",
                     company=None,
                     description=clean_exp_desc[:500] if clean_exp_desc else None
                 ))
@@ -238,14 +275,21 @@ class ResumeParser:
             r"[A-Za-z0-9 &.,'\-]{0,40})",
             text,
         )
-        edu_years_match = re.search(r"\b(20\d{2}\s*[\-\–\to]+\s*20\d{2})\b", text)
+        edu_years_match = re.search(r"\b(20\d{2}\s*[\-\–\to]+\s*20\d{2}|\d{4})\b", text)
 
         if edu_degree_match or edu_inst_match:
+            deg_str = edu_degree_match.group(1).strip() if edu_degree_match else "Higher Education"
+            inst_str = edu_inst_match.group(1).strip() if edu_inst_match else None
+            if not inst_str and ("–" in deg_str or "-" in deg_str or " from " in deg_str):
+                deg_parts = re.split(r"[\-\–]| from ", deg_str, 1)
+                deg_str = deg_parts[0].strip()
+                inst_str = deg_parts[1].strip()
+
             education_list.append(Education(
-                degree=edu_degree_match.group(1).strip() if edu_degree_match else "Higher Education",
-                institution=edu_inst_match.group(1).strip() if edu_inst_match else None,
-                start_date=edu_years_match.group(1).split("-")[0].strip() if edu_years_match else None,
-                end_date=edu_years_match.group(1).split("-")[-1].strip() if edu_years_match else None
+                degree=deg_str,
+                institution=inst_str,
+                start_date=edu_years_match.group(1).strip() if edu_years_match else None,
+                end_date=None
             ))
 
         # 5. Extract Achievements & Certifications
@@ -271,14 +315,9 @@ class ResumeParser:
             else:
                 resolved_name = "Candidate Profile"
 
-        # Never invent a designation. An empty field is honest; a wrong one
-        # silently corrupts search, matching and the profile screen.
         current_des = work_list[0].designation if work_list else None
         current_comp = work_list[0].company if work_list else None
 
-        # The heuristic never populated languages, even when they sat in the
-        # text under a LANGUAGES heading. Reuse the same section reader and
-        # vocabulary check the Veris path uses.
         sections = extract_sections(text)
         heuristic_languages = _languages_from_lines(sections.get("languages", []))
         if not heuristic_languages:
@@ -286,7 +325,14 @@ class ResumeParser:
 
         heuristic_certs = _collect_strings(sections.get("certifications", []))
         if not skills_list:
-            skills_list = _collect_strings(sections.get("skills", []), min_len=2)
+            raw_skill_lines = sections.get("skills", [])
+            for s_line in raw_skill_lines:
+                parts = re.split(r"[,;|•\n]", str(s_line))
+                for p in parts:
+                    p_clean = p.strip(" .:-")
+                    if _is_meaningful(p_clean, min_len=2) and not re.search(r"software:|welding:|specialization:|certification:", p_clean, re.IGNORECASE):
+                        if p_clean not in skills_list:
+                            skills_list.append(p_clean)
         if not achievements_list:
             achievements_list = _collect_strings(
                 sections.get("achievements", []) + sections.get("hobbies", [])
@@ -357,6 +403,11 @@ class ResumeParser:
         # First, try fast local text extraction to obtain raw text
         extracted = extract_text(file_data, filename)
 
+        # Kept across the Veris block so a response that came back without a
+        # name/email/phone still hands its raw JSON to the fallback profile.
+        # Veris answered; dropping its payload would be data loss.
+        veris_raw: dict | None = None
+
         # Send to Veris OCR / LLM Resume API endpoint as primary option if key configured
         if settings.veris_ocr_api_key:
             suffix = Path(filename).suffix or ".pdf"
@@ -389,6 +440,7 @@ class ResumeParser:
                         ocr_used=True,
                         char_count=len(veris_text),
                     )
+                    veris_raw = veris_payload(res) or None
                     profile = map_veris_to_profile(res, veris_text=veris_text)
                     if profile.full_name or profile.email or profile.phone:
                         log.info("Veris Resume API successfully parsed profile for %s (%s)", profile.full_name, profile.email)
@@ -411,6 +463,11 @@ class ResumeParser:
         info = dict(profile.additional_info or {})
         info.setdefault("extraction_source", "heuristic_fallback")
         profile.additional_info = info
+        # Veris did answer, it just did not resolve a name/email/phone. Its JSON
+        # is still the real extraction and belongs on the record verbatim,
+        # rather than being replaced by our synthesised fallback payload.
+        if veris_raw:
+            profile.raw_ocr = veris_raw
         return profile, extracted
 
 
@@ -715,11 +772,30 @@ def decolumnize_ocr_page(page) -> str:
     return raw_text
 
 
+def veris_payload(res) -> dict:
+    """The Veris response exactly as the API returned it.
+
+    This is what gets persisted as ``raw_ocr`` and shown on the Raw JSON tab, so
+    it must be the untouched body: no keys added, none removed, none renamed.
+    ``ResumeResult`` keeps the original under ``_raw_response``; everything else
+    falls back to its public attributes (private ``_`` attrs are client
+    bookkeeping, never part of the response).
+    """
+    raw = getattr(res, "_raw_response", None)
+    if isinstance(raw, dict) and raw:
+        return copy.deepcopy(raw)
+    if isinstance(res, dict):
+        return copy.deepcopy(res)
+    if hasattr(res, "__dict__"):
+        return copy.deepcopy({k: v for k, v in res.__dict__.items() if not k.startswith("_")})
+    return {}
+
+
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     from app.core.models import CandidateProfile, WorkExperience, Education, Project
 
     if hasattr(res, "__dict__"):
-        data = dict(res.__dict__)
+        data = {k: v for k, v in res.__dict__.items() if not k.startswith("_")}
     elif isinstance(res, dict):
         data = dict(res)
     else:
@@ -750,38 +826,49 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     raw_projects = data.get("projects") or getattr(res, "projects", [])
     for p in raw_projects:
         if isinstance(p, dict):
-            projects_list.append(Project(
-                name=p.get("name") or p.get("title"),
-                description=p.get("description"),
-                technologies=p.get("technologies") or [],
-                url=p.get("url")
-            ))
+            proj_kwargs = dict(p)
+            proj_kwargs.update({
+                "name": p.get("name") or p.get("title"),
+                "description": p.get("description"),
+                "technologies": p.get("technologies") or [],
+                "url": p.get("url"),
+            })
+            projects_list.append(Project(**proj_kwargs))
 
     education_list = []
     raw_edu = data.get("education") or getattr(res, "education", [])
     for e in raw_edu:
         if isinstance(e, dict):
-            education_list.append(Education(
-                institution=e.get("institution") or e.get("school") or e.get("university"),
-                degree=e.get("degree") or e.get("qualification"),
-                field_of_study=e.get("field_of_study") or e.get("major"),
-                start_date=e.get("start_date") or e.get("start"),
-                end_date=e.get("end_date") or e.get("end"),
-                grade=e.get("grade") or e.get("gpa")
-            ))
+            edu_kwargs = dict(e)
+            edu_kwargs.update({
+                "institution": e.get("institution") or e.get("school") or e.get("university"),
+                "degree": e.get("degree") or e.get("qualification"),
+                "field_of_study": e.get("field_of_study") or e.get("major"),
+                "start_date": e.get("start_date") or e.get("start"),
+                "end_date": e.get("end_date") or e.get("end"),
+                "grade": e.get("grade") or e.get("gpa"),
+            })
+            education_list.append(Education(**edu_kwargs))
 
     work_list = []
     raw_work = data.get("experience") or data.get("work_experience") or getattr(res, "experience", [])
     for w in raw_work:
         if isinstance(w, dict):
-            work_list.append(WorkExperience(
-                company=w.get("company"),
-                designation=w.get("designation") or w.get("role") or w.get("title"),
-                start_date=w.get("start_date"),
-                end_date=w.get("end_date"),
-                location=w.get("location"),
-                description=w.get("description")
-            ))
+            exp_kwargs = dict(w)
+            des = w.get("designation") or w.get("role") or w.get("title")
+            tit = w.get("title") or w.get("designation") or w.get("role")
+            sdate = w.get("start_date") or w.get("start")
+            edate = w.get("end_date") or w.get("end")
+            exp_kwargs.update({
+                "company": w.get("company"),
+                "designation": des,
+                "title": tit,
+                "start_date": sdate,
+                "end_date": edate,
+                "location": w.get("location"),
+                "description": w.get("description"),
+            })
+            work_list.append(WorkExperience(**exp_kwargs))
 
     skills = data.get("skills") or getattr(res, "skills", [])
     skills_list = []
@@ -919,17 +1006,11 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         else:
             clean_additional_info.setdefault("personal_details_raw", personal_lines)
 
-    if hasattr(res, "model_dump"):
-        raw_ocr_dict = res.model_dump(mode="python")
-    elif hasattr(res, "__dict__"):
-        raw_ocr_dict = dict(res.__dict__)
-    elif isinstance(res, dict):
-        raw_ocr_dict = dict(res)
-    else:
-        raw_ocr_dict = {}
-
-    if veris_text and isinstance(raw_ocr_dict, dict):
-        raw_ocr_dict.setdefault("extracted_text", veris_text)
+    # `raw_ocr` is a verbatim copy of the Veris response — nothing derived, and
+    # in particular no `extracted_text` of our own bolted on. The Raw JSON tab
+    # renders this dict directly, and it has to match what Veris returned key
+    # for key. Our own text lives on `ExtractedDocument`, not in here.
+    raw_ocr_dict = veris_payload(res)
 
     return CandidateProfile(
         is_resume=True,
