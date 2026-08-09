@@ -219,7 +219,12 @@ class IngestionPipeline:
                     # acknowledgement would go to the forwarder instead. The
                     # address from the resume wins; the sender is the fallback for
                     # resumes that carry only a phone number.
-                    reply_to = email.from_addr or email_key
+                    to_addr_lower = (email.to_addr or "").lower()
+                    reply_to = (
+                        email_key
+                        if (email_key and email_key.lower() != to_addr_lower)
+                        else email.from_addr
+                    )
                     if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(
                             message_id=email.message_id,
