@@ -23,6 +23,9 @@ class BatchSummary:
     fetched: int = 0
     processed: int = 0
     skipped: int = 0
+    # Re-fetched emails belonging to a candidate the user deleted. Counted apart
+    # from skips: these are the delete holding, not the pipeline declining work.
+    suppressed: int = 0
     errors: int = 0
     ingested_candidates: int = 0
     results: List[ProcessResult] = field(default_factory=list)
@@ -48,19 +51,41 @@ class IngestionRunner:
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)
-                # Label BOTH processed and skipped messages. The Gmail query
-                # excludes `-label:Resumes/Processed`, so an unlabelled message
-                # comes back on every poll — which is how a deleted candidate
-                # kept reappearing.
-                if result.status in ("processed", "skipped"):
+            except Exception:  # noqa: BLE001
+                log.exception("Failed to process message %s", mid)
+                return None
+
+            # Post-processing gets its own guard. The candidate is already in
+            # Mongo by this point, so a Gmail hiccup here must not discard the
+            # result — that reported "Ingested Candidates=0" for a poll that had
+            # just written a profile.
+            try:
+                if result.status == "suppressed":
+                    # Re-fetched only because Gmail's search index had not caught
+                    # up with the delete. Re-assert the label; never stamp this
+                    # one "processed", which is how a deleted email ended up
+                    # carrying both labels at once.
+                    if settings.gmail_deleted_label:
+                        gmail_client.apply_label(mid, settings.gmail_deleted_label)
+                    if settings.gmail_processed_label:
+                        gmail_client.remove_label(mid, settings.gmail_processed_label)
+                elif result.status in ("processed", "skipped"):
+                    # Label BOTH processed and skipped messages. The Gmail query
+                    # excludes `-label:Resumes/Processed`, so an unlabelled
+                    # message comes back on every poll. Errors stay unlabelled so
+                    # the next poll retries them.
                     if settings.gmail_mark_read:
                         gmail_client.mark_read(mid)
                     if settings.gmail_processed_label:
                         gmail_client.apply_label(mid, settings.gmail_processed_label)
-                return result
-            except Exception:  # noqa: BLE001
-                log.exception("Failed to process message %s", mid)
-                return None
+            except Exception as err:  # noqa: BLE001
+                log.warning(
+                    "Processed %s but could not mark it done in Gmail (%s); "
+                    "it will be re-fetched and skipped as a duplicate next poll",
+                    mid, err,
+                )
+
+            return result
 
         max_workers = min(10, max(1, len(message_ids)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -76,14 +101,25 @@ class IngestionRunner:
                         summary.ingested_candidates += len(res.ingested_ids)
                     elif res.status == "skipped":
                         summary.skipped += 1
+                    elif res.status == "suppressed":
+                        summary.suppressed += 1
                     else:
                         summary.errors += 1
 
         log.info(
-            "Batch done: fetched=%d processed=%d skipped=%d errors=%d candidates=%d",
+            "Batch done: fetched=%d processed=%d skipped=%d suppressed=%d errors=%d candidates=%d",
             summary.fetched, summary.processed, summary.skipped,
-            summary.errors, summary.ingested_candidates,
+            summary.suppressed, summary.errors, summary.ingested_candidates,
         )
+        # Per-message detail, so a poll that ingests nothing says why.
+        for res in summary.results:
+            if res.status == "processed":
+                continue
+            detail = "; ".join(
+                f"{a.filename}: {a.status}" + (f" ({a.detail})" if a.detail else "")
+                for a in res.attachments
+            ) or res.reason
+            log.info("  %s -> %s | %s", res.message_id, res.status, detail)
         return summary
 
     def watch(self, interval_seconds: int = 60, query: str | None = None) -> None:

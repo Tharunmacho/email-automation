@@ -81,13 +81,19 @@ def test_malformed_token_rejected(junk):
 # --------------------------------------------------------------------------- #
 @pytest.fixture
 def client():
-    from unittest.mock import patch
+    from unittest.mock import MagicMock, patch
 
     from fastapi.testclient import TestClient
 
     from app.api.routes import app
 
-    with patch("app.api.routes.ensure_indexes"):
+    # /health counts candidates, so an unstubbed repository sends this suite to
+    # the real cluster. These tests are about auth, not data.
+    repo = MagicMock()
+    repo.count.return_value = 0
+
+    with patch("app.api.routes.ensure_indexes"), \
+         patch("app.api.routes.repo", return_value=repo):
         yield TestClient(app)
 
 

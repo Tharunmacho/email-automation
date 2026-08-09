@@ -29,9 +29,15 @@ class Settings(BaseSettings):
     # ---- Gmail ----
     gmail_credentials_file: str = "secrets/gmail_credentials.json"
     gmail_token_file: str = "secrets/gmail_token.json"
-    gmail_query: str = "has:attachment -label:Resumes/Processed newer_than:7d"
+    # No age window, and both label buckets are excluded: handled mail never
+    # comes back, so the search does not need a date cutoff to stay cheap.
+    gmail_query: str = "has:attachment -label:Resumes/Processed -label:Resumes/Deleted"
     gmail_mark_read: bool = True
     gmail_processed_label: str = "Resumes/Processed"
+    # Retired mail: the candidate was deleted from the app, so this exact email
+    # must never be re-ingested. A *new* email carrying the same resume is
+    # unlabelled and ingests normally.
+    gmail_deleted_label: str = "Resumes/Deleted"
     gmail_max_results: int = 25
 
     # ---- Anthropic Claude ----
@@ -41,8 +47,20 @@ class Settings(BaseSettings):
 
 
 
+    # ---- Resume gates ----
+    # Stage 1, before any download: how strong the "this is a resume email"
+    # signal must be. The detector scores 0.5 for merely having a document
+    # attached, so anything at or below that lets the whole mailbox through.
+    detector_min_score: float = 0.7
+    # Stage 2, after parsing: below this the document is not stored as a
+    # candidate at all. Guards against a failed OCR falling back to the
+    # heuristic parser and turning a hall ticket into a profile.
+    min_ingest_confidence: float = 0.5
+
     # ---- Auto Reply ----
-    auto_reply_enabled: bool = True
+    # Off by default: replying is the one thing this app does that reaches
+    # strangers, and a false positive mails someone who never applied.
+    auto_reply_enabled: bool = False
     auto_reply_signature: str = "Best regards,\nRecruitment Team"
 
     # ---- Auth ----

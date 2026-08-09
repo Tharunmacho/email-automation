@@ -103,7 +103,11 @@ def detect(email: EmailMessage) -> DetectionResult:
         score -= 0.4
         reasons.append("promotional/transactional subject")
 
-    is_candidate = score >= 0.5
+    # The baseline for "has a document attached" is itself 0.5, so a 0.5 cut-off
+    # accepted every attachment in the mailbox — hall tickets, OD letters, class
+    # schedules. Something must actually point at a resume: the keyword in the
+    # subject or filename (+0.35) clears the default; an attachment alone does not.
+    is_candidate = score >= settings.detector_min_score
     result = DetectionResult(is_candidate, round(score, 2), "; ".join(reasons), resume_atts)
     log.info(
         "Detector: msg=%s candidate=%s score=%.2f (%s)",

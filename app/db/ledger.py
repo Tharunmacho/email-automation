@@ -34,6 +34,10 @@ log = get_logger(__name__)
 
 LEDGER_COLLECTION = "ingest_ledger"
 
+# Stands in for the resume hash on a "this email is dead" tombstone, so the row
+# is keyed by message alone and never matches a real file. See retire_candidate.
+DELETED_SENTINEL = "__deleted__"
+
 
 def get_ledger_collection():
     return get_db()[LEDGER_COLLECTION]
@@ -77,6 +81,36 @@ class IngestLedger:
     def message_seen(self, message_id: str) -> bool:
         return self._coll.count_documents({"message_id": message_id}, limit=1) > 0
 
+    def is_message_suppressed(self, message_id: str) -> bool:
+        """True when this exact email belonged to a candidate the user deleted.
+
+        The durable half of the delete: the Gmail label hides the message from
+        future searches, but Gmail's index lags by a minute or more, so this is
+        what actually stops a re-ingest in the meantime.
+        """
+        return self._coll.count_documents(
+            {"message_id": message_id, "suppressed": True}, limit=1
+        ) > 0
+
+    def message_ids_for_candidate(
+        self, candidate_id: str, resume_hash: Optional[str] = None
+    ) -> list[str]:
+        """Every email that carried this candidate's resume.
+
+        A resume often arrives more than once (forwarded, re-sent, cc'd), and the
+        candidate record only remembers the message it was created from. Deleting
+        the candidate has to un-label *all* of them, or the polls keep skipping
+        the leftovers as already processed.
+
+        Call this before clearing the ledger — `unsuppress_candidate` removes the
+        rows this reads.
+        """
+        query: list[dict] = [{"candidate_id": candidate_id}]
+        if resume_hash:
+            query.append({"resume_hash": resume_hash})
+        ids = self._coll.distinct("message_id", {"$or": query})
+        return [m for m in ids if m]
+
     @staticmethod
     def _to_entry(doc) -> LedgerEntry:
         return LedgerEntry(
@@ -113,6 +147,82 @@ class IngestLedger:
             },
             upsert=True,
         )
+
+    def retire_candidate(
+        self,
+        candidate_id: str,
+        message_ids: list[str],
+        resume_hash: Optional[str] = None,
+    ) -> int:
+        """Record that these *emails* are dead, while freeing the *file*.
+
+        Deleting a candidate has to satisfy two opposite rules:
+
+        * the emails it came from must never be ingested again — even though the
+          Gmail label that hides them takes a while to reach Gmail's search
+          index, so a poll seconds later still returns them;
+        * the exact same resume arriving on a *new* email must ingest as a new
+          candidate.
+
+        Both hold if the hash-keyed rows go away and a message-keyed tombstone
+        takes their place: `is_message_suppressed` blocks the old emails, while
+        every hash lookup comes up empty for the file itself.
+
+        Returns the number of tombstones written.
+        """
+        # Ordered so the tombstones survive: the delete would otherwise remove
+        # the rows we are about to write.
+        query: list[dict] = [{"candidate_id": candidate_id}]
+        if resume_hash:
+            query.append({"resume_hash": resume_hash})
+            query.append({"_id": _key("__manual__", resume_hash)})
+        for mid in message_ids:
+            query.append({"message_id": mid})
+        cleared = self._coll.delete_many({"$or": query}).deleted_count
+
+        now = utcnow()
+        for mid in message_ids:
+            self._coll.update_one(
+                {"_id": _key(mid, DELETED_SENTINEL)},
+                {
+                    "$set": {
+                        "message_id": mid,
+                        # Deliberately NOT the resume hash: this tombstone must
+                        # not match the file when it arrives on a new email.
+                        "resume_hash": DELETED_SENTINEL,
+                        "candidate_id": candidate_id,
+                        "status": "deleted",
+                        "suppressed": True,
+                        "reason": "candidate deleted by user",
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+
+        log.info(
+            "Ledger: cleared %d row(s) and tombstoned %d message(s) for deleted candidate %s",
+            cleared, len(message_ids), candidate_id,
+        )
+        return len(message_ids)
+
+    def unsuppress_candidate(
+        self,
+        candidate_id: str,
+        resume_hash: Optional[str] = None,
+        message_id: Optional[str] = None,
+    ) -> int:
+        """Clear ledger entries for a deleted candidate so resending their resume can re-ingest."""
+        query = [{"candidate_id": candidate_id}]
+        if resume_hash:
+            query.append({"resume_hash": resume_hash})
+            query.append({"_id": _key("__manual__", resume_hash)})
+        if message_id:
+            query.append({"message_id": message_id})
+        res = self._coll.delete_many({"$or": query})
+        log.info("Ledger: unsuppressed / cleared %d entr(ies) for candidate %s", res.deleted_count, candidate_id)
+        return res.deleted_count
 
     def suppress_candidate(self, candidate_id: str, reason: str = "deleted by user") -> int:
         """Tombstone every ledger entry for a candidate the user removed.

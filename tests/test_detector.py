@@ -46,3 +46,32 @@ def test_non_resume_extension_ignored():
         subject="Spreadsheet", attachments=[_att("data.xlsx", "application/vnd.ms-excel")],
     )
     assert not detect(email).is_candidate
+
+
+def _mail(subject: str, filename: str, body: str = "") -> EmailMessage:
+    return EmailMessage(
+        message_id="m", thread_id="t", from_addr="someone@gmail.com",
+        subject=subject, body_text=body,
+        attachments=[Attachment(filename=filename, mime_type="application/pdf",
+                                size=1000, attachment_id="a")],
+    )
+
+
+def test_an_attachment_alone_is_not_a_candidate_email():
+    """The score for merely having a document attached is the old cut-off, so
+    every hall ticket, OD letter and class schedule in the mailbox qualified."""
+    result = detect(_mail("Fwd: docs", "OD Request Letter for Tharun V.pdf"))
+    assert result.is_candidate is False
+
+
+def test_a_body_keyword_alone_is_still_not_enough():
+    result = detect(_mail("Notes", "Ethics HT.pdf", body="please find the details"))
+    assert result.is_candidate is False
+
+
+def test_a_resume_in_the_filename_still_gets_through():
+    assert detect(_mail("Hi", "THARUN'S RESUME.pdf")).is_candidate is True
+
+
+def test_a_resume_in_the_subject_still_gets_through():
+    assert detect(_mail("Application for the developer role", "tharun.pdf")).is_candidate is True

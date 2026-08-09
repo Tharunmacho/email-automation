@@ -87,6 +87,15 @@ class IngestionPipeline:
     def process_email(self, email: EmailMessage, gmail=None) -> ProcessResult:
         """Process a fully-populated EmailMessage. ``gmail`` (optional) is used to
         lazily download attachment bytes if they aren't already present."""
+        # The user deleted the candidate this email produced. The Gmail label
+        # that hides it needs a minute to reach Gmail's search index, so this
+        # check — not the label — is what stops a re-ingest in the meantime.
+        if self.ledger.is_message_suppressed(email.message_id):
+            log.info("Message %s belongs to a deleted candidate — not re-ingesting", email.message_id)
+            return ProcessResult(
+                email.message_id, "suppressed", "candidate was deleted by a user",
+            )
+
         # Idempotency. The ledger is checked first because it outlives the
         # candidate record: deleting a candidate used to erase the only proof
         # that this message had been handled, so the next poll re-ingested it.
@@ -105,7 +114,15 @@ class IngestionPipeline:
         for att in detection.resume_attachments:
             results.append(self._process_attachment(email, att, gmail))
 
-        overall = "processed" if any(r.status == "ingested" for r in results) else "skipped"
+        if any(r.status == "ingested" for r in results):
+            overall = "processed"
+        elif any(r.status == "error" for r in results):
+            # Not "skipped": the runner labels skipped messages as processed, and
+            # a message that only failed must stay unlabelled so the next poll
+            # retries it once the failure is fixed.
+            overall = "error"
+        else:
+            overall = "skipped"
         return ProcessResult(email.message_id, overall, detection.reason, results)
 
     # ---------------------------------------------------------------- #
@@ -155,6 +172,16 @@ class IngestionPipeline:
                     f"Attachment '{att.filename}' is not a valid candidate resume (missing candidate email & phone in resume)"
                 )
 
+            # A contact detail alone is not a resume — every letterhead has one.
+            # When OCR fails and the heuristic parser scrapes a phone number off
+            # a hall ticket, this is what stops it becoming a candidate.
+            if profile.confidence < settings.min_ingest_confidence:
+                raise NotAResumeError(
+                    f"Attachment '{att.filename}' does not look like a resume "
+                    f"(confidence {profile.confidence:.2f} < {settings.min_ingest_confidence:.2f}; "
+                    f"extraction may have failed)"
+                )
+
             # (4) Deduplication strictly using Candidate Email & Phone extracted from the resume.
             email_key = normalize_email(profile.email)
             phone_key = normalize_phone(profile.phone)
@@ -180,20 +207,33 @@ class IngestionPipeline:
 
             # (6) Contextual Auto-Reply if enabled.
             reply_sent = False
-            if settings.auto_reply_enabled:
+            # Never on a record we are unsure about. A reply is irreversible and
+            # goes to a real person; a profile heading for human review has not
+            # earned one.
+            if settings.auto_reply_enabled and record.status != "needs_review":
                 try:
                     reply_text = generate_contextual_reply(profile, email)
-                    if gmail and hasattr(gmail, "send_reply") and email.from_addr:
+                    # Reply to the candidate, not to whoever sent the mail. When a
+                    # resume is forwarded — by a recruiter, or by you to your own
+                    # inbox — the sender is not the applicant, and the
+                    # acknowledgement would go to the forwarder instead. The
+                    # address from the resume wins; the sender is the fallback for
+                    # resumes that carry only a phone number.
+                    reply_to = email_key or email.from_addr
+                    if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(
                             message_id=email.message_id,
                             thread_id=email.thread_id,
-                            to_addr=email.from_addr,
+                            to_addr=reply_to,
                             subject=email.subject,
                             body_text=reply_text,
                         )
                         reply_sent = True
                         self.repo.mark_auto_reply_sent(candidate_id)
-                        log.info("Auto-reply sent to candidate %s (%s)", candidate_id, email.from_addr)
+                        log.info(
+                            "Auto-reply sent to candidate %s at %s (mail arrived from %s)",
+                            candidate_id, reply_to, email.from_addr,
+                        )
                     else:
                         log.info("Auto-reply generated for candidate %s (reply_sent=False, Gmail client not connected)", candidate_id)
                 except Exception as exc:  # noqa: BLE001
@@ -258,6 +298,7 @@ class IngestionPipeline:
             phone_key=phone_key,
             resume_hash=resume_hash,
             status="ingested",
+            raw_ocr=profile.raw_ocr if getattr(profile, "raw_ocr", None) else None,
         )
 
     def _storage_key(self, candidate_id: str, filename: str) -> str:

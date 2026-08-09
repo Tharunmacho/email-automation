@@ -82,6 +82,8 @@ export default function Home() {
   const [openInEdit, setOpenInEdit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  // Ids with a DELETE in flight — a second click must not fire a second request.
+  const deletingRef = useRef<Set<string>>(new Set());
 
   const [flow, setFlow] = useState<FlowState>(IDLE_FLOW);
   const [syncing, setSyncing] = useState(false);
@@ -129,7 +131,9 @@ export default function Home() {
       return data.items ?? [];
     } catch (err) {
       log(err instanceof Error ? err.message : "Failed to fetch candidates from DB.", "error");
-      return [];
+      // null, not []: callers that report the record count must not turn a
+      // failed fetch into "0 records remaining".
+      return null;
     }
   }, [log]);
 
@@ -241,29 +245,75 @@ export default function Home() {
 
       const summary = await runPollCycle();
 
-      setFlow((prev) => ({ ...prev, filter: "success", connFilterVeris: true, veris: "active" }));
-      log("Step 3: Sending attachments to Veris LLM Resume API for character-by-character OCR & LLM extraction...", "info");
-      await sleep(700);
+      log(`Step 3: Fetched ${summary.fetched} email(s); reading attachments...`, "info");
+      const didWork = summary.ingested_candidates > 0 || summary.processed > 0;
+      setFlow((prev) =>
+        didWork
+          ? { ...prev, filter: "success", connFilterVeris: true, veris: "active" }
+          : { ...prev, filter: "success" },
+      );
 
-      if (summary.results && summary.results.length > 0) {
-        for (const msgRes of summary.results) {
-          for (const attRes of msgRes.attachments) {
-            if (attRes.status === "ingested") {
-              log(`[SUCCESS] Attachment '${attRes.filename}': Extracted cleanly & saved to MongoDB Atlas.`, "success");
-            } else if (attRes.status === "duplicate") {
-              log(`[NOTICE] Attachment '${attRes.filename}': Skipped (${attRes.detail || "candidate/file already exists"}).`, "warn");
-            } else if (attRes.status === "failed") {
-              log(`[ERROR] Attachment '${attRes.filename}': ${attRes.detail || "failed to parse"}.`, "error");
-            }
+      // Report what the backend actually did, every outcome of it. The previous
+      // version logged attachments only on a successful cycle and matched a
+      // status ("failed") the API never sends, so a poll that failed on every
+      // resume looked identical to a poll with nothing to do.
+      let ignoredEmails = 0;
+      let alreadyHandled = 0;
+      for (const msgRes of summary.results ?? []) {
+        if (msgRes.status === "suppressed") {
+          log("[NOTICE] Email skipped — its candidate was deleted, so it is never re-ingested.", "warn");
+          continue;
+        }
+        // A message the pipeline returned early on carries no attachment
+        // results, and those early exits mean opposite things: an email with
+        // nothing resume-like in it, versus one already ingested by an earlier
+        // poll. Reporting both as "no resume attachment detected" made a
+        // successful ingest look like the file had been rejected.
+        if (msgRes.attachments.length === 0) {
+          if ((msgRes.reason ?? "").startsWith("already processed")) alreadyHandled += 1;
+          else ignoredEmails += 1;
+          continue;
+        }
+        for (const att of msgRes.attachments) {
+          const why = att.detail ? ` — ${att.detail}` : "";
+          switch (att.status) {
+            case "ingested":
+              log(`[SUCCESS] '${att.filename}': parsed and saved to MongoDB Atlas${why}.`, "success");
+              break;
+            case "duplicate":
+              log(`[NOTICE] '${att.filename}': skipped${why || " — already ingested"}.`, "warn");
+              break;
+            case "suppressed":
+              log(`[NOTICE] '${att.filename}': skipped — previously deleted by a user.`, "warn");
+              break;
+            case "not_resume":
+              log(`[NOTICE] '${att.filename}': not usable as a resume${why}.`, "warn");
+              break;
+            case "error":
+              log(`[ERROR] '${att.filename}': extraction failed${why}.`, "error");
+              break;
+            default:
+              log(`[NOTICE] '${att.filename}': ${att.status}${why}.`, "warn");
           }
         }
       }
+      if (ignoredEmails > 0) {
+        log(`${ignoredEmails} email(s) ignored — no resume attachment detected.`, "info");
+      }
+      if (alreadyHandled > 0) {
+        log(
+          `${alreadyHandled} email(s) already ingested by an earlier poll — skipped, ` +
+            "nothing was lost.",
+          "info",
+        );
+      }
 
-      setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
-      log("Step 4: Writing structured Candidate Profile to MongoDB Atlas collection 'candidates'...", "info");
-      await sleep(700);
-
-      setFlow((prev) => ({ ...prev, db: "success" }));
+      if (didWork) {
+        setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
+        log("Step 4: Writing structured Candidate Profile to MongoDB Atlas collection 'candidates'...", "info");
+        await sleep(700);
+        setFlow((prev) => ({ ...prev, db: "success" }));
+      }
 
       // A cycle that declined the lock did no work at all. Saying "no new
       // resumes found" there would be a lie — nothing was even looked at.
@@ -271,9 +321,16 @@ export default function Home() {
         log(`[NOTICE] ${summary.skipped_reason}`, "warn");
         showToast("A sync is already running. Its results will appear shortly.", "info");
       } else {
+        const parts = [
+          `Fetched=${summary.fetched}`,
+          `Ingested=${summary.ingested_candidates}`,
+          `Skipped=${summary.skipped}`,
+        ];
+        if (summary.suppressed) parts.push(`Deleted-and-ignored=${summary.suppressed}`);
+        if (summary.errors) parts.push(`Errors=${summary.errors}`);
         log(
-          `[COMPLETE] Pipeline finished. Fetched=${summary.fetched}, Processed=${summary.processed}, Ingested Candidates=${summary.ingested_candidates}.`,
-          "success",
+          `[COMPLETE] Pipeline finished. ${parts.join(", ")}.`,
+          summary.errors ? "warn" : "success",
         );
 
         if (summary.ingested_candidates > 0) {
@@ -310,7 +367,7 @@ export default function Home() {
     const renamed = nextName !== previousName;
 
     try {
-      await updateCandidateProfile(candidateId, profile);
+      const updated = await updateCandidateProfile(candidateId, profile);
       showToast("Candidate profile updated successfully.", "success");
       log(
         renamed
@@ -319,7 +376,7 @@ export default function Home() {
         "success",
         candidateId,
       );
-      setSelected(null);
+      setSelected(updated);
       setOpenInEdit(false);
       await refreshCandidates();
     } catch (err) {
@@ -350,6 +407,8 @@ export default function Home() {
   };
 
   const handleDeleteCandidate = async (candidateId: string) => {
+    if (deletingRef.current.has(candidateId)) return;
+    deletingRef.current.add(candidateId);
     // Resolved up front: once the record is gone the name cannot be looked up.
     const who = nameOf(candidateId);
     try {
@@ -358,11 +417,27 @@ export default function Home() {
       showToast("Candidate permanently deleted from MongoDB Atlas.", "success");
       log(`Deleted profile: ${who} — removed from MongoDB Atlas.`, "success", candidateId);
       setSelected(null);
-      await refreshCandidates();
+      const remaining = await refreshCandidates();
+      // Also on the dashboard trace, with the new total. A deletion changes the
+      // record count the trace opened with ("… N candidate record(s) loaded"),
+      // and its per-candidate entry above is attached to a row that no longer
+      // exists — so without this the trace still shows the old count and never
+      // says why it changed.
+      log(
+        remaining
+          ? `Deleted profile: ${who} — ${remaining.length} candidate record(s) remaining.`
+          : `Deleted profile: ${who} — removed from MongoDB Atlas.`,
+        "warn",
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error deleting candidate.";
       showToast("Failed to delete candidate.", "error");
       log(`Failed to delete: ${who} — ${message}`, "error", candidateId);
+      // A failed delete is a record-level event too: the count did not change,
+      // and the reason belongs where the user is watching.
+      log(`Failed to delete ${who}: ${message}`, "error");
+    } finally {
+      deletingRef.current.delete(candidateId);
     }
   };
 
@@ -410,9 +485,8 @@ export default function Home() {
           bar above the tiles is set in the same face — scoping it any tighter
           splits one screen across two fonts at the page title. */}
       <div
-        className={`main-content ${collapsed ? "sidebar-collapsed" : ""} ${
-          activeTab === "dashboard" ? "screen-dashboard" : ""
-        }`}
+        className={`main-content ${collapsed ? "sidebar-collapsed" : ""} ${activeTab === "dashboard" ? "screen-dashboard" : ""
+          }`}
       >
         <div className="header-bar">
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>

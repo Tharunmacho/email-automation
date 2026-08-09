@@ -127,7 +127,14 @@ class ResumeParser:
         from pathlib import Path
         text = (resume_text or "").strip()
         emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-        phones = re.findall(r"\+?\d[\d\s\-\(\)]{8,}\d", text)
+        raw_phones = re.findall(r"\+?\d[\d\s\-\(\)]{8,}\d", text)
+        phones = []
+        for p in raw_phones:
+            p_clean = p.strip()
+            # Skip dates like 13-03-1998 or 1998-03-13
+            if re.search(r"^(?:19|20)\d{2}[\-\/]\d{2}[\-\/]\d{2}$|^\d{2}[\-\/]\d{2}[\-\/](?:19|20)\d{2}$", p_clean):
+                continue
+            phones.append(p_clean)
         lines = [l.strip() for l in text.splitlines() if l.strip()]
 
         name = None
@@ -194,17 +201,16 @@ class ResumeParser:
                 ))
 
         if not work_list:
-            for line in lines:
-                if re.search(r"\b(intern|developer|engineer|manager|consultant)\b", line, re.IGNORECASE) and len(line) < 100:
-                    parts = re.split(r"[\-\–\|:]", line)
-                    des = parts[0].strip().title()
-                    comp = parts[1].strip().title() if len(parts) > 1 else None
-                    work_list.append(WorkExperience(
-                        designation=des,
-                        company=comp,
-                        description=re.sub(r"\s+", " ", text).strip()[:1000]
-                    ))
-                    break
+            # Extract section lines specifically from work experience section
+            sections_temp = extract_sections(text)
+            exp_lines = sections_temp.get("experience") or sections_temp.get("work_experience") or []
+            if exp_lines:
+                clean_exp_desc = " ".join(exp_lines[:5]).strip()
+                work_list.append(WorkExperience(
+                    designation=lines[0] if lines else "Candidate Role",
+                    company=None,
+                    description=clean_exp_desc[:500] if clean_exp_desc else None
+                ))
 
         # 3. Extract Projects
         proj_matches = re.findall(
@@ -293,9 +299,36 @@ class ResumeParser:
         if len(summary_text) > 600 and not objective:
             summary_text = ""
 
+        raw_ocr_fallback = {
+            "text": text,
+            "pages": [{"page_number": 1, "text": text}],
+            "source": "text_fallback",
+        }
+
+        # Confidence has to reflect what was actually recognised. This used to
+        # return a flat 0.85 for any text at all, so when Veris was down every
+        # hall ticket and class schedule came back as a high-confidence resume,
+        # was stored, and got auto-replied. Score the evidence instead: contact
+        # details plus resume-shaped sections. A document with none of it lands
+        # far below `min_ingest_confidence` and is refused.
+        confidence = 0.2
+        if email:
+            confidence += 0.2
+        if phone:
+            confidence += 0.15
+        if skills_list:
+            confidence += 0.15
+        if education_list:
+            confidence += 0.1
+        if work_list:
+            confidence += 0.1
+        if resolved_name:
+            confidence += 0.1
+        confidence = round(min(confidence, 0.9), 2)
+
         return CandidateProfile(
             is_resume=True,
-            confidence=0.85,
+            confidence=confidence,
             full_name=resolved_name,
             email=email,
             phone=phone,
@@ -312,6 +345,7 @@ class ResumeParser:
             current_designation=current_des,
             current_company=current_comp,
             resume_summary=summary_text[:600] or None,
+            raw_ocr=raw_ocr_fallback,
         )
 
     def parse_file(self, file_data: bytes, filename: str) -> tuple[CandidateProfile, ExtractedDocument]:
@@ -337,9 +371,15 @@ class ResumeParser:
                         with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
                             return client.resume.extract(str(temp_file))
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                        future = executor.submit(_do_veris)
-                        res = future.result(timeout=5.0)
+                    import socket
+                    old_timeout = socket.getdefaulttimeout()
+                    try:
+                        socket.setdefaulttimeout(180)
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(_do_veris)
+                            res = future.result(timeout=180.0)
+                    finally:
+                        socket.setdefaulttimeout(old_timeout)
 
                     veris_text = extracted.text or ""
                     veris_extracted = ExtractedDocument(
@@ -428,24 +468,28 @@ def _collect_strings(raw, min_len: int = 3) -> list:
 _SECTION_ALIASES = {
     "achievements": ["achievement", "achievements", "accomplishments", "awards",
                      "awards and achievements", "honors", "honours", "extra curricular",
-                     "extracurricular", "activities"],
+                     "extracurricular", "activities", "achievements & certificates",
+                     "achievements and certificates"],
     "certifications": ["certification", "certifications", "certificates", "courses",
                        "training", "trainings", "licenses"],
     "languages": ["language", "languages", "languages known", "linguistic proficiency"],
     "hobbies": ["hobbies", "interests", "hobbies and interests"],
     "personal": ["personal information", "personal details", "personal profile",
-                 "personal data"],
+                 "personal data", "about me"],
     "objective": ["objective", "career objective", "summary", "profile summary",
-                  "professional summary", "about me"],
+                  "professional summary"],
     "skills": ["skills", "key skills", "core competencies", "competencies",
-               "areas of expertise", "strengths", "technical skills"],
+               "areas of expertise", "strengths", "technical skills", "skill set"],
+    "projects": ["projects", "projects & hands-on experience", "projects and hands-on experience",
+                 "hands-on experience", "key projects"],
+    "education": ["education", "academic background", "qualifications", "academic qualifications"],
+    "experience": ["experience", "work experience", "employment", "professional experience",
+                   "internship", "internships"],
 }
 
 # Headings that end a section without starting one we want.
 _OTHER_HEADINGS = [
-    "education", "experience", "work experience", "employment",
-    "projects", "declaration", "references", "contact",
-    "contact info", "contact information", "qualification", "other qualification",
+    "declaration", "references", "contact", "contact info", "contact information",
 ]
 
 _BULLET = re.compile(r"^[\s\u2022\u25cf\u25aa\u00b7\*\-\u2013\u2014\d\.\)]+")
@@ -589,6 +633,74 @@ def _split_inline(values: list) -> list:
                 out.append(part)
     return out
 
+def decolumnize_ocr_page(page) -> str:
+    """Un-interleave a 2-column OCR page using bbox coordinates of words/lines."""
+    if isinstance(page, dict):
+        lines = page.get("lines") or []
+        raw_text = page.get("text", "")
+    else:
+        lines = getattr(page, "lines", [])
+        raw_text = getattr(page, "text", "")
+
+    if not lines or not isinstance(lines, list):
+        return raw_text
+
+    tokens = []
+    for line in lines:
+        if isinstance(line, dict):
+            words = line.get("words") or [line]
+            for w in words:
+                if isinstance(w, dict) and "text" in w and "bbox" in w:
+                    b = w["bbox"]
+                    if isinstance(b, dict):
+                        tokens.append({
+                            "text": str(w["text"]),
+                            "x": float(b.get("x", 0)),
+                            "y": float(b.get("y", 0)),
+                        })
+        elif hasattr(line, "words") or hasattr(line, "text"):
+            words = getattr(line, "words", [line])
+            for w in words:
+                text_val = getattr(w, "text", None)
+                bbox_val = getattr(w, "bbox", None)
+                if text_val and bbox_val:
+                    x_val = getattr(bbox_val, "x", 0) if hasattr(bbox_val, "x") else bbox_val.get("x", 0) if isinstance(bbox_val, dict) else 0
+                    y_val = getattr(bbox_val, "y", 0) if hasattr(bbox_val, "y") else bbox_val.get("y", 0) if isinstance(bbox_val, dict) else 0
+                    tokens.append({"text": str(text_val), "x": float(x_val), "y": float(y_val)})
+
+    if len(tokens) < 10:
+        return raw_text
+
+    x_coords = [t["x"] for t in tokens]
+    min_x, max_x = min(x_coords), max(x_coords)
+    mid_x = (min_x + max_x) / 2.0
+
+    left_tokens = [t for t in tokens if t["x"] < mid_x]
+    right_tokens = [t for t in tokens if t["x"] >= mid_x]
+
+    if len(left_tokens) > len(tokens) * 0.15 and len(right_tokens) > len(tokens) * 0.15:
+        def build_col(col_tokens):
+            col_tokens.sort(key=lambda t: (round(t["y"] / 15.0) * 15.0, t["x"]))
+            lines_out = []
+            curr_y = None
+            curr_line = []
+            for t in col_tokens:
+                yb = round(t["y"] / 15.0) * 15.0
+                if curr_y is None or abs(yb - curr_y) <= 15.0:
+                    curr_line.append(t["text"])
+                    curr_y = yb
+                else:
+                    lines_out.append(" ".join(curr_line))
+                    curr_line = [t["text"]]
+                    curr_y = yb
+            if curr_line:
+                lines_out.append(" ".join(curr_line))
+            return "\n".join(lines_out)
+
+        return build_col(left_tokens) + "\n\n" + build_col(right_tokens)
+
+    return raw_text
+
 
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     import re
@@ -602,6 +714,9 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         data = {}
 
     name = getattr(res, "name", None) or data.get("name") or data.get("full_name")
+    if name and isinstance(name, str) and " " in name and len(name.split()) > 4 and all(len(w) == 1 for w in name.split()):
+        name = name.replace(" ", "")
+
     email = getattr(res, "email", None) or data.get("email")
     phone = getattr(res, "phone", None) or data.get("phone")
 
@@ -638,8 +753,8 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
                 institution=e.get("institution") or e.get("school") or e.get("university"),
                 degree=e.get("degree") or e.get("qualification"),
                 field_of_study=e.get("field_of_study") or e.get("major"),
-                start_date=e.get("start_date"),
-                end_date=e.get("end_date"),
+                start_date=e.get("start_date") or e.get("start"),
+                end_date=e.get("end_date") or e.get("end"),
                 grade=e.get("grade") or e.get("gpa")
             ))
 
@@ -691,18 +806,23 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         data.get("certifications") or data.get("certificates")
         or getattr(res, "certifications", [])
     )
+    personal_info = data.get("personal_info") or {}
+    personal_langs = personal_info.get("languages_known") if isinstance(personal_info, dict) else []
     languages_list = _collect_strings(
-        data.get("languages") or getattr(res, "languages", []), min_len=2
+        data.get("languages") or getattr(res, "languages", []) or personal_langs, min_len=2
     )
 
     # Veris reliably returns skills/education/experience but usually leaves
     # achievements, certifications and languages in the page text. Recover them
     # from the resume's own section headings — no per-candidate keywords.
-    page_text = veris_text or ""
-    for page in (data.get("pages") or []):
-        if isinstance(page, dict) and page.get("text"):
-            page_text += "\n" + page["text"]
+    page_text_parts = [veris_text] if veris_text else []
+    pages_list = data.get("pages") or getattr(res, "pages", [])
+    for page in pages_list:
+        decol = decolumnize_ocr_page(page)
+        if decol:
+            page_text_parts.append(decol)
 
+    page_text = "\n\n".join(page_text_parts)
     sections = extract_sections(page_text)
 
     stitched = set(sections.get("__stitched__") or [])
@@ -715,6 +835,24 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         )
     if not certifications_list and "certifications" not in stitched:
         certifications_list = _collect_strings(sections.get("certifications", []))
+
+    if not projects_list and sections.get("projects"):
+        for line in sections.get("projects", []):
+            if _is_meaningful(line, 5):
+                projects_list.append(Project(name=line[:80], description=line))
+
+    if not work_list and sections.get("experience"):
+        for line in sections.get("experience", []):
+            if _is_meaningful(line, 5):
+                work_list.append(WorkExperience(designation=line[:80], description=line))
+
+    if not education_list and sections.get("education"):
+        edu_lines = sections.get("education", [])
+        if edu_lines:
+            inst = edu_lines[0] if len(edu_lines) > 0 else "N/A"
+            deg = edu_lines[1] if len(edu_lines) > 1 else None
+            education_list.append(Education(institution=inst, degree=deg))
+
     if not languages_list:
         # Vocabulary-validated, so a column-stitched line yields the real
         # languages and discards the education text glued onto it.
@@ -781,6 +919,18 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         else:
             clean_additional_info.setdefault("personal_details_raw", personal_lines)
 
+    if hasattr(res, "model_dump"):
+        raw_ocr_dict = res.model_dump(mode="python")
+    elif hasattr(res, "__dict__"):
+        raw_ocr_dict = dict(res.__dict__)
+    elif isinstance(res, dict):
+        raw_ocr_dict = dict(res)
+    else:
+        raw_ocr_dict = {}
+
+    if veris_text and isinstance(raw_ocr_dict, dict):
+        raw_ocr_dict.setdefault("extracted_text", veris_text)
+
     return CandidateProfile(
         is_resume=True,
         confidence=1.0,
@@ -803,4 +953,5 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         current_company=data.get("company") or (work_list[0].company if work_list else None),
         resume_summary=summary,
         additional_info=clean_additional_info if clean_additional_info else None,
+        raw_ocr=raw_ocr_dict if raw_ocr_dict else None,
     )

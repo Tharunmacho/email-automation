@@ -62,6 +62,7 @@ class ExtractedDocument(BaseModel):
 class WorkExperience(BaseModel):
     company: Optional[str] = None
     designation: Optional[str] = None
+    title: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     location: Optional[str] = None
@@ -116,6 +117,8 @@ class CandidateProfile(BaseModel):
     resume_summary: Optional[str] = None
     # Anything the AI found that doesn't fit the schema above.
     additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    # Full unredacted raw OCR extraction JSON payload
+    raw_ocr: Optional[Dict[str, Any]] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -159,6 +162,7 @@ class CandidateRecord(BaseModel):
     status: str = "ingested"    # ingested | duplicate | needs_review | error
     duplicate_of: Optional[str] = None
     auto_reply_sent: bool = False
+    raw_ocr: Optional[Dict[str, Any]] = None
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

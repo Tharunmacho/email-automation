@@ -74,7 +74,16 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
         log.info("Running Veris OCR on file %s (%d bytes)", filename, len(file_data))
         try:
             from recursai.veris_ocr import VerisOCR
-            with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
+            init_kwargs = {
+                "api_key": settings.veris_ocr_api_key,
+                "base_url": settings.veris_ocr_base_url,
+            }
+            try:
+                client = VerisOCR(timeout=180.0, **init_kwargs)
+            except TypeError:
+                client = VerisOCR(**init_kwargs)
+
+            with client:
                 res = client.resume.extract(str(temp_file))
                 pages = getattr(res, "pages", [])
                 if isinstance(pages, list):
@@ -87,8 +96,12 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
                 log.info("Veris OCR successfully processed file; extracted %d chars", len(extracted_text))
                 return extracted_text
         except Exception as e:
-            log.warning("Veris OCR API failed (%s). Falling back to local Tesseract OCR.", e)
-            if suffix.lower() == ".pdf":
-                return ocr_pdf_pages(file_data)
-            else:
-                return ocr_image_bytes(file_data)
+            log.warning("Veris OCR API failed (%s). Falling back to local OCR if available.", e)
+            try:
+                if suffix.lower() == ".pdf":
+                    return ocr_pdf_pages(file_data)
+                else:
+                    return ocr_image_bytes(file_data)
+            except Exception as fallback_err:
+                log.warning("Local OCR fallback skipped/failed: %s", fallback_err)
+                return ""

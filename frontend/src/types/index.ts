@@ -56,6 +56,7 @@ export interface CandidateProfile {
 
   resume_summary?: string | null;
   additional_info?: Record<string, unknown>;
+  raw_ocr?: Record<string, any> | null;
 }
 
 export interface StoredResume {
@@ -88,6 +89,7 @@ export interface CandidateRecord {
   resume_hash?: string;
   status: string;
   duplicate_of?: string | null;
+  raw_ocr?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
 }
@@ -116,6 +118,8 @@ export interface PollSummary {
   fetched: number;
   processed: number;
   skipped: number;
+  /** Emails belonging to a candidate the user deleted — deliberately not re-ingested. */
+  suppressed?: number;
   errors: number;
   ingested_candidates: number;
   results?: PollMessageResult[];

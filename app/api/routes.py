@@ -10,7 +10,9 @@ Run:
 from __future__ import annotations
 
 import os
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+import threading
+
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +30,10 @@ from app.storage.factory import get_storage_backend
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
+
+from app.logging_config import get_logger
+
+log = get_logger(__name__)
 
 app = FastAPI(
     title="Resume Ingestion API",
@@ -203,39 +209,103 @@ def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> R
     )
 
 
+def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> None:
+    """Slow, best-effort cleanup for a deleted candidate.
+
+    Runs after the response is sent: building a Gmail service refreshes the
+    OAuth token and then costs more round trips per message, so several seconds
+    of network time would otherwise be charged to the caller. Neither step
+    changes what the API returned, and both are safe to lose.
+    """
+    if storage_key:
+        try:
+            get_storage_backend().delete(storage_key)
+        except Exception as err:
+            log.warning("Could not delete stored resume %s: %s", storage_key, err)
+
+    if message_ids:
+        try:
+            from app.gmail.client import GmailClient
+
+            # One client for the whole batch — each construction refreshes the
+            # OAuth token and re-runs API discovery.
+            gmail = GmailClient()
+            for message_id in message_ids:
+                # Retire rather than free: the search excludes both labels, so
+                # these emails never come back, while a *new* email carrying the
+                # same resume arrives unlabelled and ingests as a new candidate.
+                if settings.gmail_deleted_label:
+                    gmail.apply_label(message_id, settings.gmail_deleted_label)
+                if settings.gmail_processed_label:
+                    gmail.remove_label(message_id, settings.gmail_processed_label)
+            log.info(
+                "Marked %d message(s) '%s' after candidate deletion",
+                len(message_ids), settings.gmail_deleted_label,
+            )
+        except Exception as err:
+            log.warning("Could not re-label Gmail messages %s: %s", message_ids, err)
+
+
+@app.delete("/candidates/{candidate_id}")
 @app.delete("/api/v1/candidates/{candidate_id}")
-def delete_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dict:
+def delete_candidate(
+    candidate_id: str,
+    background: BackgroundTasks,
+    _user: dict = Depends(current_user),
+) -> dict:
     rec = repo().get(candidate_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    if rec.resume and rec.resume.storage_key:
-        try:
-            get_storage_backend().delete(rec.resume.storage_key)
-        except Exception:
-            pass
+    msg_id = rec.source_email.message_id if rec.source_email else None
+    res_hash = rec.resume.sha256 if (rec.resume and rec.resume.sha256) else rec.resume_hash
 
-    # Tombstone BEFORE deleting. If we removed the candidate first and the
-    # suppression then failed, the next Gmail poll would silently re-ingest the
-    # profile the user just deleted.
+    # Drop the document first: it is the authoritative step, so nothing else in
+    # the handler can widen the window for a concurrent delete.
+    try:
+        removed = repo().delete(candidate_id)
+    except Exception as err:
+        log.exception("Deleting candidate %s failed", candidate_id)
+        raise HTTPException(status_code=500, detail=f"Failed to delete candidate: {err}") from err
+
+    if not removed:
+        # A duplicate/concurrent DELETE won the race. The candidate is gone
+        # either way, so report success instead of a spurious 500.
+        log.info("Candidate %s was already deleted by a concurrent request", candidate_id)
+
     from app.db.ledger import IngestLedger
 
     ledger = IngestLedger()
-    suppressed = ledger.suppress_candidate(candidate_id)
-    if suppressed == 0 and rec.resume_hash:
-        # Ingested before the ledger existed — suppress by file hash instead.
-        ledger.suppress_hash(rec.resume_hash)
-        suppressed = 1
 
-    success = repo().delete(candidate_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to delete candidate")
+    # Read the ledger before retiring it: the same resume often arrives on
+    # several emails, and every one of them has to be retired or the next poll
+    # brings the candidate back.
+    message_ids = ledger.message_ids_for_candidate(candidate_id, resume_hash=res_hash)
+    if msg_id and msg_id not in message_ids:
+        message_ids.append(msg_id)
+
+    # Tombstone the emails, free the file. The Gmail label alone is not enough:
+    # its effect on search lags by a minute or more, and a poll inside that
+    # window re-ingested the candidate that was just deleted.
+    cleared = ledger.retire_candidate(candidate_id, message_ids, resume_hash=res_hash)
+
+    storage_key = rec.resume.storage_key if rec.resume else None
+    background.add_task(_post_delete_cleanup, storage_key, message_ids)
 
     return {
         "status": "success",
         "message": f"Candidate {candidate_id} deleted permanently",
-        "suppressed_entries": suppressed,
+        "cleared_entries": cleared,
     }
+
+
+# Single-flight guard for the inline poll. The Celery path takes a Redis lock;
+# this path had none, so two overlapping requests each ran a full batch over the
+# same messages. Both would miss the dedup check, one would ingest, and the
+# other — finishing later — reported the candidate as an existing duplicate. The
+# UI showed that second summary: "Ingested=0" for a poll that had just added a
+# profile. A plain lock is enough because this endpoint runs the batch in-process.
+_inline_poll_lock = threading.Lock()
 
 
 @app.post("/ingest/poll")
@@ -249,7 +319,18 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) 
     from app.ingestion.runner import IngestionRunner
     from app.tasks.jobs import summary_to_dict
 
-    return summary_to_dict(IngestionRunner().run_once(query=query))
+    if not _inline_poll_lock.acquire(blocking=False):
+        log.info("Inline poll declined: another cycle is already running")
+        return {
+            "fetched": 0, "processed": 0, "skipped": 0, "suppressed": 0,
+            "errors": 0, "ingested_candidates": 0, "results": [],
+            "skipped_reason": "Another poll cycle is already running.",
+        }
+
+    try:
+        return summary_to_dict(IngestionRunner().run_once(query=query))
+    finally:
+        _inline_poll_lock.release()
 
 
 # ---- Background ingestion ------------------------------------------------- #
@@ -387,6 +468,29 @@ def create_job_order(order_data: dict, _user: dict = Depends(current_user)) -> d
 
 
 @app.put("/job-orders/{order_id}")
+def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(current_user)) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    coll.replace_one({"id": order_id}, order_data, upsert=True)
+    return {"status": "updated", "record": order_data}
+
+
+@app.delete("/job-orders/{order_id}")
+def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict:
+    from app.db.mongo import get_db
+    coll = get_db()["job_orders"]
+    coll.delete_one({"id": order_id})
+    return {"status": "deleted", "id": order_id}
+
+
+# Serve the static files from the Next.js export.
+# This must be mounted AFTER all other routes so it acts as a fallback.
+frontend_out_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
+)
+if os.path.exists(frontend_out_dir):
+    app.mount("/", StaticFiles(directory=frontend_out_dir, html=True), name="frontend")
+
 def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(current_user)) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]

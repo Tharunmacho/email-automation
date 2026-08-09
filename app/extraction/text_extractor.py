@@ -7,6 +7,8 @@ audits know whether OCR was involved.
 """
 from __future__ import annotations
 
+import re
+
 from app.config import settings
 from app.core.exceptions import TextExtractionError, UnsupportedFileTypeError
 from app.core.models import ExtractedDocument
@@ -68,22 +70,30 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
 
     text = "\n\n".join(text_parts).strip()
 
-    # Heuristic: too little text ⇒ scanned PDF ⇒ OCR fallback.
-    if len(text) < settings.ocr_min_text_chars:
-        log.info("PDF text layer is thin (%d chars); falling back to OCR", len(text))
+    # If Veris OCR API is configured, or if text is thin / has spaced characters (e.g. "M O H A M M E D"), run Veris OCR.
+    is_spaced = bool(re.search(r"\b[A-Za-z]\s[A-Za-z]\s[A-Za-z]\s[A-Za-z]\b", text))
+    if settings.veris_ocr_api_key or len(text) < settings.ocr_min_text_chars or is_spaced:
+        log.info("PDF document OCR triggered (%s, thin=%s, spaced=%s)", filename, len(text) < settings.ocr_min_text_chars, is_spaced)
+        ocr_text = ""
         if settings.veris_ocr_api_key:
-            ocr_text = ocr_via_veris(data, filename or "resume.pdf").strip()
-        else:
-            ocr_text = ocr_pdf_pages(data).strip()
-        if len(ocr_text) < settings.ocr_min_text_chars and not text:
-            raise TextExtractionError("PDF produced no usable text, even after OCR.")
-        return ExtractedDocument(
-            text=ocr_text or text,
-            method="pdf_ocr",
-            page_count=page_count,
-            ocr_used=True,
-            char_count=len(ocr_text or text),
-        )
+            try:
+                ocr_text = ocr_via_veris(data, filename or "resume.pdf").strip()
+            except Exception as err:
+                log.warning("Veris OCR attempt failed: %s", err)
+        if not ocr_text:
+            try:
+                ocr_text = ocr_pdf_pages(data).strip()
+            except Exception as err:
+                log.warning("Local OCR attempt failed: %s", err)
+
+        if ocr_text:
+            return ExtractedDocument(
+                text=ocr_text,
+                method="pdf_ocr",
+                page_count=page_count,
+                ocr_used=True,
+                char_count=len(ocr_text),
+            )
 
     return ExtractedDocument(
         text=text, method="pdf_text", page_count=page_count,

@@ -7,6 +7,7 @@ message (mark read / apply a processed label).
 from __future__ import annotations
 
 import base64
+import threading
 from typing import List, Optional
 
 from googleapiclient.discovery import build
@@ -17,6 +18,10 @@ from app.gmail.auth import get_credentials
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+# label name -> label id, shared by every client in the process. See _ensure_label.
+_LABEL_IDS: dict[str, str] = {}
+_LABEL_LOCK = threading.Lock()
 
 
 def _header(headers: list[dict], name: str) -> str:
@@ -167,22 +172,52 @@ class GmailClient:
             userId="me", id=message_id, body={"addLabelIds": [label_id]}
         ).execute()
 
+    def remove_label(self, message_id: str, label_name: str) -> None:
+        try:
+            label_id = self._ensure_label(label_name)
+            self._service.users().messages().modify(
+                userId="me", id=message_id, body={"removeLabelIds": [label_id]}
+            ).execute()
+        except Exception as err:
+            log.warning("Failed to remove label '%s' from msg %s: %s", label_name, message_id, err)
+
     def _ensure_label(self, label_name: str) -> str:
-        labels = self._service.users().labels().list(userId="me").execute().get("labels", [])
-        for lbl in labels:
-            if lbl["name"] == label_name:
-                return lbl["id"]
-        created = (
-            self._service.users()
-            .labels()
-            .create(
-                userId="me",
-                body={"name": label_name, "labelListVisibility": "labelShow",
-                      "messageListVisibility": "show"},
+        """Resolve a label name to its id, creating the label once if needed.
+
+        Cached process-wide: a poll runs a client per message across a thread
+        pool, and without this every mark-done listed the whole label set again.
+        Label ids never change, so the cache cannot go stale — only a label
+        deleted in Gmail invalidates it, and re-resolving happens on restart.
+        """
+        cached = _LABEL_IDS.get(label_name)
+        if cached:
+            return cached
+
+        with _LABEL_LOCK:
+            # Another thread may have resolved it while we waited for the lock.
+            cached = _LABEL_IDS.get(label_name)
+            if cached:
+                return cached
+
+            labels = self._service.users().labels().list(userId="me").execute().get("labels", [])
+            for lbl in labels:
+                if lbl["name"] == label_name:
+                    _LABEL_IDS[label_name] = lbl["id"]
+                    return lbl["id"]
+
+            created = (
+                self._service.users()
+                .labels()
+                .create(
+                    userId="me",
+                    body={"name": label_name, "labelListVisibility": "labelShow",
+                          "messageListVisibility": "show"},
+                )
+                .execute()
             )
-            .execute()
-        )
-        return created["id"]
+            log.info("Created Gmail label '%s'", label_name)
+            _LABEL_IDS[label_name] = created["id"]
+            return created["id"]
 
 
 def _b64url_decode(data: str) -> bytes:

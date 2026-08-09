@@ -34,6 +34,7 @@ def summary_to_dict(summary: BatchSummary) -> dict:
         "fetched": summary.fetched,
         "processed": summary.processed,
         "skipped": summary.skipped,
+        "suppressed": summary.suppressed,
         "errors": summary.errors,
         "ingested_candidates": summary.ingested_candidates,
         "results": [
