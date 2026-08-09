@@ -552,6 +552,28 @@ function RawOcrViewer({ candidate }: { candidate: CandidateRecord }) {
   );
 }
 
+function BulletText({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text
+    .split(/\r?\n|•/)
+    .map((l) => l.trim().replace(/^[\-\*\u2022\u25cf\s]+/, ""))
+    .filter(Boolean);
+
+  if (lines.length <= 1) {
+    return <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.6" }}>{text}</div>;
+  }
+
+  return (
+    <ul className="cmv-bullet-list">
+      {lines.map((item, idx) => (
+        <li key={idx}>
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function PageTextViewer({ candidate }: { candidate: CandidateRecord }) {
   const rawData = candidate.raw_ocr || candidate.profile?.raw_ocr;
   const pages = (rawData?.pages as any[]) || [];
@@ -1222,9 +1244,7 @@ function CandidateModalBody({
                               </div>
                             )}
                             {exp.description && (
-                              <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-                                {exp.description}
-                              </div>
+                              <BulletText text={exp.description} />
                             )}
                           </div>
                         ))}
@@ -1304,9 +1324,7 @@ function CandidateModalBody({
                             {proj.name}
                           </div>
                           {proj.description && (
-                            <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-                              {proj.description}
-                            </div>
+                            <BulletText text={proj.description} />
                           )}
                         </div>
                       ))}
@@ -1395,9 +1413,9 @@ function CandidateModalBody({
                       ))}
                     </div>
                   ) : (
-                    <ul style={{ margin: 0, paddingLeft: "1.2rem", color: "#334155", fontSize: "0.92rem", lineHeight: "1.65" }}>
+                    <ul className="cmv-bullet-list">
                       {state.achievements.map((ach, idx) => (
-                        <li key={idx} style={{ marginBottom: "0.4rem" }}>
+                        <li key={idx}>
                           {ach}
                         </li>
                       ))}
@@ -1435,9 +1453,9 @@ function CandidateModalBody({
                       ))}
                     </div>
                   ) : (
-                    <ul style={{ margin: 0, paddingLeft: "1.2rem", color: "#334155", fontSize: "0.92rem", lineHeight: "1.65" }}>
+                    <ul className="cmv-bullet-list">
                       {state.certifications.map((cert, idx) => (
-                        <li key={idx} style={{ marginBottom: "0.4rem" }}>
+                        <li key={idx}>
                           {cert}
                         </li>
                       ))}
