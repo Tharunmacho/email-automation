@@ -436,6 +436,19 @@ def _is_meaningful(value, min_len: int = 3) -> bool:
     return True
 
 
+_DURATION_KEY = re.compile(r"experience_(months|years)$", re.IGNORECASE)
+
+
+def _is_zero_duration(key: str, value) -> bool:
+    """True for `*_experience_months` / `*_experience_years` fields equal to 0."""
+    if not _DURATION_KEY.search(key or ""):
+        return False
+    try:
+        return float(value) == 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 def _collect_strings(raw, min_len: int = 3) -> list:
     """Normalise a Veris list-of-strings-or-dicts into a deduped string list."""
     out: list = []
@@ -703,7 +716,6 @@ def decolumnize_ocr_page(page) -> str:
 
 
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
-    import re
     from app.core.models import CandidateProfile, WorkExperience, Education, Project
 
     if hasattr(res, "__dict__"):
@@ -771,19 +783,6 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
                 description=w.get("description")
             ))
 
-    # If work_experience is empty, check projects for Internship / Hands-on Experience items
-    if not work_list and projects_list:
-        for p in projects_list:
-            if re.search(r"intern|developer|engineer|lead|specialist|manager", p.name or "", re.IGNORECASE):
-                parts = re.split(r"[\-\–\|:]", p.name or "")
-                des = parts[0].strip()
-                comp = parts[1].strip() if len(parts) > 1 else None
-                work_list.append(WorkExperience(
-                    designation=des,
-                    company=comp,
-                    description=p.description
-                ))
-
     skills = data.get("skills") or getattr(res, "skills", [])
     skills_list = []
     seen_skills = set()
@@ -836,22 +835,18 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     if not certifications_list and "certifications" not in stitched:
         certifications_list = _collect_strings(sections.get("certifications", []))
 
-    if not projects_list and sections.get("projects"):
-        for line in sections.get("projects", []):
-            if _is_meaningful(line, 5):
-                projects_list.append(Project(name=line[:80], description=line))
-
-    if not work_list and sections.get("experience"):
-        for line in sections.get("experience", []):
-            if _is_meaningful(line, 5):
-                work_list.append(WorkExperience(designation=line[:80], description=line))
-
-    if not education_list and sections.get("education"):
-        edu_lines = sections.get("education", [])
-        if edu_lines:
-            inst = edu_lines[0] if len(edu_lines) > 0 else "N/A"
-            deg = edu_lines[1] if len(edu_lines) > 1 else None
-            education_list.append(Education(institution=inst, degree=deg))
+    # Experience, projects and education are *structured* fields: Veris either
+    # resolves an entry into its parts (company, designation, dates) or reports
+    # nothing. We used to backfill them line-by-line from the page text whenever
+    # Veris returned an empty list, using the raw line as both the title and the
+    # description. On a fresher's resume with no work history that manufactured
+    # an entire EXPERIENCE section out of the OCR of the PROJECTS heading —
+    # "PR OJE CTS", "AIr QUaLItY InSIGHtS...", each with no dates. Veris shows
+    # no experience for that resume because there is none; so do we now.
+    #
+    # Free-text fields below (languages, skills, achievements, certifications)
+    # are different: Veris genuinely leaves those in the page text, and a line
+    # under a LANGUAGES heading *is* the value, so recovering them is not a guess.
 
     if not languages_list:
         # Vocabulary-validated, so a column-stitched line yields the real
@@ -894,6 +889,11 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         if k.lower() in IGNORE_ADDITIONAL_KEYS or v is None:
             continue
         if isinstance(v, str) and (v.strip() == "" or v.strip().lower() == "0 months" or v.strip() == "null"):
+            continue
+        # Veris always emits the duration counters, at zero for a fresher.
+        # "Total experience months: 0", "Indian experience years: 0" and their
+        # four siblings are not findings, they are the absence of one.
+        if _is_zero_duration(k, v):
             continue
         if isinstance(v, dict):
             non_null_v = {sub_k: sub_v for sub_k, sub_v in v.items() if sub_v is not None and sub_v != "null"}

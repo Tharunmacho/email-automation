@@ -6635,3 +6635,143 @@ body {
 .cview-toolbar .sh-result-count {
   white-space: nowrap;
 }
+
+/* --- candidate modal: executive view -------------------------------------
+   The modal is styled inline, and an inline style beats a media query, so
+   anything that has to change with the viewport is declared here instead. On
+   a 360px phone a 180px label column leaves the value about a hundred pixels,
+   which is not enough for an address or an email.
+   ------------------------------------------------------------------------- */
+
+.cmv-headerbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 1.5rem;
+}
+
+.cmv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cmv-body {
+  padding: 1.25rem 1.5rem;
+}
+
+/* Heading on the left, its Edit/Add buttons on the right. */
+.cmv-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+/* Label/value pairs. `minmax(0, 1fr)` rather than `1fr`: a grid track sized
+   `1fr` still refuses to shrink below its content, so one long URL widened the
+   whole modal and forced the body to scroll sideways. */
+.cmv-facts {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  row-gap: 0.85rem;
+  column-gap: 1rem;
+  font-size: 0.95rem;
+}
+
+.cmv-facts > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cmv-form-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.cmv-form-2 input,
+.cmv-form-2 textarea {
+  min-width: 0;
+}
+
+.cmv-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+}
+
+.cmv-footer-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+/* One extracted field per row: label, editable value, delete. */
+.cmv-extra-row {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .cmv-headerbar {
+    padding: 0.9rem 1rem;
+  }
+
+  .cmv-body {
+    padding: 1rem 1rem 1.25rem;
+  }
+
+  /* Label above value. The pair reads as one unit, so the row gap moves to
+     the value and the label tightens up against it. */
+  .cmv-facts {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.15rem;
+  }
+
+  .cmv-facts > div:nth-child(odd) {
+    font-size: 0.8rem;
+  }
+
+  .cmv-facts > div:nth-child(even):not(:last-child) {
+    margin-bottom: 0.7rem;
+  }
+
+  .cmv-form-2,
+  .cmv-extra-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Delete / Download / Verify / Save stack full width instead of three of
+     them sharing a row and the fourth sitting alone underneath. */
+  .cmv-footer {
+    padding: 0.9rem 1rem;
+  }
+
+  .cmv-footer-group {
+    flex: 1 1 100%;
+  }
+
+  .cmv-footer-group > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  /* The buttons take a full row under the heading rather than squeezing it
+     down to two words per line. Some sections hang a single button off the
+     heading and others a div of them, so match anything that is not the h3. */
+  .cmv-section-head > :not(h3) {
+    flex: 1 1 100%;
+  }
+}

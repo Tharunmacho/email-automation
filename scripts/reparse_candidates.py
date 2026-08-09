@@ -4,8 +4,11 @@ Sends each stored resume back through the Veris OCR/LLM endpoint and rewrites
 the profile with the current mapper. Existing profiles are written to a JSON
 backup first, so a bad run can be rolled back.
 
-    python scripts/reparse_candidates.py            # dry run, shows the diff
-    python scripts/reparse_candidates.py --apply    # write to MongoDB
+    python scripts/reparse_candidates.py                      # dry run, shows the diff
+    python scripts/reparse_candidates.py --apply              # write to MongoDB
+    python scripts/reparse_candidates.py --apply --replace    # drop stored entries
+                                                              # the new mapper no
+                                                              # longer produces
 """
 from __future__ import annotations
 
@@ -84,6 +87,15 @@ def _populated(profile: CandidateProfile) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="write results to MongoDB")
+    ap.add_argument(
+        "--replace",
+        action="store_true",
+        help=(
+            "take the new profile wholesale instead of unioning it with the stored "
+            "one. Needed to clear entries the old mapper invented — a union can only "
+            "add, so it keeps them forever. Restore from the backup to undo."
+        ),
+    )
     args = ap.parse_args()
 
     if not settings.veris_ocr_api_key:
@@ -139,7 +151,8 @@ def main() -> int:
             skipped += 1
             continue
 
-        after = _merge(before, after)
+        if not args.replace:
+            after = _merge(before, after)
 
         b, a = _populated(before), _populated(after)
         gained = [f for f in LIST_FIELDS if not getattr(before, f) and getattr(after, f)]

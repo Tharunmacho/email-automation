@@ -108,6 +108,37 @@ interface EditableExtra {
 
 const EXTRA_PLACEHOLDERS = ["null", "n/a", "none", "0 months", "not specified"];
 
+/**
+ * The extractor always emits the duration counters — total/Indian/overseas
+ * experience in months and years — and they are 0 for every fresher. Six rows
+ * reading "0" say nothing the empty EXPERIENCE section has not already said,
+ * so drop them rather than pad the profile with them.
+ */
+function isZeroDuration(key: string, value: unknown): boolean {
+  if (!/experience_(months|years)$/i.test(key)) return false;
+  const asNumber = typeof value === "number" ? value : Number(String(value).trim());
+  return Number.isFinite(asNumber) && asNumber === 0;
+}
+
+/**
+ * One label/value pair in the executive view, or nothing when the value is blank.
+ *
+ * "N/A" against six labels reads as six findings — the reader has to check each
+ * one to learn the resume said nothing about any of them. Omitting the row says
+ * the same thing at a glance, and it is what the extractor's own viewer does.
+ * Both cells are direct children of `.cmv-facts` so the grid keeps its columns.
+ */
+function Fact({ label, value }: { label: string; value?: string | null }) {
+  const text = (value ?? "").trim();
+  if (!text || EXTRA_PLACEHOLDERS.includes(text.toLowerCase())) return null;
+  return (
+    <>
+      <div style={{ color: "#64748b" }}>{label}</div>
+      <div style={{ fontWeight: 700, color: "#0f172a" }}>{text}</div>
+    </>
+  );
+}
+
 /** "date_of_birth" -> "Date of birth" — readable without a per-field label map. */
 function humanizeKey(key: string): string {
   const words = key.replace(/[_-]+/g, " ").trim();
@@ -187,6 +218,7 @@ function extrasForEdit(value: unknown, path: string, out: EditableExtra[]): void
   }
 
   if (typeof value === "number") {
+    if (isZeroDuration(path.split(".").pop() ?? "", value)) return;
     out.push({ path, label: labelForPath(path), value: String(value), kind: "number" });
     return;
   }
@@ -236,6 +268,7 @@ function flattenExtras(extra: Record<string, unknown>, skip: string[]): [string,
   const skipped = new Set(skip);
   return Object.entries(extra)
     .filter(([key]) => !skipped.has(key))
+    .filter(([key, value]) => !isZeroDuration(key, value))
     .map(([key, value]) => [humanizeKey(key), formatExtraValue(value)] as [string, string])
     .filter(([, value]) => value.length > 0);
 }
@@ -788,7 +821,7 @@ function CandidateModalBody({
     (typeof extra.highest_qualification === "string" && extra.highest_qualification) ||
     profile.education?.[profile.education.length - 1]?.degree ||
     profile.education?.[0]?.degree ||
-    "N/A";
+    "";
 
   // Everything else the extractor returned, flattened into label/value rows.
   // Driven by the data rather than a hard-coded list, so a field we have never
@@ -836,19 +869,15 @@ function CandidateModalBody({
       >
         {/* WHITE & FASCINATING BLUE TOP HEADER BAR */}
         <div
-          className="modal-header"
+          className="modal-header cmv-headerbar"
           style={{
             borderBottom: "1px solid #e2e8f0",
-            padding: "1.1rem 1.5rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
             background: "#ffffff",
             borderTopLeftRadius: "0.75rem",
             borderTopRightRadius: "0.75rem",
           }}
         >
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <h2 className="page-title" style={{ fontSize: "1.35rem", fontWeight: 700, margin: 0, color: "#1e40af" }}>
                 Resume Result
@@ -866,7 +895,7 @@ function CandidateModalBody({
           </div>
 
           {/* VIEW MODES & TOP ACTION CONTROLS */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+          <div className="cmv-header-actions">
             <button
               type="button"
               className={`btn ${subTab === "readable" && !isEditing ? "btn-primary" : "btn-secondary"}`}
@@ -922,7 +951,7 @@ function CandidateModalBody({
         </div>
 
         {/* WHITE THEME MODAL BODY (SCROLLABLE) */}
-        <div className="modal-body" style={{ padding: "1.25rem 1.5rem", overflowY: "auto", flex: 1, background: "#ffffff" }}>
+        <div className="modal-body cmv-body" style={{ overflowY: "auto", overflowX: "hidden", flex: 1, background: "#ffffff" }}>
 
           {/* VERIS MATCHING HORIZONTAL NAVIGATION BAR WITH BLUE / ORANGE SLIDER & SCROLL ARROWS */}
           <div style={{ position: "relative", marginBottom: "1.5rem", background: "#f0f7ff", padding: "0.6rem 0.8rem", borderRadius: "0.75rem", border: "1px solid #dbeafe" }}>
@@ -1025,7 +1054,7 @@ function CandidateModalBody({
               {/* CANDIDATE DETAILS */}
               {showAll && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       CANDIDATE DETAILS
                     </h3>
@@ -1035,7 +1064,7 @@ function CandidateModalBody({
                   </div>
 
                   {isEditing ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
+                    <div className="cmv-form-2">
                       <div>
                         <label style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>Name</label>
                         <input type="text" value={state.full_name} onChange={updateRoot("full_name")} style={{ width: "100%", padding: "0.4rem 0.6rem", borderRadius: "0.4rem", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a" }} />
@@ -1058,42 +1087,15 @@ function CandidateModalBody({
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", rowGap: "0.85rem", columnGap: "1rem", fontSize: "0.95rem" }}>
-                      <div style={{ color: "#64748b" }}>Name</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>{displayName}</div>
-
-                      {industry && (
-                        <>
-                          <div style={{ color: "#64748b" }}>Industry</div>
-                          <div style={{ fontWeight: 700, color: "#0f172a" }}>{industry}</div>
-                        </>
-                      )}
-
-                      <div style={{ color: "#64748b" }}>Highest qualification</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>{highestQualification}</div>
-
-                      <div style={{ color: "#64748b" }}>Email</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>{state.email || "N/A"}</div>
-
-                      <div style={{ color: "#64748b" }}>Phone</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>{state.phone || "N/A"}</div>
-
-                      {state.linkedin && (
-                        <>
-                          <div style={{ color: "#64748b" }}>LinkedIn</div>
-                          <div style={{ fontWeight: 700, color: "#0f172a", wordBreak: "break-all" }}>{state.linkedin}</div>
-                        </>
-                      )}
-
-                      {state.github && (
-                        <>
-                          <div style={{ color: "#64748b" }}>GitHub</div>
-                          <div style={{ fontWeight: 700, color: "#0f172a", wordBreak: "break-all" }}>{state.github}</div>
-                        </>
-                      )}
-
-                      <div style={{ color: "#64748b" }}>Address</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>{state.location || "N/A"}</div>
+                    <div className="cmv-facts">
+                      <Fact label="Name" value={displayName} />
+                      <Fact label="Industry" value={industry} />
+                      <Fact label="Highest qualification" value={highestQualification} />
+                      <Fact label="Email" value={state.email} />
+                      <Fact label="Phone" value={state.phone} />
+                      <Fact label="LinkedIn" value={state.linkedin} />
+                      <Fact label="GitHub" value={state.github} />
+                      <Fact label="Address" value={state.location} />
                     </div>
                   )}
                 </div>
@@ -1102,7 +1104,7 @@ function CandidateModalBody({
               {/* PERSONAL INFORMATION */}
               {showAll && (isEditing || Boolean(state.languages.trim())) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       PERSONAL INFORMATION
                     </h3>
@@ -1117,11 +1119,8 @@ function CandidateModalBody({
                       <input type="text" value={state.languages} onChange={updateRoot("languages")} style={{ width: "100%", padding: "0.4rem 0.6rem", borderRadius: "0.4rem", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a" }} />
                     </div>
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", rowGap: "0.85rem", columnGap: "1rem", fontSize: "0.95rem" }}>
-                      <div style={{ color: "#64748b" }}>Languages</div>
-                      <div style={{ fontWeight: 700, color: "#0f172a" }}>
-                        {state.languages || "N/A"}
-                      </div>
+                    <div className="cmv-facts">
+                      <Fact label="Languages" value={state.languages} />
                     </div>
                   )}
                 </div>
@@ -1130,7 +1129,7 @@ function CandidateModalBody({
               {/* EXPERIENCE */}
               {sectionVisible("experience", state.work_experience.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       EXPERIENCE
                     </h3>
@@ -1156,7 +1155,7 @@ function CandidateModalBody({
                               <Trash2 size={14} />
                             </button>
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem", marginBottom: "0.6rem" }}>
+                          <div className="cmv-form-2" style={{ marginBottom: "0.6rem" }}>
                             <input type="text" placeholder="Designation" value={exp.designation} onChange={(e) => updateWorkExp(idx, "designation", e.target.value)} style={{ padding: "0.4rem 0.6rem", borderRadius: "0.4rem", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a" }} />
                             <input type="text" placeholder="Company Name" value={exp.company} onChange={(e) => updateWorkExp(idx, "company", e.target.value)} style={{ padding: "0.4rem 0.6rem", borderRadius: "0.4rem", border: "1px solid #cbd5e1", background: "#ffffff", color: "#0f172a" }} />
                           </div>
@@ -1170,11 +1169,15 @@ function CandidateModalBody({
                         {state.work_experience.map((exp, idx) => (
                           <div key={idx} style={{ background: "#ffffff", borderRadius: "0.6rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 1px 3px rgba(37,99,235,0.05)" }}>
                             <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "#0f172a", marginBottom: "0.25rem" }}>
-                              {exp.designation || "Software Role"} {exp.company ? `· ${exp.company}` : ""}
+                              {exp.designation} {exp.company ? `· ${exp.company}` : ""}
                             </div>
-                            <div style={{ fontSize: "0.85rem", color: "#2563eb", fontWeight: 600, marginBottom: "0.75rem" }}>
-                              {[exp.start_date, exp.end_date].filter(Boolean).join(" – ") || "0 months"}
-                            </div>
+                            {/* No dates means the extractor found none. "0 months"
+                                reads as a measured duration; a blank row is honest. */}
+                            {(exp.start_date || exp.end_date) && (
+                              <div style={{ fontSize: "0.85rem", color: "#2563eb", fontWeight: 600, marginBottom: "0.75rem" }}>
+                                {[exp.start_date, exp.end_date].filter(Boolean).join(" – ")}
+                              </div>
+                            )}
                             {exp.description && (
                               <div style={{ fontSize: "0.9rem", color: "#334155", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
                                 {exp.description}
@@ -1193,7 +1196,7 @@ function CandidateModalBody({
               {/* SKILLS */}
               {sectionVisible("skills", parsedSkills.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       SKILLS
                     </h3>
@@ -1219,7 +1222,7 @@ function CandidateModalBody({
               {/* PROJECTS */}
               {sectionVisible("projects", state.projects.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       PROJECTS
                     </h3>
@@ -1272,7 +1275,7 @@ function CandidateModalBody({
               {/* EDUCATION */}
               {sectionVisible("education", state.education.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       EDUCATION
                     </h3>
@@ -1323,7 +1326,7 @@ function CandidateModalBody({
               {/* ACHIEVEMENTS */}
               {sectionVisible("achievements", state.achievements.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       ACHIEVEMENTS
                     </h3>
@@ -1363,7 +1366,7 @@ function CandidateModalBody({
               {/* CERTIFICATIONS */}
               {sectionVisible("certifications", state.certifications.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       CERTIFICATIONS
                     </h3>
@@ -1407,7 +1410,7 @@ function CandidateModalBody({
                   change. Edits go back to the same path inside additional_info. */}
               {showAll && (isEditing || additionalEntries.length > 0) && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                  <div className="cmv-section-head">
                     <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: "0.06em", margin: 0, paddingBottom: "0.3rem", borderBottom: "2px solid #2563eb" }}>
                       ADDITIONAL INFORMATION
                     </h3>
@@ -1431,7 +1434,7 @@ function CandidateModalBody({
                         </div>
                       )}
                       {state.extras.map((extra, idx) => (
-                        <div key={`${extra.path}-${idx}`} style={{ display: "grid", gridTemplateColumns: "200px 1fr auto", gap: "0.5rem", alignItems: "center" }}>
+                        <div key={`${extra.path}-${idx}`} className="cmv-extra-row">
                           <input
                             type="text"
                             value={extra.label}
@@ -1453,11 +1456,11 @@ function CandidateModalBody({
                       ))}
                     </div>
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", rowGap: "0.85rem", columnGap: "1rem", fontSize: "0.95rem" }}>
+                    <div className="cmv-facts">
                       {additionalEntries.map(([label, value]) => (
                         <React.Fragment key={label}>
                           <div style={{ color: "#64748b" }}>{label}</div>
-                          <div style={{ fontWeight: 700, color: "#0f172a", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                          <div style={{ fontWeight: 700, color: "#0f172a", whiteSpace: "pre-wrap" }}>
                             {value}
                           </div>
                         </React.Fragment>
@@ -1472,21 +1475,15 @@ function CandidateModalBody({
 
         {/* WHITE & FASCINATING BLUE BOTTOM ACTION FOOTER BAR */}
         <div
-          className="modal-footer"
+          className="modal-footer cmv-footer"
           style={{
             borderTop: "1px solid #e2e8f0",
-            padding: "1rem 1.5rem",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
             background: "#ffffff",
             borderBottomLeftRadius: "0.75rem",
             borderBottomRightRadius: "0.75rem",
-            flexWrap: "wrap",
-            gap: "0.75rem",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <div className="cmv-footer-group">
             {onDelete && (
               <button
                 type="button"
@@ -1511,7 +1508,7 @@ function CandidateModalBody({
             )}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          <div className="cmv-footer-group">
             <button
               type="button"
               className="btn btn-secondary"
