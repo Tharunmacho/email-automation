@@ -394,164 +394,6 @@ function toEditableState(profile: CandidateProfile, candidate?: CandidateRecord)
   };
 }
 
-function RawOcrViewer({ candidate }: { candidate: CandidateRecord }) {
-  const [activePage, setActivePage] = useState<number>(0);
-  const [copied, setCopied] = useState<boolean>(false);
-  const rawData = candidate.raw_ocr || candidate.profile?.raw_ocr;
-
-  const jsonString = useMemo(() => {
-    if (rawData) {
-      return JSON.stringify(rawData, null, 2);
-    }
-    const fallbackObj = {
-      note: "Raw OCR JSON payload from MongoDB Atlas",
-      filename: candidate.resume?.original_filename || "resume",
-      extraction_method: candidate.resume?.extraction_method || "unknown",
-      ocr_used: candidate.resume?.ocr_used || false,
-      profile: candidate.profile,
-    };
-    return JSON.stringify(fallbackObj, null, 2);
-  }, [rawData, candidate]);
-
-  const handleCopyJson = () => {
-    if (!jsonString) return;
-    navigator.clipboard.writeText(jsonString).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {
-      // Fallback if clipboard API is blocked in non-secure context
-      const textarea = document.createElement("textarea");
-      textarea.value = jsonString;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  const pages = (rawData?.pages as any[]) || [];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-      {/* Pages selector tabs if multi-page OCR document */}
-      {pages.length > 1 && (
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          {pages.map((p, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setActivePage(idx)}
-              style={{
-                padding: "0.4rem 0.85rem",
-                borderRadius: "0.4rem",
-                fontSize: "0.82rem",
-                fontWeight: 600,
-                border: activePage === idx ? "1px solid #2563eb" : "1px solid #dbeafe",
-                background: activePage === idx ? "#2563eb" : "#eff6ff",
-                color: activePage === idx ? "#ffffff" : "#1e40af",
-                cursor: "pointer",
-              }}
-            >
-              Page {p.page_number || idx + 1} ({p.lines?.length || 0} lines)
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Page detail summary card if pages available */}
-      {pages.length > 0 && pages[activePage] && (
-        <div style={{
-          padding: "0.85rem 1rem",
-          background: "#f0f7ff",
-          borderRadius: "0.5rem",
-          border: "1px solid #dbeafe",
-          fontSize: "0.85rem",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontWeight: 600, color: "#1e40af" }}>
-            <span>Page {pages[activePage].page_number || activePage + 1} Metadata</span>
-            {pages[activePage].average_confidence !== undefined && (
-              <span>Avg Confidence: {((pages[activePage].average_confidence || 0) * 100).toFixed(1)}%</span>
-            )}
-          </div>
-          {pages[activePage].text && (
-            <div style={{ marginBottom: "0.5rem" }}>
-              <strong style={{ display: "block", marginBottom: "0.25rem", color: "#0f172a" }}>Raw Page Text:</strong>
-              <div style={{
-                maxHeight: "140px",
-                overflowY: "auto",
-                background: "#ffffff",
-                padding: "0.6rem 0.75rem",
-                borderRadius: "0.4rem",
-                whiteSpace: "pre-wrap",
-                fontFamily: "monospace",
-                fontSize: "0.8rem",
-                border: "1px solid #dbeafe",
-                color: "#1e293b",
-              }}>
-                {pages[activePage].text}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Raw JSON viewer block */}
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-          <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "#0f172a" }}>
-            Full JSON Payload (MongoDB Atlas Document)
-          </span>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <button
-              type="button"
-              onClick={handleCopyJson}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-                padding: "0.35rem 0.75rem",
-                borderRadius: "0.4rem",
-                fontSize: "0.8rem",
-                fontWeight: 600,
-                border: copied ? "1px solid #16a34a" : "1px solid #2563eb",
-                background: copied ? "#f0fdf4" : "#eff6ff",
-                color: copied ? "#15803d" : "#2563eb",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-              }}
-            >
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? "Copied!" : "Copy JSON"}
-            </button>
-            <span style={{ fontSize: "0.78rem", color: "#64748b" }}>
-              {jsonString.length.toLocaleString()} bytes
-            </span>
-          </div>
-        </div>
-        <pre style={{
-          maxHeight: "440px",
-          overflow: "auto",
-          background: "#0f172a",
-          color: "#e2e8f0",
-          padding: "1rem 1.25rem",
-          borderRadius: "0.6rem",
-          fontSize: "0.82rem",
-          lineHeight: "1.55",
-          fontFamily: "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace",
-          border: "1px solid #334155",
-          boxShadow: "inset 0 2px 8px rgba(0,0,0,0.3)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}>
-          <code>{jsonString}</code>
-        </pre>
-      </div>
-    </div>
-  );
-}
-
 function BulletText({ text }: { text: string }) {
   if (!text) return null;
   const lines = text
@@ -574,12 +416,6 @@ function BulletText({ text }: { text: string }) {
   );
 }
 
-function PageTextViewer({ candidate }: { candidate: CandidateRecord }) {
-  const rawData = candidate.raw_ocr || candidate.profile?.raw_ocr;
-  const pages = (rawData?.pages as any[]) || [];
-
-  if (pages.length === 0) {
-    return (
       <div style={{ padding: "1.5rem", background: "#f0f7ff", borderRadius: "0.6rem", border: "1px solid #dbeafe", color: "#64748b", fontSize: "0.9rem" }}>
         No individual page OCR details recorded for this candidate.
       </div>
@@ -865,7 +701,7 @@ function CandidateModalBody({
     .filter((s) => Boolean(s));
 
   const [subTab, setSubTab] = useState<
-    "readable" | "experience" | "skills" | "projects" | "education" | "achievements" | "certifications" | "pages" | "raw_ocr"
+    "readable" | "experience" | "skills" | "projects" | "education" | "achievements" | "certifications"
   >("readable");
 
   const showAll = subTab === "readable";
@@ -996,22 +832,6 @@ function CandidateModalBody({
             >
               <Edit3 size={14} /> {isEditing ? "Done" : "Edit"}
             </button>
-
-            <button
-              type="button"
-              className={`btn ${subTab === "raw_ocr" ? "btn-primary" : "btn-secondary"}`}
-              onClick={() => setSubTab("raw_ocr")}
-              style={{
-                fontSize: "0.82rem",
-                padding: "0.45rem 0.85rem",
-                background: subTab === "raw_ocr" ? "linear-gradient(135deg, #1e40af, #2563eb)" : "#eff6ff",
-                color: subTab === "raw_ocr" ? "#ffffff" : "#1e40af",
-                border: "1px solid #dbeafe",
-                fontWeight: 600,
-              }}
-            >
-              <Code size={14} /> Raw JSON
-            </button>
           </div>
         </div>
 
@@ -1040,8 +860,6 @@ function CandidateModalBody({
                 { id: "education", label: "Education" },
                 { id: "achievements", label: "Achievements" },
                 { id: "certifications", label: "Certifications" },
-                { id: "pages", label: "Pages" },
-                { id: "raw_ocr", label: "Raw JSON" },
               ].map((t) => {
                 const isActive = subTab === t.id;
                 return (
@@ -1110,12 +928,7 @@ function CandidateModalBody({
           </div>
 
           {/* SUBDIVISION CONTENT PANELS - FASCINATING BLUE & WHITE THEME */}
-          {subTab === "raw_ocr" ? (
-            <RawOcrViewer candidate={candidate} />
-          ) : subTab === "pages" ? (
-            <PageTextViewer candidate={candidate} />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
               {/* CANDIDATE DETAILS */}
               {showAll && (
                 <div style={{ background: "#f8fafc", borderRadius: "0.75rem", padding: "1.25rem", border: "1px solid #dbeafe", boxShadow: "0 2px 8px rgba(37,99,235,0.03)" }}>
@@ -1531,7 +1344,6 @@ function CandidateModalBody({
                 </div>
               )}
             </div>
-          )}
         </div>
 
         {/* WHITE & FASCINATING BLUE BOTTOM ACTION FOOTER BAR */}
