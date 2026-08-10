@@ -9,15 +9,5 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
-    {
-      name: "email-watcher",
-      script: "venv/bin/python",
-      args: "-m app.cli watch --interval 60",
-      interpreter: "none",
-      restart_delay: 5000,
-      env: {
-        NODE_ENV: "production",
-      },
-    },
   ],
 };
