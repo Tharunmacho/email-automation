@@ -29,10 +29,25 @@ RESUME_TOOL_SCHEMA = {
             },
             "full_name": {"type": ["string", "null"]},
             "email": {"type": ["string", "null"]},
-            "phone": {"type": ["string", "null"]},
+            "phone": {"type": ["string", "null"], "description": "Primary mobile/phone number."},
+            "phone_numbers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Every phone number on the resume, including the primary one.",
+            },
             "location": {"type": ["string", "null"]},
+            "city": {"type": ["string", "null"]},
+            "country": {"type": ["string", "null"]},
             "skills": {"type": "array", "items": {"type": "string"}},
             "technical_skills": {"type": "array", "items": {"type": "string"}},
+            "trade_skills": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Specific machinery, equipment and trade operations the candidate "
+                    "names — e.g. 'EOT Crane', 'CNC Lathe', 'TIG Welding', 'Pipe Fitting'."
+                ),
+            },
             "languages": {"type": "array", "items": {"type": "string"}},
             "work_experience": {
                 "type": "array",
@@ -54,15 +69,38 @@ RESUME_TOOL_SCHEMA = {
                     "type": "object",
                     "properties": {
                         "institution": {"type": ["string", "null"]},
+                        "board_or_university": {
+                            "type": ["string", "null"],
+                            "description": "Awarding board or university, when named separately from the school.",
+                        },
                         "degree": {"type": ["string", "null"]},
                         "field_of_study": {"type": ["string", "null"]},
                         "start_date": {"type": ["string", "null"]},
                         "end_date": {"type": ["string", "null"]},
+                        "passing_year": {"type": ["string", "null"]},
                         "grade": {"type": ["string", "null"]},
                     },
                 },
             },
             "certifications": {"type": "array", "items": {"type": "string"}},
+            "licenses": {
+                "type": "array",
+                "description": (
+                    "Trade licences, safety cards and certificates that carry an "
+                    "identifying number — keep the number, it is what makes the "
+                    "credential verifiable."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": ["string", "null"]},
+                        "number": {"type": ["string", "null"]},
+                        "issuer": {"type": ["string", "null"]},
+                        "issue_date": {"type": ["string", "null"]},
+                        "expiry_date": {"type": ["string", "null"]},
+                    },
+                },
+            },
             "projects": {
                 "type": "array",
                 "items": {
@@ -96,10 +134,29 @@ RESUME_TOOL_SCHEMA = {
 }
 
 SYSTEM_PROMPT = (
-    "You are an expert technical recruiter and resume-parsing engine. "
-    "You are given raw text extracted from a document that may be a candidate's "
-    "resume (possibly noisy OCR output). Extract accurate structured data. "
+    "You are an expert resume parser and document intelligence engine. You are "
+    "given raw text extracted from a candidate's application document (possibly "
+    "noisy OCR output, possibly pages selected out of a larger bundle that also "
+    "held certificates, ID scans and experience letters).\n"
+    "\n"
+    "VERIFY FROM CONTENT, NEVER FROM THE FILENAME. A file called 'cv.pdf' whose "
+    "text is an invoice, hall ticket, admit card, payment receipt, OTP or any "
+    "other non-resume document is NOT a resume: set is_resume=false, set "
+    "confidence below 0.30, and leave every profile field empty. A genuine "
+    "resume shows a name with contact details, and work history, trade skills or "
+    "education.\n"
+    "\n"
+    "EXTRACT EVERYTHING. Do not truncate, summarise away or drop any candidate "
+    "detail that is present: every phone number, every employer with its "
+    "designation, location and dates, every responsibility, every trade skill and "
+    "piece of machinery named, every qualification with its board/university and "
+    "passing year, and every certificate or licence WITH its number. Blue-collar "
+    "and trade profiles matter as much as technical ones — record 'EOT Crane "
+    "Operator', 'TIG Welding' and 'Pipe Fitting' with the same care as a "
+    "programming language.\n"
+    "\n"
     "Never invent facts: if a field is absent, use null or an empty list. "
     "Normalise obvious OCR errors in names/emails/phones when confident. "
-    "Always respond by calling the record_candidate_profile tool exactly once."
+    "Set confidence to reflect how complete and unambiguous the extracted profile "
+    "is. Always respond by calling the record_candidate_profile tool exactly once."
 )

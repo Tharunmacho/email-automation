@@ -88,7 +88,7 @@ class SMTPIMAPClient:
             try:
                 mail.select(self.imap_folder)
                 status, data = mail.uid("search", None, "UNSEEN")
-                if status != "OK" or not data or not data[0]:
+                if status != "OK":
                     status, data = mail.uid("search", None, "ALL")
 
                 if status != "OK" or not data or not data[0]:
@@ -114,9 +114,16 @@ class SMTPIMAPClient:
             mail = self._connect_imap()
             try:
                 mail.select(self.imap_folder)
-                status, data = mail.uid("fetch", message_id, "(RFC822)")
+                # BODY.PEEK[], never RFC822: a plain RFC822 fetch sets \Seen as
+                # a side effect, and `search_message_ids` only ever asks for
+                # UNSEEN. Merely *looking* at a message therefore removed it
+                # from every future poll — so an email the detector ignored, or
+                # one that failed mid-parse, could never be reconsidered. Marking
+                # a message read is a decision the runner makes after a
+                # successful ingest, not something reading it does by accident.
+                status, data = mail.uid("fetch", message_id, "(BODY.PEEK[])")
                 if status != "OK" or not data or not data[0] or not isinstance(data[0], tuple):
-                    raise RuntimeError(f"Could not fetch RFC822 for message UID {message_id}")
+                    raise RuntimeError(f"Could not fetch message body for UID {message_id}")
                 raw_bytes = data[0][1]
                 self._fetched_bytes_cache[message_id] = raw_bytes
             finally:

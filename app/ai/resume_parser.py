@@ -16,7 +16,9 @@ from app.logging_config import get_logger
 
 log = get_logger(__name__)
 
-# Guard against runaway token usage / model context limits on huge resumes.
+# Backstop against runaway token usage / model context limits. Page selection
+# upstream is what normally keeps the payload small; this only fires on a single
+# résumé that really is this long, so truncating the tail is the lesser loss.
 _MAX_INPUT_CHARS = 60_000
 
 
@@ -378,6 +380,7 @@ class ResumeParser:
             full_name=resolved_name,
             email=email,
             phone=phone,
+            phone_numbers=phones,
             linkedin_url=linkedin_url,
             github_url=github_url,
             skills=skills_list,
@@ -386,6 +389,7 @@ class ResumeParser:
             work_experience=work_list,
             education=education_list,
             certifications=heuristic_certs,
+            licenses=_licenses_from_strings(heuristic_certs),
             projects=project_list,
             achievements=achievements_list,
             current_designation=current_des,
@@ -400,8 +404,30 @@ class ResumeParser:
         from app.core.models import ExtractedDocument
         from app.extraction.text_extractor import extract_text
 
-        # First, try fast local text extraction to obtain raw text
+        # First, try fast local text extraction to obtain raw text. This also
+        # locates the résumé inside the file: candidates send bundles, and the CV
+        # can start on page 1 or on page 15.
         extracted = extract_text(file_data, filename)
+
+        # The filename claimed a résumé; the content decides. An invoice or a
+        # hall ticket named `cv.pdf` stops here, before Veris, before the LLM,
+        # before a record is created.
+        if extracted.is_resume is False:
+            log.info("Rejecting '%s' on content: %s", filename, extracted.classification_reason)
+            return (
+                _rejected_profile(
+                    extracted.classification_reason,
+                    extracted.classification_confidence,
+                    extracted,
+                ),
+                extracted,
+            )
+
+        # Only the pages that carry candidate profile data go to the parsers.
+        # `extracted.text` still holds every page — nothing is discarded, it is
+        # simply not paid for twice.
+        resume_text = extracted.resume_text
+        parse_data, parse_name = self._resume_only_document(file_data, filename, extracted)
 
         # Kept across the Veris block so a response that came back without a
         # name/email/phone still hands its raw JSON to the fallback profile.
@@ -410,36 +436,46 @@ class ResumeParser:
 
         # Send to Veris OCR / LLM Resume API endpoint as primary option if key configured
         if settings.veris_ocr_api_key:
-            suffix = Path(filename).suffix or ".pdf"
+            suffix = Path(parse_name).suffix or ".pdf"
             with tempfile.TemporaryDirectory() as tmp:
                 temp_file = Path(tmp) / f"temp_ocr{suffix}"
-                temp_file.write_bytes(file_data)
-                log.info("Sending resume to Veris OCR Resume API endpoint: %s", filename)
+                temp_file.write_bytes(parse_data)
+                log.info("Sending resume to Veris OCR Resume API endpoint: %s", parse_name)
                 try:
                     from recursai.veris_ocr import VerisOCR
                     import concurrent.futures
                     def _do_veris():
-                        with VerisOCR(api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url) as client:
+                        kwargs = {
+                            "api_key": settings.veris_ocr_api_key,
+                            "base_url": settings.veris_ocr_base_url,
+                        }
+                        # Ask the client to honour the timeout itself; the socket
+                        # default below only covers connect/read, not the client's
+                        # own retry loop.
+                        try:
+                            client = VerisOCR(timeout=settings.veris_timeout_seconds, **kwargs)
+                        except TypeError:
+                            client = VerisOCR(**kwargs)
+                        with client:
                             return client.resume.extract(str(temp_file))
 
                     import socket
                     old_timeout = socket.getdefaulttimeout()
                     try:
-                        socket.setdefaulttimeout(180)
+                        socket.setdefaulttimeout(settings.veris_timeout_seconds)
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                             future = executor.submit(_do_veris)
-                            res = future.result(timeout=180.0)
+                            res = future.result(timeout=settings.veris_timeout_seconds)
                     finally:
                         socket.setdefaulttimeout(old_timeout)
 
-                    veris_text = extracted.text or ""
-                    veris_extracted = ExtractedDocument(
-                        text=veris_text,
-                        method="veris_resume_api",
-                        page_count=1,
-                        ocr_used=True,
-                        char_count=len(veris_text),
-                    )
+                    veris_text = resume_text or ""
+                    veris_extracted = extracted.model_copy(update={
+                        "text": veris_text,
+                        "method": "veris_resume_api",
+                        "ocr_used": True,
+                        "char_count": len(veris_text),
+                    })
                     veris_raw = veris_payload(res) or None
                     profile = map_veris_to_profile(res, veris_text=veris_text)
                     if profile.full_name or profile.email or profile.phone:
@@ -457,7 +493,7 @@ class ResumeParser:
                     )
 
         # Fall back to local text parsing.
-        profile = self.parse_text_fallback(extracted.text, hint=filename)
+        profile = self.parse_text_fallback(resume_text, hint=filename)
         # Mark the provenance so a degraded profile is identifiable downstream
         # rather than being indistinguishable from a full Veris extraction.
         info = dict(profile.additional_info or {})
@@ -469,6 +505,75 @@ class ResumeParser:
         if veris_raw:
             profile.raw_ocr = veris_raw
         return profile, extracted
+
+    @staticmethod
+    def _resume_only_document(
+        file_data: bytes, filename: str, extracted
+    ) -> tuple[bytes, str]:
+        """The bytes to hand the document parser — résumé pages only, if we can.
+
+        Veris takes a file, not text, so trimming the other documents out of the
+        bundle is the only way to keep them out of the extraction *and* to keep
+        the request small enough to answer inside its timeout. A 30-page
+        application with a two-page CV becomes a two-page PDF.
+
+        This is a parsing-time copy and nothing more. `file_data` is untouched,
+        and it is `file_data` that the pipeline stores — the recruiter always
+        downloads the full original, every page and scan intact.
+        """
+        from app.extraction import pdf_pages
+
+        pages = list(extracted.resume_pages or [])
+        page_count = extracted.page_count or 0
+        if not pages or page_count <= 1 or not file_data.startswith(b"%PDF"):
+            return file_data, filename
+
+        # Page numbers are only meaningful if the classified pages line up
+        # one-to-one with the PDF's. A cloud OCR that merged or dropped a page
+        # would shift every number, and trimming on a shifted number cuts the
+        # resume out instead of keeping it.
+        if len(extracted.pages) != page_count or pdf_pages.page_count(file_data) != page_count:
+            log.info(
+                "Page numbering does not line up with '%s' (%d classified vs %d "
+                "declared); sending the whole file",
+                filename, len(extracted.pages), page_count,
+            )
+            return file_data, filename
+
+        trimmed = pdf_pages.subset_pdf(file_data, pages)
+        if trimmed is None:
+            return file_data, filename
+
+        log.info(
+            "Trimmed '%s' from %d page(s) to resume page(s) %s before parsing "
+            "(the stored original keeps all %d)",
+            filename, page_count, sorted(pages), page_count,
+        )
+        from pathlib import Path
+
+        stem = Path(filename).stem or "resume"
+        return trimmed, f"{stem}_resume_pages.pdf"
+
+
+def _rejected_profile(reason: str, confidence: float | None, extracted) -> CandidateProfile:
+    """The profile for a document that is not a résumé.
+
+    Capped below 0.30 so it lands under every ingest gate no matter how the
+    thresholds are tuned, and carrying the reason so the skip is explainable
+    rather than a silent disappearance.
+    """
+    score = 0.15 if confidence is None else min(float(confidence), 0.29)
+    return CandidateProfile(
+        is_resume=False,
+        confidence=round(score, 2),
+        additional_info={
+            "extraction_source": "page_classifier",
+            "rejection_reason": reason,
+            "page_kinds": {
+                str(p.page_number): p.kind for p in getattr(extracted, "pages", []) or []
+            },
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -491,6 +596,111 @@ def _is_meaningful(value, min_len: int = 3) -> bool:
     if re.fullmatch(r"0+(\.0+)?\s*(month|months|year|years|yr|yrs)", text.lower()):
         return False
     return True
+
+
+# The Gulf recruitment corridor plus the usual home countries. Enough to split
+# "Chennai, Tamil Nadu, India" into a city and a country without guessing.
+_KNOWN_COUNTRIES = {
+    "india", "uae", "u.a.e", "united arab emirates", "saudi arabia", "ksa",
+    "qatar", "kuwait", "oman", "bahrain", "singapore", "malaysia", "nepal",
+    "bangladesh", "sri lanka", "pakistan", "philippines", "indonesia",
+    "united kingdom", "uk", "usa", "united states", "canada", "australia",
+    "germany", "france", "italy", "netherlands", "south africa", "kenya",
+    "nigeria", "egypt", "jordan", "lebanon", "turkey", "russia", "china",
+}
+
+
+def _split_location(location) -> tuple:
+    """"Chennai, Tamil Nadu, India" -> ("Chennai", "India").
+
+    Only splits on a country it recognises. A location it cannot resolve stays
+    whole on `location` rather than being cut at a guess.
+    """
+    text = " ".join(str(location or "").split())
+    if not text:
+        return None, None
+    parts = [p.strip(" .") for p in text.split(",") if p.strip(" .")]
+    if not parts:
+        return None, None
+
+    country = None
+    if parts[-1].lower() in _KNOWN_COUNTRIES:
+        country = parts.pop()
+    if not parts:
+        return None, country
+    # The city is the first component; the middle ones are state/region.
+    city = parts[0] if _is_meaningful(parts[0], min_len=2) else None
+    return city, country
+
+
+def _trade_skills_from(skills: list, text: str) -> list:
+    """The machinery and trade operations among everything that was extracted.
+
+    Vocabulary-driven on purpose — same list the page classifier scores with, so
+    "EOT Crane" and "TIG Welding" are recognised as the trade credentials they
+    are instead of being flattened into a generic skills list.
+    """
+    from app.extraction.page_classifier import _TRADE_NOUN_RE
+
+    out, seen = [], set()
+    for skill in skills or []:
+        if _TRADE_NOUN_RE.search(str(skill)) and str(skill).lower() not in seen:
+            seen.add(str(skill).lower())
+            out.append(str(skill))
+    for match in _TRADE_NOUN_RE.finditer(text or ""):
+        value = " ".join(match.group(0).split()).title()
+        if value.lower() not in seen:
+            seen.add(value.lower())
+            out.append(value)
+    return out
+
+
+def _evidence_confidence(
+    *, name, email, phone, skills, education, work, extras: bool = False
+) -> float:
+    """Score a profile by what was actually recovered from the document.
+
+    An extractor answering at all is not evidence; the fields it filled are.
+    """
+    score = 0.30
+    if name:
+        score += 0.15
+    if email:
+        score += 0.15
+    if phone:
+        score += 0.10
+    if skills:
+        score += 0.10
+    if education:
+        score += 0.10
+    if work:
+        score += 0.10
+    if extras:
+        score += 0.05
+    return round(min(score, 0.98), 2)
+
+
+# A licence number: at least four characters, containing a digit, next to a
+# label. Anything looser matches the year in "Certified 2019".
+_LICENSE_NUMBER_RE = re.compile(
+    r"(?:no\.?|number|#|id|card)\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{3,})",
+    re.IGNORECASE,
+)
+
+
+def _licenses_from_strings(certifications: list) -> list:
+    """Split a certification line into a name and the licence number in it."""
+    from app.core.models import TradeLicense
+
+    out = []
+    for entry in certifications or []:
+        text = " ".join(str(entry).split())
+        match = _LICENSE_NUMBER_RE.search(text)
+        if not match or not any(c.isdigit() for c in match.group(1)):
+            continue
+        name = text[: match.start()].strip(" .,:;-()") or text
+        out.append(TradeLicense(name=name, number=match.group(1).strip()))
+    return out
 
 
 _DURATION_KEY = re.compile(r"experience_(months|years)$", re.IGNORECASE)
@@ -948,6 +1158,16 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
         # routinely come back with no skills from the extractor.
         skills_list = _collect_strings(sections.get("skills", []), min_len=2)
 
+    # Trade licences and safety cards are the certifications that carry a
+    # number, and the number is the whole point of recording them.
+    licenses_list = _licenses_from_strings(certifications_list)
+
+    phone_numbers = []
+    if isinstance(contact, dict):
+        phone_numbers = _collect_strings(contact.get("phones") or [], min_len=6)
+    if phone and phone not in phone_numbers:
+        phone_numbers.insert(0, phone)
+
     personal_lines = sections.get("personal", [])
     objective_lines = sections.get("objective", [])
 
@@ -1012,19 +1232,40 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     # for key. Our own text lives on `ExtractedDocument`, not in here.
     raw_ocr_dict = veris_payload(res)
 
+    # Confidence used to be a flat 1.0 here, which meant "Veris answered", not
+    # "this is a resume". A document the extractor could find almost nothing in
+    # was still recorded as a certainty and sailed through every ingest gate.
+    confidence = _evidence_confidence(
+        name=name, email=email, phone=phone, skills=skills_list,
+        education=education_list, work=work_list,
+        extras=bool(certifications_list or projects_list or achievements_list),
+    )
+
+    # Veris resolves a single free-text address and no trade breakdown, but the
+    # profile schema asks for city, country and machinery separately. Both are
+    # derived from what Veris already returned — nothing is invented, and an
+    # address that cannot be resolved is left whole on `location`.
+    city, country = _split_location(location)
+    trade_skills = _trade_skills_from(skills_list, page_text)
+
     return CandidateProfile(
         is_resume=True,
-        confidence=1.0,
+        confidence=confidence,
         full_name=name,
         email=email,
         phone=phone,
+        phone_numbers=phone_numbers,
         location=location,
+        city=city,
+        country=country,
         skills=skills_list,
         technical_skills=skills_list,
+        trade_skills=trade_skills,
         languages=languages_list,
         work_experience=work_list,
         education=education_list,
         certifications=certifications_list,
+        licenses=licenses_list,
         projects=projects_list,
         achievements=achievements_list,
         linkedin_url=linkedin_url,

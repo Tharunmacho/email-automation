@@ -41,6 +41,9 @@ class FakeRepo:
     def delete(self, candidate_id):
         return self.records.pop(candidate_id, None) is not None
 
+    def mark_auto_reply_sent(self, candidate_id):
+        pass
+
 
 class FakeLedger:
     def __init__(self):

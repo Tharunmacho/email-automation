@@ -76,8 +76,29 @@ def parse_file(path: Path) -> None:
 
     data = path.read_bytes()
     extracted = extract_text(data, path.name)
-    typer.echo(f"[extraction] method={extracted.method} ocr={extracted.ocr_used} chars={extracted.char_count}")
-    profile = ResumeParser().parse(extracted.text)
+    typer.echo(
+        f"[extraction] method={extracted.method} ocr={extracted.ocr_used} "
+        f"pages={extracted.page_count} chars={extracted.char_count}"
+    )
+    for page in extracted.pages:
+        marker = "*" if page.page_number in extracted.resume_pages else " "
+        typer.echo(
+            f"  {marker} page {page.page_number:>3}  {page.kind:<18} "
+            f"score={page.score:>6.2f}  {len(page.text.strip()):>6} chars"
+        )
+    typer.echo(
+        f"[classification] is_resume={extracted.is_resume} "
+        f"confidence={extracted.classification_confidence} "
+        f"resume_pages={extracted.resume_pages or 'none'} — {extracted.classification_reason}"
+    )
+    if extracted.is_resume is False:
+        typer.secho("Not a resume; nothing sent to the AI parser.", fg=typer.colors.YELLOW)
+        raise typer.Exit(0)
+
+    typer.echo(
+        f"[ai payload] {len(extracted.resume_text)} of {len(extracted.text)} chars"
+    )
+    profile = ResumeParser().parse(extracted.resume_text)
     typer.echo(profile.model_dump_json(indent=2))
 
 

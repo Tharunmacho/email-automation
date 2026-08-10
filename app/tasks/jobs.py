@@ -108,7 +108,7 @@ def process_message(self, message_id: str) -> dict:
         # Label skipped messages too, matching IngestionRunner. The Gmail query
         # excludes the processed label, so an unlabelled message comes back on
         # every poll — which is how a deleted candidate kept reappearing.
-        if result.status in ("processed", "skipped"):
+        if result.status == "processed":
             if settings.gmail_mark_read:
                 gmail.mark_read(message_id)
             if settings.gmail_processed_label:

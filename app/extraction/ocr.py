@@ -42,27 +42,53 @@ def ocr_image_bytes(data: bytes) -> str:
         return pytesseract.image_to_string(img, lang=settings.ocr_languages)
 
 
-def ocr_pdf_pages(pdf_data: bytes, dpi: int = 150) -> str:
-    """Render each PDF page to an image and OCR it. Used when a PDF has no text layer."""
+def ocr_pdf_page_texts(
+    pdf_data: bytes, dpi: int = 150, pages: "set[int] | None" = None
+) -> "dict[int, str]":
+    """OCR a PDF page by page, returning ``{1-based page number: text}``.
+
+    ``pages`` restricts the work to those page numbers. On a 30-page application
+    bundle whose résumé is two pages, that is the difference between 30 OCR
+    passes and 2 — which is the whole point of classifying pages first.
+    """
     pytesseract = _ensure_tesseract()
     import fitz  # PyMuPDF
     from PIL import Image
 
-    texts: list[str] = []
+    out: dict[int, str] = {}
     zoom = dpi / 72.0
     matrix = fitz.Matrix(zoom, zoom)
     with fitz.open(stream=pdf_data, filetype="pdf") as doc:
         for page_index, page in enumerate(doc):
+            page_number = page_index + 1
+            if pages is not None and page_number not in pages:
+                continue
             pix = page.get_pixmap(matrix=matrix)
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             page_text = pytesseract.image_to_string(img, lang=settings.ocr_languages)
-            texts.append(page_text)
-            log.debug("OCR page %d → %d chars", page_index + 1, len(page_text))
-    return "\n".join(texts)
+            out[page_number] = page_text
+            log.debug("OCR page %d @%ddpi → %d chars", page_number, dpi, len(page_text))
+    return out
+
+
+def ocr_pdf_pages(pdf_data: bytes, dpi: int = 150) -> str:
+    """Render each PDF page to an image and OCR it. Used when a PDF has no text layer."""
+    texts = ocr_pdf_page_texts(pdf_data, dpi=dpi)
+    return "\n".join(texts[n] for n in sorted(texts))
 
 
 def ocr_via_veris(file_data: bytes, filename: str) -> str:
-    """Run OCR via the Veris OCR cloud API, falling back to local Tesseract if it fails."""
+    """Run OCR via Veris and return the whole document as one string."""
+    return "\n".join(ocr_via_veris_pages(file_data, filename))
+
+
+def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
+    """Run OCR via the Veris OCR cloud API, one string per page.
+
+    Page boundaries have to survive: the classifier needs them to tell the CV
+    apart from the certificates scanned into the same PDF. Falls back to local
+    Tesseract if Veris fails.
+    """
     import tempfile
     from pathlib import Path
 
@@ -79,7 +105,7 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
                 "base_url": settings.veris_ocr_base_url,
             }
             try:
-                client = VerisOCR(timeout=180.0, **init_kwargs)
+                client = VerisOCR(timeout=settings.veris_timeout_seconds, **init_kwargs)
             except TypeError:
                 client = VerisOCR(**init_kwargs)
 
@@ -87,21 +113,24 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
                 res = client.resume.extract(str(temp_file))
                 pages = getattr(res, "pages", [])
                 if isinstance(pages, list):
-                    extracted_text = "\n".join(
+                    page_texts = [
                         page.get("text", "") if isinstance(page, dict) else getattr(page, "text", "")
                         for page in pages
-                    )
+                    ]
                 else:
-                    extracted_text = ""
-                log.info("Veris OCR successfully processed file; extracted %d chars", len(extracted_text))
-                return extracted_text
+                    page_texts = []
+                log.info(
+                    "Veris OCR successfully processed file; extracted %d chars over %d page(s)",
+                    sum(len(p) for p in page_texts), len(page_texts),
+                )
+                return page_texts
         except Exception as e:
             log.warning("Veris OCR API failed (%s). Falling back to local OCR if available.", e)
             try:
                 if suffix.lower() == ".pdf":
-                    return ocr_pdf_pages(file_data)
-                else:
-                    return ocr_image_bytes(file_data)
+                    texts = ocr_pdf_page_texts(file_data)
+                    return [texts[n] for n in sorted(texts)]
+                return [ocr_image_bytes(file_data)]
             except Exception as fallback_err:
                 log.warning("Local OCR fallback skipped/failed: %s", fallback_err)
-                return ""
+                return []

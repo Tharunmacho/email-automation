@@ -69,11 +69,9 @@ class IngestionRunner:
                         gmail_client.apply_label(mid, settings.gmail_deleted_label)
                     if settings.gmail_processed_label:
                         gmail_client.remove_label(mid, settings.gmail_processed_label)
-                elif result.status in ("processed", "skipped"):
-                    # Label BOTH processed and skipped messages. The Gmail query
-                    # excludes `-label:Resumes/Processed`, so an unlabelled
-                    # message comes back on every poll. Errors stay unlabelled so
-                    # the next poll retries them.
+                elif result.status == "processed":
+                    # Only move/label messages that were successfully processed as candidate resumes.
+                    # All non-resume (skipped) emails remain untouched in the Inbox.
                     if settings.gmail_mark_read:
                         gmail_client.mark_read(mid)
                     if settings.gmail_processed_label:

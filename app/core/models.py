@@ -48,12 +48,41 @@ class EmailMessage(BaseModel):
 # --------------------------------------------------------------------------- #
 #  Extraction output
 # --------------------------------------------------------------------------- #
+class PageText(BaseModel):
+    """One page of a document, plus what the page classifier made of it."""
+
+    page_number: int            # 1-based
+    text: str = ""
+    kind: str = "unknown"       # resume | certificate | experience_letter | id_document | other | blank
+    score: float = 0.0          # how résumé-like the page is
+    ocr_used: bool = False
+
+
 class ExtractedDocument(BaseModel):
     text: str
     method: str                 # "pdf_text" | "pdf_ocr" | "docx" | "doc" | "image_ocr" | "plain"
     page_count: Optional[int] = None
     ocr_used: bool = False
     char_count: int = 0
+
+    # Where the résumé lives inside a multi-document bundle. `text` always holds
+    # everything that was extracted — nothing is thrown away — while these say
+    # which slice of it is the candidate's profile, so OCR and the LLM can be
+    # pointed at that slice alone.
+    pages: List[PageText] = Field(default_factory=list)
+    resume_pages: List[int] = Field(default_factory=list)   # 1-based
+    is_resume: Optional[bool] = None                        # None = not classified
+    classification_confidence: Optional[float] = None
+    classification_reason: str = ""
+
+    @property
+    def resume_text(self) -> str:
+        """Only the pages carrying candidate profile data (all of it if unknown)."""
+        if not self.pages or not self.resume_pages:
+            return self.text
+        wanted = set(self.resume_pages)
+        parts = [p.text.strip() for p in self.pages if p.page_number in wanted and p.text.strip()]
+        return "\n\n".join(parts) or self.text
 
 
 # --------------------------------------------------------------------------- #
@@ -79,10 +108,14 @@ class Education(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     institution: Optional[str] = None
+    # Indian and Gulf résumés name the awarding board separately from the school
+    # ("SSLC, Govt. Higher Secondary School, Tamil Nadu State Board").
+    board_or_university: Optional[str] = None
     degree: Optional[str] = None
     field_of_study: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    passing_year: Optional[str] = None
     grade: Optional[str] = None
 
 
@@ -95,6 +128,18 @@ class Project(BaseModel):
     url: Optional[str] = None
 
 
+class TradeLicense(BaseModel):
+    """A licence or trade certificate, with the number that makes it checkable."""
+
+    model_config = ConfigDict(extra="allow")
+
+    name: Optional[str] = None
+    number: Optional[str] = None
+    issuer: Optional[str] = None
+    issue_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+
+
 class CandidateProfile(BaseModel):
     """The structured key/value profile the AI extracts from resume text."""
     model_config = ConfigDict(extra="allow")
@@ -105,15 +150,24 @@ class CandidateProfile(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    # Trade résumés routinely carry a home number and a mobile in the Gulf; the
+    # single `phone` above is the primary one, this keeps the rest.
+    phone_numbers: List[str] = Field(default_factory=list)
     location: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
 
     skills: List[str] = Field(default_factory=list)
     technical_skills: List[str] = Field(default_factory=list)
+    # Machinery and trades ("EOT Crane", "TIG Welding", "CNC Lathe") — the part
+    # of a blue-collar profile that a generic skills list flattens away.
+    trade_skills: List[str] = Field(default_factory=list)
     languages: List[str] = Field(default_factory=list)
 
     work_experience: List[WorkExperience] = Field(default_factory=list)
     education: List[Education] = Field(default_factory=list)
     certifications: List[str] = Field(default_factory=list)
+    licenses: List[TradeLicense] = Field(default_factory=list)
     projects: List[Project] = Field(default_factory=list)
     achievements: List[str] = Field(default_factory=list)
 

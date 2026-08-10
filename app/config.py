@@ -74,6 +74,17 @@ class Settings(BaseSettings):
     # signal must be. The detector scores 0.5 for merely having a document
     # attached, so anything at or below that lets the whole mailbox through.
     detector_min_score: float = 0.7
+    # Open every document attachment and judge it on its contents, whatever it
+    # is called. `01.pdf` and `Scan_2026.pdf` are what candidates actually send,
+    # and a filename cannot be trusted in either direction. Costs a download and
+    # a text-layer read per attachment; the page classifier then rejects
+    # non-resumes before any OCR or LLM spend. Turn off to fall back to
+    # `detector_min_score` alone.
+    inspect_all_documents: bool = True
+    # Images cannot be read without OCR, so they are screened on file size
+    # rather than name — below this, it is a signature logo or an icon, not a
+    # legible scanned page.
+    min_image_attachment_bytes: int = 40_000
     # Stage 2, after parsing: below this the document is not stored as a
     # candidate at all. Guards against a failed OCR falling back to the
     # heuristic parser and turning a hall ticket into a profile.
@@ -108,8 +119,30 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     ocr_languages: str = "eng"
     ocr_min_text_chars: int = 120
+    # Quality pass, run only on the pages that hold the résumé.
+    ocr_dpi: int = 150
+    # How many pages go into one OCR call. The cloud OCR takes a file, so this
+    # is the only lever on how long a single call can take: a 9-page 1.6 MB scan
+    # timed out at 180s as one request, while the same pages two at a time
+    # answer in seconds. Raise it only if your OCR is fast and per-call billed.
+    ocr_chunk_pages: int = 2
+    # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
+    # mis-send cannot run forever. Set above the largest real bundle: the
+    # resume can legitimately sit on page 15 of 30, and stopping early would
+    # lose it. Truncation is always logged, never silent.
+    ocr_max_pages: int = 40
+    # Give up early on a scan that is plainly not an application at all: after
+    # this many pages with no resume *and* no supporting document (certificate,
+    # experience letter, ID) among them, there is no CV coming. Certificates do
+    # NOT trip this — a CV on page 15 behind fourteen of them is the case the
+    # whole page classifier exists for.
+    ocr_give_up_pages: int = 4
     veris_ocr_base_url: str = "https://veris.recursai.in"
     veris_ocr_api_key: str = ""
+    # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume
+    # unreadable and the mail stuck retrying. Raise this for mailboxes that get
+    # large scans; it is the ceiling on one OCR call, not a per-page budget.
+    veris_timeout_seconds: float = 180.0
 
     # ---- Celery ----
     celery_broker_url: str = "redis://localhost:6379/0"

@@ -269,9 +269,16 @@ export default function Home() {
         // nothing resume-like in it, versus one already ingested by an earlier
         // poll. Reporting both as "no resume attachment detected" made a
         // successful ingest look like the file had been rejected.
+        // The backend always says *why* it returned early. Swallowing that
+        // reason turned "your filename matched a blocklist word" into an
+        // unexplained "no resume attachment detected", and a real candidate's
+        // CV was dropped for days before anyone could see which rule did it.
         if (msgRes.attachments.length === 0) {
           if ((msgRes.reason ?? "").startsWith("already processed")) alreadyHandled += 1;
-          else ignoredEmails += 1;
+          else {
+            ignoredEmails += 1;
+            log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
+          }
           continue;
         }
         for (const att of msgRes.attachments) {
@@ -298,7 +305,7 @@ export default function Home() {
         }
       }
       if (ignoredEmails > 0) {
-        log(`${ignoredEmails} email(s) ignored — no resume attachment detected.`, "info");
+        log(`${ignoredEmails} email(s) ignored (reasons above).`, "info");
       }
       if (alreadyHandled > 0) {
         log(

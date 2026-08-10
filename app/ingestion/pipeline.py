@@ -163,11 +163,23 @@ class IngestionPipeline:
                 profile, extracted = self.parser.parse_file(data, att.filename)
             else:
                 extracted = extract_text(data, att.filename)
-                # (3) AI structuring.
+                if extracted.is_resume is False:
+                    raise NotAResumeError(
+                        f"Attachment '{att.filename}' is not a resume: "
+                        f"{extracted.classification_reason}"
+                    )
+                # (3) AI structuring — résumé pages only, so a 30-page bundle
+                #     costs the two pages that hold the CV, not all thirty.
                 hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
-                profile = self.parser.parse(extracted.text, hint=hint)
+                profile = self.parser.parse(extracted.resume_text, hint=hint)
 
-            if not profile.is_resume or (not profile.email and not profile.phone):
+            if not profile.is_resume:
+                reason = (profile.additional_info or {}).get("rejection_reason") \
+                    or getattr(extracted, "classification_reason", "") \
+                    or "content is not a resume"
+                raise NotAResumeError(f"Attachment '{att.filename}' is not a resume: {reason}")
+
+            if not profile.email and not profile.phone:
                 raise NotAResumeError(
                     f"Attachment '{att.filename}' is not a valid candidate resume (missing candidate email & phone in resume)"
                 )
@@ -216,7 +228,7 @@ class IngestionPipeline:
                     # Send reply directly to the sender who emailed cv@adiragroups.com.
                     # This ensures the applicant receives the reply and avoids bounces
                     # from invalid/sample emails printed on resume documents.
-                    reply_to = email.from_addr or email_key
+                    reply_to = email_key or email.from_addr
                     if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(
                             message_id=email.message_id,

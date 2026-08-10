@@ -1,0 +1,496 @@
+"""Find the résumé inside a document that is really an application bundle.
+
+Candidates rarely send a clean two-page CV. They send one PDF holding a CV, a
+trade certificate, three experience letters, a passport scan and a safety card,
+in whatever order the pages came off the scanner. The CV can start on page 1 or
+on page 15, and the file is called ``cv.pdf`` either way.
+
+This module does two page-level jobs:
+
+  * **Locate** the pages that actually carry the candidate's profile, so OCR and
+    the LLM run on those and not on the twelve certificate scans around them.
+  * **Verify** that a résumé is present at all, from the *content*. A file named
+    ``resume.pdf`` whose pages are an invoice or a hall ticket is rejected here,
+    before any money is spent on it.
+
+Everything is scored from signals that appear in real résumés across collar
+colours — a contact block, section headings, employment date ranges, job titles
+(``EOT Crane Operator`` counts exactly as much as ``Backend Engineer``) — and
+scored *down* by the vocabulary that only ever appears on the other documents in
+the bundle. No filename is consulted, by design.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from typing import Dict, List, Sequence
+
+# --------------------------------------------------------------------------- #
+#  Page kinds
+# --------------------------------------------------------------------------- #
+RESUME = "resume"
+CERTIFICATE = "certificate"
+EXPERIENCE_LETTER = "experience_letter"
+ID_DOCUMENT = "id_document"
+OTHER = "other"          # invoice, hall ticket, receipt — the reject bucket
+UNKNOWN = "unknown"      # has content, commits to nothing — never a rejection
+BLANK = "blank"
+
+# A page must clear this to seed a résumé region on its own.
+_RESUME_SEED_SCORE = 2.5
+# A page next to a résumé page needs far less to be read as its continuation:
+# page 2 of a CV routinely has no name, no email and no phone.
+_CONTINUATION_SCORE = 1.0
+# And sometimes it has nothing at all to score on. A real CV's page 2 read
+# "EHS activities - Environmental Aspect/Impact, HIRA, in line with ..." — three
+# thousand characters of job responsibilities, no heading, no date, no contact
+# block, so it scored 0.00 and was dropped from the extraction. Prose that sits
+# directly behind the résumé and carries none of the markings of another
+# document is part of the résumé. Bounded, so an unmarked tail cannot run away.
+_WEAK_CONTINUATION_PAGES = 2
+# Below this a page holds no usable text at all (a scan with a failed OCR).
+_MIN_PAGE_CHARS = 40
+
+
+# --------------------------------------------------------------------------- #
+#  Résumé signals
+# --------------------------------------------------------------------------- #
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]{2,}")
+# Deliberately the same shape the parser uses, so a page that scores a phone is
+# a page the parser can actually pull one from.
+_PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{8,}\d")
+
+# A page whose title is literally "CURRICULUM VITAE" needs no other evidence.
+_RESUME_TITLE_RE = re.compile(
+    r"^\W*(curriculum\s*vitae|resum[eé]|c\.?\s*v\.?|bio[\s-]*data|"
+    r"personal\s+(?:profile|resume)|candidate\s+profile)\W*$",
+    re.IGNORECASE,
+)
+
+# Section headings, in the wording used by both software and trade résumés.
+_HEADINGS = {
+    "objective", "career objective", "professional objective",
+    "summary", "profile summary", "professional summary", "career summary",
+    "personal details", "personal information", "personal profile",
+    "personal data", "about me", "personal particulars",
+    "work experience", "professional experience", "employment history",
+    "employment record", "experience", "work history", "career history",
+    "job responsibilities", "duties and responsibilities", "responsibilities",
+    "education", "educational qualification", "educational qualifications",
+    "academic qualification", "academic qualifications", "academics",
+    "qualifications", "educational background",
+    "skills", "key skills", "technical skills", "core competencies",
+    "competencies", "areas of expertise", "skill set", "trade skills",
+    "machinery handled", "equipment handled", "tools handled", "strengths",
+    "certifications", "certificates", "licenses", "licences", "trainings",
+    "training", "courses", "safety training",
+    "projects", "key projects", "major projects", "site experience",
+    "achievements", "accomplishments", "awards", "honors", "honours",
+    "languages", "languages known", "linguistic proficiency",
+    "declaration", "references", "referees", "hobbies", "interests",
+    "passport details", "visa status", "availability",
+}
+_MAX_HEADING_LEN = 40
+
+# Employment / education date ranges: "Jan 2019 - Present", "2015 – 2018".
+_MONTH = (
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*"
+)
+_DATE_TOKEN = rf"(?:{_MONTH}\.?[\s,'-]*\d{{2,4}}|\d{{1,2}}[/-]\d{{4}}|(?:19|20)\d{{2}})"
+_DATE_RANGE_RE = re.compile(
+    rf"{_DATE_TOKEN}\s*(?:[-–—]|to|till|until)\s*(?:{_DATE_TOKEN}|present|current|till\s*date|now)",
+    re.IGNORECASE,
+)
+
+# Job titles. Trade roles are first-class here: a bundle from a fabrication yard
+# is the case this whole module exists for.
+_JOB_TITLE_RE = re.compile(
+    r"\b(?:"
+    r"engineer|developer|programmer|analyst|architect|administrator|consultant|"
+    r"manager|supervisor|foreman|superintendent|coordinator|executive|officer|"
+    r"technician|mechanic|fitter|welder|fabricator|machinist|operator|driver|"
+    r"electrician|plumber|carpenter|mason|rigger|scaffolder|painter|storekeeper|"
+    r"inspector|surveyor|draughtsman|draftsman|designer|estimator|planner|"
+    r"helper|labour|labor|assistant|trainee|apprentice|intern|"
+    r"nurse|accountant|teacher|lecturer|clerk|receptionist|chef|steward"
+    r")s?\b",
+    re.IGNORECASE,
+)
+
+# Machinery and trade nouns that only ever show up in a work-history bullet.
+_TRADE_NOUN_RE = re.compile(
+    r"\b(?:eot\s*crane|overhead\s*crane|mobile\s*crane|forklift|cnc|vmc|lathe|"
+    r"tig|mig|arc\s*weld|smaw|gtaw|gmaw|piping|pipe\s*fitting|hvac|plc|scada|"
+    r"hydraulic|pneumatic|boiler|turbine|shutdown|fabrication|erection|"
+    r"scaffolding|rigging|blueprint|isometric|welding)\b",
+    re.IGNORECASE,
+)
+
+
+# --------------------------------------------------------------------------- #
+#  The other documents in the bundle
+# --------------------------------------------------------------------------- #
+# `strong` markers identify a page on their own; the rest need corroboration.
+_DOC_MARKERS: Dict[str, Dict[str, Sequence[str]]] = {
+    CERTIFICATE: {
+        "strong": (
+            r"this\s+is\s+to\s+certify\s+that",
+            r"certificate\s+of\s+(?:completion|participation|achievement|merit|training)",
+            r"has\s+successfully\s+completed\s+the",
+            r"is\s+hereby\s+awarded",
+        ),
+        # "date of issue" is not here: a résumé's passport block states one.
+        "weak": (
+            r"certificate\s+no\.?", r"awarded\s+to", r"course\s+duration",
+            r"grade\s+obtained", r"authorised\s+signatory",
+        ),
+    },
+    EXPERIENCE_LETTER: {
+        "strong": (
+            r"to\s+whom\s+it\s+may\s+concern",
+            r"experience\s+certificate",
+            r"service\s+certificate",
+            r"relieving\s+letter",
+            r"we\s+(?:hereby\s+)?certify\s+that\s+(?:mr|ms|mrs)",
+            r"has\s+been\s+working\s+with\s+(?:us|our)",
+            r"was\s+employed\s+with\s+(?:us|our)",
+        ),
+        "weak": (
+            r"his\s+conduct", r"her\s+conduct", r"we\s+wish\s+(?:him|her)",
+            r"last\s+drawn\s+salary", r"yours\s+faithfully", r"human\s+resources?\s+department",
+        ),
+    },
+    ID_DOCUMENT: {
+        # Only the wording of the *document itself* is strong. "Passport No",
+        # "Driving Licence" and "Aadhaar" are demoted to weak because a trade
+        # résumé lists all three as personal details — stating a credential is
+        # not the same as being it.
+        "strong": (
+            r"republic\s+of\s+\w+", r"government\s+of\s+\w+", r"identity\s+card",
+            r"emirates\s+id\s+card", r"labour\s+card", r"resident\s+identity",
+        ),
+        # "Nationality", "Blood group", "Date of expiry" and "Place of issue"
+        # were weak markers here until a real CV lost a page to them: Indian and
+        # Gulf résumés put exactly those fields in a PERSONAL DETAILS block, and
+        # this module's own heading list accepts "passport details" as a résumé
+        # section. A CV stating its passport number is not a passport.
+        "weak": (
+            r"holder'?s\s+signature", r"machine\s+readable\s+zone",
+            r"see\s+reverse\s+of\s+this\s+card", r"driving\s+licen[cs]e",
+            r"aadhaar", r"passport\s+no\.?",
+        ),
+    },
+    OTHER: {
+        "strong": (
+            r"tax\s+invoice", r"\bgstin\b", r"hall\s+ticket", r"admit\s+card",
+            r"payment\s+receipt", r"amount\s+(?:paid|due)", r"invoice\s+no\.?",
+            r"order\s+(?:id|no)\.?", r"transaction\s+id", r"bill\s+to",
+            r"one[\s-]*time\s+password", r"\botp\b",
+        ),
+        "weak": (
+            r"\bsubtotal\b", r"\bgrand\s+total\b", r"\bdue\s+date\b", r"\bqty\b",
+            r"roll\s+(?:no|number)", r"examination\s+centre", r"seat\s+no",
+            r"terms\s+and\s+conditions", r"unsubscribe",
+        ),
+    },
+}
+_DOC_MARKERS_COMPILED = {
+    kind: {
+        weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+        for weight, patterns in groups.items()
+    }
+    for kind, groups in _DOC_MARKERS.items()
+}
+
+
+# --------------------------------------------------------------------------- #
+@dataclass
+class PageSignals:
+    """What was actually found on one page. Kept for logging and for tests."""
+
+    chars: int = 0
+    has_resume_title: bool = False
+    has_email: bool = False
+    has_phone: bool = False
+    headings: List[str] = field(default_factory=list)
+    date_ranges: int = 0
+    job_titles: int = 0
+    trade_nouns: int = 0
+    marker_hits: Dict[str, float] = field(default_factory=dict)
+
+    @property
+    def positive_count(self) -> int:
+        return sum((
+            self.has_resume_title, self.has_email, self.has_phone,
+            bool(self.headings), bool(self.date_ranges),
+            bool(self.job_titles), bool(self.trade_nouns),
+        ))
+
+
+@dataclass
+class PageClassification:
+    page_number: int            # 1-based, as a human would cite it
+    kind: str
+    score: float
+    signals: PageSignals
+
+
+@dataclass
+class DocumentClassification:
+    """Where the résumé is, and whether there is one."""
+
+    is_resume: bool
+    confidence: float                       # 0.0–1.0, < 0.30 when rejected
+    resume_pages: List[int]                 # 1-based page numbers, in order
+    pages: List[PageClassification]
+    reason: str
+
+    @property
+    def page_kinds(self) -> Dict[int, str]:
+        return {p.page_number: p.kind for p in self.pages}
+
+
+# --------------------------------------------------------------------------- #
+#  Signal collection
+# --------------------------------------------------------------------------- #
+_BULLET_PREFIX = re.compile(r"^[\s•●▪·*\-–—\d.)]+")
+
+
+def _heading_on(line: str) -> str | None:
+    """Return the canonical heading if this line *is* a section heading."""
+    cleaned = _BULLET_PREFIX.sub("", line).strip().rstrip(":").strip()
+    if not cleaned or len(cleaned) > _MAX_HEADING_LEN:
+        return None
+    # Headings survive OCR as "E D U C A T I O N" often enough to be worth it.
+    normalised = re.sub(r"[^a-z&\s]", " ", cleaned.lower())
+    normalised = " ".join(normalised.split())
+    if normalised in _HEADINGS:
+        return normalised
+    despaced = normalised.replace(" ", "")
+    for heading in _HEADINGS:
+        if despaced == heading.replace(" ", ""):
+            return heading
+    return None
+
+
+def collect_signals(text: str) -> PageSignals:
+    """Read one page's text and report every résumé/non-résumé signal on it."""
+    text = text or ""
+    signals = PageSignals(chars=len(text.strip()))
+    if signals.chars < _MIN_PAGE_CHARS:
+        return signals
+
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+
+    for line in lines[:12]:
+        if _RESUME_TITLE_RE.match(line):
+            signals.has_resume_title = True
+            break
+
+    seen_headings: set[str] = set()
+    for line in lines:
+        heading = _heading_on(line)
+        if heading and heading not in seen_headings:
+            seen_headings.add(heading)
+            signals.headings.append(heading)
+
+    signals.has_email = bool(_EMAIL_RE.search(text))
+    signals.has_phone = bool(_PHONE_RE.search(text))
+    signals.date_ranges = len(_DATE_RANGE_RE.findall(text))
+    signals.job_titles = len({m.group(0).lower() for m in _JOB_TITLE_RE.finditer(text)})
+    signals.trade_nouns = len({m.group(0).lower() for m in _TRADE_NOUN_RE.finditer(text)})
+
+    for kind, groups in _DOC_MARKERS_COMPILED.items():
+        weight = 0.0
+        for pattern in groups["strong"]:
+            if pattern.search(text):
+                weight += 2.0
+        for pattern in groups["weak"]:
+            if pattern.search(text):
+                weight += 0.75
+        if weight:
+            signals.marker_hits[kind] = weight
+
+    return signals
+
+
+def score_signals(signals: PageSignals) -> float:
+    """Turn signals into a single "how résumé-like is this page" number."""
+    if signals.chars < _MIN_PAGE_CHARS:
+        return 0.0
+
+    score = 0.0
+    if signals.has_resume_title:
+        score += 2.0
+    if signals.has_email:
+        score += 1.0
+    if signals.has_phone:
+        score += 0.5
+    # Headings are the strongest structural evidence, but three of them say
+    # about as much as six — cap the contribution so a keyword-stuffed page
+    # cannot outrank a real one.
+    score += min(len(signals.headings), 4) * 1.0
+    score += min(signals.date_ranges, 3) * 0.5
+    score += min(signals.job_titles, 3) * 0.5
+    score += min(signals.trade_nouns, 3) * 0.25
+
+    # Every certificate carries a name and a date; that is not a résumé.
+    score -= min(sum(signals.marker_hits.values()), 4.0)
+    return round(score, 2)
+
+
+def _document_kind(signals: PageSignals) -> str:
+    """Which non-résumé document this page looks like, if any."""
+    if not signals.marker_hits:
+        return OTHER
+    return max(signals.marker_hits.items(), key=lambda kv: kv[1])[0]
+
+
+def classify_page(text: str, page_number: int = 1) -> PageClassification:
+    signals = collect_signals(text)
+    score = score_signals(signals)
+
+    if signals.chars < _MIN_PAGE_CHARS:
+        kind = BLANK
+    elif score >= _RESUME_SEED_SCORE:
+        kind = RESUME
+    elif score < 0:
+        # Only name the page as another kind of document when that evidence
+        # actually outweighs the résumé evidence. A CV page that lists a
+        # passport number is not a passport, and calling it one is what dropped
+        # a candidate's employment history out of the extraction.
+        kind = _document_kind(signals)
+    else:
+        kind = UNKNOWN
+    return PageClassification(page_number, kind, score, signals)
+
+
+# --------------------------------------------------------------------------- #
+#  Document level
+# --------------------------------------------------------------------------- #
+def _confidence_for(is_resume: bool, best_score: float, total_signals: int) -> float:
+    """Map evidence onto 0.0–1.0.
+
+    A rejection is capped below 0.30 so that it lands under every ingest gate,
+    and an acceptance is capped below 1.0 because a classifier that has only
+    read section headings has not yet read the résumé.
+    """
+    if not is_resume:
+        return round(min(0.29, 0.05 + 0.04 * max(total_signals, 0)), 2)
+    # 2.5 (the seed threshold) → 0.55; 8.0 and up → 0.95.
+    scaled = 0.55 + (min(best_score, 8.0) - _RESUME_SEED_SCORE) * (0.40 / 5.5)
+    return round(max(0.35, min(0.95, scaled)), 2)
+
+
+def classify_document(page_texts: Sequence[str]) -> DocumentClassification:
+    """Locate the résumé across every page of a bundle.
+
+    Pages are scored independently, then résumé *regions* are grown outward from
+    each high-scoring page: page 2 of a CV has no name, no email and no phone,
+    so it only ever passes as the continuation of the page before it.
+    """
+    texts = list(page_texts or [])
+    if not texts:
+        return DocumentClassification(False, 0.05, [], [], "document had no pages")
+
+    pages = [classify_page(text, i + 1) for i, text in enumerate(texts)]
+    seeds = [p.page_number for p in pages if p.kind == RESUME]
+
+    if seeds:
+        selected = _grow_regions(pages, seeds)
+        best = max(p.score for p in pages if p.page_number in selected)
+        total_signals = sum(
+            p.signals.positive_count for p in pages if p.page_number in selected
+        )
+        reason = (
+            f"resume content found on page(s) "
+            f"{', '.join(str(n) for n in selected)} of {len(pages)}"
+        )
+        return DocumentClassification(
+            True, _confidence_for(True, best, total_signals), selected, pages, reason,
+        )
+
+    # No single page cleared the bar. A one-page résumé whose headings the OCR
+    # mangled can still be recognisable when the page is read as a whole, so
+    # score the concatenation before giving up — but only that, never the
+    # filename.
+    whole = "\n".join(texts)
+    whole_signals = collect_signals(whole)
+    whole_score = score_signals(whole_signals)
+    if whole_score >= _RESUME_SEED_SCORE:
+        selected = [p.page_number for p in pages if p.signals.chars >= _MIN_PAGE_CHARS]
+        return DocumentClassification(
+            True,
+            _confidence_for(True, whole_score, whole_signals.positive_count),
+            selected or [1],
+            pages,
+            "no single page qualified; whole-document signals did",
+        )
+
+    dominant = _document_kind(whole_signals) if whole_signals.marker_hits else OTHER
+    reason = (
+        f"no resume content on any of {len(pages)} page(s); "
+        f"document reads as '{dominant}' (best page score {max(p.score for p in pages):.2f})"
+    )
+    return DocumentClassification(
+        False,
+        _confidence_for(False, whole_score, whole_signals.positive_count),
+        [],
+        pages,
+        reason,
+    )
+
+
+def _grow_regions(pages: List[PageClassification], seeds: Sequence[int]) -> List[int]:
+    """Extend each seed page outward over its continuation pages."""
+    by_number = {p.page_number: p for p in pages}
+    selected = set(seeds)
+
+    for seed in seeds:
+        for step in (1, -1):
+            number = seed + step
+            weak_used = 0
+            while number in by_number and number not in selected:
+                page = by_number[number]
+                # A certificate that happens to mention a job title is not the
+                # next page of the CV. But markers alone are not enough to stop
+                # on: a résumé page listing a passport number trips the ID
+                # markers, and breaking there cost a real candidate his
+                # employment history. Stop only where the other-document
+                # evidence actually outweighs the résumé evidence — which is
+                # what a negative-to-low score means.
+                if (
+                    page.signals.marker_hits
+                    and page.kind != RESUME
+                    and page.score < _CONTINUATION_SCORE
+                ):
+                    break
+                # A blank page ends a document; it never bridges two.
+                if page.signals.chars < _MIN_PAGE_CHARS:
+                    break
+
+                if page.score >= _CONTINUATION_SCORE:
+                    weak_used = 0
+                elif page.score >= 0 and weak_used < _WEAK_CONTINUATION_PAGES:
+                    # Unmarked prose behind the résumé: responsibilities,
+                    # duties, a spilled-over employment history.
+                    weak_used += 1
+                else:
+                    break
+
+                selected.add(number)
+                number += step
+    return sorted(selected)
+
+
+def select_text(page_texts: Sequence[str], pages: Sequence[int]) -> str:
+    """Join the selected pages back into one string, in document order."""
+    out = []
+    for number in sorted(pages):
+        index = number - 1
+        if 0 <= index < len(page_texts):
+            text = (page_texts[index] or "").strip()
+            if text:
+                out.append(text)
+    return "\n\n".join(out)
