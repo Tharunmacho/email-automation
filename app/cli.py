@@ -248,7 +248,7 @@ def reply_existing(
     from app.ai.reply_generator import generate_contextual_reply
     from app.core.models import EmailMessage
     from app.db.repository import CandidateRepository
-    from app.gmail.client import GmailClient
+    from app.email_client import get_email_client
 
     repo = CandidateRepository()
     candidates = repo.list_candidates(limit=1000)
@@ -256,7 +256,7 @@ def reply_existing(
         typer.echo("No candidate records found in MongoDB.")
         return
 
-    gmail = GmailClient()
+    gmail = get_email_client()
     sent_count = 0
     skipped_count = 0
 

@@ -225,11 +225,9 @@ def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> Non
 
     if message_ids:
         try:
-            from app.gmail.client import GmailClient
+            from app.email_client import get_email_client
 
-            # One client for the whole batch — each construction refreshes the
-            # OAuth token and re-runs API discovery.
-            gmail = GmailClient()
+            gmail = get_email_client()
             for message_id in message_ids:
                 # Retire rather than free: the search excludes both labels, so
                 # these emails never come back, while a *new* email carrying the

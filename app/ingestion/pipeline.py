@@ -213,18 +213,10 @@ class IngestionPipeline:
             if settings.auto_reply_enabled and record.status != "needs_review":
                 try:
                     reply_text = generate_contextual_reply(profile, email)
-                    # Reply to the candidate, not to whoever sent the mail. When a
-                    # resume is forwarded — by a recruiter, or by you to your own
-                    # inbox — the sender is not the applicant, and the
-                    # acknowledgement would go to the forwarder instead. The
-                    # address from the resume wins; the sender is the fallback for
-                    # resumes that carry only a phone number.
-                    to_addr_lower = (email.to_addr or "").lower()
-                    reply_to = (
-                        email_key
-                        if (email_key and email_key.lower() != to_addr_lower)
-                        else email.from_addr
-                    )
+                    # Send reply directly to the sender who emailed cv@adiragroups.com.
+                    # This ensures the applicant receives the reply and avoids bounces
+                    # from invalid/sample emails printed on resume documents.
+                    reply_to = email.from_addr or email_key
                     if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(
                             message_id=email.message_id,

@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, List
 
 from app.config import settings
-from app.gmail.client import GmailClient
+from app.email_client import get_email_client, GmailClient
 from app.ingestion.pipeline import IngestionPipeline, ProcessResult
 from app.logging_config import get_logger
 
@@ -32,8 +32,8 @@ class BatchSummary:
 
 
 class IngestionRunner:
-    def __init__(self, gmail: GmailClient | None = None, pipeline: IngestionPipeline | None = None):
-        self.gmail = gmail or GmailClient()
+    def __init__(self, gmail: Any | None = None, pipeline: IngestionPipeline | None = None):
+        self.gmail = gmail or get_email_client()
         self.pipeline = pipeline or IngestionPipeline()
 
     def run_once(self, query: str | None = None) -> BatchSummary:
@@ -46,8 +46,8 @@ class IngestionRunner:
         import concurrent.futures
 
         def _process_one_message(mid: str) -> ProcessResult | None:
-            # Use thread-local Gmail client for thread-safety
-            gmail_client = GmailClient()
+            # Use provided runner client (e.g. test stub) or fresh client per message
+            gmail_client = self.gmail if self.gmail else get_email_client()
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)

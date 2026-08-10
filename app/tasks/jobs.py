@@ -14,7 +14,7 @@ Both take the same lock, so the two styles can never run on top of each other.
 from __future__ import annotations
 
 from app.config import settings
-from app.gmail.client import GmailClient
+from app.email_client import get_email_client, GmailClient
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.runner import BatchSummary, IngestionRunner
 from app.logging_config import get_logger
@@ -83,7 +83,7 @@ def run_poll_cycle(query: str | None = None) -> dict:
 def poll_gmail() -> dict:
     try:
         with redis_lock(POLL_LOCK, settings.poll_lock_ttl_seconds):
-            gmail = GmailClient()
+            gmail = get_email_client()
             ids = gmail.search_message_ids()
             for mid in ids:
                 process_message.delay(mid)
@@ -100,7 +100,7 @@ def poll_gmail() -> dict:
     default_retry_delay=30,
 )
 def process_message(self, message_id: str) -> dict:
-    gmail = GmailClient()
+    gmail = get_email_client()
     pipeline = IngestionPipeline()
     try:
         email = gmail.get_message(message_id)

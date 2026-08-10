@@ -26,7 +26,29 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
-    # ---- Gmail ----
+    # ---- Email Provider Choice ----
+    # "smtp_imap" | "gmail"
+    email_provider: str = "smtp_imap"
+
+    # ---- SMTP (Outgoing Email) ----
+    smtp_server: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+
+    # ---- IMAP (Incoming Email) ----
+    imap_server: str = ""
+    imap_port: int = 993
+    imap_username: str = ""
+    imap_password: str = ""
+    imap_use_ssl: bool = True
+    imap_folder: str = "INBOX"
+    imap_processed_folder: str = "Resumes/Processed"
+    imap_deleted_folder: str = "Resumes/Deleted"
+
+    # ---- Gmail API (Legacy / Alternative) ----
     gmail_credentials_file: str = "secrets/gmail_credentials.json"
     gmail_token_file: str = "secrets/gmail_token.json"
     # No age window, and both label buckets are excluded: handled mail never

@@ -416,6 +416,9 @@ function BulletText({ text }: { text: string }) {
   );
 }
 
+function RawPagesView({ pages }: { pages?: any[] }) {
+  if (!pages || pages.length === 0) {
+    return (
       <div style={{ padding: "1.5rem", background: "#f0f7ff", borderRadius: "0.6rem", border: "1px solid #dbeafe", color: "#64748b", fontSize: "0.9rem" }}>
         No individual page OCR details recorded for this candidate.
       </div>
