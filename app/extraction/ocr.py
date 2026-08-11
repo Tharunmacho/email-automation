@@ -89,14 +89,12 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
     apart from the certificates scanned into the same PDF. Falls back to local
     Tesseract if Veris fails.
     """
-    import re
-    suffix = Path(filename).suffix or ".pdf"
-    clean_name = re.sub(r"[^\w\-.]", "_", Path(filename).name) if filename else f"resume{suffix}"
-    if not clean_name.lower().endswith(suffix.lower()):
-        clean_name += suffix
+    import tempfile
+    from pathlib import Path
 
+    suffix = Path(filename).suffix or ".pdf"
     with tempfile.TemporaryDirectory() as tmp:
-        temp_file = Path(tmp) / clean_name
+        temp_file = Path(tmp) / f"temp_ocr{suffix}"
         temp_file.write_bytes(file_data)
 
         log.info("Running Veris OCR on file %s (%d bytes)", filename, len(file_data))

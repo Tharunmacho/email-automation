@@ -278,12 +278,12 @@ def _classified(
     # every scanned application in the mailbox as a misnamed file, and marked
     # each one handled. An empty extraction is an extraction error.
     if not any((t or "").strip() for t in page_texts):
-        log.warning(
-            "No text could be extracted from %s document (%d page(s)). "
-            "Proceeding with scanned placeholder so candidate is preserved for review.",
-            method, len(page_texts),
+        raise TextExtractionError(
+            f"No text could be extracted from this {method} document "
+            f"({len(page_texts)} page(s)). It is most likely a scan with no text "
+            "layer while OCR is unavailable: install Tesseract (or set "
+            "TESSERACT_CMD) or configure VERIS_OCR_API_KEY."
         )
-        page_texts = ["Resume Document (Scanned PDF/Image)"]
 
     result = pc.classify_document(page_texts)
     pages = [

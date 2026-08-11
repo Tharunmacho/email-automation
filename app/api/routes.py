@@ -182,40 +182,19 @@ def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> R
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
     backend_name = record.resume.storage_backend or settings.storage_backend
-    data: bytes | None = None
     try:
         data = get_storage_backend(backend_name).load(record.resume.storage_key)
     except Exception:
+        # Fallback check: if record backend failed, try alternate storage backend (local vs gridfs)
         try:
             alt_backend = "local" if backend_name == "gridfs" else "gridfs"
             data = get_storage_backend(alt_backend).load(record.resume.storage_key)
         except Exception:
-            data = None
-
-    if not data and record.email_message_ids:
-        try:
-            from app.email_client import get_email_client
-            client = get_email_client()
-            msg_id = record.email_message_ids[0]
-            email_msg = client.get_message(msg_id)
-            for att in email_msg.attachments:
-                if att.filename == record.resume.original_filename or att.size == record.resume.size_bytes or len(email_msg.attachments) == 1:
-                    data = client.download_attachment(msg_id, att)
-                    if data:
-                        try:
-                            get_storage_backend(settings.storage_backend).save(record.resume.storage_key, data)
-                        except Exception:
-                            pass
-                        break
-        except Exception as fallback_err:
-            log.warning("Gmail attachment fallback download failed for candidate %s: %s", candidate_id, fallback_err)
-
-    if not data:
-        filename = record.resume.original_filename or "resume.pdf"
-        raise HTTPException(
-            status_code=404,
-            detail=f"Resume file '{filename}' is missing from server storage."
-        )
+            filename = record.resume.original_filename or "resume.pdf"
+            raise HTTPException(
+                status_code=404,
+                detail=f"Resume file '{filename}' is missing from server storage."
+            )
     
     original_name = record.resume.original_filename or "resume.pdf"
     safe_filename = original_name.replace('"', '').replace("'", "")

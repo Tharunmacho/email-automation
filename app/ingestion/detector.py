@@ -124,14 +124,14 @@ def detect(email: EmailMessage) -> DetectionResult:
         score += 0.1
         reasons.append("resume keyword in body")
 
-    has_resume_signal = (
-        bool(_STRONG_RESUME_SUBJECT.search(subject))
-        or bool(_RESUME_KEYWORDS.search(subject))
-        or bool(_RESUME_KEYWORDS.search(filenames))
-    )
     if _PROMO_SUBJECT.search(subject):
-        if has_resume_signal:
-            reasons.append("promo word present but resume signals exist in subject/attachment")
+        # "Application for Welder - certificates attached" trips the promo list
+        # on the word "certificate" and loses 0.4, which sinks a genuine trade
+        # application below the cut-off. The promo penalty is for mail with no
+        # application signal at all; an explicit "resume"/"application for" in
+        # the subject settles the question.
+        if _STRONG_RESUME_SUBJECT.search(subject):
+            reasons.append("promo word present but subject states an application")
         else:
             score -= 0.4
             reasons.append("promotional/transactional subject")

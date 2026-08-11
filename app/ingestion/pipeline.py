@@ -159,9 +159,8 @@ class IngestionPipeline:
                 )
 
             # (2) Extract text and AI structure.
-            hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr} <{email.from_addr}>"
             if hasattr(self.parser, "parse_file"):
-                profile, extracted = self.parser.parse_file(data, att.filename, hint=hint)
+                profile, extracted = self.parser.parse_file(data, att.filename)
             else:
                 extracted = extract_text(data, att.filename)
                 if extracted.is_resume is False:
@@ -171,6 +170,7 @@ class IngestionPipeline:
                     )
                 # (3) AI structuring — résumé pages only, so a 30-page bundle
                 #     costs the two pages that hold the CV, not all thirty.
+                hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                 profile = self.parser.parse(extracted.resume_text, hint=hint)
 
             if not profile.is_resume:
@@ -180,20 +180,19 @@ class IngestionPipeline:
                 raise NotAResumeError(f"Attachment '{att.filename}' is not a resume: {reason}")
 
             if not profile.email and not profile.phone:
-                if email and email.from_addr and "@" in email.from_addr:
-                    profile.email = email.from_addr
-                    if not profile.full_name or profile.full_name.lower() in ("candidate profile", "unnamed"):
-                        sender_name = email.from_name or email.from_addr.split("@")[0]
-                        profile.full_name = sender_name.replace(".", " ").replace("_", " ").title()
-                    if profile.confidence < settings.min_ingest_confidence:
-                        profile.confidence = max(profile.confidence + 0.35, settings.min_ingest_confidence)
-                else:
-                    raise NotAResumeError(
-                        f"Attachment '{att.filename}' is not a valid candidate resume (missing candidate email & phone in resume)"
-                    )
+                raise NotAResumeError(
+                    f"Attachment '{att.filename}' is not a valid candidate resume (missing candidate email & phone in resume)"
+                )
 
-            # If confidence is below threshold but document IS a resume, ingest as needs_review instead of rejecting
-            low_confidence = profile.confidence < settings.min_ingest_confidence
+            # A contact detail alone is not a resume — every letterhead has one.
+            # When OCR fails and the heuristic parser scrapes a phone number off
+            # a hall ticket, this is what stops it becoming a candidate.
+            if profile.confidence < settings.min_ingest_confidence:
+                raise NotAResumeError(
+                    f"Attachment '{att.filename}' does not look like a resume "
+                    f"(confidence {profile.confidence:.2f} < {settings.min_ingest_confidence:.2f}; "
+                    f"extraction may have failed)"
+                )
 
             # (4) Deduplication strictly using Candidate Email & Phone extracted from the resume.
             email_key = normalize_email(profile.email)
@@ -211,7 +210,7 @@ class IngestionPipeline:
             record = self._build_record(
                 email, att, data, resume_hash, extracted, profile, email_key, phone_key
             )
-            if profile.confidence < _MIN_CONFIDENCE or low_confidence:
+            if profile.confidence < _MIN_CONFIDENCE:
                 record.status = "needs_review"
 
             self._store_file(record, data, att)
@@ -226,7 +225,9 @@ class IngestionPipeline:
             if settings.auto_reply_enabled and record.status != "needs_review":
                 try:
                     reply_text = generate_contextual_reply(profile, email)
-                    # Always send auto-reply to the actual email sender (email.from_addr)
+                    # Send reply directly to the sender who emailed cv@adiragroups.com.
+                    # This ensures the applicant receives the reply and avoids bounces
+                    # from invalid/sample emails printed on resume documents.
                     reply_to = email.from_addr or email_key
                     if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(

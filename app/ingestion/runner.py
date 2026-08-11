@@ -33,7 +33,6 @@ class BatchSummary:
 
 class IngestionRunner:
     def __init__(self, gmail: Any | None = None, pipeline: IngestionPipeline | None = None):
-        self._custom_gmail = gmail is not None
         self.gmail = gmail or get_email_client()
         self.pipeline = pipeline or IngestionPipeline()
 
@@ -47,14 +46,14 @@ class IngestionRunner:
         import concurrent.futures
 
         def _process_one_message(mid: str) -> ProcessResult | None:
-            # Use custom runner client if passed explicitly (e.g. test stub), else fresh client per thread for SSL thread-safety
-            gmail_client = self.gmail if self._custom_gmail else get_email_client()
+            # Use provided runner client (e.g. test stub) or fresh client per message
+            gmail_client = self.gmail if self.gmail else get_email_client()
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("Failed to process message %s", mid)
-                return ProcessResult(message_id=mid, status="error", reason=f"Message processing failed: {exc}")
+                return None
 
             # Post-processing gets its own guard. The candidate is already in
             # Mongo by this point, so a Gmail hiccup here must not discard the
@@ -142,4 +141,5 @@ class IngestionRunner:
         if settings.gmail_mark_read:
             self.gmail.mark_read(message_id)
         if settings.gmail_processed_label:
+            self.gmail.apply_label(message_id, settings.gmail_processed_label)
             self.gmail.apply_label(message_id, settings.gmail_processed_label)
