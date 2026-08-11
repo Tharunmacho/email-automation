@@ -463,19 +463,20 @@ class ResumeParser:
                     old_timeout = socket.getdefaulttimeout()
                     res = None
                     last_veris_exc = None
-                    for attempt in range(1, 3):
-                        try:
-                            socket.setdefaulttimeout(settings.veris_timeout_seconds)
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                                future = executor.submit(_do_veris)
-                                res = future.result(timeout=settings.veris_timeout_seconds)
-                                break
-                        except Exception as exc:
-                            last_veris_exc = exc
-                            if attempt < 2:
-                                log.warning("Veris OCR attempt %d failed (%s); retrying...", attempt, exc)
-                                import time
-                                time.sleep(1)
+                    try:
+                        for attempt in range(1, 3):
+                            try:
+                                socket.setdefaulttimeout(settings.veris_timeout_seconds)
+                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                    future = executor.submit(_do_veris)
+                                    res = future.result(timeout=settings.veris_timeout_seconds)
+                                    break
+                            except Exception as exc:
+                                last_veris_exc = exc
+                                if attempt < 2:
+                                    log.warning("Veris OCR attempt %d failed (%s); retrying...", attempt, exc)
+                                    import time
+                                    time.sleep(1)
                     finally:
                         socket.setdefaulttimeout(old_timeout)
 
