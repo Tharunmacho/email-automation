@@ -461,13 +461,26 @@ class ResumeParser:
 
                     import socket
                     old_timeout = socket.getdefaulttimeout()
-                    try:
-                        socket.setdefaulttimeout(settings.veris_timeout_seconds)
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(_do_veris)
-                            res = future.result(timeout=settings.veris_timeout_seconds)
+                    res = None
+                    last_veris_exc = None
+                    for attempt in range(1, 3):
+                        try:
+                            socket.setdefaulttimeout(settings.veris_timeout_seconds)
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                                future = executor.submit(_do_veris)
+                                res = future.result(timeout=settings.veris_timeout_seconds)
+                                break
+                        except Exception as exc:
+                            last_veris_exc = exc
+                            if attempt < 2:
+                                log.warning("Veris OCR attempt %d failed (%s); retrying...", attempt, exc)
+                                import time
+                                time.sleep(1)
                     finally:
                         socket.setdefaulttimeout(old_timeout)
+
+                    if res is None:
+                        raise last_veris_exc or RuntimeError("Veris OCR failed after retries")
 
                     veris_text = resume_text or ""
                     veris_extracted = extracted.model_copy(update={
@@ -479,6 +492,9 @@ class ResumeParser:
                     veris_raw = veris_payload(res) or None
                     profile = map_veris_to_profile(res, veris_text=veris_text)
                     if profile.full_name or profile.email or profile.phone:
+                        info = dict(profile.additional_info or {})
+                        info["extraction_source"] = "veris_ocr_api"
+                        profile.additional_info = info
                         log.info("Veris Resume API successfully parsed profile for %s (%s)", profile.full_name, profile.email)
                         return profile, veris_extracted
                 except Exception as exc:
