@@ -41,7 +41,22 @@ def get_credentials() -> Credentials:
     creds: Credentials | None = None
 
     if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+        try:
+            import json
+            raw_text = token_path.read_text(encoding="utf-8").strip()
+            try:
+                info = json.loads(raw_text)
+            except json.JSONDecodeError:
+                start_idx = raw_text.find("{")
+                end_idx = raw_text.rfind("}")
+                if start_idx != -1 and end_idx > start_idx:
+                    info = json.loads(raw_text[start_idx:end_idx+1])
+                else:
+                    raise
+            creds = Credentials.from_authorized_user_info(info, SCOPES)
+        except Exception as err:
+            log.warning("Could not load token file %s: %s", token_path, err)
+            creds = None
 
     if creds and creds.valid:
         return creds
