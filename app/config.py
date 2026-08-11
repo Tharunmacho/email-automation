@@ -175,7 +175,6 @@ class Settings(BaseSettings):
             "no-reply", "noreply", "donotreply", "do-not-reply",
             "mailer-daemon", "postmaster", "notifications@", "newsletter",
             "billing@", "invoice@", "receipts@", "support@", "alerts@",
-            "infosys", "springboard", "coursera", "udemy", "skillshare",
         ]
     )
 
