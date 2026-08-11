@@ -177,20 +177,43 @@ class SMTPIMAPClient:
             if part.is_multipart():
                 continue
 
-            content_type = part.get_content_type()
-            content_disposition = str(part.get("Content-Disposition", ""))
-            filename = part.get_filename()
+            content_type = (part.get_content_type() or "").lower()
+            content_disposition = str(part.get("Content-Disposition", "") or "")
+            
+            # Extract filename from Content-Disposition or Content-Type (name=...)
+            disp_filename = part.get_filename()
+            name_param = part.get_param("name", header="content-type")
+            raw_filename = disp_filename or name_param or ""
+            filename = _decode_header_str(raw_filename) if raw_filename else ""
 
-            if filename:
-                filename = _decode_header_str(filename)
+            disp_lower = content_disposition.lower()
 
-            is_attachment = "attachment" in content_disposition.lower() or bool(filename)
+            # Determine if this MIME part is a document/image attachment
+            is_doc_type = (
+                content_type.startswith("application/pdf")
+                or content_type.startswith("application/msword")
+                or content_type.startswith("application/vnd")
+                or content_type.startswith("application/rtf")
+                or content_type.startswith("image/")
+                or (content_type.startswith("application/") and content_type not in ("application/json", "application/javascript"))
+            )
+
+            is_attachment = (
+                "attachment" in disp_lower
+                or ("inline" in disp_lower and bool(filename))
+                or bool(filename)
+                or (is_doc_type and content_type not in ("text/plain", "text/html") and not content_type.startswith("multipart/"))
+            )
 
             if is_attachment:
                 payload = part.get_payload(decode=True) or b""
+                if not filename:
+                    ext = ".pdf" if "pdf" in content_type else (".docx" if "word" in content_type or "vnd" in content_type else ".bin")
+                    filename = f"resume_attachment_{part_idx}{ext}"
+
                 att_id = f"{message_id}_{part_idx}"
                 att = Attachment(
-                    filename=filename or f"attachment_{part_idx}.bin",
+                    filename=filename,
                     mime_type=content_type or "application/octet-stream",
                     size=len(payload),
                     attachment_id=att_id,
