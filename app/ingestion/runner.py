@@ -142,4 +142,3 @@ class IngestionRunner:
             self.gmail.mark_read(message_id)
         if settings.gmail_processed_label:
             self.gmail.apply_label(message_id, settings.gmail_processed_label)
-            self.gmail.apply_label(message_id, settings.gmail_processed_label)
