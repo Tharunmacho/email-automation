@@ -102,19 +102,48 @@ class GmailClient:
 
     def _collect_attachments(self, payload: dict) -> List[Attachment]:
         found: list[Attachment] = []
+        idx = 0
 
         def walk(part: dict):
+            nonlocal idx
+            mime_type = (part.get("mimeType") or "").lower()
             filename = part.get("filename") or ""
             body = part.get("body", {})
-            if filename and body.get("attachmentId"):
-                found.append(
-                    Attachment(
-                        filename=filename,
-                        mime_type=part.get("mimeType", "application/octet-stream"),
-                        size=body.get("size", 0),
-                        attachment_id=body["attachmentId"],
+            attachment_id = body.get("attachmentId")
+            headers = part.get("headers", [])
+
+            if not filename and headers:
+                cd = _header(headers, "Content-Disposition")
+                ct = _header(headers, "Content-Type")
+                import re
+                m_fn = re.search(r'filename="?([^";\n]+)"?', cd, re.I) or re.search(r'name="?([^";\n]+)"?', ct, re.I)
+                if m_fn:
+                    filename = m_fn.group(1).strip()
+
+            is_doc_mime = (
+                mime_type.startswith("application/pdf")
+                or mime_type.startswith("application/msword")
+                or mime_type.startswith("application/vnd")
+                or mime_type.startswith("application/rtf")
+                or mime_type.startswith("image/")
+                or (mime_type.startswith("application/") and mime_type not in ("application/json", "application/javascript"))
+            )
+
+            if attachment_id or (is_doc_mime and mime_type not in ("text/plain", "text/html")):
+                idx += 1
+                if not filename:
+                    ext = ".pdf" if "pdf" in mime_type else (".docx" if "word" in mime_type or "vnd" in mime_type else ".bin")
+                    filename = f"resume_attachment_{idx}{ext}"
+
+                if attachment_id:
+                    found.append(
+                        Attachment(
+                            filename=filename,
+                            mime_type=mime_type or "application/octet-stream",
+                            size=body.get("size", 0),
+                            attachment_id=attachment_id,
+                        )
                     )
-                )
             for sub in part.get("parts", []) or []:
                 walk(sub)
 
