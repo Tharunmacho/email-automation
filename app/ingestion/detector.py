@@ -41,6 +41,7 @@ _PROMO_SUBJECT = re.compile(
 # Words that only ever appear in a subject line because someone is applying for
 # a job. `_RESUME_KEYWORDS` is far broader ("job", "career", "details"), too
 # broad to overrule anything on its own.
+
 _STRONG_RESUME_SUBJECT = re.compile(
     r"\b(resume|résumé|cv|curriculum\s*vitae|bio[-\s]?data|"
     r"applying\s+for|application\s+for|apply\s+for|cook|chef|driver|welder|engineer|worker)\b",

@@ -43,6 +43,41 @@ class MockRepository:
     def list_candidates(self, limit=50, skip=0):
         return list(self.candidates.values())[skip : skip + limit]
 
+    def list_summaries(self, limit=50, skip=0, minimal=False):
+        """Rows, not records — the same shape the projection produces.
+
+        What the projection actually leaves out is pinned in
+        tests/test_candidate_listing.py, against the real repository.
+        """
+        records = list(self.candidates.values())[skip : skip + limit]
+        if minimal:
+            return [
+                {
+                    "id": r.id,
+                    "full_name": r.profile.full_name,
+                    "email": r.profile.email,
+                    "phone": r.profile.phone,
+                    "status": r.status,
+                    "confidence": r.profile.confidence,
+                    "created_at": r.created_at,
+                }
+                for r in records
+            ]
+        return [
+            {
+                "id": r.id,
+                "status": r.status,
+                "created_at": r.created_at,
+                "profile": {
+                    "full_name": r.profile.full_name,
+                    "email": r.profile.email,
+                    "phone": r.profile.phone,
+                    "confidence": r.profile.confidence,
+                },
+            }
+            for r in records
+        ]
+
 
 @pytest.fixture
 def test_client():
@@ -111,6 +146,23 @@ def test_list_candidates(test_client):
     assert data["total"] == 1
     assert len(data["items"]) == 1
     assert data["items"][0]["id"] == "candidate-alice"
+
+
+def test_list_candidates_minimal_view_is_the_flat_listing_contract(test_client):
+    response = test_client.get("/candidates?view=minimal")
+    assert response.status_code == 200
+
+    row = response.json()["items"][0]
+    assert set(row) == {
+        "id", "full_name", "email", "phone", "status", "confidence", "created_at",
+    }
+    assert row["full_name"] == "Alice Smith"
+
+
+def test_list_candidates_rejects_a_view_it_does_not_serve(test_client):
+    """`view=full` would put every OCR payload in one response — there is no
+    such view, and asking for one must fail rather than fall back to the list."""
+    assert test_client.get("/candidates?view=full").status_code == 422
 
 
 def test_get_candidate(test_client):
