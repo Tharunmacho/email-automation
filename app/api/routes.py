@@ -535,26 +535,4 @@ frontend_out_dir = os.path.abspath(
 if os.path.exists(frontend_out_dir):
     app.mount("/", StaticFiles(directory=frontend_out_dir, html=True), name="frontend")
 
-def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(current_user)) -> dict:
-    from app.db.mongo import get_db
-    coll = get_db()["job_orders"]
-    coll.replace_one({"id": order_id}, order_data, upsert=True)
-    return {"status": "updated", "record": order_data}
-
-
-@app.delete("/job-orders/{order_id}")
-def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict:
-    from app.db.mongo import get_db
-    coll = get_db()["job_orders"]
-    coll.delete_one({"id": order_id})
-    return {"status": "deleted", "id": order_id}
-
-
-# Serve the static files from the Next.js export.
-# This must be mounted AFTER all other routes so it acts as a fallback.
-frontend_out_dir = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
-)
-if os.path.exists(frontend_out_dir):
-    app.mount("/", StaticFiles(directory=frontend_out_dir, html=True), name="frontend")
 

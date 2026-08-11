@@ -343,8 +343,11 @@ export default function Home() {
         // unexplained "no resume attachment detected", and a real candidate's
         // CV was dropped for days before anyone could see which rule did it.
         if (msgRes.attachments.length === 0) {
-          if ((msgRes.reason ?? "").startsWith("already processed")) alreadyHandled += 1;
-          else {
+          if (msgRes.status === "error") {
+            log(`[ERROR] Email '${msgRes.message_id}': ${msgRes.reason || "Processing error"}.`, "error");
+          } else if ((msgRes.reason ?? "").startsWith("already processed")) {
+            alreadyHandled += 1;
+          } else {
             ignoredEmails += 1;
             log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
           }

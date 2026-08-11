@@ -68,13 +68,23 @@ class SMTPIMAPClient:
         self._fetched_bytes_cache: dict[str, bytes] = {}
 
     def _connect_imap(self) -> imaplib.IMAP4:
-        if self.imap_use_ssl:
-            client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
-        else:
-            client = imaplib.IMAP4(self.imap_server, self.imap_port)
-        if self.imap_username and self.imap_password:
-            client.login(self.imap_username, self.imap_password)
-        return client
+        import time
+        max_retries = 3
+        last_exc = None
+        for attempt in range(max_retries):
+            try:
+                if self.imap_use_ssl:
+                    client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
+                else:
+                    client = imaplib.IMAP4(self.imap_server, self.imap_port)
+                if self.imap_username and self.imap_password:
+                    client.login(self.imap_username, self.imap_password)
+                return client
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+        raise last_exc
 
     # ---- searching -------------------------------------------------------- #
     def search_message_ids(self, query: str | None = None, max_results: int | None = None) -> List[str]:

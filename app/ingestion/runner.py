@@ -51,9 +51,9 @@ class IngestionRunner:
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 log.exception("Failed to process message %s", mid)
-                return None
+                return ProcessResult(message_id=mid, status="error", reason=f"Message processing failed: {exc}")
 
             # Post-processing gets its own guard. The candidate is already in
             # Mongo by this point, so a Gmail hiccup here must not discard the

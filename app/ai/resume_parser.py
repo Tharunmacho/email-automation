@@ -131,14 +131,23 @@ class ResumeParser:
         from pathlib import Path
         text = (resume_text or "").strip()
         emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-        raw_phones = re.findall(r"\+?\d[\d\s\-\(\)]{8,}\d", text)
+        if not emails and hint:
+            hint_emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", hint)
+            if hint_emails:
+                emails = hint_emails
+
+        # Broadened phone regex for Indian/International formats
+        raw_phones = re.findall(r"(?:\+?\d{1,3}[\s\-]?)?(?:\(?\d{2,5}\)?[\s\-]?)?\d{3,5}[\s\-]?\d{3,5}\b", text)
         phones = []
         for p in raw_phones:
             p_clean = p.strip()
-            # Skip dates like 13-03-1998 or 1998-03-13
-            if re.search(r"^(?:19|20)\d{2}[\-\/]\d{2}[\-\/]\d{2}$|^\d{2}[\-\/]\d{2}[\-\/](?:19|20)\d{2}$", p_clean):
-                continue
-            phones.append(p_clean)
+            digits = re.sub(r"\D", "", p_clean)
+            if 8 <= len(digits) <= 14:
+                # Skip dates like 13-03-1998 or 1998-03-13
+                if re.search(r"^(?:19|20)\d{2}[\-\/]\d{2}[\-\/]\d{2}$|^\d{2}[\-\/]\d{2}[\-\/](?:19|20)\d{2}$", p_clean):
+                    continue
+                if p_clean not in phones:
+                    phones.append(p_clean)
         lines = [l.strip() for l in text.splitlines() if l.strip()]
 
         name = None
@@ -398,7 +407,7 @@ class ResumeParser:
             raw_ocr=raw_ocr_fallback,
         )
 
-    def parse_file(self, file_data: bytes, filename: str) -> tuple[CandidateProfile, ExtractedDocument]:
+    def parse_file(self, file_data: bytes, filename: str, hint: str = "") -> tuple[CandidateProfile, ExtractedDocument]:
         import tempfile
         from pathlib import Path
         from app.core.models import ExtractedDocument
@@ -493,7 +502,7 @@ class ResumeParser:
                     )
 
         # Fall back to local text parsing.
-        profile = self.parse_text_fallback(resume_text, hint=filename)
+        profile = self.parse_text_fallback(resume_text, hint=hint or filename)
         # Mark the provenance so a degraded profile is identifiable downstream
         # rather than being indistinguishable from a full Veris extraction.
         info = dict(profile.additional_info or {})
