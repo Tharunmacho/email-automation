@@ -225,10 +225,8 @@ class IngestionPipeline:
             if settings.auto_reply_enabled and record.status != "needs_review":
                 try:
                     reply_text = generate_contextual_reply(profile, email)
-                    # Send reply directly to the sender who emailed cv@adiragroups.com.
-                    # This ensures the applicant receives the reply and avoids bounces
-                    # from invalid/sample emails printed on resume documents.
-                    reply_to = email.from_addr or email_key
+                    # Send reply to candidate's email (parsed from resume), falling back to sender address.
+                    reply_to = email_key or email.from_addr
                     if gmail and hasattr(gmail, "send_reply") and reply_to:
                         gmail.send_reply(
                             message_id=email.message_id,

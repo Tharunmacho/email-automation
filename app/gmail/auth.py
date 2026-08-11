@@ -6,6 +6,8 @@ modify labels / mark-as-read.
 """
 from __future__ import annotations
 
+import json
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -40,8 +42,22 @@ def get_credentials() -> Credentials:
     token_path = settings.token_path
     creds: Credentials | None = None
 
-    if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), SCOPES)
+    raw_json: str | None = None
+    if gmail_token_env:
+        raw_json = gmail_token_env
+    elif token_path.exists():
+        raw_json = token_path.read_text(encoding="utf-8", errors="replace").strip()
+
+    if raw_json:
+        try:
+            start = raw_json.find("{")
+            end = raw_json.rfind("}")
+            if start != -1 and end != -1:
+                info = json.loads(raw_json[start:end+1])
+                creds = Credentials.from_authorized_user_info(info, SCOPES)
+        except Exception as exc:
+            log.warning("Could not parse OAuth token JSON: %s", exc)
+            creds = None
 
     if creds and creds.valid:
         return creds
@@ -50,6 +66,9 @@ def get_credentials() -> Credentials:
         log.info("Refreshing expired Gmail token")
         try:
             creds.refresh(Request())
+            token_path.parent.mkdir(parents=True, exist_ok=True)
+            token_path.write_text(creds.to_json(), encoding="utf-8")
+            return creds
         except Exception as exc:
             log.warning("Failed to refresh expired Gmail token: %s; re-authorisation required", exc)
             creds = None

@@ -9,5 +9,14 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      name: "resume-worker",
+      script: "venv/bin/celery",
+      args: "-A app.tasks.celery_app worker --loglevel=INFO --pool=solo",
+      interpreter: "none",
+      env: {
+        NODE_ENV: "production",
+      },
+    },
   ],
 };
