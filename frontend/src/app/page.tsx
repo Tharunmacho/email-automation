@@ -254,15 +254,10 @@ export default function Home() {
       },
     );
 
-    const interval = setInterval(() => {
-      refreshCandidates();
-    }, 5000);
-
     return () => {
       active = false;
-      clearInterval(interval);
     };
-  }, [refreshCandidates, user]);
+  }, [user]);
 
   /**
    * One fact about the deployment rather than about the data: whether a Celery
