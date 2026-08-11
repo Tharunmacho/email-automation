@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume
     # unreadable and the mail stuck retrying. Raise this for mailboxes that get
     # large scans; it is the ceiling on one OCR call, not a per-page budget.
-    veris_timeout_seconds: float = 20.0
+    veris_timeout_seconds: float = 100.0
 
     # ---- Celery ----
     celery_broker_url: str = "redis://localhost:6379/0"
