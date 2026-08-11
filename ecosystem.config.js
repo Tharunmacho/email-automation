@@ -29,21 +29,5 @@ module.exports = {
       env: {
         NODE_ENV: "production",
       },
-    },
-    {
-      // Exactly one beat, on one host — `instances` is deliberately absent so
-      // PM2 forks a single process. A second scheduler means two ticks per
-      // interval; they collide on the poll lock rather than double-ingesting,
-      // but then half the scheduled polls do nothing.
-      name: "resume-beat",
-      script: "venv/bin/celery",
-      args:
-        "-A app.tasks.celery_app beat --loglevel=INFO " +
-        "--schedule /var/lib/resume-ingest/celerybeat-schedule",
-      interpreter: "none",
-      env: {
-        NODE_ENV: "production",
-      },
-    },
   ],
 };

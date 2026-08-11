@@ -39,16 +39,4 @@ celery_app.conf.update(
     result_backend_transport_options={"socket_connect_timeout": 3, "socket_timeout": 3},
 )
 
-# Poll Gmail every 2 minutes by default, fanning out: `poll_gmail` searches the
-# mailbox and queues one `process_message` per email, then releases the poll
-# lock. The scheduled tick therefore holds the lock for about as long as a Gmail
-# search takes, rather than for the whole batch — which is what used to make
-# every second tick report "another cycle is already running" while the first
-# one ground through OCR. The messages it queued stay safe from a concurrent
-# poller through their own per-message claims, not through the poll lock.
-celery_app.conf.beat_schedule = {
-    "poll-gmail": {
-        "task": "app.tasks.jobs.poll_gmail",
-        "schedule": 120.0,
-    }
-}
+
