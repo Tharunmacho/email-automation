@@ -131,10 +131,21 @@ class ResumeParser:
         from pathlib import Path
         text = (resume_text or "").strip()
         emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
-        if not emails and hint:
+        JUNK_DOMAINS = ("uidai.gov.in", "example.com", "sample.com", "domain.com", "schema.org")
+        valid_emails = [
+            e for e in emails 
+            if not any(junk in e.lower() for junk in JUNK_DOMAINS)
+            and not e.lower().startswith(("help@", "support@", "info@", "noreply@", "contact@"))
+        ]
+        candidate_email = valid_emails[0] if valid_emails else ""
+        if not candidate_email and hint:
             hint_emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", hint)
-            if hint_emails:
-                emails = hint_emails
+            valid_hint = [
+                e for e in hint_emails 
+                if not any(junk in e.lower() for junk in JUNK_DOMAINS)
+                and not e.lower().startswith(("help@", "support@", "info@", "noreply@", "contact@"))
+            ]
+            candidate_email = valid_hint[0] if valid_hint else (hint_emails[0] if hint_emails else "")
 
         # Broadened phone regex for Indian/International formats
         raw_phones = re.findall(r"(?:\+?\d{1,3}[\s\-]?)?(?:\(?\d{2,5}\)?[\s\-]?)?\d{3,5}[\s\-]?\d{3,5}\b", text)
