@@ -43,28 +43,31 @@ def _parse_from(value: str) -> tuple[str, Optional[str]]:
 class GmailClient:
     def __init__(self):
         self._service = build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
+        self._lock = threading.Lock()
 
     # ---- searching -------------------------------------------------------- #
     def search_message_ids(self, query: str | None = None, max_results: int | None = None) -> List[str]:
         if query is None:
             query = settings.gmail_query
         max_results = max_results or settings.gmail_max_results
-        resp = (
-            self._service.users()
-            .messages()
-            .list(userId="me", q=query, maxResults=max_results)
-            .execute()
-        )
+        with self._lock:
+            resp = (
+                self._service.users()
+                .messages()
+                .list(userId="me", q=query, maxResults=max_results)
+                .execute()
+            )
         return [m["id"] for m in resp.get("messages", [])]
 
     # ---- fetching --------------------------------------------------------- #
     def get_message(self, message_id: str) -> EmailMessage:
-        msg = (
-            self._service.users()
-            .messages()
-            .get(userId="me", id=message_id, format="full")
-            .execute()
-        )
+        with self._lock:
+            msg = (
+                self._service.users()
+                .messages()
+                .get(userId="me", id=message_id, format="full")
+                .execute()
+            )
         payload = msg.get("payload", {})
         headers = payload.get("headers", [])
         from_addr, from_name = _parse_from(_header(headers, "From"))
@@ -151,13 +154,14 @@ class GmailClient:
         return found
 
     def download_attachment(self, message_id: str, attachment: Attachment) -> bytes:
-        att = (
-            self._service.users()
-            .messages()
-            .attachments()
-            .get(userId="me", messageId=message_id, id=attachment.attachment_id)
-            .execute()
-        )
+        with self._lock:
+            att = (
+                self._service.users()
+                .messages()
+                .attachments()
+                .get(userId="me", messageId=message_id, id=attachment.attachment_id)
+                .execute()
+            )
         data = _b64url_decode(att["data"])
         attachment.data = data
         return data
@@ -186,27 +190,31 @@ class GmailClient:
             "raw": raw_b64,
             "threadId": thread_id,
         }
-        sent = self._service.users().messages().send(userId="me", body=body).execute()
+        with self._lock:
+            sent = self._service.users().messages().send(userId="me", body=body).execute()
         log.info("Sent reply email to %s (threadId=%s, msgId=%s)", to_addr, thread_id, sent.get("id"))
         return sent
 
     def mark_read(self, message_id: str) -> None:
-        self._service.users().messages().modify(
-            userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}
-        ).execute()
+        with self._lock:
+            self._service.users().messages().modify(
+                userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}
+            ).execute()
 
     def apply_label(self, message_id: str, label_name: str) -> None:
         label_id = self._ensure_label(label_name)
-        self._service.users().messages().modify(
-            userId="me", id=message_id, body={"addLabelIds": [label_id]}
-        ).execute()
+        with self._lock:
+            self._service.users().messages().modify(
+                userId="me", id=message_id, body={"addLabelIds": [label_id]}
+            ).execute()
 
     def remove_label(self, message_id: str, label_name: str) -> None:
         try:
             label_id = self._ensure_label(label_name)
-            self._service.users().messages().modify(
-                userId="me", id=message_id, body={"removeLabelIds": [label_id]}
-            ).execute()
+            with self._lock:
+                self._service.users().messages().modify(
+                    userId="me", id=message_id, body={"removeLabelIds": [label_id]}
+                ).execute()
         except Exception as err:
             log.warning("Failed to remove label '%s' from msg %s: %s", label_name, message_id, err)
 

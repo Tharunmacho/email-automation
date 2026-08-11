@@ -33,6 +33,7 @@ class BatchSummary:
 
 class IngestionRunner:
     def __init__(self, gmail: Any | None = None, pipeline: IngestionPipeline | None = None):
+        self._custom_gmail = gmail is not None
         self.gmail = gmail or get_email_client()
         self.pipeline = pipeline or IngestionPipeline()
 
@@ -46,8 +47,8 @@ class IngestionRunner:
         import concurrent.futures
 
         def _process_one_message(mid: str) -> ProcessResult | None:
-            # Use provided runner client (e.g. test stub) or fresh client per message
-            gmail_client = self.gmail if self.gmail else get_email_client()
+            # Use custom runner client if passed explicitly (e.g. test stub), else fresh client per thread for SSL thread-safety
+            gmail_client = self.gmail if self._custom_gmail else get_email_client()
             try:
                 email = gmail_client.get_message(mid)
                 result = self.pipeline.process_email(email, gmail=gmail_client)
