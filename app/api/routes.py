@@ -156,41 +156,18 @@ def health() -> dict:
 def list_candidates(
     limit: int = Query(50, ge=1, le=200),
     skip: int = Query(0, ge=0),
-    view: str = Query(
-        "list",
-        pattern="^(list|minimal)$",
-        description="'list' for the directory row; 'minimal' for id/name/email/"
-                    "phone/status/confidence/created_at only.",
-    ),
     _user: dict = Depends(current_user),
 ) -> dict:
-    """A page of candidates, projected in the database.
-
-    Never the whole document. The OCR payload alone — stored twice per record,
-    under `raw_ocr` and again under `profile.raw_ocr` — put megabytes into a
-    200-row response that the frontend was re-fetching every five seconds. Full
-    profiles come from `GET /candidates/{id}`, one candidate at a time, when
-    something actually opens one.
-    """
-    repository = repo()
-    items = repository.list_summaries(limit=limit, skip=skip, minimal=view == "minimal")
-
-    # A first page that came back short *is* the whole collection, so counting it
-    # again is a second round trip to Atlas for an answer already in hand — and
-    # against a remote cluster the round trip, not the work, is the response
-    # time. Any other page still has to ask.
-    total = len(items) if skip == 0 and len(items) < limit else repository.count()
-
+    records = repo().list_candidates(limit=limit, skip=skip)
     return {
-        "total": total,
-        "count": len(items),
-        "items": items,
+        "total": repo().count(),
+        "count": len(records),
+        "items": [r.model_dump(mode="json") for r in records],
     }
 
 
 @app.get("/candidates/{candidate_id}")
 def get_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dict:
-    """The whole record, OCR payload included. The only place that serves it."""
     record = repo().get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -418,7 +395,7 @@ def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_u
         raise HTTPException(
             status_code=503,
             detail="No ingestion worker is running. Start one with: "
-                   "celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=4",
+                   "celery -A app.tasks.celery_app worker --loglevel=INFO --pool=solo",
         )
 
     from app.tasks.jobs import run_poll_cycle
@@ -454,7 +431,7 @@ def ingest_task_status(task_id: str, _user: dict = Depends(current_user)) -> dic
         err_obj = async_result.result
         err_str = str(err_obj) if err_obj is not None else "Worker task execution failed"
         if isinstance(err_obj, KeyError) or "NotRegistered" in type(err_obj).__name__ or (err_str.startswith("'") and err_str.endswith("'")):
-            err_str = f"Task {err_str} is not registered on Celery worker. Restart worker with: celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=4"
+            err_str = f"Task {err_str} is not registered on Celery worker. Restart worker with: celery -A app.tasks.celery_app worker --loglevel=INFO --pool=solo"
         payload["error"] = err_str
 
     return payload

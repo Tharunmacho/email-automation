@@ -160,17 +160,6 @@ class Settings(BaseSettings):
     # exceed a realistic worst-case batch (OCR + LLM over a full inbox page),
     # because expiring early lets a second cycle start on top of a live one.
     poll_lock_ttl_seconds: int = 1800
-    # The fan-out poller only searches Gmail and queues one task per message,
-    # so it holds the poll lock for a second or two rather than for a whole
-    # batch. Sized for a slow Gmail search, not for any processing.
-    poll_dispatch_lock_ttl_seconds: int = 120
-    # How long one email stays claimed by whoever is processing it. Under
-    # fan-out the poll lock no longer spans the work, so this is what keeps two
-    # workers off the same message — and what keeps a manual sync from
-    # re-processing messages a beat tick already dispatched. Must exceed the
-    # worst case for a *single* message (OCR + LLM over a large scan): expiring
-    # early lets a second worker start on top of a live one.
-    message_lock_ttl_seconds: int = 900
 
     # ---- Derived helpers ----
     # File extensions the pre-filter treats as a possible resume attachment.
