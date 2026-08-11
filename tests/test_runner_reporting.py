@@ -4,12 +4,28 @@ A poll that wrote a candidate profile once reported `Ingested Candidates=0`,
 because Gmail post-processing ran inside the same `try` as the ingestion: one
 failed `apply_label` discarded the whole result and counted it as an error.
 """
+from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.ingestion.pipeline import AttachmentResult, ProcessResult
 from app.ingestion.runner import IngestionRunner
+
+
+@pytest.fixture(autouse=True)
+def claims_granted(monkeypatch):
+    """Every message is claimable unless a test says otherwise.
+
+    Stubbed rather than left to the real lock so these tests describe the
+    runner's reporting and never depend on a Redis being up.
+    """
+
+    @contextmanager
+    def granted(_message_id, _ttl=None):
+        yield True
+
+    monkeypatch.setattr("app.ingestion.runner.claim_message", granted)
 
 
 class StubPipeline:
@@ -79,6 +95,26 @@ def test_a_suppressed_email_is_re_labelled_deleted_and_never_marked_processed(gm
     assert summary.suppressed == 1
     assert summary.errors == 0
     assert summary.ingested_candidates == 0
+
+
+def test_a_message_another_worker_holds_is_left_to_that_worker(gmail, monkeypatch):
+    """A manual sync re-fetches messages a beat tick has already fanned out to
+    the workers — they are unlabelled until their resumes are stored. Without
+    the claim both would run the same OCR and the same LLM call."""
+
+    @contextmanager
+    def refused(_message_id, _ttl=None):
+        yield False
+
+    monkeypatch.setattr("app.ingestion.runner.claim_message", refused)
+    runner = _runner(gmail, monkeypatch)
+
+    summary = runner.run_once()
+
+    assert runner.pipeline.seen == [], "the other worker is already processing it"
+    assert summary.skipped == 1
+    assert summary.errors == 0
+    assert not gmail.apply_label.called, "the worker that has it will label it"
 
 
 def test_a_failure_before_ingestion_is_still_counted_as_an_error(gmail, monkeypatch):

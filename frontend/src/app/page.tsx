@@ -31,6 +31,7 @@ import {
 } from "@/lib/candidateLog";
 import {
   fetchMe,
+  getCandidate,
   getToken,
   logout as clearSession,
   deleteCandidateAPI,
@@ -53,14 +54,26 @@ import {
  * apart is what lets the executive view carry no edit control at all and the
  * editor carry nothing but controls.
  *
- * The candidate is held by id rather than by record, so the five-second poll
- * keeps whichever screen is open in step with the database instead of freezing
- * a snapshot taken when it was opened.
+ * The candidate is held by id rather than by record: the list holds projections
+ * with the heavy fields left out, so opening one of these fetches the whole
+ * record for that candidate alone.
  */
 interface CandidateScreen {
   mode: "profile" | "edit" | "logs";
   candidateId: string;
 }
+
+/**
+ * How often the directory refreshes itself with nothing else going on.
+ *
+ * This is a backstop for a tab left open, not a live feed. It used to be five
+ * seconds, which meant a page of 200 candidate documents out of Atlas twelve
+ * times a minute per open tab, forever — the API's single heaviest load, and
+ * almost all of it re-fetching rows nobody was looking at. Everything that
+ * actually changes the data — a sync, a save, a verify, a delete — refreshes
+ * the list itself, so this only has to catch what another user did.
+ */
+const BACKGROUND_REFRESH_MS = 45000;
 
 const CANDIDATE_SCREEN_META: Record<
   CandidateScreen["mode"],
@@ -111,6 +124,13 @@ export default function Home() {
   const candidateLogs = useSyncExternalStore(subscribeLogs, getLogsSnapshot, getLogsServerSnapshot);
 
   const [screen, setScreen] = useState<CandidateScreen | null>(null);
+  // The whole record for whichever candidate a screen is open on. Fetched per
+  // candidate because the list no longer carries the full profile — and it has
+  // to be the whole record before the editor may open, or a save would write
+  // back the projection and erase every field the list left out.
+  const [detail, setDetail] = useState<CandidateRecord | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailNonce, setDetailNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   // Ids with a DELETE in flight — a second click must not fire a second request.
@@ -125,6 +145,9 @@ export default function Home() {
   const [workersOnline, setWorkersOnline] = useState<boolean | null>(null);
   const syncingRef = useRef(false);
   const bootLoggedRef = useRef(false);
+  // When the list was last known to be current, so returning to the tab can
+  // refresh a stale one without re-fetching a list that is seconds old.
+  const lastRefreshRef = useRef(0);
 
   // ---- helpers ---------------------------------------------------------- //
   /**
@@ -166,6 +189,7 @@ export default function Home() {
   const refreshCandidates = useCallback(async () => {
     try {
       const data = await listCandidates();
+      lastRefreshRef.current = Date.now();
       setCandidates(data.items ?? []);
       setTotal(data.total ?? 0);
       return data.items ?? [];
@@ -225,6 +249,7 @@ export default function Home() {
     listCandidates().then(
       (data) => {
         if (!active) return;
+        lastRefreshRef.current = Date.now();
         setCandidates(data.items ?? []);
         setTotal(data.total ?? 0);
         // The connect banner is a once-per-session statement. A remount — a
@@ -254,15 +279,78 @@ export default function Home() {
       },
     );
 
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  /**
+   * The backstop refresh: slow, and only when someone is actually looking.
+   *
+   * A hidden tab is refreshed for nobody, so it is skipped entirely and caught
+   * up the moment it comes back — but only if what it is holding has gone stale,
+   * so flicking between tabs does not fire a request each time. A sync is
+   * skipped too: it refreshes the list itself when it finishes, with a summary
+   * of what it ingested.
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    const refreshIfIdle = () => {
+      if (syncingRef.current) return;
+      void refreshCandidates();
+    };
+
     const interval = setInterval(() => {
-      refreshCandidates();
-    }, 5000);
+      if (document.hidden) return;
+      refreshIfIdle();
+    }, BACKGROUND_REFRESH_MS);
+
+    const onVisible = () => {
+      if (document.hidden) return;
+      if (Date.now() - lastRefreshRef.current < BACKGROUND_REFRESH_MS) return;
+      refreshIfIdle();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [refreshCandidates, user]);
+
+  // ---- the open candidate ------------------------------------------------ //
+  const openCandidateId = screen?.candidateId ?? null;
+
+  /**
+   * Fetch the whole record for whichever candidate is open.
+   *
+   * Re-runs on `detailNonce`, which a save or a verify bumps: the id has not
+   * changed, but what is stored under it has.
+   */
+  useEffect(() => {
+    if (!openCandidateId) {
+      setDetail(null);
+      setDetailError(null);
+      return;
+    }
+
+    let active = true;
+    setDetailError(null);
+
+    getCandidate(openCandidateId).then(
+      (record) => active && setDetail(record),
+      (err: unknown) =>
+        active &&
+        setDetailError(
+          err instanceof Error ? err.message : "Could not load this candidate.",
+        ),
+    );
 
     return () => {
       active = false;
-      clearInterval(interval);
     };
-  }, [refreshCandidates, user]);
+  }, [openCandidateId, detailNonce]);
 
   /**
    * One fact about the deployment rather than about the data: whether a Celery
@@ -458,7 +546,9 @@ export default function Home() {
       );
       await refreshCandidates();
       // Straight to the executive view of what was just saved, so the edit is
-      // confirmed by the record itself rather than by a toast alone.
+      // confirmed by the record itself rather than by a toast alone — re-read
+      // from the API, because what is stored under this id has just changed.
+      setDetailNonce((n) => n + 1);
       setScreen({ mode: "profile", candidateId });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error saving profile.";
@@ -476,8 +566,9 @@ export default function Home() {
       await verifyCandidate(candidateId);
       showToast("Candidate marked as verified.", "success");
       appendCandidateLog(candidateId, "Verified", `Profile marked as verified.`, "success", user?.email);
-      // The open screen stays open: it reads from the refreshed list, so the
-      // status badge simply flips to Verified in place.
+      // The open screen stays open; re-reading the record is what flips the
+      // status badge to Verified in place.
+      setDetailNonce((n) => n + 1);
       await refreshCandidates();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error verifying candidate.";
@@ -558,16 +649,14 @@ export default function Home() {
   const closeScreen = () => setScreen(null);
 
   /**
-   * Resolved from the live list, not from what was captured on click — a record
-   * deleted or replaced by the poll simply stops resolving, and the directory
-   * takes the column back rather than a stale copy staying on screen.
+   * The record the open screen is showing, and only once it is the *whole*
+   * record for that candidate — a detail still in flight, or one left over from
+   * the previously open candidate, resolves to null and the screen waits.
    */
-  const screenCandidate = screen
-    ? candidates.find((candidate) => candidate.id === screen.candidateId) ?? null
-    : null;
+  const screenCandidate =
+    screen && detail && detail.id === screen.candidateId ? detail : null;
 
-  const meta =
-    screenCandidate && screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[activeTab];
+  const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[activeTab];
 
   if (checking) {
     return (
@@ -644,7 +733,27 @@ export default function Home() {
               />
             )}
 
-            {!screenCandidate && (
+            {/* The record is fetched when the screen opens, so there is a
+                moment with nothing to show — and, if it cannot be fetched, no
+                screen to show at all. Neither may fall through to the
+                directory: that would read as "the candidate is gone". */}
+            {screen && !screenCandidate && (
+              <section className="db-card">
+                {detailError ? (
+                  <>
+                    <h3 className="db-card-title">Could not open this candidate</h3>
+                    <p className="db-card-sub">{detailError}</p>
+                    <button type="button" className="db-btn" onClick={closeScreen}>
+                      Back to candidates
+                    </button>
+                  </>
+                ) : (
+                  <span className="app-boot-spinner" />
+                )}
+              </section>
+            )}
+
+            {!screen && (
               <>
                 {activeTab === "overview" && (
                   <OverviewScreen
