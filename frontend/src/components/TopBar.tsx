@@ -37,12 +37,14 @@ export default function TopBar({
   return (
     <header className="topbar">
       <button className="topbar-icon-btn topbar-menu-btn" onClick={onToggleRail} aria-label="Open navigation">
-        <Menu size={18} />
+        <Menu size={20} />
       </button>
 
+      {/* Mark and name, one flex row, centred on each other — see `.topbar-brand`
+          for why the line-height is part of that and not decoration. */}
       <div className="topbar-brand">
         <span className="topbar-logo" aria-hidden="true">
-          <Sparkles size={17} strokeWidth={2.3} />
+          <Sparkles size={20} strokeWidth={2.1} />
         </span>
         <span className="topbar-title">TalentFlow AI</span>
       </div>
@@ -60,7 +62,7 @@ export default function TopBar({
           title="Activity logs"
           aria-label="Activity logs"
         >
-          <Bell size={17} />
+          <Bell size={20} />
         </button>
 
         <button

@@ -31,8 +31,8 @@ const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
 ];
 
 /**
- * The left rail: a collapse control at the top, three labelled groups of
- * destinations, and the account card at the bottom.
+ * The left rail: three labelled groups of destinations with the collapse control
+ * on the first heading's row, and the account card at the bottom.
  *
  * Collapsed it keeps only the icons — same list, same order, same active
  * marker, so the muscle memory built at full width still works at 68px. Nothing
@@ -68,27 +68,31 @@ export default function Sidebar({
         className={`rail ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-open" : ""}`}
         aria-label="Main navigation"
       >
-        {/* No brand here at all — the logo and name live in the header bar
-            directly above, and repeating either in this corner reads as a
-            rendering fault. The row exists only to carry the collapse control,
-            which sits at its right edge. */}
-        <div className="rail-head">
-          <button
-            type="button"
-            className="rail-toggle"
-            onClick={onToggleCollapse}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? <Menu size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        </div>
-
+        {/* No brand here, and no head row either — the logo and name live in the
+            header bar directly above, and a band holding nothing but the
+            collapse button left an empty row and a second hairline under the
+            one the header already draws. The button rides the first group's
+            heading instead, at the right edge of the row "GENERAL" starts. */}
         <div className="rail-scroll">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.map((group, index) => (
             <div key={group.label} className="rail-group">
-              <p className="rail-group-label">{group.label}</p>
+              {index === 0 ? (
+                <div className="rail-group-head">
+                  <p className="rail-group-label">{group.label}</p>
+                  <button
+                    type="button"
+                    className="rail-toggle"
+                    onClick={onToggleCollapse}
+                    title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-expanded={!collapsed}
+                  >
+                    {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
+                  </button>
+                </div>
+              ) : (
+                <p className="rail-group-label">{group.label}</p>
+              )}
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeId === item.id;
@@ -101,7 +105,7 @@ export default function Sidebar({
                     aria-current={isActive ? "page" : undefined}
                     title={collapsed ? item.label : undefined}
                   >
-                    <Icon size={17} strokeWidth={2} />
+                    <Icon size={18} strokeWidth={2} />
                     <span className="rail-item-label">{item.label}</span>
                   </button>
                 );

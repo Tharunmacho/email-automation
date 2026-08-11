@@ -17,14 +17,17 @@ const STORAGE_KEY = "ats_theme";
 const listeners = new Set<() => void>();
 let cache: Theme | null = null;
 
+/**
+ * Light is the product's default, on every visit and every refresh. The
+ * operating system does not get a vote: the screens are designed and reviewed
+ * light, so a machine set to dark used to open on a theme its owner never asked
+ * this app for. Dark is reached one way only — by pressing the pill, which is
+ * the choice that gets remembered.
+ */
 function readStored(): Theme {
   if (typeof window === "undefined") return "light";
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw === "dark" || raw === "light") return raw;
-    // No stored choice — follow the operating system, which is what a user who
-    // has never touched the pill expects.
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return window.localStorage.getItem(STORAGE_KEY) === "dark" ? "dark" : "light";
   } catch {
     return "light";
   }

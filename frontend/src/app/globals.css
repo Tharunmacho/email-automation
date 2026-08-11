@@ -74,6 +74,12 @@
      whole shell. Change it in one place and both follow. */
   --app-header-h: 68px;
 
+  /* The single edge under the header band. There is exactly one line between
+     the chrome and everything below it, stated here and drawn once — a second
+     rule a few pixels under the first reads as a rendering fault rather than as
+     structure, which is what the rail's old head row was doing. */
+  --header-hairline: rgba(0, 0, 0, 0.06);
+
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
   --radius-xl: 14px;
@@ -185,6 +191,9 @@
   --shadow-md: 0 1px 3px 0 rgba(0, 0, 0, 0.40);
   --shadow-lg: 0 8px 20px -8px rgba(0, 0, 0, 0.60);
 
+  /* The same hairline, inverted — a black edge is invisible on a dark surface. */
+  --header-hairline: rgba(255, 255, 255, 0.08);
+
   --dash-surface: #111827;
   --dash-muted: #9ca3af;
   --dash-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -221,9 +230,9 @@
      lined up with the nav rows by coincidence — and drifted out of line the
      first time one of them was tuned. */
   --rail-pad: 0.7rem;
-  /* The toggle is sized to the nav row it sits above, so the two share a
-     vertical rhythm instead of each picking their own height. */
-  --rail-toggle-size: 30px;
+  /* The toggle is sized to the section heading it shares a row with, so the two
+     share a baseline instead of each picking their own height. */
+  --rail-toggle-size: 28px;
 
   position: fixed;
   top: var(--app-header-h);
@@ -239,26 +248,32 @@
     transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.rail-head {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  /* Height, not padding: a band defined by its own value stays put when the
-     button inside it changes size. */
-  height: 48px;
-  padding: 0 var(--rail-pad);
-  border-bottom: 1px solid var(--border-blue-faint);
-  flex-shrink: 0;
-}
-
-
 /* --- group headings --------------------------------------------------------- */
+/* There is no head row above these. The rail used to open with a 48px band that
+   held nothing but the collapse button and closed with a hairline of its own —
+   directly under the header's hairline, so the shell appeared to be ruled twice
+   and the navigation started an empty row late. The button now rides the first
+   heading row, which is the line it was always trying to align with. */
 .rail-group+.rail-group {
   margin-top: 0.5rem;
 }
 
+/* The heading and the toggle: heading left, control hard right, both centred on
+   the same axis. `min-height` is the toggle's own height, so the row cannot
+   collapse under the button or grow past it. */
+.rail-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: var(--rail-toggle-size);
+  margin-bottom: 0.15rem;
+}
+
 .rail-group-label {
-  padding: 0.5rem var(--rail-pad) 0.25rem;
+  /* Indented to the icon column, not to the rail's edge, so every heading starts
+     where the glyphs under it start. */
+  padding: 0 var(--rail-pad) 0.3rem;
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -268,26 +283,45 @@
   overflow: hidden;
 }
 
+/* Inside the toggle's row the heading gives up its trailing space — the row's
+   own min-height sets the rhythm there, and a stacked padding would push the
+   text off the button's centre line. */
+.rail-group-head .rail-group-label {
+  padding-bottom: 0;
+  line-height: 1;
+}
 
+/* Quiet until pointed at: no border and no fill, so the corner of the rail is a
+   heading and a control rather than a boxed button competing with it. */
 .rail-toggle {
   width: var(--rail-toggle-size);
   height: var(--rail-toggle-size);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-blue);
-  background: var(--bg-card);
-  color: var(--text-muted);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-light);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease,
+    transform 0.16s ease;
 }
 
 .rail-toggle:hover {
   background: var(--tint-2);
+  border-color: var(--border-blue);
   color: var(--text-main);
-  border-color: var(--border-blue-strong);
+}
+
+.rail-toggle:active {
+  transform: scale(0.94);
+}
+
+.rail-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
 }
 
 /* No scrollbar. Eight destinations in three groups fit any laptop, so the list
@@ -299,7 +333,10 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 0.5rem var(--rail-pad);
+  /* 16px above the first heading, 12px each side, 8px below the last row. The
+     top value is the whole gap between the header's hairline and "GENERAL" —
+     there is nothing else between them to add to it. */
+  padding: 16px 12px 8px;
 }
 
 .rail-item {
@@ -534,8 +571,11 @@
   --rail-pad: 0.5rem;
 }
 
-.rail.is-collapsed .rail-head {
+/* "GENERAL" is gone at this width (below), so the row it shared is the toggle's
+   alone and the button takes the centre of it. */
+.rail.is-collapsed .rail-group-head {
   justify-content: center;
+  margin-bottom: 0.35rem;
 }
 
 /* A rule instead of a word — the grouping survives, the heading cannot. */
@@ -571,6 +611,11 @@
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 120;
+  /* Border-box, so the accent line and the hairline are drawn inside the band's
+     height rather than added to it. The rail hangs from the same number, so a
+     header that measured 71px would have hidden its own hairline behind the
+     rail's top edge and left the two a pixel out of register. */
+  box-sizing: border-box;
   height: var(--app-header-h);
   display: flex;
   align-items: center;
@@ -578,13 +623,18 @@
   padding: 0 1.5rem;
   background: var(--bg-card);
   border-top: 2px solid var(--primary);
-  border-bottom: 1px solid var(--border-blue);
+  border-bottom: 1px solid var(--header-hairline);
 }
 
+/* Mark and name on one line, centred on each other. `line-height: 1` is what
+   makes that true rather than approximately true: the name's own leading is
+   half-leading split above and below the glyphs, and it was pushing the text a
+   pixel low against a logo box that has no leading at all. */
 .topbar-brand {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 12px;
+  line-height: 1;
   /* Takes the space the search field used to occupy, which pushes the three
      controls to the right edge without needing a spacer element. */
   flex: 1;
@@ -592,21 +642,25 @@
 }
 
 .topbar-logo {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-md);
   background: var(--brand-gradient);
   color: #ffffff;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .topbar-title {
   font-family: var(--font-outfit), sans-serif;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   font-weight: 700;
+  /* Just enough leading to keep descenders clear of `overflow: hidden`, and
+     symmetric, so centring the line box centres the word inside it. */
+  line-height: 1.15;
   letter-spacing: -0.015em;
   color: var(--text-main);
   white-space: nowrap;
@@ -769,9 +823,13 @@
 
   .rail.is-collapsed .rail-group-label {
     height: auto;
-    padding: 0.65rem 0.7rem 0.3rem;
+    padding: 0 0.7rem 0.3rem;
     margin: 0;
     background: none;
+  }
+
+  .rail.is-collapsed .rail-group-head .rail-group-label {
+    padding-bottom: 0;
   }
 
   .rail.is-collapsed .rail-group:first-child .rail-group-label {
@@ -787,8 +845,9 @@
     --rail-pad: 0.7rem;
   }
 
-  .rail.is-collapsed .rail-head {
-    justify-content: flex-end;
+  .rail.is-collapsed .rail-group-head {
+    justify-content: space-between;
+    margin-bottom: 0.15rem;
   }
 
   .rail.is-collapsed .rail-item,

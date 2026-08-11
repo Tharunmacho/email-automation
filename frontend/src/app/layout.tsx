@@ -42,8 +42,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // Light is stamped here so the very first paint is light — the theme module
+    // only ever moves it to dark, and only when the pill has been pressed
+    // before. Without this the document loads themeless and a browser set to
+    // dark styles the scrollbars and form controls before hydration lands.
     <html
       lang="en"
+      data-theme="light"
+      style={{ colorScheme: "light" }}
       className={`${inter.variable} ${outfit.variable} ${poppins.variable} ${firaCode.variable} h-full antialiased`}
     >
       {/* The shell owns its own layout now — a flex body would fight the fixed
