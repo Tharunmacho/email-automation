@@ -54,26 +54,11 @@ CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/1
 REDIS_URL=redis://localhost:6379/0
 POLL_LOCK_TTL_SECONDS=1800
-POLL_DISPATCH_LOCK_TTL_SECONDS=120
-MESSAGE_LOCK_TTL_SECONDS=900
 ```
 
-`POLL_LOCK_TTL_SECONDS` is how long a *batch* cycle (`run_poll_cycle`, used by
-the manual sync in the UI) may hold the poll lock before it is presumed dead. It
-must exceed a worst-case batch: too short and a second cycle starts on top of a
-live one, which is the exact thing the lock prevents.
-
-`POLL_DISPATCH_LOCK_TTL_SECONDS` is the same lock held by the scheduled poller,
-which only searches Gmail and queues one task per email. Seconds of work, so
-this is sized for a slow search rather than for any processing.
-
-`MESSAGE_LOCK_TTL_SECONDS` is how long one email stays claimed by the worker
-handling it. Under fan-out the poll lock is released long before the queued
-messages have been processed, so this is what keeps two workers — or a manual
-sync and a scheduled tick — off the same resume. It must exceed the worst case
-for a single message, not for a batch. If Redis is unreachable the claim is
-skipped rather than enforced: ingestion continues, and the ledger plus the
-resume-hash unique index still keep duplicate records out.
+`POLL_LOCK_TTL_SECONDS` is how long one cycle may hold the poll lock before it
+is presumed dead. It must exceed a worst-case batch: too short and a second
+cycle starts on top of a live one, which is the exact thing the lock prevents.
 
 ## 4. Services
 

@@ -200,4 +200,4 @@ def test_the_auto_reply_goes_to_the_candidate_not_the_forwarder(parts, monkeypat
     result = pipeline.process_email(forwarded, gmail=FakeGmail())
 
     assert result.status == "processed"
-    assert sent["to"] == "recruiter@agency.com", "must reply to the address the email arrived from"
+    assert sent["to"] == "alice@example.com", "must reply to the resume's address"

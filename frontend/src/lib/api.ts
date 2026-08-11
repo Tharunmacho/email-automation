@@ -152,23 +152,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-/**
- * A page of candidate list rows.
- *
- * These are projections, not whole records: the API leaves out the OCR payload
- * and anything else only a detail view reads. Use `getCandidate` before showing
- * or editing a full profile — saving a summary back would write away every
- * field it does not carry.
- */
 export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResponse> {
   return request<CandidateListResponse>(`/candidates?limit=${limit}&skip=${skip}`, {
     cache: "no-store",
   });
-}
-
-/** The complete record for one candidate — every field, OCR payload included. */
-export function getCandidate(candidateId: string): Promise<CandidateRecord> {
-  return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
 }
 
 /** Runs the poll inline; the request is held open for the whole batch. */
@@ -191,16 +178,7 @@ interface PollTaskStatus {
 
 /** How long to wait for a queued cycle before giving up on it. */
 const POLL_TIMEOUT_MS = 10 * 60 * 1000;
-/**
- * Status checks back off as the run goes on. A cycle with two emails in it
- * finishes in seconds, so the first checks are quick; one grinding through a
- * mailbox of scans takes minutes, and asking after it every two seconds for
- * that whole time was hundreds of pointless requests against Uvicorn — each one
- * a Redis round trip to the result backend — while the worker was busy.
- */
-const POLL_FIRST_INTERVAL_MS = 1000;
-const POLL_MAX_INTERVAL_MS = 15000;
-const POLL_BACKOFF_FACTOR = 1.5;
+const POLL_INTERVAL_MS = 2000;
 /** Consecutive status-check failures tolerated before calling the run lost. */
 const POLL_MAX_CONSECUTIVE_ERRORS = 5;
 
@@ -227,11 +205,9 @@ export async function runPollCycle(): Promise<PollSummary> {
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let consecutiveErrors = 0;
-  let interval = POLL_FIRST_INTERVAL_MS;
 
   for (;;) {
-    await sleep(interval);
-    interval = Math.min(Math.round(interval * POLL_BACKOFF_FACTOR), POLL_MAX_INTERVAL_MS);
+    await sleep(POLL_INTERVAL_MS);
 
     let status: PollTaskStatus;
     try {

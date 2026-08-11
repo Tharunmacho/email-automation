@@ -26,25 +26,23 @@ log = get_logger(__name__)
 
 _RESUME_KEYWORDS = re.compile(
     r"\b(resume|résumé|cv|curriculum\s*vitae|bio|biodata|bio[-\s]?data|candidate|applicant|application|"
-    r"apply(ing)?|job|position|profile|hiring|vacancy|opening|career|portfolio|writeup|write[-\s]?up|details|"
-    r"cook|chef|driver|welder|electrician|worker|operator|engineer|technician|staff|document|doc)\b",
+    r"apply(ing)?|job|position|profile|hiring|vacancy|opening|career|portfolio|writeup|write[-\s]?up|details)\b",
     re.IGNORECASE,
 )
 _PROMO_SUBJECT = re.compile(
     r"\b(otp|one[-\s]?time\s*password|verify|verification code|newsletter|unsubscribe|"
-    r"invoice|receipt|order|payment|sale|discount|promo|"
+    r"invoice|receipt|order|payment|sale|discount|offer|deal|promo|"
     r"notification|alert|reminder|statement|subscription|springboard|certificate|"
-    r"completion|course|learning)\b",
+    r"completion|course|learning|invite|invitation)\b",
     re.IGNORECASE,
 )
 
 # Words that only ever appear in a subject line because someone is applying for
 # a job. `_RESUME_KEYWORDS` is far broader ("job", "career", "details"), too
 # broad to overrule anything on its own.
-
 _STRONG_RESUME_SUBJECT = re.compile(
     r"\b(resume|résumé|cv|curriculum\s*vitae|bio[-\s]?data|"
-    r"applying\s+for|application\s+for|apply\s+for|cook|chef|driver|welder|engineer|worker)\b",
+    r"applying\s+for|application\s+for|apply\s+for)\b",
     re.IGNORECASE,
 )
 

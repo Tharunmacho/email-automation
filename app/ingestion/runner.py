@@ -14,34 +14,8 @@ from app.config import settings
 from app.email_client import get_email_client, GmailClient
 from app.ingestion.pipeline import IngestionPipeline, ProcessResult
 from app.logging_config import get_logger
-from app.tasks.locks import claim_message
 
 log = get_logger(__name__)
-
-
-def mark_message_done(gmail, message_id: str, status: str) -> None:
-    """Gmail-side bookkeeping for a message the pipeline has finished with.
-
-    Only messages that were actually processed as candidate resumes are marked
-    read and labelled; non-resume emails stay untouched in the inbox. A
-    *suppressed* message — re-fetched only because Gmail's search index had not
-    caught up with a delete — has its `deleted` label re-asserted instead, and
-    is never stamped "processed", which is how a retired email ended up carrying
-    both labels at once.
-
-    Shared by the batch runner and the per-message Celery task, so the two paths
-    cannot drift into labelling the same outcome differently.
-    """
-    if status == "suppressed":
-        if settings.gmail_deleted_label:
-            gmail.apply_label(message_id, settings.gmail_deleted_label)
-        if settings.gmail_processed_label:
-            gmail.remove_label(message_id, settings.gmail_processed_label)
-    elif status == "processed":
-        if settings.gmail_mark_read:
-            gmail.mark_read(message_id)
-        if settings.gmail_processed_label:
-            gmail.apply_label(message_id, settings.gmail_processed_label)
 
 
 @dataclass
@@ -72,39 +46,44 @@ class IngestionRunner:
         import concurrent.futures
 
         def _process_one_message(mid: str) -> ProcessResult | None:
-            # Claim the message first. Beat fans out one Celery task per email
-            # and gives the poll lock straight back, so a manual sync starting a
-            # minute later re-fetches messages that are still being extracted —
-            # the claim, not the poll lock, is what keeps the two off each other.
-            with claim_message(mid) as claimed:
-                if not claimed:
-                    return ProcessResult(
-                        mid, "skipped", "already being processed by another worker"
-                    )
+            # Use provided runner client (e.g. test stub) or fresh client per message
+            gmail_client = self.gmail if self.gmail else get_email_client()
+            try:
+                email = gmail_client.get_message(mid)
+                result = self.pipeline.process_email(email, gmail=gmail_client)
+            except Exception:  # noqa: BLE001
+                log.exception("Failed to process message %s", mid)
+                return None
 
-                # Use provided runner client (e.g. test stub) or fresh client per message
-                gmail_client = self.gmail if self.gmail else get_email_client()
-                try:
-                    email = gmail_client.get_message(mid)
-                    result = self.pipeline.process_email(email, gmail=gmail_client)
-                except Exception:  # noqa: BLE001
-                    log.exception("Failed to process message %s", mid)
-                    return None
+            # Post-processing gets its own guard. The candidate is already in
+            # Mongo by this point, so a Gmail hiccup here must not discard the
+            # result — that reported "Ingested Candidates=0" for a poll that had
+            # just written a profile.
+            try:
+                if result.status == "suppressed":
+                    # Re-fetched only because Gmail's search index had not caught
+                    # up with the delete. Re-assert the label; never stamp this
+                    # one "processed", which is how a deleted email ended up
+                    # carrying both labels at once.
+                    if settings.gmail_deleted_label:
+                        gmail_client.apply_label(mid, settings.gmail_deleted_label)
+                    if settings.gmail_processed_label:
+                        gmail_client.remove_label(mid, settings.gmail_processed_label)
+                elif result.status == "processed":
+                    # Only move/label messages that were successfully processed as candidate resumes.
+                    # All non-resume (skipped) emails remain untouched in the Inbox.
+                    if settings.gmail_mark_read:
+                        gmail_client.mark_read(mid)
+                    if settings.gmail_processed_label:
+                        gmail_client.apply_label(mid, settings.gmail_processed_label)
+            except Exception as err:  # noqa: BLE001
+                log.warning(
+                    "Processed %s but could not mark it done in Gmail (%s); "
+                    "it will be re-fetched and skipped as a duplicate next poll",
+                    mid, err,
+                )
 
-                # Post-processing gets its own guard. The candidate is already in
-                # Mongo by this point, so a Gmail hiccup here must not discard the
-                # result — that reported "Ingested Candidates=0" for a poll that had
-                # just written a profile.
-                try:
-                    mark_message_done(gmail_client, mid, result.status)
-                except Exception as err:  # noqa: BLE001
-                    log.warning(
-                        "Processed %s but could not mark it done in Gmail (%s); "
-                        "it will be re-fetched and skipped as a duplicate next poll",
-                        mid, err,
-                    )
-
-                return result
+            return result
 
         max_workers = min(10, max(1, len(message_ids)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -162,4 +141,5 @@ class IngestionRunner:
         if settings.gmail_mark_read:
             self.gmail.mark_read(message_id)
         if settings.gmail_processed_label:
+            self.gmail.apply_label(message_id, settings.gmail_processed_label)
             self.gmail.apply_label(message_id, settings.gmail_processed_label)

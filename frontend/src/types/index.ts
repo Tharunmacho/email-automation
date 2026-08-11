@@ -28,7 +28,7 @@ export interface Project {
 }
 
 export interface CandidateProfile {
-  is_resume?: boolean;
+  is_resume: boolean;
   confidence: number;
 
   full_name?: string | null;
@@ -59,40 +59,26 @@ export interface CandidateProfile {
   raw_ocr?: Record<string, any> | null;
 }
 
-/**
- * Storage internals are marked optional because a list row does not carry them:
- * `GET /candidates` projects the document down to what a row displays, and only
- * `GET /candidates/{id}` returns the whole thing.
- */
 export interface StoredResume {
-  original_filename?: string;
-  mime_type?: string;
-  size?: number;
-  sha256?: string;
-  storage_backend?: string;
-  storage_key?: string;
+  original_filename: string;
+  mime_type: string;
+  size: number;
+  sha256: string;
+  storage_backend: string;
+  storage_key: string;
   extraction_method?: string;
   ocr_used?: boolean;
 }
 
 export interface SourceEmail {
-  message_id?: string;
-  thread_id?: string;
-  from_addr?: string;
+  message_id: string;
+  thread_id: string;
+  from_addr: string;
   from_name?: string | null;
   subject?: string;
   received_date?: string | null;
 }
 
-/**
- * One candidate, as either a list row or a full record.
- *
- * A row from `GET /candidates` is a projection: identity, status, and the
- * fields the directory shows. Everything else — education, projects, the OCR
- * payload — is absent until the record is read with `getCandidate`, so treat
- * anything outside the list projection as possibly missing, and never write a
- * list row back through `updateCandidateProfile`.
- */
 export interface CandidateRecord {
   id: string;
   profile: CandidateProfile;

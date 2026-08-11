@@ -1,16 +1,13 @@
 """Celery application — background-job seam.
 
 Run a worker:
-    celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=4
+    celery -A app.tasks.celery_app worker --loglevel=INFO --pool=solo
 Run the periodic poller (beat):
     celery -A app.tasks.celery_app beat --loglevel=INFO
 
-Concurrency is the point: beat queues one `process_message` task per email, so
-four resumes arriving together are extracted in parallel instead of one after
-another. `--pool=solo` runs a single task at a time and undoes that — use it
-only for debugging. On Windows, where prefork is unsupported, use
-`--pool=threads --concurrency=4`; the work is I/O-bound (Gmail, OCR, the LLM),
-so threads lose almost nothing.
+The pipeline runs fine synchronously via the CLI; Celery is here so that, as
+volume grows, per-message processing (OCR + LLM) can be fanned out across workers
+without re-architecting anything.
 """
 from __future__ import annotations
 
@@ -39,16 +36,13 @@ celery_app.conf.update(
     result_backend_transport_options={"socket_connect_timeout": 3, "socket_timeout": 3},
 )
 
-# Poll Gmail every 2 minutes by default, fanning out: `poll_gmail` searches the
-# mailbox and queues one `process_message` per email, then releases the poll
-# lock. The scheduled tick therefore holds the lock for about as long as a Gmail
-# search takes, rather than for the whole batch — which is what used to make
-# every second tick report "another cycle is already running" while the first
-# one ground through OCR. The messages it queued stay safe from a concurrent
-# poller through their own per-message claims, not through the poll lock.
+# Poll Gmail every 2 minutes by default. `run_poll_cycle` rather than the
+# fan-out `poll_gmail`: it runs the same code path the CLI and API use, so
+# there is one batch behaviour to reason about. Both hold the same lock, so a
+# tick landing on a manual sync is skipped rather than doubling the work.
 celery_app.conf.beat_schedule = {
     "poll-gmail": {
-        "task": "app.tasks.jobs.poll_gmail",
+        "task": "app.tasks.jobs.run_poll_cycle",
         "schedule": 120.0,
     }
 }

@@ -1,30 +1,25 @@
 """Celery tasks.
 
-Two ways to poll, for two different callers:
+Two ways to poll, for two different volumes:
 
-* `poll_gmail` — what beat runs. It searches the mailbox under a short lock,
-  queues one `process_message` task per email, and returns. The resumes are then
-  extracted concurrently, one per worker slot, and a tick that lands while the
-  previous batch is still being processed queues its own work instead of being
-  turned away.
 * `run_poll_cycle` runs a whole batch in one task via `IngestionRunner`, which
-  fans out across a thread pool and returns a complete summary. The API uses it
-  for a manual sync, where the UI has to report what happened.
+  already fans out across a thread pool. This is what the API and beat use — it
+  returns a complete summary, so the caller can report what happened.
+* `poll_gmail` dispatches one `process_message` task per message, so per-resume
+  work spreads across separate worker processes. Worth switching to when a
+  single batch stops fitting comfortably in one task.
 
-Both take the poll lock, so the two styles never search the mailbox at the same
-time. That is no longer what stops the *work* overlapping — `poll_gmail` gives
-the lock back as soon as it has dispatched — so both paths additionally claim
-each message before touching it.
+Both take the same lock, so the two styles can never run on top of each other.
 """
 from __future__ import annotations
 
 from app.config import settings
 from app.email_client import get_email_client, GmailClient
 from app.ingestion.pipeline import IngestionPipeline
-from app.ingestion.runner import BatchSummary, IngestionRunner, mark_message_done
+from app.ingestion.runner import BatchSummary, IngestionRunner
 from app.logging_config import get_logger
 from app.tasks.celery_app import celery_app
-from app.tasks.locks import POLL_LOCK, LockNotAcquired, claim_message, redis_lock
+from app.tasks.locks import POLL_LOCK, LockNotAcquired, redis_lock
 
 log = get_logger(__name__)
 
@@ -85,31 +80,17 @@ def run_poll_cycle(query: str | None = None) -> dict:
 
 
 @celery_app.task(name="app.tasks.jobs.poll_gmail")
-def poll_gmail(query: str | None = None) -> dict:
-    """Search the mailbox and queue one `process_message` per email.
-
-    The lock covers the search and the dispatch only — seconds — so the next
-    scheduled tick finds it free even while a hundred resumes are still being
-    extracted. Re-dispatching a message that is already in flight is harmless:
-    the task claims it, finds the claim held, and returns.
-    """
+def poll_gmail() -> dict:
     try:
-        with redis_lock(POLL_LOCK, settings.poll_dispatch_lock_ttl_seconds):
+        with redis_lock(POLL_LOCK, settings.poll_lock_ttl_seconds):
             gmail = get_email_client()
-            ids = gmail.search_message_ids(query=query)
+            ids = gmail.search_message_ids()
             for mid in ids:
                 process_message.delay(mid)
-            log.info("Dispatched %d message(s) for processing", len(ids))
-            return {"dispatched": len(ids), "message_ids": ids}
+            return {"dispatched": len(ids)}
     except LockNotAcquired:
-        # Only a manual sync can hold the lock long enough to cause this now,
-        # and the work it is doing is the work this tick would have queued.
         log.info("Fan-out poll skipped: another cycle is already running")
-        return {
-            "dispatched": 0,
-            "message_ids": [],
-            "skipped_reason": "Another poll cycle is already running.",
-        }
+        return {"dispatched": 0, "skipped_reason": "Another poll cycle is already running."}
 
 
 @celery_app.task(
@@ -119,38 +100,24 @@ def poll_gmail(query: str | None = None) -> dict:
     default_retry_delay=30,
 )
 def process_message(self, message_id: str) -> dict:
-    """One email, end to end: claim it, process it, mark it done in Gmail."""
-    with claim_message(message_id) as claimed:
-        if not claimed:
-            # Another worker has it — either a re-dispatch from the next beat
-            # tick, or a manual sync that fetched the same unlabelled message.
-            return {"message_id": message_id, "status": "skipped",
-                    "reason": "already being processed", "candidates": []}
-
-        gmail = get_email_client()
-        pipeline = IngestionPipeline()
-        try:
-            email = gmail.get_message(message_id)
-            result = pipeline.process_email(email, gmail=gmail)
-        except Exception as exc:  # noqa: BLE001
-            log.exception("process_message failed for %s", message_id)
-            raise self.retry(exc=exc)
-
-        # Post-processing gets its own guard, matching IngestionRunner: the
-        # candidate is already in Mongo, so a Gmail hiccup here must not turn a
-        # successful ingestion into a retry that ingests it all over again.
-        try:
-            mark_message_done(gmail, message_id, result.status)
-        except Exception as err:  # noqa: BLE001
-            log.warning(
-                "Processed %s but could not mark it done in Gmail (%s); "
-                "it will be re-fetched and skipped as a duplicate next poll",
-                message_id, err,
-            )
-
+    gmail = get_email_client()
+    pipeline = IngestionPipeline()
+    try:
+        email = gmail.get_message(message_id)
+        result = pipeline.process_email(email, gmail=gmail)
+        # Label skipped messages too, matching IngestionRunner. The Gmail query
+        # excludes the processed label, so an unlabelled message comes back on
+        # every poll — which is how a deleted candidate kept reappearing.
+        if result.status == "processed":
+            if settings.gmail_mark_read:
+                gmail.mark_read(message_id)
+            if settings.gmail_processed_label:
+                gmail.apply_label(message_id, settings.gmail_processed_label)
         return {
             "message_id": message_id,
             "status": result.status,
-            "reason": result.reason,
             "candidates": result.ingested_ids,
         }
+    except Exception as exc:  # noqa: BLE001
+        log.exception("process_message failed for %s", message_id)
+        raise self.retry(exc=exc)
