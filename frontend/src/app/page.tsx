@@ -1,19 +1,34 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Menu, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import Sidebar from "@/components/Sidebar";
-import DashboardView from "@/screens/DashboardView";
-import CandidatesView, { type CandidateLog } from "@/screens/CandidatesView";
-import FlowVisualizer, { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
+import TopBar from "@/components/TopBar";
+import OverviewScreen from "@/screens/OverviewScreen";
+import ResumeParserScreen from "@/screens/ResumeParserScreen";
+import PipelineScreen from "@/screens/PipelineScreen";
 import SourcingHub from "@/screens/SourcingHub";
+import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
+import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
+import SettingsScreen from "@/screens/SettingsScreen";
+import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
+import CandidateEditScreen from "@/screens/CandidateEditScreen";
+import CandidateLogsScreen from "@/screens/CandidateLogsScreen";
 import LoginScreen from "@/screens/LoginScreen";
-import CandidateModal from "@/components/CandidateModal";
+import { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
+import { summariseProfileChange } from "@/lib/candidateProfile";
+import { NAV_META, type NavId } from "@/lib/nav";
+import {
+  appendCandidateLog,
+  dropCandidateLogs,
+  getLogsServerSnapshot,
+  getLogsSnapshot,
+  subscribeLogs,
+} from "@/lib/candidateLog";
 import {
   fetchMe,
   getToken,
@@ -23,33 +38,48 @@ import {
   runPollCycle,
   updateCandidateProfile,
   verifyCandidate,
+  fetchWorkerStatus,
   type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
+  type PollSummary,
 } from "@/lib/api";
 
-type TabId = "dashboard" | "candidates" | "visualizer" | "sourcing" | "job-orders";
+/**
+ * A candidate-scoped screen that takes over the content column.
+ *
+ * These are screens, not overlays, and each one does exactly one job: read the
+ * profile, change the profile, or read the profile's history. Keeping them
+ * apart is what lets the executive view carry no edit control at all and the
+ * editor carry nothing but controls.
+ *
+ * The candidate is held by id rather than by record, so the five-second poll
+ * keeps whichever screen is open in step with the database instead of freezing
+ * a snapshot taken when it was opened.
+ */
+interface CandidateScreen {
+  mode: "profile" | "edit" | "logs";
+  candidateId: string;
+}
 
-const PAGE_META: Record<TabId, { title: string; subtitle: string }> = {
-  dashboard: {
-    title: "Dashboard Overview",
-    subtitle: "Real-time candidate ingestion statistics.",
+const CANDIDATE_SCREEN_META: Record<
+  CandidateScreen["mode"],
+  { eyebrow: string; title: string; subtitle: string }
+> = {
+  profile: {
+    eyebrow: "Talent Pool",
+    title: "Executive Profile",
+    subtitle: "The complete parsed résumé. Read-only — nothing here can be changed.",
   },
-  candidates: {
-    title: "Candidates Directory",
-    subtitle: "Browse, filter, and inspect parsed profiles.",
+  edit: {
+    eyebrow: "Talent Pool",
+    title: "Edit Candidate",
+    subtitle: "Change the stored details. Only the fields you can edit are shown.",
   },
-  visualizer: {
-    title: "Automation Pipeline",
-    subtitle: "Visually monitor the Gmail-to-MongoDB flow.",
-  },
-  sourcing: {
-    title: "Sourcing Hub",
-    subtitle: "Manage Associations and Business Clients.",
-  },
-  "job-orders": {
-    title: "Job Orders",
-    subtitle: "Manage your open positions and client requirements.",
+  logs: {
+    eyebrow: "Talent Pool",
+    title: "Candidate Activity",
+    subtitle: "Everything that has happened to this one record.",
   },
 };
 
@@ -68,18 +98,19 @@ export default function Home() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<NavId>("overview");
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [candidateLogs, setCandidateLogs] = useState<CandidateLog[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  const [selected, setSelected] = useState<CandidateRecord | null>(null);
-  const [openInEdit, setOpenInEdit] = useState(false);
+  // Persisted outside React, so a reload does not erase who edited what.
+  const candidateLogs = useSyncExternalStore(subscribeLogs, getLogsSnapshot, getLogsServerSnapshot);
+
+  const [screen, setScreen] = useState<CandidateScreen | null>(null);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
   // Ids with a DELETE in flight — a second click must not fire a second request.
@@ -87,6 +118,11 @@ export default function Home() {
 
   const [flow, setFlow] = useState<FlowState>(IDLE_FLOW);
   const [syncing, setSyncing] = useState(false);
+  // Reported by the Overview and Gmail Sync screens. Null means "not this
+  // session" rather than "never" — the backend keeps no run history.
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [lastSummary, setLastSummary] = useState<PollSummary | null>(null);
+  const [workersOnline, setWorkersOnline] = useState<boolean | null>(null);
   const syncingRef = useRef(false);
   const bootLoggedRef = useRef(false);
 
@@ -94,18 +130,22 @@ export default function Home() {
   /**
    * Two logs, and an entry belongs to exactly one of them. Anything scoped to a
    * candidate — viewed, edited, verified, deleted — is that person's history and
-   * lives on their row in the directory. The dashboard's trace is reserved for
+   * lives on their own activity screen. The dashboard's trace is reserved for
    * the pipeline and for record-level changes, so a few minutes of browsing
    * profiles no longer buries the sync it is there to show.
    */
-  const log = useCallback((message: string, type: LogEntry["type"] = "info", candidateId?: string) => {
-    const entry = logEntry(message, type);
-    if (candidateId) {
-      setCandidateLogs((prev) => [...prev, { ...entry, candidateId }]);
-      return;
-    }
-    setLogs((prev) => [...prev, entry]);
+  const log = useCallback((message: string, type: LogEntry["type"] = "info") => {
+    setLogs((prev) => [...prev, logEntry(message, type)]);
   }, []);
+
+  /** How many events each candidate has — the directory shows this on the row. */
+  const logCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const entry of candidateLogs) {
+      counts[entry.candidateId] = (counts[entry.candidateId] ?? 0) + 1;
+    }
+    return counts;
+  }, [candidateLogs]);
 
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type, key: Date.now() });
@@ -168,11 +208,13 @@ export default function Home() {
     setCandidates([]);
     setTotal(0);
     setLogs([]);
-    setCandidateLogs([]);
+    // Candidate history is deliberately NOT cleared: it is the record's audit
+    // trail, not this session's scratch state, and the next sign-in should find
+    // it intact.
     // So the next session opens with its own connect banner.
     bootLoggedRef.current = false;
-    setSelected(null);
-    setActiveTab("dashboard");
+    setScreen(null);
+    setActiveTab("overview");
   }, []);
 
   // ---- bootstrap -------------------------------------------------------- //
@@ -222,11 +264,36 @@ export default function Home() {
     };
   }, [refreshCandidates, user]);
 
-  const handleTabChange = (tab: string) => {
-    const next = tab as TabId;
-    setActiveTab(next);
-    if (next === "candidates") void refreshCandidates();
-  };
+  /**
+   * One fact about the deployment rather than about the data: whether a Celery
+   * worker is up, which the pipeline screen reports. Read once per session — it
+   * does not change while the tab is open, so putting it on the five-second
+   * poll would be a wasted request a tick.
+   */
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+
+    fetchWorkerStatus().then(
+      (status) => active && setWorkersOnline(status.available),
+      () => active && setWorkersOnline(null),
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const handleNavigate = useCallback(
+    (next: NavId) => {
+      setActiveTab(next);
+      // Leaving for another destination closes whichever candidate screen was
+      // open, so coming back lands on the list rather than mid-edit.
+      setScreen(null);
+      if (next === "candidates") void refreshCandidates();
+    },
+    [refreshCandidates],
+  );
 
   // ---- pipeline run ----------------------------------------------------- //
   const runPipeline = useCallback(async () => {
@@ -244,6 +311,8 @@ export default function Home() {
       await sleep(600);
 
       const summary = await runPollCycle();
+      setLastSummary(summary);
+      setLastSyncAt(new Date().toISOString());
 
       log(`Step 3: Fetched ${summary.fetched} email(s); reading attachments...`, "info");
       const didWork = summary.ingested_candidates > 0 || summary.processed > 0;
@@ -367,29 +436,34 @@ export default function Home() {
   // ---- candidate mutations ---------------------------------------------- //
   const handleSave = async (candidateId: string, profile: CandidateProfile) => {
     setSaving(true);
-    // Read the name before the save lands — an edit can rename the record, and
-    // the log should say who was edited, not who they became.
+    // Read the name and the stored profile before the save lands — an edit can
+    // rename the record, and the entry has to say what changed, which needs the
+    // values as they were.
     const previousName = nameOf(candidateId);
+    const previousProfile = candidates.find((c) => c.id === candidateId)?.profile;
     const nextName = profile.full_name?.trim() || previousName;
     const renamed = nextName !== previousName;
 
     try {
-      const updated = await updateCandidateProfile(candidateId, profile);
+      await updateCandidateProfile(candidateId, profile);
       showToast("Candidate profile updated successfully.", "success");
-      log(
-        renamed
-          ? `Updated profile: ${previousName} — renamed to ${nextName}.`
-          : `Updated profile: ${nextName}.`,
-        "success",
+      appendCandidateLog(
         candidateId,
+        renamed ? "Renamed" : "Edited",
+        previousProfile
+          ? summariseProfileChange(previousProfile, profile)
+          : `Profile saved for ${nextName}.`,
+        "success",
+        user?.email,
       );
-      setSelected(updated);
-      setOpenInEdit(false);
       await refreshCandidates();
+      // Straight to the executive view of what was just saved, so the edit is
+      // confirmed by the record itself rather than by a toast alone.
+      setScreen({ mode: "profile", candidateId });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error saving profile.";
       showToast("Failed to save profile changes.", "error");
-      log(`Failed to update profile: ${previousName} — ${message}`, "error", candidateId);
+      appendCandidateLog(candidateId, "Failed", `Save failed — ${message}`, "error", user?.email);
     } finally {
       setSaving(false);
     }
@@ -401,13 +475,20 @@ export default function Home() {
     try {
       await verifyCandidate(candidateId);
       showToast("Candidate marked as verified.", "success");
-      log(`Verified profile: ${who}.`, "success", candidateId);
-      setSelected(null);
+      appendCandidateLog(candidateId, "Verified", `Profile marked as verified.`, "success", user?.email);
+      // The open screen stays open: it reads from the refreshed list, so the
+      // status badge simply flips to Verified in place.
       await refreshCandidates();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error verifying candidate.";
       showToast("Failed to verify candidate.", "error");
-      log(`Failed to verify: ${who} — ${message}`, "error", candidateId);
+      appendCandidateLog(
+        candidateId,
+        "Failed",
+        `Verification failed for ${who} — ${message}`,
+        "error",
+        user?.email,
+      );
     } finally {
       setVerifying(false);
     }
@@ -419,17 +500,16 @@ export default function Home() {
     // Resolved up front: once the record is gone the name cannot be looked up.
     const who = nameOf(candidateId);
     try {
-      log(`Deleting profile: ${who}…`, "warn", candidateId);
       await deleteCandidateAPI(candidateId);
       showToast("Candidate permanently deleted from MongoDB Atlas.", "success");
-      log(`Deleted profile: ${who} — removed from MongoDB Atlas.`, "success", candidateId);
-      setSelected(null);
+      dropCandidateLogs(candidateId);
+      setScreen(null);
       const remaining = await refreshCandidates();
-      // Also on the dashboard trace, with the new total. A deletion changes the
-      // record count the trace opened with ("… N candidate record(s) loaded"),
-      // and its per-candidate entry above is attached to a row that no longer
-      // exists — so without this the trace still shows the old count and never
-      // says why it changed.
+      // The deletion is reported on the dashboard trace, not in the candidate's
+      // own history, which has just been dropped along with the record. It also
+      // changes the count the trace opened with ("… N candidate record(s)
+      // loaded"), so without this the trace shows a stale total and never says
+      // why it changed.
       log(
         remaining
           ? `Deleted profile: ${who} — ${remaining.length} candidate record(s) remaining.`
@@ -439,28 +519,55 @@ export default function Home() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error deleting candidate.";
       showToast("Failed to delete candidate.", "error");
-      log(`Failed to delete: ${who} — ${message}`, "error", candidateId);
-      // A failed delete is a record-level event too: the count did not change,
-      // and the reason belongs where the user is watching.
+      // The record survived, so its own history is still reachable and is where
+      // the reason belongs — and on the dashboard trace, where the user is
+      // watching the count that did not change.
+      appendCandidateLog(candidateId, "Failed", `Delete failed — ${message}`, "error", user?.email);
       log(`Failed to delete ${who}: ${message}`, "error");
     } finally {
       deletingRef.current.delete(candidateId);
     }
   };
 
+  // ---- candidate screens -------------------------------------------------- //
+  /**
+   * The directory is the home of every candidate screen, including the ones
+   * opened from the dashboard's recent list — otherwise "Back to candidates"
+   * would land somewhere that is not the candidates list.
+   */
+  const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
+    setActiveTab("candidates");
+    setScreen({ mode, candidateId });
+  };
+
   const handleOpenCandidate = (candidate: CandidateRecord) => {
-    setOpenInEdit(false);
-    setSelected(candidate);
-    log(`Viewed profile: ${candidateNameOf(candidate)}.`, "info", candidate.id);
+    openScreen("profile", candidate.id);
+    appendCandidateLog(candidate.id, "Viewed", `Executive profile opened.`, "info", user?.email);
   };
 
   const handleEditCandidate = (candidate: CandidateRecord) => {
-    setOpenInEdit(true);
-    setSelected(candidate);
-    log(`Opened editor: ${candidateNameOf(candidate)}.`, "info", candidate.id);
+    openScreen("edit", candidate.id);
+    appendCandidateLog(candidate.id, "Opened editor", `Edit screen opened.`, "info", user?.email);
   };
 
-  const meta = PAGE_META[activeTab];
+  /** Reading the history is not itself an event in it. */
+  const handleOpenLogs = (candidate: CandidateRecord) => {
+    openScreen("logs", candidate.id);
+  };
+
+  const closeScreen = () => setScreen(null);
+
+  /**
+   * Resolved from the live list, not from what was captured on click — a record
+   * deleted or replaced by the poll simply stops resolving, and the directory
+   * takes the column back rather than a stale copy staying on screen.
+   */
+  const screenCandidate = screen
+    ? candidates.find((candidate) => candidate.id === screen.candidateId) ?? null
+    : null;
+
+  const meta =
+    screenCandidate && screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[activeTab];
 
   if (checking) {
     return (
@@ -475,87 +582,137 @@ export default function Home() {
   }
 
   return (
-    <>
-      <Sidebar
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((prev) => !prev)}
-        mobileOpen={mobileOpen}
-        onCloseMobile={() => setMobileOpen(false)}
-        activeTab={activeTab}
-        onTabChange={handleTabChange}
+    <div className={`app-shell ${railCollapsed ? "is-collapsed" : ""}`}>
+      <TopBar
         user={user}
-        onSignOut={handleSignOut}
+        syncing={syncing}
+        onSync={runPipeline}
+        onOpenActivity={() => handleNavigate("activity")}
+        onOpenSettings={() => handleNavigate("settings")}
+        onToggleRail={() => setMobileOpen((open) => !open)}
       />
 
-      {/* `screen-dashboard` carries the dashboard's own typeface. It sits on the
-          content column rather than on the dashboard view itself so the header
-          bar above the tiles is set in the same face — scoping it any tighter
-          splits one screen across two fonts at the page title. */}
-      <div
-        className={`main-content ${collapsed ? "sidebar-collapsed" : ""} ${activeTab === "dashboard" ? "screen-dashboard" : ""
-          }`}
-      >
-        <div className="header-bar">
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <button
-              className="mobile-menu-btn"
-              onClick={() => setMobileOpen((prev) => !prev)}
-              aria-label="Open navigation"
-            >
-              <Menu size={20} />
-            </button>
-            <div>
-              <h1 className="page-title">{meta.title}</h1>
-              <p className="page-subtitle">{meta.subtitle}</p>
-            </div>
+      <div className="app-body">
+        <Sidebar
+          activeId={activeTab}
+          collapsed={railCollapsed}
+          mobileOpen={mobileOpen}
+          user={user}
+          onNavigate={handleNavigate}
+          onToggleCollapse={() => setRailCollapsed((open) => !open)}
+          onCloseMobile={() => setMobileOpen(false)}
+          onSignOut={handleSignOut}
+        />
+
+        <main className="workspace">
+          <div className="db-page">
+            <header className="db-page-head">
+              <div>
+                <span className="db-eyebrow">{meta.eyebrow}</span>
+                <h1 className="db-title">{meta.title}</h1>
+                <p className="db-subtitle">{meta.subtitle}</p>
+              </div>
+            </header>
+
+            {/* A candidate screen owns the whole workspace while it is open.
+                Nothing is layered over anything else — the profile, the editor
+                and the activity log are three destinations, not three modes of
+                one. */}
+            {screenCandidate && screen?.mode === "profile" && (
+              <CandidateProfileScreen
+                candidate={screenCandidate}
+                verifying={verifying}
+                onBack={closeScreen}
+                onVerify={handleVerify}
+              />
+            )}
+
+            {screenCandidate && screen?.mode === "edit" && (
+              <CandidateEditScreen
+                candidate={screenCandidate}
+                saving={saving}
+                onBack={closeScreen}
+                onSave={handleSave}
+              />
+            )}
+
+            {screenCandidate && screen?.mode === "logs" && (
+              <CandidateLogsScreen
+                candidate={screenCandidate}
+                logs={candidateLogs}
+                onBack={closeScreen}
+              />
+            )}
+
+            {!screenCandidate && (
+              <>
+                {activeTab === "overview" && (
+                  <OverviewScreen
+                    total={total}
+                    candidates={candidates}
+                    logs={logs}
+                    onNavigate={handleNavigate}
+                    onOpenCandidate={handleOpenCandidate}
+                  />
+                )}
+
+                {activeTab === "resume-parser" && (
+                  <ResumeParserScreen
+                    candidates={candidates}
+                    syncing={syncing}
+                    onSync={runPipeline}
+                    onNavigate={handleNavigate}
+                  />
+                )}
+
+                {activeTab === "visualizer" && (
+                  <PipelineScreen
+                    flow={flow}
+                    logs={logs}
+                    syncing={syncing}
+                    lastSyncAt={lastSyncAt}
+                    lastSummary={lastSummary}
+                    workersOnline={workersOnline}
+                    onSync={runPipeline}
+                  />
+                )}
+
+                {activeTab === "sourcing" && <SourcingHub onActivity={log} />}
+
+                {activeTab === "candidates" && (
+                  <CandidatesView
+                    candidates={candidates}
+                    logCounts={logCounts}
+                    onOpenCandidate={handleOpenCandidate}
+                    onEditCandidate={handleEditCandidate}
+                    onOpenLogs={handleOpenLogs}
+                    onDeleteCandidate={handleDeleteCandidate}
+                  />
+                )}
+
+                {activeTab === "job-orders" && (
+                  <JobOrders candidates={candidates} onActivity={log} />
+                )}
+
+                {activeTab === "activity" && (
+                  <ActivityLogsScreen
+                    systemLogs={logs}
+                    candidateLogs={candidateLogs}
+                    candidates={candidates}
+                    onOpenCandidateLogs={handleOpenLogs}
+                  />
+                )}
+
+                {activeTab === "settings" && (
+                  <SettingsScreen user={user} onSignOut={handleSignOut} />
+                )}
+              </>
+            )}
           </div>
-
-          <button className="btn" onClick={runPipeline} disabled={syncing}>
-            <RefreshCw size={18} className={syncing ? "icon-spin" : undefined} />
-            <span>{syncing ? "Syncing..." : "Sync Gmail Inbox"}</span>
-          </button>
-        </div>
-
-        {activeTab === "dashboard" && (
-          <DashboardView
-            total={total}
-            candidates={candidates}
-            logs={logs}
-            onOpenCandidate={setSelected}
-          />
-        )}
-
-        {activeTab === "candidates" && (
-          <CandidatesView
-            candidates={candidates}
-            logs={candidateLogs}
-            onOpenCandidate={handleOpenCandidate}
-            onEditCandidate={handleEditCandidate}
-            onDeleteCandidate={handleDeleteCandidate}
-          />
-        )}
-
-        {activeTab === "visualizer" && (
-          <FlowVisualizer flow={flow} syncing={syncing} onTrigger={runPipeline} />
-        )}
-
-        {activeTab === "sourcing" && <SourcingHub onActivity={log} />}
-
-        {activeTab === "job-orders" && <JobOrders candidates={candidates} onActivity={log} />}
+        </main>
       </div>
 
-      <CandidateModal
-        candidate={selected}
-        saving={saving}
-        verifying={verifying}
-        initialEditMode={openInEdit}
-        onClose={() => { setSelected(null); setOpenInEdit(false); }}
-        onSave={handleSave}
-        onVerify={handleVerify}
-        onDelete={handleDeleteCandidate}
-      />
-
       <Toast toast={toast} />
-    </>
+    </div>
   );
 }

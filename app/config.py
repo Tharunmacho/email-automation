@@ -192,9 +192,7 @@ class Settings(BaseSettings):
         return Path(self.storage_local_dir)
 
 
-@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-
 
 settings = get_settings()

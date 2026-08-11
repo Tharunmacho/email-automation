@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Activity } from "lucide-react";
 import { formatDayLong, formatDayShort, formatInt, type DayBucket } from "@/lib/dashboardMetrics";
 
 export const RANGE_OPTIONS = [7, 14, 30] as const;
@@ -10,17 +9,13 @@ export type RangeOption = (typeof RANGE_OPTIONS)[number];
 interface IngestionChartProps {
   buckets: DayBucket[];
   range: RangeOption;
-  onRangeChange: (range: RangeOption) => void;
 }
 
-/** Electric azure — the line is the loudest thing on an otherwise white
- *  surface, and it is the same accent the rest of the shell is keyed to. */
-const ACCENT = "#0b5fff";
-/** Cyan tail on the area fill — the gradient runs accent → spark → nothing,
- *  which is what gives the plot its depth without adding a second data hue. */
-const ACCENT_SOFT = "#00c2ff";
-/* Gridlines stay recessive, but tinted from the same blue as every border. */
-const GRID = "#e3ebfb";
+/* Every colour in the plot comes from a CSS class rather than a literal, so the
+   chart follows the palette — including the dark theme — without this file
+   knowing what the palette is. Presentation attributes cannot resolve a custom
+   property, which is why these are classes rather than a `var(--primary)`
+   written straight onto a `stroke` attribute. */
 
 const PAD = { top: 18, right: 18, bottom: 30, left: 40 };
 const HEIGHT = 268;
@@ -55,7 +50,7 @@ function useWidth<T extends HTMLElement>() {
   return { ref, width };
 }
 
-export default function IngestionChart({ buckets, range, onRangeChange }: IngestionChartProps) {
+export default function IngestionChart({ buckets, range }: IngestionChartProps) {
   const { ref, width } = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
 
@@ -103,144 +98,115 @@ export default function IngestionChart({ buckets, range, onRangeChange }: Ingest
 
   const active = hover !== null ? buckets[hover] : null;
   const activePoint = hover !== null ? geometry.points[hover] : null;
-  const total = values.reduce((sum, value) => sum + value, 0);
 
   return (
-    <section className="dash-card dash-chart-card">
-      <header className="dash-card-head">
-        <div>
-          <h3 className="dash-card-title">
-            <Activity size={17} strokeWidth={2.2} /> Ingestion activity
-          </h3>
-          <p className="dash-card-sub">
-            {formatInt(total)} resume{total === 1 ? "" : "s"} parsed in the last {range} days
-          </p>
-        </div>
+    <div className="dash-plot" ref={ref}>
+      <svg
+        width={width}
+        height={HEIGHT}
+        role="img"
+        aria-label={`Resumes parsed per day over the last ${range} days`}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="dash-area-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" className="plot-fill-top" />
+            <stop offset="62%" className="plot-fill-mid" />
+            <stop offset="100%" className="plot-fill-end" />
+          </linearGradient>
+        </defs>
 
-        <div className="dash-segmented" role="group" aria-label="Time range">
-          {RANGE_OPTIONS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={`dash-segmented-btn ${option === range ? "active" : ""}`}
-              onClick={() => onRangeChange(option)}
-              aria-pressed={option === range}
-            >
-              {option}D
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <div className="dash-plot" ref={ref}>
-        <svg
-          width={width}
-          height={HEIGHT}
-          role="img"
-          aria-label={`Resumes parsed per day over the last ${range} days`}
-          onMouseLeave={() => setHover(null)}
-        >
-          <defs>
-            <linearGradient id="dash-area-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={ACCENT} stopOpacity="0.18" />
-              <stop offset="62%" stopColor={ACCENT_SOFT} stopOpacity="0.07" />
-              <stop offset="100%" stopColor={ACCENT_SOFT} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          {/* Recessive hairline grid + value ticks */}
-          {Array.from({ length: TICKS + 1 }, (_, index) => {
-            const value = (axisMax / TICKS) * index;
-            const y = PAD.top + plotHeight - (index / TICKS) * plotHeight;
-            return (
-              <g key={value}>
-                <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} stroke={GRID} strokeWidth={1} />
-                <text x={PAD.left - 10} y={y + 4} textAnchor="end" className="dash-axis-text">
-                  {formatInt(value)}
-                </text>
-              </g>
-            );
-          })}
-
-          {geometry.line && (
-            <>
-              <path d={geometry.area} fill="url(#dash-area-fill)" />
-              <path
-                d={geometry.line}
-                fill="none"
-                stroke={ACCENT}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </>
-          )}
-
-          {/* Day labels */}
-          {buckets.map((bucket, index) => {
-            if (index % labelEvery !== 0 && index !== buckets.length - 1) return null;
-            const point = geometry.points[index];
-            if (!point) return null;
-            return (
-              <text
-                key={bucket.key}
-                x={point.x}
-                y={HEIGHT - 10}
-                textAnchor={index === 0 ? "start" : index === buckets.length - 1 ? "end" : "middle"}
-                className="dash-axis-text"
-              >
-                {formatDayShort(bucket.date)}
+        {/* Recessive hairline grid + value ticks */}
+        {Array.from({ length: TICKS + 1 }, (_, index) => {
+          const value = (axisMax / TICKS) * index;
+          const y = PAD.top + plotHeight - (index / TICKS) * plotHeight;
+          return (
+            <g key={value}>
+              <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} className="plot-grid" strokeWidth={1} />
+              <text x={PAD.left - 10} y={y + 4} textAnchor="end" className="dash-axis-text">
+                {formatInt(value)}
               </text>
-            );
-          })}
-
-          {/* Crosshair */}
-          {activePoint && (
-            <g pointerEvents="none">
-              <line
-                x1={activePoint.x}
-                y1={PAD.top}
-                x2={activePoint.x}
-                y2={PAD.top + plotHeight}
-                stroke={ACCENT}
-                strokeOpacity="0.35"
-                strokeWidth={1}
-              />
-              <circle cx={activePoint.x} cy={activePoint.y} r={6} fill="#ffffff" />
-              <circle cx={activePoint.x} cy={activePoint.y} r={4} fill={ACCENT} />
             </g>
-          )}
+          );
+        })}
 
-          {/* Hit area — sits above the marks so the whole plot is hoverable. */}
-          <rect
-            x={PAD.left}
-            y={PAD.top}
-            width={Math.max(0, plotWidth)}
-            height={plotHeight}
-            fill="transparent"
-            onMouseMove={handleMove}
-          />
-        </svg>
-
-        {active && activePoint && (
-          <div
-            className="dash-tooltip"
-            style={{
-              left: `${Math.min(Math.max(activePoint.x, 70), Math.max(width - 70, 70))}px`,
-              top: `${Math.max(activePoint.y - 16, 8)}px`,
-            }}
-          >
-            <span className="dash-tooltip-date">{formatDayLong(active.date)}</span>
-            <span className="dash-tooltip-row">
-              <i className="dash-dot" style={{ background: ACCENT }} />
-              {active.added} parsed
-            </span>
-            {active.review > 0 && (
-              <span className="dash-tooltip-muted">{active.review} flagged for review</span>
-            )}
-          </div>
+        {geometry.line && (
+          <>
+            <path d={geometry.area} fill="url(#dash-area-fill)" />
+            <path
+              d={geometry.line}
+              fill="none"
+              className="plot-line"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </>
         )}
-      </div>
-    </section>
+
+        {/* Day labels */}
+        {buckets.map((bucket, index) => {
+          if (index % labelEvery !== 0 && index !== buckets.length - 1) return null;
+          const point = geometry.points[index];
+          if (!point) return null;
+          return (
+            <text
+              key={bucket.key}
+              x={point.x}
+              y={HEIGHT - 10}
+              textAnchor={index === 0 ? "start" : index === buckets.length - 1 ? "end" : "middle"}
+              className="dash-axis-text"
+            >
+              {formatDayShort(bucket.date)}
+            </text>
+          );
+        })}
+
+        {/* Crosshair */}
+        {activePoint && (
+          <g pointerEvents="none">
+            <line
+              x1={activePoint.x}
+              y1={PAD.top}
+              x2={activePoint.x}
+              y2={PAD.top + plotHeight}
+              className="plot-crosshair"
+              strokeWidth={1}
+            />
+            <circle cx={activePoint.x} cy={activePoint.y} r={6} className="plot-dot-halo" />
+            <circle cx={activePoint.x} cy={activePoint.y} r={4} className="plot-dot" />
+          </g>
+        )}
+
+        {/* Hit area — sits above the marks so the whole plot is hoverable. */}
+        <rect
+          x={PAD.left}
+          y={PAD.top}
+          width={Math.max(0, plotWidth)}
+          height={plotHeight}
+          fill="transparent"
+          onMouseMove={handleMove}
+        />
+      </svg>
+
+      {active && activePoint && (
+        <div
+          className="dash-tooltip"
+          style={{
+            left: `${Math.min(Math.max(activePoint.x, 70), Math.max(width - 70, 70))}px`,
+            top: `${Math.max(activePoint.y - 16, 8)}px`,
+          }}
+        >
+          <span className="dash-tooltip-date">{formatDayLong(active.date)}</span>
+          <span className="dash-tooltip-row">
+            <i className="dash-dot plot-dot-swatch" />
+            {active.added} parsed
+          </span>
+          {active.review > 0 && (
+            <span className="dash-tooltip-muted">{active.review} flagged for review</span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,128 +1,173 @@
 "use client";
 
-import React from "react";
-import { LayoutDashboard, Users, GitMerge, Building2, FileText, ChevronLeft, ChefHat, LogOut } from "lucide-react";
+import { useSyncExternalStore } from "react";
+import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
 
+import { NAV_GROUPS, type NavId } from "@/lib/nav";
+import {
+  getThemeServerSnapshot,
+  getThemeSnapshot,
+  setTheme,
+  subscribeTheme,
+  type Theme,
+} from "@/lib/theme";
 import { initialsOf } from "@/lib/format";
 import type { AuthUser } from "@/lib/api";
 
 interface SidebarProps {
+  activeId: NavId;
   collapsed: boolean;
-  onToggleCollapse: () => void;
   mobileOpen: boolean;
+  user: AuthUser;
+  onNavigate: (id: NavId) => void;
+  onToggleCollapse: () => void;
   onCloseMobile: () => void;
-  activeTab: string;
-  onTabChange: (tab: string) => void;
-  user?: AuthUser | null;
-  onSignOut?: () => void;
+  onSignOut: () => void;
 }
 
+const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
+  { id: "light", label: "Light", icon: Sun },
+  { id: "dark", label: "Dark", icon: Moon },
+];
+
+/**
+ * The left rail: a collapse control at the top, three labelled groups of
+ * destinations, and the account card at the bottom.
+ *
+ * Collapsed it keeps only the icons — same list, same order, same active
+ * marker, so the muscle memory built at full width still works at 68px. Nothing
+ * is removed on collapse that you cannot get back by hovering: every control
+ * keeps its `title`, which is the tooltip a labelless icon needs.
+ */
 export default function Sidebar({
+  activeId,
   collapsed,
-  onToggleCollapse,
   mobileOpen,
-  onCloseMobile,
-  activeTab,
-  onTabChange,
   user,
+  onNavigate,
+  onToggleCollapse,
+  onCloseMobile,
   onSignOut,
 }: SidebarProps) {
-  const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "candidates", label: "Candidates", icon: Users },
-    { id: "visualizer", label: "Flow Visualizer", icon: GitMerge },
-    { id: "sourcing", label: "Sourcing Hub", icon: Building2 },
-    { id: "job-orders", label: "Job Orders", icon: FileText },
-  ];
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
 
-  const handleTabClick = (tabId: string) => {
-    onTabChange(tabId);
+  const go = (id: NavId) => {
+    onNavigate(id);
     onCloseMobile();
   };
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
       <div
-        className={`sidebar-overlay ${mobileOpen ? "active" : ""}`}
+        className={`rail-backdrop ${mobileOpen ? "is-open" : ""}`}
         onClick={onCloseMobile}
-      ></div>
+        aria-hidden="true"
+      />
 
-      {/* Sidebar Navigation */}
-      <div className={`sidebar ${collapsed ? "collapsed" : ""} ${mobileOpen ? "mobile-open" : ""}`}>
-        <div className="brand">
-          <div className="brand-logo-wrapper">
-            <div className="brand-logo">
-              <ChefHat size={20} strokeWidth={2.4} />
-            </div>
-            <span className="brand-text">
-              <span className="brand-title">Ingrechef AI</span>
-              <span className="brand-caption">Recruitment workspace</span>
-            </span>
-          </div>
+      <nav
+        className={`rail ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-open" : ""}`}
+        aria-label="Main navigation"
+      >
+        {/* No brand here at all — the logo and name live in the header bar
+            directly above, and repeating either in this corner reads as a
+            rendering fault. The row exists only to carry the collapse control,
+            which sits at its right edge. */}
+        <div className="rail-head">
           <button
-            className="sidebar-toggle"
-            id="sidebar-toggle-btn"
+            type="button"
+            className="rail-toggle"
             onClick={onToggleCollapse}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
           >
-            <ChevronLeft size={16} />
+            {collapsed ? <Menu size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
 
-        <p className="nav-section-label">Workspace</p>
+        <div className="rail-scroll">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="rail-group">
+              <p className="rail-group-label">{group.label}</p>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`rail-item ${isActive ? "is-active" : ""}`}
+                    onClick={() => go(item.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <Icon size={17} strokeWidth={2} />
+                    <span className="rail-item-label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
 
-        <ul className="nav-menu">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className={`nav-item ${isActive ? "active" : ""}`}
-                  onClick={() => handleTabClick(item.id)}
-                  aria-current={isActive ? "page" : undefined}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <Icon size={18} strokeWidth={2} />
-                  <span>{item.label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        {user && (
-          <div className="sidebar-account">
-            <span className="sidebar-avatar">{initialsOf(user.name || user.email)}</span>
-            <span className="sidebar-account-text">
-              <span className="sidebar-account-name" title={user.name}>
-                {user.name}
-              </span>
-              <span className="sidebar-account-mail" title={user.email}>
+        <div className="rail-foot">
+          {/* The account card. "Recruitment Team" is the workspace this session
+              belongs to; the signed-in address sits under it, so the card says
+              both which team you are in and who you are in it as. */}
+          <div className="rail-account">
+            <span className="rail-avatar" aria-hidden="true">
+              {initialsOf(user.name || user.email)}
+            </span>
+            <span className="rail-account-text">
+              <span className="rail-account-name">Recruitment Team</span>
+              <span className="rail-account-mail" title={user.email}>
                 {user.email}
               </span>
             </span>
-            {onSignOut && (
-              <button
-                type="button"
-                className="sidebar-signout"
-                onClick={onSignOut}
-                title="Sign out"
-                aria-label="Sign out"
-              >
-                <LogOut size={15} />
-              </button>
-            )}
+            {/* The chevrons are the affordance; the exit icon is what the
+                control does, and it swaps in on hover so the button cannot be
+                mistaken for a menu that merely expands. */}
+            <button
+              type="button"
+              className="rail-signout"
+              onClick={onSignOut}
+              title={`Sign out of ${user.email}`}
+              aria-label="Sign out"
+            >
+              <ChevronsUpDown size={14} className="rail-account-chevrons" />
+              <LogOut size={14} className="rail-account-exit" />
+            </button>
           </div>
-        )}
 
-        <div className="sidebar-footer">
-          <div className="status-dot"></div>
-          <span>Pipeline active</span>
+          {/* Collapsed, the pill becomes one button that flips the theme — a
+              two-up segmented control does not fit 52px, and hiding the control
+              entirely would strand anyone who works with the rail closed. */}
+          <div className="theme-switch" role="group" aria-label="Colour theme">
+            {THEMES.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                type="button"
+                className={`theme-switch-btn ${theme === id ? "is-on" : ""}`}
+                onClick={() => setTheme(id)}
+                aria-pressed={theme === id}
+                title={`${label} theme`}
+              >
+                <Icon size={13} /> <span className="rail-item-label">{label}</span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className="rail-theme-mini"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          >
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
         </div>
-      </div>
+      </nav>
     </>
   );
 }

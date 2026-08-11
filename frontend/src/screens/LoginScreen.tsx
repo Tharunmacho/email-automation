@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { AlertCircle, ChefHat, Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail, Sparkles } from "lucide-react";
 
 import { login, type AuthUser } from "@/lib/api";
 
@@ -48,11 +48,11 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           <header className="login-head">
             <div className="login-brand">
               <span className="login-logo">
-                <ChefHat size={20} strokeWidth={2.3} />
+                <Sparkles size={20} strokeWidth={2.3} />
               </span>
               <span className="login-brandline">
-                <span className="login-brandname">Ingrechef AI</span>
-                <span className="login-brandsub">Recruitment workspace</span>
+                <span className="login-brandname">TalentFlow AI</span>
+                <span className="login-brandsub">Candidate sourcing workspace</span>
               </span>
             </div>
 

@@ -1734,7 +1734,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   // RENDER CARDS LIST VIEW (Default Screen)
   // -------------------------------------------------------------
   return (
-    <div className="job-orders-wrapper" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+    <div className="job-orders-wrapper">
       <div className="stat-tiles">
         <StatTile
           tone="blue"

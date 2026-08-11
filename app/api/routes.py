@@ -331,6 +331,52 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) 
         _inline_poll_lock.release()
 
 
+@app.get("/ingest/rules")
+def ingest_rules(_user: dict = Depends(current_user)) -> dict:
+    """The rules the ingestion pipeline actually applies, for the Email Rules screen.
+
+    Read-only and deliberately hand-listed rather than dumped from `settings`:
+    the settings object holds mailbox passwords and API keys, and a blanket
+    serialisation would put them on a web page the first time someone adds a
+    field. Credentials are reported only as "is this configured", never by value.
+    """
+    return {
+        "provider": settings.email_provider,
+        "mailbox": {
+            # The address is shown so a recruiter can confirm which inbox is
+            # being drained; the password behind it never leaves the server.
+            "account": settings.imap_username or settings.smtp_username,
+            "configured": bool(settings.imap_username and settings.imap_password),
+            "inbox_folder": settings.imap_folder,
+            "processed_folder": settings.imap_processed_folder,
+            "deleted_folder": settings.imap_deleted_folder,
+            "gmail_query": settings.gmail_query,
+        },
+        "gates": {
+            "detector_min_score": settings.detector_min_score,
+            "inspect_all_documents": settings.inspect_all_documents,
+            "min_image_attachment_bytes": settings.min_image_attachment_bytes,
+            "min_ingest_confidence": settings.min_ingest_confidence,
+        },
+        "attachments": {"accepted_extensions": settings.resume_extensions},
+        "ignored_senders": settings.ignore_sender_fragments,
+        "ocr": {
+            "min_text_chars": settings.ocr_min_text_chars,
+            "dpi": settings.ocr_dpi,
+            "chunk_pages": settings.ocr_chunk_pages,
+            "max_pages": settings.ocr_max_pages,
+            "give_up_pages": settings.ocr_give_up_pages,
+            "languages": settings.ocr_languages,
+            "provider_configured": bool(settings.veris_ocr_api_key),
+        },
+        "extraction": {
+            "model": settings.anthropic_model,
+            "configured": bool(settings.anthropic_api_key),
+        },
+        "auto_reply": {"enabled": settings.auto_reply_enabled},
+    }
+
+
 # ---- Background ingestion ------------------------------------------------- #
 @app.get("/ingest/workers")
 def ingest_workers(_user: dict = Depends(current_user)) -> dict:

@@ -1,39 +1,32 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Search,
   UsersRound,
   Eye,
   Edit3,
   Trash2,
-  Clock,
+  MoreHorizontal,
   ArrowDown,
   ArrowUp,
   Check,
-  ChevronUp,
-  CheckCircle2,
-  AlertCircle,
-  Info,
-  AlertTriangle,
   X,
-  FileText,
+  LayoutGrid,
+  Rows3,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
 import type { CandidateRecord } from "@/lib/api";
 
-export interface CandidateLog {
-  time: string;
-  type: "info" | "success" | "warn" | "error";
-  message: string;
-  candidateId?: string;
-}
+export type TalentFilter = "all" | "verified" | "pending";
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
-  logs: CandidateLog[];
+  /** How many activity entries each candidate has, keyed by id. */
+  logCounts: Record<string, number>;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
+  onOpenLogs: (candidate: CandidateRecord) => void;
   onDeleteCandidate: (candidateId: string) => void;
 }
 
@@ -193,22 +186,43 @@ function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string 
   return { key: "active", label: "Active" };
 }
 
+/**
+ * What an empty table means depends on which slice you asked for. "No
+ * candidates in the database" is wrong on the Pending Review screen when there
+ * are two hundred records and none of them need review — that is good news, and
+ * it should read like it.
+ */
+const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
+  all: {
+    title: "No candidates yet",
+    sub: "Run a Gmail sync and parsed résumés will appear here.",
+  },
+  verified: {
+    title: "Nothing verified yet",
+    sub: "Open a profile and mark it verified once you have checked it over.",
+  },
+  pending: {
+    title: "Nothing waiting for review",
+    sub: "Every parsed résumé scored above the confidence threshold.",
+  },
+};
+
+/** The three slices, in the order a recruiter works through them. */
+const FILTERS: { id: TalentFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "verified", label: "Verified" },
+  { id: "pending", label: "Pending review" },
+];
+
+/** Which DataBlue pill each state wears. */
+const STATUS_PILL: Record<StatusKey, string> = {
+  verified: "is-verified",
+  review: "is-pending",
+  active: "is-info",
+};
+
 /** Sort weight — review first, because it is the column you act on. */
 const STATUS_ORDER: Record<StatusKey, number> = { review: 0, active: 1, verified: 2 };
-
-const LOG_ICON: Record<string, React.ReactNode> = {
-  success: <CheckCircle2 size={13} />,
-  error: <AlertCircle size={13} />,
-  warn: <AlertTriangle size={13} />,
-  info: <Info size={13} />,
-};
-
-const LOG_COLOR: Record<string, string> = {
-  success: "#047857",
-  error: "#b91c1c",
-  warn: "#b45309",
-  info: "var(--primary)",
-};
 
 type SortKey = "name" | "designation" | "industry" | "experience" | "status" | "added";
 type SortDir = "asc" | "desc";
@@ -246,15 +260,38 @@ const ALIGN: Record<string, string> = Object.fromEntries(
 );
 
 export default function CandidatesView({
-  candidates,
-  logs,
+  candidates: allCandidates,
+  logCounts,
   onOpenCandidate,
   onEditCandidate,
+  onOpenLogs,
   onDeleteCandidate,
 }: CandidatesViewProps) {
   const [query, setQuery] = useState("");
-  const [expandedLogs, setExpandedLogs] = useState<string | null>(null);
+  const [filter, setFilter] = useState<TalentFilter>("all");
+  const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  /**
+   * Verified and Pending Review are this table with a slice applied, not
+   * screens of their own — same columns, same actions, same search, so the
+   * directory does not have to be relearned three times.
+   */
+  const candidates = useMemo(() => {
+    if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
+    if (filter === "pending") return allCandidates.filter((c) => getStatus(c).key === "review");
+    return allCandidates;
+  }, [allCandidates, filter]);
+
+  /** Counts sit on the tabs themselves, so the split is visible before you click. */
+  const filterCounts = useMemo(
+    () => ({
+      all: allCandidates.length,
+      verified: allCandidates.filter((c) => getStatus(c).key === "verified").length,
+      pending: allCandidates.filter((c) => getStatus(c).key === "review").length,
+    }),
+    [allCandidates],
+  );
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const filtered = useMemo(() => {
@@ -312,21 +349,53 @@ export default function CandidatesView({
     });
   }, [filtered, sort]);
 
-  const getCandidateLogs = (candidateId: string) =>
-    logs.filter(
-      (l) => l.candidateId === candidateId || l.message.toLowerCase().includes(candidateId.toLowerCase()),
-    );
-
-  const toggleLogs = (id: string) => setExpandedLogs((prev) => (prev === id ? null : id));
-
   /** First click sorts ascending; clicking the active column flips direction. */
   const toggleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 
   return (
     <div className="tab-content active" style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* No stat tiles here: the chip counts below already report the same
-          three figures, and the table is what this screen is for. */}
+      {/* No stat tiles here: the tab counts already report the same three
+          figures, and the table is what this screen is for. */}
+      <div className="cview-filters">
+        <div className="db-tabs" role="tablist" aria-label="Candidate status filter">
+          {FILTERS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={filter === id}
+              className={`db-tab ${filter === id ? "is-on" : ""}`}
+              onClick={() => setFilter(id)}
+            >
+              {label}
+              <span className="db-tab-count">{formatInt(filterCounts[id])}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="db-tabs" role="group" aria-label="Directory layout">
+          <button
+            type="button"
+            className={`db-tab ${view === "table" ? "is-on" : ""}`}
+            onClick={() => setView("table")}
+            aria-pressed={view === "table"}
+            title="Table view"
+          >
+            <Rows3 size={14} /> Table
+          </button>
+          <button
+            type="button"
+            className={`db-tab ${view === "cards" ? "is-on" : ""}`}
+            onClick={() => setView("cards")}
+            aria-pressed={view === "cards"}
+            title="Card view"
+          >
+            <LayoutGrid size={14} /> Cards
+          </button>
+        </div>
+      </div>
+
       <div className="sh-toolbar cview-toolbar">
         <div className="sh-toolbar-right">
           <div className="sh-search">
@@ -358,20 +427,124 @@ export default function CandidatesView({
       </div>
 
       {filtered.length === 0 ? (
-        <div className="candidate-empty" style={{ borderRadius: 16 }}>
-          <UsersRound size={40} strokeWidth={1.5} />
-          <p>
-            {candidates.length === 0
-              ? "No candidates in the database yet."
-              : "No candidates match the current view."}
-          </p>
-          {candidates.length === 0 ? (
-            <span>Run a Gmail sync to ingest resumes from your inbox.</span>
-          ) : (
-            <button className="sh-empty-btn" onClick={() => setQuery("")}>
+        <div className="db-empty">
+          <UsersRound size={28} strokeWidth={1.5} />
+          <span className="db-empty-title">{EMPTY_COPY[filter].title}</span>
+          <span className="db-empty-sub">
+            {query ? "Nothing here matches that search." : EMPTY_COPY[filter].sub}
+          </span>
+          {query && (
+            <button type="button" className="db-btn" style={{ marginTop: "0.7rem" }} onClick={() => setQuery("")}>
               Clear search
             </button>
           )}
+        </div>
+      ) : view === "cards" ? (
+        <div className="ccard-grid">
+          {sorted.map((candidate) => {
+            const displayName = getDisplayName(candidate);
+            const status = getStatus(candidate);
+            const years = getExperienceYears(candidate);
+            const logCount = logCounts[candidate.id] ?? 0;
+            return (
+              <div
+                key={candidate.id}
+                className="ccard"
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${displayName}`}
+                onClick={() => onOpenCandidate(candidate)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpenCandidate(candidate);
+                  }
+                }}
+              >
+                <div className="ccard-head">
+                  <span className="ccard-avatar" aria-hidden="true">
+                    {initialsOf(displayName)}
+                  </span>
+                  <span className="ccard-identity">
+                    <span className="ccard-name" title={displayName}>
+                      {displayName}
+                    </span>
+                    <span className="ccard-role" title={getDesignation(candidate) || undefined}>
+                      {getDesignation(candidate) || getEmail(candidate) || "—"}
+                    </span>
+                  </span>
+                  <span className={`db-pill ${STATUS_PILL[status.key]}`}>{status.label}</span>
+                </div>
+
+                <div className="ccard-meta">
+                  <span>
+                    <span className="ccard-meta-key">Industry</span>
+                    <span className="ccard-meta-val">{getIndustry(candidate)}</span>
+                  </span>
+                  <span>
+                    <span className="ccard-meta-key">Experience</span>
+                    <span className="ccard-meta-val">{formatExperience(years)}</span>
+                  </span>
+                  <span>
+                    <span className="ccard-meta-key">Contact</span>
+                    <span className="ccard-meta-val">{getContact(candidate) || "—"}</span>
+                  </span>
+                  <span>
+                    <span className="ccard-meta-key">Added</span>
+                    <span className="ccard-meta-val">
+                      {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
+                    </span>
+                  </span>
+                </div>
+
+                {/* The row's action cluster, verbatim — same buttons, same
+                    behaviour, so switching view changes the layout and nothing
+                    else. Clicks must not also open the card behind them. */}
+                <div className="ccard-foot" onClick={(event) => event.stopPropagation()}>
+                  <span className="ctable-sub">{getEmail(candidate)}</span>
+                  <div className="ctable-actions">
+                    <button
+                      type="button"
+                      className="ctable-btn ctable-btn-edit"
+                      title="Edit details"
+                      aria-label={`Edit details of ${displayName}`}
+                      onClick={() => onEditCandidate(candidate)}
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`ctable-btn ctable-btn-activity ${logCount > 0 ? "is-on" : ""}`}
+                      title={
+                        logCount > 0
+                          ? `Activity log — ${logCount} event${logCount === 1 ? "" : "s"}`
+                          : "Activity log"
+                      }
+                      aria-label={`Activity log for ${displayName}`}
+                      onClick={() => onOpenLogs(candidate)}
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="ctable-btn ctable-btn-delete"
+                      title="Delete candidate"
+                      aria-label={`Delete ${displayName}`}
+                      onClick={() => {
+                        if (
+                          confirm(`Permanently delete "${displayName}" from MongoDB Atlas?`)
+                        ) {
+                          onDeleteCandidate(candidate.id);
+                        }
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="ctable-wrap">
@@ -425,176 +598,136 @@ export default function CandidatesView({
                   const createdAt = candidate.created_at
                     ? formatDateFull(new Date(candidate.created_at))
                     : "—";
-                  const candidateLogs = getCandidateLogs(candidate.id);
-                  const isLogsOpen = expandedLogs === candidate.id;
+                  const logCount = logCounts[candidate.id] ?? 0;
                   const isConfirmingDelete = deleteConfirm === candidate.id;
 
                   return (
-                    <React.Fragment key={candidate.id}>
-                      <tr
-                        className={`ctable-row status-${status.key} ${isLogsOpen ? "is-open" : ""}`}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`Open ${displayName}`}
-                        onClick={() => onOpenCandidate(candidate)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            onOpenCandidate(candidate);
-                          }
-                        }}
+                    <tr
+                      key={candidate.id}
+                      className={`ctable-row status-${status.key}`}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${displayName}`}
+                      onClick={() => onOpenCandidate(candidate)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onOpenCandidate(candidate);
+                        }
+                      }}
+                    >
+                      <td className={`${ALIGN.index} ctable-num`}>{index + 1}</td>
+
+                      <td className={ALIGN.name}>
+                        <div className="ctable-identity">
+                          <span className="ctable-monogram" aria-hidden="true">
+                            {initialsOf(displayName)}
+                          </span>
+                          <span className="ctable-identity-text">
+                            <span className="ctable-name">{displayName}</span>
+                            <span className="ctable-sub">{email || createdAt}</span>
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* `title` gives the full value back when a cell truncates. */}
+                      <td className={ALIGN.designation} title={designation || undefined}>
+                        {designation || <span className="ctable-empty-cell">—</span>}
+                      </td>
+
+                      <td className={ALIGN.industry} title={industry}>
+                        {industry}
+                      </td>
+
+                      <td className={`${ALIGN.experience} ctable-numeric`}>{formatExperience(years)}</td>
+
+                      <td className={`${ALIGN.contact} ctable-strong`} title={contact || undefined}>
+                        {contact || <span className="ctable-empty-cell">—</span>}
+                      </td>
+
+                      <td className={`${ALIGN.status} ctable-cell-status`}>
+                        <span className={`db-pill ${STATUS_PILL[status.key]}`}>{status.label}</span>
+                      </td>
+
+                      {/* Actions live inside the row but must not trigger it. */}
+                      <td
+                        className={`${ALIGN.actions} ctable-cell-actions`}
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        <td className={`${ALIGN.index} ctable-num`}>{index + 1}</td>
-
-                        <td className={ALIGN.name}>
-                          <div className="ctable-identity">
-                            <span className="ctable-monogram" aria-hidden="true">
-                              {initialsOf(displayName)}
-                            </span>
-                            <span className="ctable-identity-text">
-                              <span className="ctable-name">{displayName}</span>
-                              <span className="ctable-sub">{email || createdAt}</span>
-                            </span>
+                        {isConfirmingDelete ? (
+                          <div className="ctable-confirm">
+                            <span className="ctable-confirm-label">Delete?</span>
+                            <button
+                              type="button"
+                              className="ctable-confirm-yes"
+                              title="Confirm delete"
+                              aria-label={`Confirm delete of ${displayName}`}
+                              onClick={() => {
+                                onDeleteCandidate(candidate.id);
+                                setDeleteConfirm(null);
+                              }}
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ctable-confirm-no"
+                              title="Cancel"
+                              aria-label="Cancel delete"
+                              onClick={() => setDeleteConfirm(null)}
+                            >
+                              <X size={14} />
+                            </button>
                           </div>
-                        </td>
-
-                        {/* `title` gives the full value back when a cell truncates. */}
-                        <td className={ALIGN.designation} title={designation || undefined}>
-                          {designation || <span className="ctable-empty-cell">—</span>}
-                        </td>
-
-                        <td className={ALIGN.industry} title={industry}>
-                          {industry}
-                        </td>
-
-                        <td className={`${ALIGN.experience} ctable-numeric`}>{formatExperience(years)}</td>
-
-                        <td className={`${ALIGN.contact} ctable-strong`} title={contact || undefined}>
-                          {contact || <span className="ctable-empty-cell">—</span>}
-                        </td>
-
-                        <td className={`${ALIGN.status} ctable-cell-status`}>
-                          <span className={`ctable-status ctable-status-${status.key}`}>{status.label}</span>
-                        </td>
-
-                        {/* Actions live inside the row but must not trigger it. */}
-                        <td
-                          className={`${ALIGN.actions} ctable-cell-actions`}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {isConfirmingDelete ? (
-                            <div className="ctable-confirm">
-                              <span className="ctable-confirm-label">Delete?</span>
-                              <button
-                                type="button"
-                                className="ctable-confirm-yes"
-                                title="Confirm delete"
-                                aria-label={`Confirm delete of ${displayName}`}
-                                onClick={() => {
-                                  onDeleteCandidate(candidate.id);
-                                  setDeleteConfirm(null);
-                                }}
-                              >
-                                <Check size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="ctable-confirm-no"
-                                title="Cancel"
-                                aria-label="Cancel delete"
-                                onClick={() => setDeleteConfirm(null)}
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="ctable-actions">
-                              <button
-                                type="button"
-                                className={`ctable-btn ctable-btn-activity ${isLogsOpen ? "is-on" : ""}`}
-                                title="Activity"
-                                aria-label={`Activity for ${displayName}`}
-                                aria-expanded={isLogsOpen}
-                                onClick={() => toggleLogs(candidate.id)}
-                              >
-                                <Clock size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="ctable-btn ctable-btn-view"
-                                title="View profile"
-                                aria-label={`View ${displayName}`}
-                                onClick={() => onOpenCandidate(candidate)}
-                              >
-                                <Eye size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="ctable-btn ctable-btn-edit"
-                                title="Edit profile"
-                                aria-label={`Edit ${displayName}`}
-                                onClick={() => onEditCandidate(candidate)}
-                              >
-                                <Edit3 size={14} />
-                              </button>
-                              <button
-                                type="button"
-                                className="ctable-btn ctable-btn-delete"
-                                title="Delete candidate"
-                                aria-label={`Delete ${displayName}`}
-                                onClick={() => setDeleteConfirm(candidate.id)}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-
-                      {isLogsOpen && (
-                        <tr>
-                          <td className="ctable-drawer-cell" colSpan={COLUMNS.length}>
-                            <div className="ctable-drawer">
-                              <div className="ctable-drawer-head">
-                                <Clock size={14} />
-                                <span className="ctable-drawer-title">Activity — {displayName}</span>
-                                <span className="ctable-drawer-count">{candidateLogs.length}</span>
-                                <button
-                                  type="button"
-                                  className="ctable-drawer-close"
-                                  aria-label="Close activity"
-                                  onClick={() => setExpandedLogs(null)}
-                                >
-                                  <ChevronUp size={16} />
-                                </button>
-                              </div>
-
-                              {candidateLogs.length === 0 ? (
-                                <div className="ctable-log-empty">
-                                  <FileText size={20} />
-                                  <span>No activity recorded for this candidate yet.</span>
-                                </div>
-                              ) : (
-                                <div className="ctable-logs">
-                                  {candidateLogs.map((log, li) => (
-                                    <div key={li} className="ctable-log">
-                                      <span
-                                        className="ctable-log-icon"
-                                        style={{ color: LOG_COLOR[log.type] }}
-                                      >
-                                        {LOG_ICON[log.type]}
-                                      </span>
-                                      <span className="ctable-log-time">{log.time}</span>
-                                      <span className="ctable-log-message">{log.message}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
+                        ) : (
+                          <div className="ctable-actions">
+                            <button
+                              type="button"
+                              className="ctable-btn ctable-btn-view"
+                              title="View executive profile"
+                              aria-label={`View executive profile of ${displayName}`}
+                              onClick={() => onOpenCandidate(candidate)}
+                            >
+                              <Eye size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ctable-btn ctable-btn-edit"
+                              title="Edit details"
+                              aria-label={`Edit details of ${displayName}`}
+                              onClick={() => onEditCandidate(candidate)}
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            {/* Opens this candidate's own activity screen. The
+                                tint marks a row that has history, so the log
+                                can be found without opening every row first. */}
+                            <button
+                              type="button"
+                              className={`ctable-btn ctable-btn-activity ${logCount > 0 ? "is-on" : ""}`}
+                              title={
+                                logCount > 0
+                                  ? `Activity log — ${logCount} event${logCount === 1 ? "" : "s"}`
+                                  : "Activity log"
+                              }
+                              aria-label={`Activity log for ${displayName}`}
+                              onClick={() => onOpenLogs(candidate)}
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="ctable-btn ctable-btn-delete"
+                              title="Delete candidate"
+                              aria-label={`Delete ${displayName}`}
+                              onClick={() => setDeleteConfirm(candidate.id)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>

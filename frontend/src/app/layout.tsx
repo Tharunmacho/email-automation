@@ -32,8 +32,8 @@ const firaCode = Fira_Code({
 });
 
 export const metadata: Metadata = {
-  title: "Ingrechef AI Candidate Automation",
-  description: "Real-time candidate ingestion statistics & candidate directory.",
+  title: "TalentFlow AI",
+  description: "Candidate sourcing, email extraction, and resume parsing in one workspace.",
 };
 
 export default function RootLayout({
@@ -46,7 +46,9 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${outfit.variable} ${poppins.variable} ${firaCode.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex">{children}</body>
+      {/* The shell owns its own layout now — a flex body would fight the fixed
+          header and rail it lays out for itself. */}
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

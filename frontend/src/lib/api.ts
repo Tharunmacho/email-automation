@@ -273,6 +273,54 @@ export function resumeDownloadUrl(candidateId: string): string {
   return `${API_BASE}/candidates/${candidateId}/resume${query}`;
 }
 
+// ---- System / ingestion configuration ----
+export interface IngestRules {
+  provider: string;
+  mailbox: {
+    account: string;
+    configured: boolean;
+    inbox_folder: string;
+    processed_folder: string;
+    deleted_folder: string;
+    gmail_query: string;
+  };
+  gates: {
+    detector_min_score: number;
+    inspect_all_documents: boolean;
+    min_image_attachment_bytes: number;
+    min_ingest_confidence: number;
+  };
+  attachments: { accepted_extensions: string[] };
+  ignored_senders: string[];
+  ocr: {
+    min_text_chars: number;
+    dpi: number;
+    chunk_pages: number;
+    max_pages: number;
+    give_up_pages: number;
+    languages: string;
+    provider_configured: boolean;
+  };
+  extraction: { model: string; configured: boolean };
+  auto_reply: { enabled: boolean };
+}
+
+/** The rules the pipeline actually applies — read-only, no credentials in it. */
+export function fetchIngestRules(): Promise<IngestRules> {
+  return request<IngestRules>("/ingest/rules", { cache: "no-store" });
+}
+
+export function fetchWorkerStatus(): Promise<{ available: boolean }> {
+  return request<{ available: boolean }>("/ingest/workers", { cache: "no-store" });
+}
+
+/** Unauthenticated liveness probe — used by Settings to report API reachability. */
+export async function fetchHealth(): Promise<{ status: string; candidates: number }> {
+  const response = await fetch(`${API_BASE}/health`, { cache: "no-store" });
+  if (!response.ok) throw new Error(`API replied ${response.status}`);
+  return (await response.json()) as { status: string; candidates: number };
+}
+
 // ---- Sourcing Clients DB API ----
 export function listSourcingClientsAPI(): Promise<{ items: any[] }> {
   return request<{ items: any[] }>("/sourcing-clients");

@@ -1,54 +1,57 @@
 "use client";
 
-import React from "react";
-
 /**
- * Rendered on the server and for the first client paint. Everything below the
- * tiles is derived from "today", which the server and the browser can disagree
- * about (different timezone, and with `output: export` the HTML is baked at
- * build time) — so the real cards mount only once the client owns the clock.
- * Shapes and heights match the live layout so nothing shifts when it swaps in.
+ * Rendered on the server and for the first client paint.
+ *
+ * Everything below the action row is derived from "today", which the server and
+ * the browser can disagree about (different timezone, and with
+ * `output: export` the HTML is baked at build time) — so the real Overview
+ * mounts only once the client owns the clock. The shapes and counts here match
+ * the live layout exactly, so nothing shifts when it swaps in.
  */
 export default function DashboardSkeleton() {
   return (
-    <div className="tab-content active dash-root" aria-hidden="true">
-      <div className="metric-tiles">
-        {/* Same tones, in the same order, as the live tiles — otherwise the
-            accent edges change colour as the real cards swap in. */}
-        {(["blue", "green", "yellow", "navy"] as const).map((tone, index) => (
-          <div key={index} className={`metric-tile tone-${tone}`}>
-            <div className="metric-tile-head">
-              <span className="dash-skel dash-skel-chip" />
-              <span className="dash-skel dash-skel-spark" />
-            </div>
-            <div className="metric-tile-body">
-              <span className="dash-skel dash-skel-line" style={{ width: "58%" }} />
-              <span className="dash-skel dash-skel-value" />
-            </div>
-            <div className="metric-tile-foot">
-              <span className="dash-skel dash-skel-line" style={{ width: "42%" }} />
-            </div>
+    <div aria-hidden="true">
+      <section className="ov-actions">
+        {[0, 1, 2, 3].map((index) => (
+          <div key={index} className="ov-action" style={{ cursor: "default" }}>
+            <span className="dash-skel" style={{ width: 38, height: 38, borderRadius: "var(--radius-md)" }} />
+            <span className="ov-action-text" style={{ flex: 1 }}>
+              <span className="dash-skel dash-skel-line" style={{ width: "55%" }} />
+              <span className="dash-skel dash-skel-line" style={{ width: "88%", marginTop: 8 }} />
+            </span>
           </div>
         ))}
-      </div>
+      </section>
 
-      <div className="dash-row dash-row-primary">
-        <section className="dash-card">
-          <div className="dash-card-head">
-            <span className="dash-skel dash-skel-line" style={{ width: "180px" }} />
-            <span className="dash-skel dash-skel-line" style={{ width: "104px" }} />
+      <section className="ov-kpis" style={{ marginTop: "1.25rem" }}>
+        {[0, 1, 2, 3].map((index) => (
+          <div key={index} className="ov-kpi">
+            <span className="dash-skel dash-skel-line" style={{ width: "48%" }} />
+            <span className="dash-skel dash-skel-value" style={{ marginTop: 12 }} />
+            <span className="dash-skel dash-skel-line" style={{ width: "76%", marginTop: 10 }} />
           </div>
+        ))}
+      </section>
+
+      <section className="db-card" style={{ marginTop: "1.25rem" }}>
+        <div className="db-card-head">
+          <span className="dash-skel dash-skel-line" style={{ width: "180px" }} />
+          <span className="dash-skel dash-skel-line" style={{ width: "104px" }} />
+        </div>
+        <div className="db-card-body">
           <span className="dash-skel dash-skel-plot" />
-        </section>
-        <section className="dash-card">
-          <div className="dash-card-head">
-            <span className="dash-skel dash-skel-line" style={{ width: "140px" }} />
-          </div>
-          {[0, 1, 2, 3, 4, 5].map((index) => (
-            <span key={index} className="dash-skel dash-skel-person" />
-          ))}
-        </section>
-      </div>
+        </div>
+      </section>
+
+      <section className="db-card" style={{ marginTop: "1.25rem" }}>
+        <div className="db-card-head">
+          <span className="dash-skel dash-skel-line" style={{ width: "150px" }} />
+        </div>
+        <div className="db-card-body">
+          <span className="dash-skel dash-skel-plot" style={{ height: 180 }} />
+        </div>
+      </section>
     </div>
   );
 }

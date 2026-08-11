@@ -7,93 +7,118 @@
   --font-fira-code: 'Fira Code', monospace;
 
   /* ------------------------------------------------------------------------
-     COLOUR SYSTEM — "futuristic blue"
-     One hue family (electric azure, ~hue 220) carries the entire product.
-     Every blue in the app resolves back to --primary-rgb, so the accent can
-     be re-keyed from this one line. Neutrals are cooled toward the same hue
-     rather than left neutral grey — that is what makes the shell read as one
-     surface instead of a grey app with blue buttons.
+     COLOUR SYSTEM — "DataBlue"
+     A neutral grey product with one blue in it. The page is off-white, every
+     surface is pure white behind a 1px grey hairline, and hue appears only
+     where something is active, selected or being asked for — the accent, and
+     the three status colours. That restraint is the whole look: colour means
+     something here, so a screen full of grey is a screen with nothing to
+     report.
 
-     EXCEPTION: the candidate table opts out. It defines its own achromatic
-     scale on `.ctable-wrap` and uses nothing from here, because a dense
-     records grid wants no hue behind the data. See the CANDIDATE TABLE block.
+     Every name below is the one the rest of the sheet already uses, so
+     re-keying the palette here re-skins the screens that were written against
+     the old blue-tinted scale without touching them.
      ------------------------------------------------------------------------ */
 
-  /* Accent channel. Stated as raw RGB so every tint, glow and shadow can be
+  /* Accent channel. Stated as raw RGB so every tint, ring and shadow can be
      mixed from it with an alpha instead of being hand-picked per rule. */
-  --primary-rgb: 11, 95, 255;
-  --accent-rgb: 0, 194, 255;
+  --primary-rgb: 37, 99, 235;
+  /* Royal blue 600 — 4.8:1 on white, so it is safe as text, not just as fill */
+  --accent-rgb: 59, 130, 246;
 
   --primary: rgb(var(--primary-rgb));
-  /* Electric azure — 5.1:1 on white, so it is safe as text, not just as fill */
-  --primary-hover: #0a49cf;
-  /* Pressed / hover state — same hue, taken down in luminance only */
-  --primary-deep: #0a2472;
-  /* Deep cobalt — gradient tails, status caps, chart strokes */
+  --primary-hover: #1d4ed8;
+  /* Pressed / hover — same hue, luminance only */
+  --primary-deep: #1e3a8a;
   --primary-glow: rgba(var(--primary-rgb), 0.08);
   --accent: rgb(var(--accent-rgb));
-  /* Cyan spark. Deliberately rationed: gradients and live indicators only —
-     it is what dates the palette forward, and what cheapens it if overused. */
 
-  /* The brand mark. Cyan → azure → cobalt across one diagonal, so every
-     monogram in the product (rail, login, client, job order) is the same object. */
-  --brand-gradient: linear-gradient(140deg, #2ec8ff 0%, var(--primary) 48%, var(--primary-deep) 100%);
+  /* The brand mark. One hue across a short diagonal — the old cyan→cobalt
+     sweep read as a gradient first and a logo second. */
+  --brand-gradient: linear-gradient(140deg, #3b82f6 0%, var(--primary) 55%, var(--primary-deep) 100%);
 
-  /* Surfaces — white cards floating on a faintly blue page plane. */
-  --bg-main: #f4f7fe;
+  /* Surfaces — white cards on an almost-white page plane. The canvas is
+     brighter than the card border is dark, which is what makes a flat card
+     read as lifted without needing a shadow to say so. */
+  --bg-main: #fcfcfd;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
 
-  /* Blue-tinted fills, in ascending weight. These replace the ad-hoc
-     #f6f9fd / #eaf0fa / #f1f5fc greys that used to drift apart. */
-  --tint-1: #f5f8ff;
-  --tint-2: #edf3ff;
-  --tint-3: #e4edff;
+  /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
+     data is what made the old shell read as a theme rather than a tool. */
+  --tint-1: #f7f8fa;
+  --tint-2: #f1f2f5;
+  --tint-3: #e5e7eb;
 
-  --border-main: #dbe4f5;
-  --border-hover: #b9caea;
-  --glass-border: rgba(11, 30, 66, 0.08);
+  --border-main: #e5e7eb;
+  --border-hover: #d1d5db;
+  --glass-border: rgba(17, 24, 39, 0.08);
 
-  --text-main: #0b1b34;
-  /* Cool near-black — slate 900 pulled toward the accent hue */
-  --text-muted: #465a78;
-  --text-light: #8ea1c0;
+  --text-main: #0f172a;
+  /* Slate 900 — the sharp ink for headings, KPIs and table names */
+  --text-muted: #6b7280;
+  /* Gray 500 — captions, subtitles, secondary cells, and section labels */
+  --text-light: #9ca3af;
+  /* Section labels sit one step darker than --text-light: at 700 and 0.68rem
+     they are small enough that the lighter grey drops below readable. */
+  --text-label: #6b7280;
 
-  /* Hairlines, tinted from the accent so every edge belongs to the family. */
-  --border-blue: #ccdaf6;
-  --border-blue-strong: #a4c0ef;
-  --border-blue-faint: #e3ebfb;
+  /* Hairlines. `--border-blue` is a legacy name kept so the screens written
+     against it inherit the new neutral edge; nothing about it is blue now. */
+  --border-blue: #eaecf0;
+  --border-blue-strong: #d1d5db;
+  --border-blue-faint: #f3f4f6;
 
   /* Both the sidebar's brand divider and the page header's rule are pinned to
      this height, so the two hairlines meet and read as one line across the
      whole shell. Change it in one place and both follow. */
-  --app-header-h: 88px;
+  --app-header-h: 68px;
+
+  /* The DataBlue corner. One radius for cards and panels, one for the controls
+     that sit inside them. */
+  --radius-xl: 14px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
 
   --secondary: #0891b2;
-  /* Cyan 600 — pulled from teal into the blue family */
   --secondary-hover: #0e7490;
   --secondary-glow: rgba(8, 145, 178, 0.08);
 
-  --success: #10b981;
-  /* Emerald 500 */
-  --success-glow: rgba(16, 185, 129, 0.08);
+  --success: #16a34a;
+  /* Green 600 — the "Verified" pill */
+  --success-glow: rgba(22, 163, 74, 0.08);
+  --success-ink: #15803d;
+  --success-fill: #f0fdf4;
+  --success-edge: #bbf7d0;
 
-  --warning: #f59e0b;
-  /* Amber 500 */
-  --warning-glow: rgba(245, 158, 11, 0.08);
+  --warning: #d97706;
+  /* Amber 600 — "Pending review" */
+  --warning-glow: rgba(217, 119, 6, 0.08);
+  --warning-ink: #b45309;
+  --warning-fill: #fffbeb;
+  --warning-edge: #fde68a;
 
-  --error: #ef4444;
-  /* Red 500 */
+  --error: #dc2626;
+  --error-ink: #b91c1c;
+  --error-fill: #fef2f2;
+  --error-edge: #fecaca;
 
-  /* Shadow Elevation. Cast in the accent's shadow colour rather than pure
-     black, so elevation reads as cool depth instead of grey smudge. */
-  --shadow-sm: 0 1px 2px 0 rgba(11, 30, 66, 0.06);
-  --shadow-md: 0 4px 6px -1px rgba(11, 30, 66, 0.06), 0 2px 4px -2px rgba(11, 30, 66, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(11, 30, 66, 0.07), 0 4px 6px -4px rgba(11, 30, 66, 0.06);
-  --shadow-glow: 0 0 20px rgba(var(--primary-rgb), 0.15);
-  /* Accent-carrying lift, used by every primary control. */
-  --shadow-primary: 0 2px 8px rgba(var(--primary-rgb), 0.24);
-  --shadow-primary-hover: 0 6px 16px rgba(var(--primary-rgb), 0.30);
+  /* Rose — "this requisition is overdue". A different statement from an error,
+     so it gets its own ramp rather than borrowing red's. */
+  --rose: #e11d48;
+  --rose-ink: #be123c;
+  --rose-fill: #fff1f2;
+  --rose-edge: #fecdd3;
+
+  /* Shadow elevation. Micro-shadows only: at this border weight a card needs
+     to lift off the page by a hair, not float above it. */
+  --shadow-sm: 0 1px 2px 0 rgba(17, 24, 39, 0.05);
+  --shadow-md: 0 1px 3px 0 rgba(17, 24, 39, 0.06), 0 1px 2px -1px rgba(17, 24, 39, 0.04);
+  --shadow-lg: 0 8px 16px -6px rgba(17, 24, 39, 0.10), 0 2px 6px -2px rgba(17, 24, 39, 0.05);
+  --shadow-glow: 0 0 0 4px rgba(var(--primary-rgb), 0.10);
+  /* The focus ring — one definition, used by every control in the app. */
+  --shadow-primary: 0 1px 2px rgba(17, 24, 39, 0.06);
+  --shadow-primary-hover: 0 2px 6px rgba(17, 24, 39, 0.10);
 
   /* Shared card/tile surface tokens — used by every screen, not just the
      dashboard, so they live at the root rather than on the dashboard wrapper. */
@@ -102,13 +127,1416 @@
   --dash-ring-strong: var(--border-blue-strong);
   --dash-ink: var(--text-main);
   --dash-ink-2: var(--text-muted);
-  /* Carries small body copy (labels, captions, meta rows) — held at 4.95:1 on
-     white so cooling the greys does not cost legibility. */
-  --dash-muted: #5e7291;
+  --dash-muted: #6b7280;
   --dash-grid: var(--border-blue-faint);
   --dash-track: var(--tint-3);
-  --dash-shadow: 0 1px 2px rgba(11, 30, 66, 0.05), 0 8px 24px -16px rgba(11, 30, 66, 0.20);
-  --dash-shadow-hover: 0 1px 2px rgba(11, 30, 66, 0.06), 0 16px 34px -20px rgba(11, 30, 66, 0.30);
+  --dash-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+  --dash-shadow-hover: 0 1px 3px rgba(17, 24, 39, 0.07), 0 6px 14px -8px rgba(17, 24, 39, 0.14);
+}
+
+/* --------------------------------------------------------------------------
+   DARK — driven by the sidebar's Light/Dark pill, stamped on <html>.
+   Only the tokens change. Every rule in this sheet is written against them, so
+   the whole product follows without a second set of selectors.
+   -------------------------------------------------------------------------- */
+[data-theme="dark"] {
+  --primary-rgb: 59, 130, 246;
+  --primary-hover: #60a5fa;
+  --primary-deep: #1d4ed8;
+
+  --bg-main: #0b0f19;
+  --bg-card: #111827;
+  --bg-sidebar: #111827;
+
+  --tint-1: #161e2e;
+  --tint-2: #1f2937;
+  --tint-3: #283445;
+
+  --border-main: #1f2937;
+  --border-hover: #374151;
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  --text-main: #f9fafb;
+  --text-muted: #9ca3af;
+  --text-light: #6b7280;
+
+  --border-blue: #1f2937;
+  --border-blue-strong: #374151;
+  --border-blue-faint: #1a2231;
+
+  --success-ink: #4ade80;
+  --success-fill: rgba(22, 163, 74, 0.14);
+  --success-edge: rgba(74, 222, 128, 0.28);
+
+  --warning-ink: #fbbf24;
+  --warning-fill: rgba(217, 119, 6, 0.16);
+  --warning-edge: rgba(251, 191, 36, 0.30);
+
+  --error-ink: #f87171;
+  --error-fill: rgba(220, 38, 38, 0.14);
+  --error-edge: rgba(248, 113, 113, 0.30);
+
+  --rose: #fb7185;
+  --rose-ink: #fda4af;
+  --rose-fill: rgba(225, 29, 72, 0.15);
+  --rose-edge: rgba(251, 113, 133, 0.32);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 1px 3px 0 rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 8px 20px -8px rgba(0, 0, 0, 0.60);
+
+  --dash-surface: #111827;
+  --dash-muted: #9ca3af;
+  --dash-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --dash-shadow-hover: 0 6px 16px -8px rgba(0, 0, 0, 0.6);
+}
+
+/* ==========================================================================
+   APP SHELL — DataBlue
+   A full-height rail on the left, a header bar across the content beside it,
+   and a scrolling workspace under that. The rail owns the brand, so collapsing
+   it hands its width straight to the screen rather than leaving a logo behind.
+
+   `--rail-w` is the single lever: the header and the workspace are laid out
+   from it, so the collapse animates as one movement instead of three that have
+   to be kept in step.
+   ========================================================================== */
+.app-shell {
+  --rail-w: 252px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100vh;
+  background: var(--bg-main);
+}
+
+.app-shell.is-collapsed {
+  --rail-w: 68px;
+}
+
+/* --- rail ----------------------------------------------------------------- */
+.rail {
+  /* One horizontal inset for the head, the list and the footer. They used to
+     carry three separate values that happened to match, so the collapse toggle
+     lined up with the nav rows by coincidence — and drifted out of line the
+     first time one of them was tuned. */
+  --rail-pad: 0.7rem;
+  /* The toggle is sized to the nav row it sits above, so the two share a
+     vertical rhythm instead of each picking their own height. */
+  --rail-toggle-size: 30px;
+
+  position: fixed;
+  top: var(--app-header-h);
+  bottom: 0;
+  left: 0;
+  z-index: 110;
+  width: var(--rail-w);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-blue);
+  transition: width 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* Height, not padding: a band defined by its own value stays put when the
+     button inside it changes size. */
+  height: 48px;
+  padding: 0 var(--rail-pad);
+  border-bottom: 1px solid var(--border-blue-faint);
+  flex-shrink: 0;
+}
+
+
+/* --- group headings --------------------------------------------------------- */
+.rail-group+.rail-group {
+  margin-top: 0.5rem;
+}
+
+.rail-group-label {
+  padding: 0.5rem var(--rail-pad) 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-label);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+
+.rail-toggle {
+  width: var(--rail-toggle-size);
+  height: var(--rail-toggle-size);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.rail-toggle:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+  border-color: var(--border-blue-strong);
+}
+
+/* No scrollbar. Eight destinations in three groups fit any laptop, so the list
+   is sized to the content and the overflow is hidden rather than scrolled — a
+   rail that scrolls hides part of the navigation, which is the one thing it
+   must never do. `min-height: 0` still lets it give way before the footer does
+   on a genuinely tiny viewport. */
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.5rem var(--rail-pad);
+}
+
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.5rem var(--rail-pad);
+  margin-bottom: 1px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+
+.rail-item svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+  transition: color 0.14s ease;
+}
+
+.rail-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-item:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.rail-item:hover svg {
+  color: var(--text-muted);
+}
+
+/* The active state is a soft light-grey fill, not a blue slab. The one blue
+   thing is the icon, which is enough to find the current page at a glance. */
+.rail-item.is-active {
+  background: var(--tint-2);
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+
+.rail-item.is-active svg {
+  color: var(--primary);
+}
+
+.rail-item:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+
+/* --- rail footer: account + theme ----------------------------------------- */
+.rail-foot {
+  flex-shrink: 0;
+  padding: 0.6rem var(--rail-pad) var(--rail-pad);
+  border-top: 1px solid var(--border-blue-faint);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.rail-account {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  min-width: 0;
+}
+
+.rail-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.rail-account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.rail-account-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-account-mail {
+  font-size: 0.71rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-signout {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text-light);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.rail-signout:hover {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* Both glyphs occupy the same cell; only one is ever visible. */
+.rail-account-chevrons,
+.rail-account-exit {
+  position: absolute;
+  transition: opacity 0.15s ease;
+}
+
+.rail-account-exit,
+.rail-signout:hover .rail-account-chevrons {
+  opacity: 0;
+}
+
+.rail-signout:hover .rail-account-exit {
+  opacity: 1;
+}
+
+.theme-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+}
+
+.theme-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.theme-switch-btn.is-on {
+  background: var(--bg-card);
+  color: var(--text-main);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The collapsed stand-in for the pill. Hidden at full width. */
+.rail-theme-mini {
+  display: none;
+  width: 100%;
+  height: 34px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--text-muted);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.rail-theme-mini:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+
+/* --- collapsed rail --------------------------------------------------------
+   Everything that carries text is dropped and everything that carries meaning
+   is centred. The icons keep their order and their active marker, so the list
+   is the same list — just narrower. */
+.rail.is-collapsed .rail-item-label,
+.rail.is-collapsed .rail-account-text,
+.rail.is-collapsed .rail-signout,
+.rail.is-collapsed .theme-switch {
+  display: none;
+}
+
+/* Narrower inset all round, and the toggle centres rather than right-aligns —
+   at 68px "the right edge" and "the middle" are four pixels apart, and centred
+   is the one that lines the button up with the icon column beneath it. */
+.rail.is-collapsed {
+  --rail-pad: 0.5rem;
+}
+
+.rail.is-collapsed .rail-head {
+  justify-content: center;
+}
+
+/* A rule instead of a word — the grouping survives, the heading cannot. */
+.rail.is-collapsed .rail-group-label {
+  height: 1px;
+  padding: 0;
+  margin: 0.55rem 0.35rem;
+  background: var(--border-blue-faint);
+  overflow: hidden;
+}
+
+.rail.is-collapsed .rail-group:first-child .rail-group-label {
+  display: none;
+}
+
+.rail.is-collapsed .rail-item,
+.rail.is-collapsed .rail-account {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+}
+
+.rail.is-collapsed .rail-theme-mini {
+  display: inline-flex;
+}
+
+/* --- top header bar ------------------------------------------------------- */
+/* Spans the rail as well as the content, so the brand anchors the product. The
+   accent line along its top edge is the one piece of pure brand colour in the
+   chrome — everything else earns its blue by being active or interactive. */
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 120;
+  height: var(--app-header-h);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1.5rem;
+  background: var(--bg-card);
+  border-top: 2px solid var(--primary);
+  border-bottom: 1px solid var(--border-blue);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* Takes the space the search field used to occupy, which pushes the three
+     controls to the right edge without needing a spacer element. */
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+
+.topbar-icon-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.topbar-icon-btn:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+/* The one primary action in the chrome. A pill, so it does not read as one
+   more square icon button in a row of them. */
+.topbar-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 36px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.topbar-sync:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.topbar-sync:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.topbar-sync:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+/* `T` on the brand gradient. A circle, so it is unmistakably a person and not
+   another square control. */
+.topbar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-blue);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: box-shadow 0.15s ease;
+}
+
+.topbar-avatar:hover {
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-avatar:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-menu-btn {
+  display: none;
+}
+
+/* --- workspace ------------------------------------------------------------ */
+.app-body {
+  display: flex;
+  flex: 1;
+  padding-top: var(--app-header-h);
+  min-height: 100vh;
+}
+
+.workspace {
+  flex: 1;
+  min-width: 0;
+  margin-left: var(--rail-w);
+  padding: 1.5rem 1.75rem 2.5rem;
+  transition: margin-left 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rail-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+
+  /* Off-canvas. The collapse toggle is a desktop affordance — on a phone the
+     rail is either over the content or out of the way, never a 68px stub. */
+  .app-shell,
+  .app-shell.is-collapsed {
+    --rail-w: 0px;
+  }
+
+  .rail,
+  .rail.is-collapsed {
+    width: 252px;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .rail.is-open,
+  .rail.is-collapsed.is-open {
+    transform: translateX(0);
+  }
+
+  /* A rail dragged on-screen is never the collapsed one. */
+  .rail.is-collapsed .rail-item-label,
+  .rail.is-collapsed .rail-account-text,
+  .rail.is-collapsed .rail-signout,
+  .rail.is-collapsed .theme-switch {
+    display: revert;
+  }
+
+  .rail.is-collapsed .theme-switch {
+    display: grid;
+  }
+
+  .rail.is-collapsed .rail-account {
+    display: flex;
+  }
+
+  .rail.is-collapsed .rail-group-label {
+    height: auto;
+    padding: 0.65rem 0.7rem 0.3rem;
+    margin: 0;
+    background: none;
+  }
+
+  .rail.is-collapsed .rail-group:first-child .rail-group-label {
+    display: block;
+  }
+
+
+  .rail.is-collapsed .rail-theme-mini {
+    display: none;
+  }
+
+  .rail.is-collapsed {
+    --rail-pad: 0.7rem;
+  }
+
+  .rail.is-collapsed .rail-head {
+    justify-content: flex-end;
+  }
+
+  .rail.is-collapsed .rail-item,
+  .rail.is-collapsed .rail-account {
+    justify-content: flex-start;
+    padding-left: var(--rail-pad);
+    padding-right: var(--rail-pad);
+    gap: 0.65rem;
+  }
+
+  .topbar {
+    gap: 0.6rem;
+    padding: 0 0.85rem;
+  }
+
+  .topbar-brand {
+    width: auto;
+  }
+
+  .topbar-menu-btn {
+    display: inline-flex;
+  }
+
+  /* Icon only — the label is the first thing to go when the bar is this tight. */
+  .topbar-sync span {
+    display: none;
+  }
+
+  .topbar-sync {
+    padding: 0 0.7rem;
+  }
+
+  .rail-backdrop.is-open {
+    display: block;
+    position: fixed;
+    inset: var(--app-header-h) 0 0 0;
+    z-index: 105;
+    background: rgba(15, 23, 42, 0.38);
+  }
+
+  .workspace {
+    margin-left: 0;
+    padding: 1.15rem 1.15rem 2rem;
+  }
+}
+
+/* ==========================================================================
+   DATABLUE PRIMITIVES
+   The vocabulary every screen is built from: the page header, the card, the
+   section label, the status pill and the empty state. Defined once so a new
+   screen inherits the look instead of restating it.
+   ========================================================================== */
+.db-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: fadeIn 0.25s ease;
+}
+
+.db-page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.db-eyebrow {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-label);
+  margin-bottom: 0.35rem;
+}
+
+.db-title {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.028em;
+  color: var(--text-main);
+  line-height: 1.15;
+}
+
+.db-subtitle {
+  margin: 0.3rem 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.db-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.db-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.db-card-title {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text-main);
+}
+
+.db-card-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.db-card-body {
+  padding: 1.25rem;
+}
+
+/* The small uppercase header that labels a region inside a card. */
+.db-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.db-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.db-link:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+/* --- buttons -------------------------------------------------------------- */
+.db-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.db-btn:hover:not(:disabled) {
+  background: var(--tint-2);
+  border-color: var(--border-blue-strong);
+}
+
+.db-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.db-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+.db-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+}
+
+.db-btn.is-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.db-btn.is-danger {
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+  color: var(--error-ink);
+}
+
+.db-btn.is-block {
+  width: 100%;
+}
+
+/* --- status pills --------------------------------------------------------- */
+.db-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.16rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.db-pill.is-verified {
+  background: var(--success-fill);
+  border-color: var(--success-edge);
+  color: var(--success-ink);
+}
+
+.db-pill.is-pending {
+  background: var(--warning-fill);
+  border-color: var(--warning-edge);
+  color: var(--warning-ink);
+}
+
+.db-pill.is-failed {
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+  color: var(--error-ink);
+}
+
+.db-pill.is-neutral {
+  background: var(--tint-2);
+  border-color: var(--border-blue);
+  color: var(--text-muted);
+}
+
+.db-pill.is-info {
+  background: rgba(var(--primary-rgb), 0.08);
+  border-color: rgba(var(--primary-rgb), 0.20);
+  color: var(--primary-hover);
+}
+
+/* --- tabs -----------------------------------------------------------------
+   One control for two jobs: switching between the sections of a screen, and
+   filtering a list down to a status. Both are "show me a different slice of
+   this page", so both look the same.
+   -------------------------------------------------------------------------- */
+.db-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.3rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.db-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.db-tab svg {
+  color: var(--text-light);
+}
+
+.db-tab:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.db-tab.is-on {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.db-tab.is-on svg {
+  color: var(--primary);
+}
+
+.db-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+/* The count riding on a filter tab. */
+.db-tab-count {
+  padding: 0.02rem 0.35rem;
+  border-radius: 999px;
+  background: var(--tint-3);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.db-tab.is-on .db-tab-count {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-hover);
+}
+
+/* --- recent candidates list ------------------------------------------------ */
+.rc-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 0.8fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.6rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.rc-row:hover {
+  background: var(--tint-1);
+}
+
+.rc-row+.rc-row {
+  border-top: 1px solid var(--border-blue-faint);
+  border-radius: 0;
+}
+
+.rc-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.rc-name {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-role {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .rc-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .rc-role {
+    display: none;
+  }
+}
+
+/* --- empty state ---------------------------------------------------------- */
+.db-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 2.75rem 1.5rem;
+  text-align: center;
+  border-radius: var(--radius-xl);
+  border: 1px dashed var(--border-blue-strong);
+  background: var(--bg-card);
+}
+
+.db-empty svg {
+  color: var(--border-blue-strong);
+  margin-bottom: 0.35rem;
+}
+
+.db-empty-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.db-empty-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  max-width: 46ch;
+}
+
+/* --- key/value rows shared by the parser, rules and settings screens ------- */
+.db-kv {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  gap: 0.7rem 1rem;
+  font-size: 0.86rem;
+}
+
+.db-kv-key {
+  color: var(--text-muted);
+}
+
+.db-kv-val {
+  color: var(--text-main);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.db-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.db-chip {
+  padding: 0.24rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.db-chip.is-mono {
+  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 700px) {
+  .db-kv {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.15rem;
+  }
+
+  .db-kv-key {
+    margin-top: 0.6rem;
+  }
+}
+
+/* ==========================================================================
+   OVERVIEW — the DataBlue dashboard
+   ========================================================================== */
+/* --- hero quick-action row ------------------------------------------------ */
+.ov-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.ov-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  padding: 1.1rem;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.ov-action:hover {
+  border-color: var(--border-blue-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.ov-action:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+.ov-action-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+/* The card you are meant to press first carries the accent; the rest stay
+   neutral so it is not competing with three other coloured tiles. */
+.ov-action.is-accent .ov-action-icon {
+  background: rgba(var(--primary-rgb), 0.10);
+  color: var(--primary);
+}
+
+.ov-action-text {
+  min-width: 0;
+}
+
+.ov-action-title {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+  color: var(--text-main);
+}
+
+.ov-action-title svg {
+  color: var(--text-light);
+  transition: transform 0.16s ease, color 0.16s ease;
+}
+
+.ov-action:hover .ov-action-title svg {
+  transform: translateX(2px);
+  color: var(--primary);
+}
+
+.ov-action-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* --- KPI tiles ------------------------------------------------------------ */
+.ov-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.ov-kpi {
+  padding: 1.15rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.ov-kpi-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.ov-kpi-label svg {
+  color: var(--text-light);
+}
+
+.ov-kpi-value {
+  margin: 0.55rem 0 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: var(--text-main);
+  line-height: 1.02;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-kpi-caption {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+
+/* The range filter on the ingestion card. */
+.ov-select {
+  height: 32px;
+  padding: 0 1.9rem 0 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue);
+  background-color: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.79rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.55rem center;
+}
+
+.ov-select:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+
+@media (max-width: 1280px) {
+
+  .ov-actions,
+  .ov-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+
+  .ov-actions,
+  .ov-kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ==========================================================================
+   PARSER / RULES / SETTINGS — the repurposed nav destinations
+   Each is a real read of the running system: the parser screen reads the
+   extraction metadata already stored on every résumé, the rules screen reads
+   the pipeline's own configuration from /ingest/rules, and settings reads the
+   session and API health.
+   ========================================================================== */
+.db-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+/* A horizontal share bar — used for extraction methods and confidence bands. */
+.db-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 170px) minmax(0, 1fr) 62px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  font-size: 0.83rem;
+}
+
+.db-bar-label {
+  color: var(--text-main);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--tint-2);
+  overflow: hidden;
+}
+
+.db-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.4s ease;
+}
+
+.db-bar-fill.is-success {
+  background: var(--success);
+}
+
+.db-bar-fill.is-warn {
+  background: var(--warning);
+}
+
+.db-bar-fill.is-error {
+  background: var(--error);
+}
+
+.db-bar-value {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .db-bar-row {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .db-bar-track {
+    grid-column: 1 / -1;
+    order: 3;
+  }
 }
 
 /* Base resets & layout */
@@ -126,7 +1554,6 @@ body {
   color: var(--text-main);
   min-height: 100vh;
   overflow-x: hidden;
-  display: flex;
   width: 100%;
 }
 
@@ -149,264 +1576,6 @@ body {
   background: rgba(11, 30, 66, 0.2);
 }
 
-/* ==========================================================================
-   SIDEBAR — white surface, dark-blue accent
-   ========================================================================== */
-.sidebar {
-  width: 264px;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-blue);
-  /* No top padding — the brand block is measured from the very top so its
-     divider lands exactly on --app-header-h. */
-  padding: 0 0.85rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 100;
-  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.sidebar.collapsed {
-  width: 76px;
-  padding: 0 0.6rem 1.25rem;
-}
-
-/* --- brand --------------------------------------------------------------- */
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  height: var(--app-header-h);
-  padding: 0 0.4rem;
-  margin-bottom: 1.15rem;
-  border-bottom: 1px solid var(--border-blue);
-  position: relative;
-  flex-shrink: 0;
-}
-
-.sidebar.collapsed .brand {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* The toggle centres on the brand row, so it tracks the height automatically. */
-
-.brand-logo-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  overflow: hidden;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.brand-logo {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  background: var(--brand-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.28);
-  flex-shrink: 0;
-}
-
-.brand-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.2;
-}
-
-.brand-title {
-  font-family: var(--font-outfit), sans-serif;
-  font-weight: 700;
-  font-size: 1.02rem;
-  letter-spacing: -0.02em;
-  color: var(--text-main);
-  white-space: nowrap;
-}
-
-.brand-caption {
-  font-size: 0.7rem;
-  color: var(--text-light);
-  white-space: nowrap;
-  margin-top: 0.1rem;
-}
-
-.sidebar.collapsed .brand-text {
-  display: none;
-}
-
-/* Toggle stays pinned to the rail edge in both states — it never jumps. */
-.sidebar-toggle {
-  position: absolute;
-  right: -13px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid var(--border-blue);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 101;
-  box-shadow: 0 2px 6px rgba(11, 30, 66, 0.08);
-  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-}
-
-.sidebar-toggle:hover {
-  color: var(--primary);
-  border-color: var(--border-blue-strong);
-  background: var(--tint-1);
-}
-
-.sidebar-toggle svg {
-  width: 14px;
-  height: 14px;
-  transition: transform 0.28s ease;
-}
-
-.sidebar.collapsed .sidebar-toggle svg {
-  transform: rotate(180deg);
-}
-
-/* --- navigation ---------------------------------------------------------- */
-.nav-section-label {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--text-light);
-  padding: 0 0.6rem;
-  margin-bottom: 0.5rem;
-}
-
-.sidebar.collapsed .nav-section-label {
-  display: none;
-}
-
-.nav-menu {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  flex-grow: 1;
-}
-
-.nav-item {
-  position: relative;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.62rem 0.7rem;
-  border: none;
-  background: transparent;
-  border-radius: 9px;
-  color: var(--text-muted);
-  text-align: left;
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.nav-item svg {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  transition: color 0.15s ease;
-}
-
-.nav-item span {
-  font-size: 0.875rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.sidebar.collapsed .nav-item {
-  justify-content: center;
-  padding: 0.62rem 0;
-}
-
-.sidebar.collapsed .nav-item span {
-  display: none;
-}
-
-.nav-item:hover {
-  color: var(--text-main);
-  background: var(--tint-2);
-}
-
-.nav-item.active {
-  color: var(--primary);
-  background: var(--primary-glow);
-  font-weight: 600;
-  /* Inset so the pill gains an edge without nudging its neighbours by 1px. */
-  box-shadow: inset 0 0 0 1px var(--border-blue);
-}
-
-.nav-item.active span {
-  font-weight: 600;
-}
-
-/* Indicator rides inside the pill instead of pulling the item out of the rail. */
-.nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: -0.85rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  border-radius: 0 3px 3px 0;
-  background: var(--primary);
-}
-
-.sidebar.collapsed .nav-item.active::before {
-  left: -0.6rem;
-}
-
-/* --- footer -------------------------------------------------------------- */
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin-top: 1rem;
-  padding: 0.7rem 0.75rem;
-  border: 1px solid var(--border-blue);
-  border-radius: 10px;
-  background: var(--tint-1);
-  color: var(--text-muted);
-  font-size: 0.74rem;
-  font-weight: 500;
-}
-
-.sidebar-footer span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sidebar.collapsed .sidebar-footer {
-  justify-content: center;
-  padding: 0.7rem 0;
-}
-
-.sidebar.collapsed .sidebar-footer span {
-  display: none;
-}
 
 .status-dot {
   width: 7px;
@@ -434,37 +1603,6 @@ body {
   }
 }
 
-/* Main Container Layout */
-.main-content {
-  margin-left: 264px;
-  /* Top padding lives on the header row itself so its rule can be pinned. */
-  padding: 0 2rem 2.5rem;
-  flex-grow: 1;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  transition: margin-left 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-  width: calc(100% - 264px);
-}
-
-.main-content.sidebar-collapsed {
-  margin-left: 76px;
-  width: calc(100% - 76px);
-}
-
-/* Header Bar & Global UI Elements */
-.header-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  min-height: var(--app-header-h);
-  border-bottom: 1px solid var(--border-blue);
-  /* Full-bleed within the content padding, and the same height as the brand
-     block, so this rule continues the sidebar's divider without a step. */
-  margin: 0 -2rem 1.75rem;
-  padding: 0 2rem;
-}
 
 .page-title {
   font-family: var(--font-outfit), sans-serif;
@@ -480,54 +1618,6 @@ body {
   margin-top: 0.2rem;
 }
 
-/* Off-canvas trigger — only exists where the rail is off-canvas. */
-.mobile-menu-btn {
-  display: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  border: 1px solid var(--border-blue);
-  background: #ffffff;
-  color: var(--text-muted);
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-
-.mobile-menu-btn:hover {
-  color: var(--primary);
-  border-color: var(--border-blue-strong);
-}
-
-@media (max-width: 900px) {
-  .sidebar {
-    transform: translateX(-100%);
-    box-shadow: 0 20px 40px -20px rgba(11, 30, 66, 0.35);
-  }
-
-  .sidebar.mobile-open {
-    transform: translateX(0);
-  }
-
-  /* The rail floats over the page on small screens, so it never reserves width. */
-  .main-content,
-  .main-content.sidebar-collapsed {
-    margin-left: 0;
-    width: 100%;
-    padding: 0 1.15rem 2rem;
-  }
-
-  .mobile-menu-btn {
-    display: inline-flex;
-  }
-
-  .sidebar-toggle {
-    display: none;
-  }
-}
 
 .btn {
   background: var(--primary);
@@ -554,14 +1644,14 @@ body {
 /* The tint steps are page-plane fills — too pale to read as a *button* on a
    white card. A disabled control still has to hold its shape. */
 .btn:disabled {
-  background: #c4d2ea;
-  color: #7a8db0;
+  background: var(--border-blue-strong);
+  color: var(--text-light);
   cursor: not-allowed;
   box-shadow: none;
 }
 
 .btn-secondary {
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   color: var(--text-muted);
   box-shadow: var(--shadow-sm);
@@ -601,7 +1691,7 @@ body {
 .glass-card {
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
   box-shadow: 0 1px 2px rgba(11, 30, 66, 0.04), 0 8px 24px -16px rgba(11, 30, 66, 0.18);
@@ -650,7 +1740,7 @@ body {
 
 .search-input {
   width: 100%;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 10px;
   padding: 0.65rem 1rem 0.65rem 2.4rem;
@@ -686,9 +1776,9 @@ body {
 
 .candidate-card {
   position: relative;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 1.35rem 1.4rem;
   cursor: pointer;
   display: flex;
@@ -754,7 +1844,6 @@ body {
 }
 
 
-
 .badge {
   font-size: 0.68rem;
   font-weight: 700;
@@ -771,12 +1860,12 @@ body {
 
 .badge-verified {
   background: rgba(16, 185, 129, 0.10);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .badge-review {
   background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
+  color: var(--warning-ink);
 }
 
 .candidate-info {
@@ -896,9 +1985,9 @@ body {
   gap: 0.6rem;
   padding: 3.5rem 1.5rem;
   text-align: center;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px dashed var(--border-blue-strong);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   color: var(--text-muted);
 }
 
@@ -973,9 +2062,9 @@ body {
   gap: 0.6rem;
   padding: 1.35rem 0.75rem 1.15rem;
   text-align: center;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--dash-shadow);
   transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
 }
@@ -991,7 +2080,7 @@ body {
   width: 21px;
   height: 21px;
   border-radius: 50%;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   color: var(--text-light);
   font-size: 0.68rem;
@@ -1042,7 +2131,7 @@ body {
 }
 
 .flow-node.node-success .flow-node-icon {
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .flow-node.node-success .flow-node-step {
@@ -1148,7 +2237,7 @@ body {
   gap: 0.6rem;
   padding: 0.8rem 1.75rem;
   border: none;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--primary);
   color: #ffffff;
   font-size: 0.95rem;
@@ -1165,8 +2254,8 @@ body {
 }
 
 .flow-cta:disabled {
-  background: #c4d2ea;
-  color: #7a8db0;
+  background: var(--border-blue-strong);
+  color: var(--text-light);
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -1267,24 +2356,6 @@ body {
   }
 }
 
-/* Sidebar Overlay for Mobile */
-.sidebar-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(11, 30, 66, 0.4);
-  backdrop-filter: blur(4px);
-  z-index: 90;
-  display: none;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-.sidebar-overlay.active {
-  display: block;
-  pointer-events: auto;
-  opacity: 1;
-}
 
 /* Modal UI Overhaul */
 .modal-overlay {
@@ -1309,9 +2380,9 @@ body {
 }
 
 .modal-container {
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   width: 92%;
   max-width: 950px;
   max-height: 85vh;
@@ -1386,7 +2457,7 @@ body {
   width: 52px;
   height: 52px;
   font-size: 1.3rem;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
 }
 
 .profile-summary {
@@ -1422,7 +2493,7 @@ body {
 }
 
 .field-value {
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 8px;
   padding: 0.55rem 0.8rem;
@@ -1495,7 +2566,6 @@ body {
 }
 
 
-
 /* Modal Backdrop Overlay & Centered Dialog Pop-up */
 .cm-overlay {
   position: fixed;
@@ -1526,8 +2596,8 @@ body {
   width: 100%;
   max-width: 620px;
   max-height: 85vh;
-  background: #ffffff;
-  border-radius: 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   display: flex;
@@ -1550,6 +2620,7 @@ body {
     opacity: 0;
     transform: scale(0.95) translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -1646,7 +2717,7 @@ body {
 .modal-input:focus,
 .modal-select:focus,
 .modal-textarea:focus {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
@@ -1658,12 +2729,12 @@ body {
   gap: 0.75rem;
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--border-blue-faint);
-  background: #ffffff;
+  background: var(--bg-card);
   flex-shrink: 0;
 }
 
 .modal-cancel-btn {
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--text-muted);
   border: 1px solid var(--border-blue);
   font-weight: 600;
@@ -1717,9 +2788,9 @@ body {
   justify-content: space-between;
   gap: 0.85rem;
   flex-wrap: wrap;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 0.7rem 0.8rem;
   box-shadow: var(--dash-shadow);
 }
@@ -1729,7 +2800,7 @@ body {
   align-items: center;
   gap: 4px;
   padding: 4px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--tint-1);
   border: 1px solid var(--border-blue-faint);
 }
@@ -1755,7 +2826,7 @@ body {
 }
 
 .sh-segment-btn.active {
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--primary);
   font-weight: 650;
   box-shadow: 0 1px 2px rgba(11, 30, 66, 0.06), 0 0 0 1px var(--border-blue-strong);
@@ -1815,7 +2886,7 @@ body {
 }
 
 .sh-search-input:focus {
-  background: #ffffff;
+  background: var(--bg-card);
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
@@ -1846,7 +2917,7 @@ body {
   padding: 0.48rem 0.8rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-muted);
   font-size: 0.82rem;
   font-weight: 600;
@@ -1865,7 +2936,7 @@ body {
 .sh-toggle.active {
   background: rgba(16, 185, 129, 0.10);
   border-color: #34d399;
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .sh-select {
@@ -1880,7 +2951,7 @@ body {
   padding: 0.48rem 2rem 0.48rem 0.8rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   font-size: 0.82rem;
   font-weight: 600;
@@ -1977,10 +3048,10 @@ body {
   flex-direction: column;
   gap: 0.8rem;
   height: 100%;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-left: 3px solid var(--tone);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   /* Left padding is trimmed by the 2px the thicker border adds, so the content
      column starts at the same offset as every other edge. */
   padding: 1.3rem 1.35rem 1.1rem calc(1.35rem - 2px);
@@ -2070,7 +3141,7 @@ body {
 
 .sh-type-chip.association {
   background: rgba(8, 145, 178, 0.10);
-  color: #0e7490;
+  color: var(--secondary-hover);
 }
 
 .sh-chip {
@@ -2107,8 +3178,8 @@ body {
 }
 
 .sh-status.status-pending {
-  background: #fef3c7;
-  color: #b45309;
+  background: var(--warning-fill);
+  color: var(--warning-ink);
 }
 
 .sh-status.status-inactive {
@@ -2143,7 +3214,7 @@ body {
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 10px;
   box-shadow: 0 12px 28px -12px rgba(11, 30, 66, 0.4), 0 1px 2px rgba(11, 30, 66, 0.08);
@@ -2178,12 +3249,12 @@ body {
 }
 
 .dropdown-item.danger {
-  color: #dc2626;
+  color: var(--error-ink);
 }
 
 .dropdown-item.danger:hover {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--error-fill);
+  color: var(--error-ink);
 }
 
 /* Deleting a client silently orphans its job orders, so it asks first. */
@@ -2202,7 +3273,7 @@ body {
 }
 
 .sh-confirm-title svg {
-  color: #dc2626;
+  color: var(--error-ink);
   flex-shrink: 0;
 }
 
@@ -2229,7 +3300,7 @@ body {
 }
 
 .sh-confirm-cancel {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   color: var(--dash-muted);
 }
@@ -2290,8 +3361,8 @@ body {
   min-width: 0;
 }
 
-.sh-row-value > span:not(.sh-copy),
-.sh-row-value > a {
+.sh-row-value>span:not(.sh-copy),
+.sh-row-value>a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2342,7 +3413,7 @@ body {
   flex-direction: column;
   gap: 0.4rem;
   padding: 0.7rem 0.8rem;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--tone-soft);
   border: 1px solid transparent;
 }
@@ -2420,7 +3491,7 @@ body {
 
 .sh-done-pill {
   background: rgba(16, 185, 129, 0.14);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .sh-live-dot {
@@ -2500,9 +3571,9 @@ body {
   gap: 0.6rem;
   padding: 3.5rem 1.5rem;
   text-align: center;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px dashed var(--border-blue-strong);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
 }
 
 .sh-empty-icon {
@@ -2511,7 +3582,7 @@ body {
   justify-content: center;
   width: 56px;
   height: 56px;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   background: var(--tint-2);
   color: var(--primary);
   margin-bottom: 0.25rem;
@@ -2539,7 +3610,7 @@ body {
   padding: 0.55rem 1.15rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   font-size: 0.85rem;
   font-weight: 600;
@@ -2571,9 +3642,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 1.3rem 1.35rem;
   box-shadow: var(--dash-shadow);
 }
@@ -2629,7 +3700,7 @@ body {
 
 .sh-sk-bar {
   height: 46px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   margin-top: 0.25rem;
 }
 
@@ -2656,7 +3727,7 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 1.35rem 1.6rem;
-  background: #ffffff;
+  background: var(--bg-card);
   border-bottom: 1px solid var(--border-blue-faint);
   flex-shrink: 0;
 }
@@ -2686,7 +3757,7 @@ body {
   flex-shrink: 0;
   border-radius: 50%;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--text-light);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -2711,7 +3782,7 @@ body {
   display: flex;
   gap: 4px;
   padding: 4px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--tint-1);
   border: 1px solid var(--border-blue-faint);
 }
@@ -2734,7 +3805,7 @@ body {
 }
 
 .sh-type-switch button.active {
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--primary);
   box-shadow: 0 1px 2px rgba(11, 30, 66, 0.08), 0 0 0 1px var(--border-blue-strong);
 }
@@ -2746,9 +3817,9 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   line-height: 1.45;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--error-ink);
+  background: var(--error-fill);
+  border: 1px solid var(--error-edge);
   border-radius: 10px;
   padding: 0.65rem 0.8rem;
 }
@@ -2890,8 +3961,8 @@ body {
 .dash-card {
   background: var(--dash-surface);
   border: 1px solid var(--dash-ring);
-  border-radius: 16px;
-  padding: 1.5rem 1.6rem 1.6rem;
+  border-radius: var(--radius-xl);
+  padding: 1.25rem 1.35rem 1.35rem;
   box-shadow: var(--dash-shadow);
   display: flex;
   flex-direction: column;
@@ -2958,12 +4029,12 @@ body {
 }
 
 .dash-delta-up {
-  color: #047857;
+  color: var(--success-ink);
   background: rgba(16, 185, 129, 0.10);
 }
 
 .dash-delta-down {
-  color: #b91c1c;
+  color: var(--error-ink);
   background: rgba(239, 68, 68, 0.09);
 }
 
@@ -3178,12 +4249,12 @@ body {
 
 .dash-pill-good {
   background: rgba(16, 185, 129, 0.10);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .dash-pill-warn {
   background: rgba(245, 158, 11, 0.12);
-  color: #b45309;
+  color: var(--warning-ink);
 }
 
 .dash-pill-neutral {
@@ -3218,77 +4289,87 @@ body {
   min-width: 0;
 }
 
-/* The console alone runs dark — a terminal reads better inverted, and it sets
-   the log apart from the white analytics cards around it. */
+/* The trace, always a terminal.
+   This is the one surface in the product that does not follow the theme. A
+   pipeline log is read the way a console is read — scanned for the line that
+   went wrong — and the monospace-on-black convention is what makes that scan
+   fast. Holding it dark in light mode also gives the Overview one deliberate
+   anchor between the KPI tiles and the analytics below, instead of five white
+   cards in a row. Colours are literal rather than tokenised on purpose: this
+   block must look identical in both themes. */
 .dash-log-scroll {
-  height: 268px;
+  height: 252px;
   overflow-y: auto;
-  border: 1px solid #12295e;
-  border-radius: 12px;
-  /* Deep cobalt, not slate — the console is the darkest step of the same blue
-     ramp as the rest of the shell, so inverting it does not change the hue. */
-  background: #06122f;
-  padding: 0.6rem;
+  border: 1px solid #1e293b;
+  border-radius: var(--radius-md);
+  background: #090d16;
+  padding: 0.55rem;
   display: flex;
   flex-direction: column;
   gap: 1px;
   font-family: var(--font-fira-code), ui-monospace, monospace;
-  scrollbar-color: rgba(138, 163, 206, 0.35) transparent;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  /* An inner glow along the top edge, so the panel reads as lit rather than
+     as a hole cut in the card. */
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.12);
 }
 
-/* The global thumb is near-black and vanishes against the dark console. */
+/* The global thumb is near-black and vanishes against the console. */
 .dash-log-scroll::-webkit-scrollbar-thumb {
-  background: rgba(138, 163, 206, 0.3);
+  background: rgba(148, 163, 184, 0.28);
 }
 
 .dash-log-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(138, 163, 206, 0.5);
+  background: rgba(148, 163, 184, 0.45);
 }
 
 .dash-log-scroll .dash-empty {
-  color: #5d7396;
+  color: #64748b;
 }
 
 .dash-log-row {
   display: grid;
-  grid-template-columns: 78px 46px minmax(0, 1fr);
+  grid-template-columns: 74px 46px minmax(0, 1fr);
   align-items: baseline;
   gap: 0.6rem;
-  padding: 0.35rem 0.5rem;
-  border-radius: 7px;
+  padding: 0.34rem 0.5rem;
+  border-radius: 6px;
   font-size: 0.76rem;
   line-height: 1.5;
 }
 
 .dash-log-row:hover {
-  background: rgba(138, 163, 206, 0.10);
+  background: rgba(148, 163, 184, 0.08);
 }
 
 .dash-log-time {
   font-size: 0.7rem;
-  color: #8aa3ce;
+  color: #64748b;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .dash-log-level {
-  font-size: 0.64rem;
+  font-size: 0.63rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-align: center;
   padding: 0.1rem 0;
   border-radius: 5px;
 }
 
-/* Level colours re-picked for the dark surface, not reused from the light one. */
+/* Level colours picked for the dark surface, not borrowed from the light one.
+   Cyan for chatter, green for the thing that worked — the two that carry the
+   glow — with amber and red held back for the lines you must not miss. */
 .dash-log-info {
-  background: rgba(56, 189, 248, 0.14);
-  color: #7dd3fc;
+  background: rgba(34, 211, 238, 0.12);
+  color: #67e8f9;
 }
 
 .dash-log-success {
   background: rgba(52, 211, 153, 0.14);
-  color: #6ee7b7;
+  color: #4ade80;
+  text-shadow: 0 0 12px rgba(74, 222, 128, 0.45);
 }
 
 .dash-log-warn {
@@ -3302,14 +4383,28 @@ body {
 }
 
 .dash-log-message {
-  color: #ccdaf3;
+  color: #cbd5e1;
   word-break: break-word;
+}
+
+/* The card that holds the console keeps the product's white surface — only the
+   panel inside it is dark, so the trace reads as a screen embedded in the page
+   rather than as a differently-themed card. */
+.dash-log-card .dash-card-title svg {
+  color: #22d3ee;
 }
 
 /* --- first-paint skeleton ------------------------------------------------ */
 @keyframes dash-shimmer {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
+
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 .dash-skel {
@@ -3436,7 +4531,7 @@ body {
   background: var(--dash-surface);
   border: 1px solid var(--border-blue);
   border-left: 4px solid var(--tone, var(--primary));
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 1rem 1.15rem 0.9rem calc(1.15rem - 3px);
   box-shadow: var(--dash-shadow);
   display: flex;
@@ -3511,7 +4606,7 @@ body {
   background: var(--dash-surface);
   border: 1px solid var(--border-blue);
   border-left: 4px solid var(--tone);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 0.9rem 1rem 0.9rem calc(1rem - 3px);
   box-shadow: var(--dash-shadow);
   min-width: 0;
@@ -3578,10 +4673,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-left: 3px solid var(--primary);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 1rem 1.15rem 0.95rem calc(1.15rem - 2px);
   box-shadow: var(--dash-shadow);
   transition: box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
@@ -3592,7 +4687,7 @@ body {
 }
 
 .mc-card.is-shortlisted {
-  border-left-color: #047857;
+  border-left-color: var(--success-ink);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.09), var(--dash-shadow);
 }
 
@@ -3677,7 +4772,7 @@ body {
 /* The band is the headline risk read: safe, solid, gap, no. */
 .mc-badge.band-perfect {
   background: rgba(16, 185, 129, 0.14);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .mc-badge.band-strong {
@@ -3687,22 +4782,22 @@ body {
 
 .mc-badge.band-partial {
   background: rgba(245, 158, 11, 0.16);
-  color: #a16207;
+  color: var(--warning-ink);
 }
 
 .mc-badge.band-low {
   background: rgba(239, 68, 68, 0.11);
-  color: #b91c1c;
+  color: var(--error-ink);
 }
 
 .mc-badge-on {
   background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .mc-badge-rejected {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--error-fill);
+  color: var(--error-ink);
 }
 
 .mc-role {
@@ -3770,7 +4865,7 @@ body {
   cursor: pointer;
   white-space: nowrap;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   transition: all 0.18s ease;
 }
@@ -3780,15 +4875,15 @@ body {
 }
 
 .mc-btn-reject:hover {
-  border-color: #fca5a5;
-  background: #fef2f2;
-  color: #b91c1c;
+  border-color: var(--error-edge);
+  background: var(--error-fill);
+  color: var(--error-ink);
 }
 
 .mc-btn-reject.is-on {
-  border-color: #fca5a5;
-  background: #fef2f2;
-  color: #b91c1c;
+  border-color: var(--error-edge);
+  background: var(--error-fill);
+  color: var(--error-ink);
 }
 
 .mc-btn-primary {
@@ -3806,7 +4901,7 @@ body {
 
 .mc-btn-primary.is-on {
   background: #047857;
-  border-color: #047857;
+  border-color: var(--success-ink);
   box-shadow: none;
 }
 
@@ -3823,7 +4918,7 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0 1.2rem;
   padding: 0.65rem 0.85rem;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--tint-1);
   border: 1px solid var(--border-blue-faint);
 }
@@ -3862,17 +4957,17 @@ body {
 }
 
 .mc-stat.is-good .mc-stat-value {
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .mc-stat.is-warn .mc-stat-value {
   font-weight: 800;
-  color: #a16207;
+  color: var(--warning-ink);
 }
 
 .mc-stat.is-bad .mc-stat-value {
   font-weight: 800;
-  color: #b91c1c;
+  color: var(--error-ink);
 }
 
 .mc-stat.is-good .mc-track-fill {
@@ -3905,7 +5000,6 @@ body {
 }
 
 
-
 /* --- skill matrix -------------------------------------------------------- */
 .mc-matrix {
   display: flex;
@@ -3930,12 +5024,12 @@ body {
 
 .mc-chip-hit {
   background: rgba(16, 185, 129, 0.11);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 /* A missing skill is a fact, not an alarm — outlined, not filled red. */
 .mc-chip-miss {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px dashed var(--border-blue-strong);
   color: var(--text-light);
 }
@@ -3949,7 +5043,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #047857;
+  color: var(--success-ink);
   margin-right: 0.1rem;
 }
 
@@ -3977,9 +5071,9 @@ body {
   gap: 0.45rem;
   width: 100%;
   padding: 0.7rem 1rem;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   border: 1px dashed var(--border-blue-strong);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-muted);
   font-size: 0.82rem;
   font-weight: 600;
@@ -4033,7 +5127,6 @@ body {
 }
 
 
-
 /* --- status filter chips ------------------------------------------------- */
 
 
@@ -4047,7 +5140,7 @@ body {
   border-radius: 999px;
   cursor: pointer;
   white-space: nowrap;
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   border: 1px solid var(--border-blue);
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
@@ -4097,9 +5190,9 @@ body {
   gap: 0.55rem;
   padding: 3.5rem 1.5rem;
   text-align: center;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   color: var(--dash-muted);
 }
 
@@ -4145,10 +5238,10 @@ body {
   position: relative;
   background:
     radial-gradient(22rem 14rem at 0% 0%, rgba(var(--accent-rgb), 0.045), transparent 60%),
-    #ffffff;
+    var(--bg-card);
   border: 1px solid var(--border-blue);
   border-left: 3px solid var(--tone);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 1.45rem 1.5rem 1.25rem calc(1.5rem - 2px);
   display: flex;
   flex-direction: column;
@@ -4278,7 +5371,7 @@ body {
   justify-content: center;
   width: 28px;
   height: 28px;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 8px;
   color: var(--dash-ink-2);
@@ -4309,15 +5402,7 @@ body {
 /* --- fulfilment meter ---------------------------------------------------- */
 
 
-
-
-
-
 /* --- facts --------------------------------------------------------------- */
-
-
-
-
 
 
 /* Figures carried by type rather than by filled boxes. */
@@ -4333,7 +5418,7 @@ body {
   gap: 0;
   background: var(--tone-soft);
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   padding: 0.75rem 0.25rem;
 }
 
@@ -4341,7 +5426,7 @@ body {
   border-color: var(--border-blue-faint);
 }
 
-.jo-meta-item + .jo-meta-item {
+.jo-meta-item+.jo-meta-item {
   border-left: 1px solid var(--border-blue-faint);
 }
 
@@ -4421,8 +5506,8 @@ body {
 
 /* --- overdue strip ------------------------------------------------------- */
 .jo-late {
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
+  background: var(--rose-fill);
+  border: 1px solid var(--rose-edge);
   border-radius: 10px;
   padding: 0.65rem 0.75rem;
   display: flex;
@@ -4436,7 +5521,7 @@ body {
   gap: 0.4rem;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #9f1239;
+  color: var(--rose-ink);
 }
 
 .jo-late-head svg {
@@ -4455,13 +5540,13 @@ body {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #be123c;
+  color: var(--rose-ink);
 }
 
 .jo-late-btn {
-  background: #ffffff;
-  border: 1px solid #fda4af;
-  color: #be123c;
+  background: var(--bg-card);
+  border: 1px solid var(--rose-edge);
+  color: var(--rose-ink);
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.15rem 0.55rem;
@@ -4471,12 +5556,12 @@ body {
 }
 
 .jo-late-btn:hover {
-  background: #ffe4e6;
+  background: var(--rose-fill);
 }
 
 .jo-late-btn-solid {
   background: #e11d48;
-  border-color: #e11d48;
+  border-color: var(--rose-ink);
   color: #ffffff;
 }
 
@@ -4487,9 +5572,9 @@ body {
 
 /* --- toolbar: search + filters on one surface ---------------------------- */
 .jo-toolbar {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 1.35rem 1.5rem;
   box-shadow: var(--dash-shadow);
   display: flex;
@@ -4572,12 +5657,6 @@ body {
 /* --- fulfilment ---------------------------------------------------------- */
 
 
-
-
-
-
-
-
 /* --- match signal -------------------------------------------------------- */
 .jo-match {
   display: flex;
@@ -4649,15 +5728,10 @@ body {
 
 /* ==========================================================================
    RESPONSIVE — tablet and phone
-   The rail goes off-canvas at 900px (see the sidebar block); everything below
+   The rail goes off-canvas at 900px (see the APP SHELL block); everything below
    reflows the content area for the widths that remain.
    ========================================================================== */
 @media (max-width: 900px) {
-  .header-bar {
-    /* Match the reduced content padding so the rule still runs edge to edge. */
-    margin: 0 -1.15rem 1.35rem;
-    padding: 0 1.15rem;
-  }
 
   .modal-row-2,
   .details-grid,
@@ -4680,30 +5754,12 @@ body {
 }
 
 @media (max-width: 640px) {
-  .main-content,
-  .main-content.sidebar-collapsed {
-    padding: 0 0.9rem 2rem;
-  }
 
-  .header-bar {
-    /* The rail is off-canvas here, so there is nothing to align to — let the
-       header wrap and reclaim its vertical padding. */
-    flex-wrap: wrap;
-    align-items: flex-start;
-    min-height: 0;
-    margin: 0 -0.9rem 1.25rem;
-    padding: 0.9rem 0.9rem 1rem;
-  }
 
   .page-title {
     font-size: 1.25rem;
   }
 
-  /* A half-width Sync button next to a wrapped title reads as broken. */
-  .header-bar > .btn {
-    width: 100%;
-    justify-content: center;
-  }
 
   .dash-card,
   .candidate-card,
@@ -4712,7 +5768,7 @@ body {
   .jo-toolbar,
   .mc-card {
     padding: 1.15rem 1.1rem;
-    border-radius: 14px;
+    border-radius: var(--radius-xl);
   }
 
   .metric-tile {
@@ -4772,7 +5828,7 @@ body {
     flex-wrap: wrap;
   }
 
-  .modal-footer > button {
+  .modal-footer>button {
     flex: 1;
   }
 
@@ -4785,6 +5841,7 @@ body {
 
 /* Very narrow phones — drop to a single column everywhere. */
 @media (max-width: 420px) {
+
   .metric-tiles,
   .candidate-grid,
   .jo-grid,
@@ -4811,7 +5868,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
+  background: var(--bg-card);
 }
 
 .app-boot-spinner {
@@ -4832,7 +5889,7 @@ body {
   justify-content: center;
   padding: 1.5rem;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--bg-card);
   /* One soft wash only. The grid pattern was reading as decoration. */
   background-image:
     radial-gradient(52rem 34rem at 50% -8%, rgba(var(--primary-rgb), 0.07), transparent 66%),
@@ -4847,7 +5904,7 @@ body {
 }
 
 .login-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 20px;
   padding: 2.6rem 2.5rem 2.2rem;
@@ -4862,6 +5919,7 @@ body {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -4951,9 +6009,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   padding: 0 1rem;
   margin-bottom: 1.15rem;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
@@ -4968,13 +6026,13 @@ body {
   box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.10);
 }
 
-.login-field > svg {
+.login-field>svg {
   color: var(--dash-muted);
   flex-shrink: 0;
   transition: color 0.16s ease;
 }
 
-.login-field:focus-within > svg {
+.login-field:focus-within>svg {
   color: var(--primary);
 }
 
@@ -5040,7 +6098,7 @@ body {
   height: 17px;
   border-radius: 5px;
   border: 1.5px solid var(--border-blue-strong);
-  background: #ffffff;
+  background: var(--bg-card);
   flex-shrink: 0;
   position: relative;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -5060,17 +6118,17 @@ body {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
-.login-remember input:checked + .login-checkbox {
+.login-remember input:checked+.login-checkbox {
   background: var(--primary);
   border-color: var(--primary);
 }
 
-.login-remember input:checked + .login-checkbox::after {
+.login-remember input:checked+.login-checkbox::after {
   opacity: 1;
   transform: rotate(45deg) scale(1);
 }
 
-.login-remember input:focus-visible + .login-checkbox {
+.login-remember input:focus-visible+.login-checkbox {
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 
@@ -5081,9 +6139,9 @@ body {
   gap: 0.5rem;
   font-size: 0.82rem;
   font-weight: 500;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--error-ink);
+  background: var(--error-fill);
+  border: 1px solid var(--error-edge);
   border-radius: 10px;
   padding: 0.65rem 0.8rem;
   margin-bottom: 1.15rem;
@@ -5103,7 +6161,7 @@ body {
   background: var(--primary);
   color: #ffffff;
   border: none;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   padding: 0.87rem 1rem;
   font-size: 0.93rem;
   font-weight: 650;
@@ -5142,7 +6200,7 @@ body {
   padding: 0.9rem 1rem;
   background: var(--tint-1);
   border: 1px dashed var(--border-blue-strong);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
@@ -5175,7 +6233,7 @@ body {
   padding: 0.15rem 0;
 }
 
-.login-creds-row > span {
+.login-creds-row>span {
   font-size: 0.79rem;
   color: var(--dash-ink-2);
 }
@@ -5191,7 +6249,7 @@ body {
 @media (max-width: 480px) {
   .login-card {
     padding: 2rem 1.5rem 1.75rem;
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
   }
 
   .login-title {
@@ -5205,88 +6263,6 @@ body {
   }
 }
 
-/* ==========================================================================
-   SIDEBAR ACCOUNT
-   ========================================================================== */
-.sidebar-account {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem;
-  border-radius: 11px;
-  border: 1px solid var(--border-blue);
-  background: #ffffff;
-  margin-top: auto;
-  margin-bottom: 0.65rem;
-}
-
-.sidebar-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--brand-gradient);
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 0.72rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.sidebar-account-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.sidebar-account-name {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-main);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-account-mail {
-  font-size: 0.7rem;
-  color: var(--text-light);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-signout {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  padding: 0.3rem;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.sidebar-signout:hover {
-  color: #b91c1c;
-  background: #fef2f2;
-}
-
-/* Collapsed rail: avatar only. */
-.sidebar.collapsed .sidebar-account {
-  justify-content: center;
-  padding: 0.6rem 0;
-}
-
-.sidebar.collapsed .sidebar-account-text,
-.sidebar.collapsed .sidebar-signout {
-  display: none;
-}
 
 /* ==========================================================================
    CANDIDATE TABLE — the directory as a records table
@@ -5299,8 +6275,8 @@ body {
    obvious gap between the rounded corner and the first square cell. */
 .ctable-wrap {
   background: var(--dash-surface);
-  border: 1px solid #dfe3ea;
-  border-radius: 10px;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
   box-shadow: var(--dash-shadow);
   /* Clips the blue header bar and the last row to the radius, so the corners
      stay clean without every edge cell needing its own border-radius. */
@@ -5333,14 +6309,37 @@ body {
    header label (plus sort arrow) and its content — then the remaining slack
    goes to Candidate, which holds the longest free text. Recompute these if a
    header label changes; a wider label needs a wider column. */
-.ctable-col-num { width: 5%; }
-.ctable-col-name { width: 19%; }
-.ctable-col-designation { width: 14%; }
-.ctable-col-industry { width: 11%; }
-.ctable-col-experience { width: 13%; }
-.ctable-col-contact { width: 13%; }
-.ctable-col-status { width: 11%; }
-.ctable-col-actions { width: 14%; }
+.ctable-col-num {
+  width: 5%;
+}
+
+.ctable-col-name {
+  width: 19%;
+}
+
+.ctable-col-designation {
+  width: 14%;
+}
+
+.ctable-col-industry {
+  width: 11%;
+}
+
+.ctable-col-experience {
+  width: 13%;
+}
+
+.ctable-col-contact {
+  width: 13%;
+}
+
+.ctable-col-status {
+  width: 11%;
+}
+
+.ctable-col-actions {
+  width: 14%;
+}
 
 /* The actions cell is sized by its buttons, so it keeps its padding tight —
    at the table's minimum width the default 1rem would clip the last button. */
@@ -5359,43 +6358,46 @@ body {
    capped height, and the table is deliberately uncapped — it grows to its full
    height and the page scrolls. Leaving `position: sticky` here would be dead
    code that reads as if the header pins when it does not. */
-/* The header bar is the one saturated surface on this screen — the same
-   cobalt-to-azure sweep the brand mark uses, rather than a flat navy slab.
-   It sits on the ROW, not on each cell: painted per-cell the gradient would
-   restart at every column and read as eight separate blue blocks. */
+/* A quiet head, not a painted bar. The saturated gradient this used to carry
+   was the loudest object on the screen and put the column labels — the least
+   important text in the table — above the data in the visual hierarchy. Small
+   uppercase grey on the page tint says the same thing and gets out of the way. */
 .ctable thead tr {
-  background: linear-gradient(112deg, var(--primary-deep) 0%, var(--primary) 62%, #2b8bff 100%);
+  background: var(--tint-1);
 }
 
 .ctable thead th {
   background: transparent;
-  padding: 0.85rem 0.8rem;
+  padding: 0.7rem 0.8rem;
   text-align: left;
-  font-size: 0.67rem;
+  font-size: 0.68rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: #ffffff;
+  color: var(--text-label);
   white-space: nowrap;
   user-select: none;
+  border-bottom: 1px solid var(--border-blue);
 }
 
-/* Dividers must land on the SAME pixel as the body's column rules below them.
-   The body draws `border-right`, i.e. the last pixel inside each cell, so the
-   header has to draw on its right inner edge too — `inset -1px`. Drawing on
-   the left edge of the next cell (`inset 1px` on `th + th`) puts the line one
-   pixel further right, and every rule in the head steps out of line with the
-   one below it. */
-.ctable thead th:not(:last-child) {
-  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.16);
-}
+/* No vertical rules in the head. With a grey head on a white table the column
+   dividers were the only thing left drawing a grid, and a grid is exactly what
+   this table is not. */
 
 /* --- alignment ----------------------------------------------------------- */
 /* One class per column, applied to BOTH the header cell and every body cell,
    so a label can never sit over data that is aligned differently. */
-.ctable-al-left { text-align: left; }
-.ctable-al-center { text-align: center; }
-.ctable-al-right { text-align: right; }
+.ctable-al-left {
+  text-align: left;
+}
+
+.ctable-al-center {
+  text-align: center;
+}
+
+.ctable-al-right {
+  text-align: right;
+}
 
 /* Sortable headers are buttons, not decorated cells — a click handler on a
    <th> is unreachable by keyboard. */
@@ -5417,8 +6419,7 @@ body {
 }
 
 .ctable-sort:hover {
-  color: #ffffff;
-  opacity: 0.82;
+  color: var(--text-muted);
 }
 
 .ctable-sort:focus-visible {
@@ -5452,8 +6453,8 @@ body {
    is supporting text. Hierarchy comes from the header and the muted meta line
    instead of from washing out the data. */
 .ctable tbody td {
-  padding: 0.8rem;
-  border-bottom: 1px solid #edeff3;
+  padding: 0.85rem 0.8rem;
+  border-bottom: 1px solid var(--border-blue-faint);
   font-size: 0.84rem;
   font-weight: 600;
   color: var(--dash-ink);
@@ -5464,13 +6465,9 @@ body {
   white-space: nowrap;
 }
 
-/* Column rules. Horizontal lines alone give you a list of rows; it is the
-   vertical rules that make the eye track a column down the page, which is
-   what a records table is for. Kept at the faintest hairline so they guide
-   without caging the data. */
-.ctable tbody td:not(:last-child) {
-  border-right: 1px solid #edeff3;
-}
+/* No column rules. Horizontal hairlines alone are what a clean records table
+   uses; the vertical ones turned every row into a set of boxes and were the
+   single biggest reason the old table read as heavier than the cards above it. */
 
 /* No zebra striping. A single hover state reads the row better than
    alternating fills, which fight both the hover and the open state. */
@@ -5567,6 +6564,7 @@ body {
 }
 
 .ctable-name {
+  letter-spacing: -0.005em;
   font-family: var(--font-outfit), sans-serif;
   font-size: 0.89rem;
   font-weight: 700;
@@ -5628,12 +6626,12 @@ body {
 
 .ctable-status-verified {
   background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .ctable-status-review {
   background: rgba(245, 158, 11, 0.16);
-  color: #a16207;
+  color: var(--warning-ink);
 }
 
 .ctable-status-active {
@@ -5692,7 +6690,7 @@ body {
 .ctable-btn-view {
   background: rgba(8, 145, 178, 0.09);
   border-color: rgba(8, 145, 178, 0.20);
-  color: #0e7490;
+  color: var(--secondary-hover);
 }
 
 .ctable-btn-view:hover {
@@ -5704,7 +6702,7 @@ body {
 .ctable-btn-edit {
   background: rgba(16, 185, 129, 0.10);
   border-color: rgba(16, 185, 129, 0.22);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .ctable-btn-edit:hover {
@@ -5716,7 +6714,7 @@ body {
 .ctable-btn-delete {
   background: rgba(239, 68, 68, 0.09);
   border-color: rgba(239, 68, 68, 0.20);
-  color: #b91c1c;
+  color: var(--error-ink);
 }
 
 .ctable-btn-delete:hover {
@@ -5736,7 +6734,7 @@ body {
 .ctable-confirm-label {
   font-size: 0.74rem;
   font-weight: 600;
-  color: #b91c1c;
+  color: var(--error-ink);
 }
 
 /* Icon-sized, because the confirm has to fit the same slot as the four
@@ -5762,133 +6760,17 @@ body {
 
 .ctable-confirm-yes:hover {
   background: #991b1b;
-  border-color: #991b1b;
+  border-color: var(--error-ink);
 }
 
 .ctable-confirm-no {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   color: var(--dash-ink-2);
 }
 
 .ctable-confirm-no:hover {
   background: var(--tint-1);
-}
-
-/* --- activity drawer ----------------------------------------------------- */
-.ctable-drawer-cell {
-  padding: 0;
-  background: var(--tint-2);
-  border-bottom: 1px solid var(--border-blue);
-  border-right: none;
-}
-
-.ctable-drawer {
-  padding: 0.9rem 1.15rem 1.1rem;
-}
-
-.ctable-drawer-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.7rem;
-}
-
-.ctable-drawer-head > svg {
-  color: var(--dash-muted);
-  flex-shrink: 0;
-}
-
-.ctable-drawer-title {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--dash-muted);
-}
-
-.ctable-drawer-count {
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 0.12rem 0.45rem;
-  border-radius: 999px;
-  background: rgba(var(--primary-rgb), 0.09);
-  color: var(--primary-hover);
-  font-variant-numeric: tabular-nums;
-}
-
-.ctable-drawer-close {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--dash-muted);
-  cursor: pointer;
-  padding: 0.2rem;
-  border-radius: 6px;
-  display: inline-flex;
-  transition: color 0.15s ease;
-}
-
-.ctable-drawer-close:hover {
-  color: var(--dash-ink);
-}
-
-/* Uncapped, like the table itself — the drawer grows to fit its entries and
-   the page scrolls. No scrollbar inside a scrollbar. */
-.ctable-logs {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-/* Log rows are a fixed grid, so timestamps and levels form real columns. */
-.ctable-log {
-  display: grid;
-  grid-template-columns: 16px 62px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0.55rem;
-  padding: 0.4rem 0.6rem;
-  border-radius: 7px;
-  background: var(--dash-surface);
-  border: 1px solid var(--border-blue-faint);
-  font-size: 0.78rem;
-}
-
-.ctable-log-icon {
-  display: inline-flex;
-  transform: translateY(2px);
-}
-
-.ctable-log-time {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
-  font-size: 0.71rem;
-  color: var(--dash-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ctable-log-message {
-  color: var(--dash-ink-2);
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.ctable-log-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 1.35rem;
-  text-align: center;
-  font-size: 0.82rem;
-  color: var(--dash-muted);
-  background: var(--dash-surface);
-  border: 1px dashed var(--border-blue-strong);
-  border-radius: 10px;
-}
-
-.ctable-log-empty svg {
-  color: var(--border-blue-strong);
 }
 
 /* --- footer -------------------------------------------------------------- */
@@ -5953,7 +6835,7 @@ body {
   padding: 0.48rem 0.9rem 0.48rem 0.7rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-muted);
   font-size: 0.82rem;
   font-weight: 600;
@@ -5975,10 +6857,10 @@ body {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  background: #fff1f2;
-  border: 1px solid #fecdd3;
+  background: var(--rose-fill);
+  border: 1px solid var(--rose-edge);
   border-left: 3px solid #e11d48;
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   padding: 0.9rem 1.25rem;
 }
 
@@ -5989,21 +6871,21 @@ body {
   min-width: 0;
 }
 
-.jod-alert-text > svg {
-  color: #e11d48;
+.jod-alert-text>svg {
+  color: var(--rose-ink);
   flex-shrink: 0;
 }
 
 .jod-alert-title {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #9f1239;
+  color: var(--rose-ink);
 }
 
 .jod-alert-note {
   font-size: 0.8rem;
   line-height: 1.4;
-  color: #be123c;
+  color: var(--rose-ink);
   margin-top: 0.1rem;
 }
 
@@ -6019,16 +6901,16 @@ body {
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #9f1239;
+  color: var(--rose-ink);
 }
 
 .jod-alert-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  background: #ffffff;
-  border: 1px solid #fda4af;
-  color: #be123c;
+  background: var(--bg-card);
+  border: 1px solid var(--rose-edge);
+  color: var(--rose-ink);
   font-size: 0.78rem;
   font-weight: 650;
   padding: 0.3rem 0.75rem;
@@ -6038,19 +6920,19 @@ body {
 }
 
 .jod-alert-btn:hover {
-  background: #fff5f6;
+  background: var(--rose-fill);
   border-color: #fb7185;
 }
 
 .jod-alert-btn.is-solid {
   background: #e11d48;
-  border-color: #e11d48;
+  border-color: var(--rose-ink);
   color: #ffffff;
 }
 
 .jod-alert-btn.is-solid:hover {
   background: #be123c;
-  border-color: #be123c;
+  border-color: var(--rose-ink);
 }
 
 /* --- summary card -------------------------------------------------------- */
@@ -6058,10 +6940,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.4rem;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-left: 3px solid var(--tone);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 1.6rem 1.7rem 1.5rem calc(1.7rem - 2px);
   box-shadow: var(--dash-shadow);
 }
@@ -6159,7 +7041,7 @@ body {
   padding: 0.45rem 0.85rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   font-size: 0.81rem;
   font-weight: 600;
@@ -6175,14 +7057,14 @@ body {
 }
 
 .jod-btn.is-danger {
-  color: #b91c1c;
-  border-color: #fecaca;
+  color: var(--error-ink);
+  border-color: var(--error-edge);
 }
 
 .jod-btn.is-danger:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
-  color: #991b1b;
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+  color: var(--error-ink);
 }
 
 /* --- fulfilment ---------------------------------------------------------- */
@@ -6344,7 +7226,7 @@ body {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--dash-muted);
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 999px;
   padding: 0.35rem 0.9rem;
@@ -6393,7 +7275,7 @@ body {
   padding: 0.48rem 0.7rem;
   border-radius: 9px;
   border: 1px solid var(--border-blue);
-  background: #ffffff;
+  background: var(--bg-card);
   color: var(--dash-ink-2);
   font-size: 0.82rem;
   font-weight: 600;
@@ -6418,7 +7300,7 @@ body {
    skill" on the cards below. */
 .jod-dd-trigger.is-set {
   border-color: #10b981;
-  color: #047857;
+  color: var(--success-ink);
   background: rgba(16, 185, 129, 0.06);
 }
 
@@ -6426,7 +7308,7 @@ body {
    the number you want when deciding whether to widen the filter. */
 .jod-dd-trigger.is-set .jo-chip-count {
   background: rgba(16, 185, 129, 0.16);
-  color: #047857;
+  color: var(--success-ink);
 }
 
 .jod-dd-trigger svg {
@@ -6445,7 +7327,7 @@ body {
   left: 0;
   z-index: 30;
   min-width: 260px;
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: 12px;
   box-shadow: 0 16px 34px -12px rgba(11, 30, 66, 0.28);
@@ -6482,7 +7364,7 @@ body {
 .jod-dd-opt input {
   width: 15px;
   height: 15px;
-  accent-color: #047857;
+  accent-color: var(--success-ink);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -6636,268 +7518,1840 @@ body {
   white-space: nowrap;
 }
 
-/* --- candidate modal: executive view -------------------------------------
-   The modal is styled inline, and an inline style beats a media query, so
-   anything that has to change with the viewport is declared here instead. On
-   a 360px phone a 180px label column leaves the value about a hundred pixels,
-   which is not enough for an address or an email.
-   ------------------------------------------------------------------------- */
 
-.cmv-headerbar {
+/* ==========================================================================
+   CANDIDATE SCREENS — profile, editor, activity
+   Three full-width destinations that take over the content column, replacing
+   the single modal that used to do all three jobs at once. They share a top
+   bar, a hero and a card surface; everything below that belongs to the one
+   job each screen has.
+   ========================================================================== */
+.cscreen {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  padding: 1.1rem 1.5rem;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
-.cmv-header-actions {
+.cscreen-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.cscreen-topbar-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
 
-.cmv-body {
-  padding: 1.25rem 1.5rem;
+.cscreen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--primary-hover);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
-/* Heading on the left, its Edit/Add buttons on the right. */
-.cmv-section-head {
+.cscreen-btn:hover:not(:disabled) {
+  background: var(--tint-1);
+  border-color: var(--border-blue-strong);
+}
+
+.cscreen-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cscreen-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-primary);
+}
+
+.cscreen-btn.is-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+/* A verified profile cannot be verified again — the button states the fact
+   rather than offering an action that would do nothing. */
+.cscreen-btn.is-verified {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.34);
+  color: var(--success-ink);
+}
+
+.cscreen-error {
+  padding: 0.7rem 0.95rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  background: rgba(239, 68, 68, 0.07);
+  color: var(--error-ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* --- shared hero ---------------------------------------------------------- */
+.cprof-hero,
+.cedit-hero,
+.clog-hero {
   display: flex;
-  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.4rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.cprof-monogram {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-xl);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: flex;
   align-items: center;
+  justify-content: center;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cprof-hero-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.cprof-hero-line {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.cprof-name {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--dash-ink);
+  line-height: 1.25;
+}
+
+/* Says out loud what the absence of any control already implies. */
+.cprof-readonly-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--dash-muted);
+}
+
+.cprof-role {
+  margin: 0.3rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--primary-hover);
+}
+
+.cprof-meta {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: var(--dash-muted);
+}
+
+.cprof-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.cprof-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+  color: var(--dash-ink-2);
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.cprof-chip svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+/* --- section jump bar ----------------------------------------------------- */
+.cprof-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+}
+
+.cprof-nav-btn {
+  padding: 0.35rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dash-ink-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cprof-nav-btn:hover {
+  background: var(--bg-card);
+  border-color: var(--border-blue);
+  color: var(--primary-hover);
+}
+
+/* --- profile cards -------------------------------------------------------- */
+.cprof-sections,
+.cedit-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cprof-card,
+.cedit-card {
+  padding: 1.25rem 1.4rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  box-shadow: var(--shadow-sm);
+  /* So a jumped-to section does not land underneath the app header. */
+  scroll-margin-top: calc(var(--app-header-h) + 12px);
+}
+
+.cprof-card-title,
+.cedit-card-title {
+  margin: 0 0 1rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 2px solid var(--primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary-hover);
+}
+
+/* Label/value pairs. `minmax(0, 1fr)` rather than `1fr`: a `1fr` track refuses
+   to shrink below its content, so one long URL widens the whole card and forces
+   the page to scroll sideways. */
+.cprof-facts {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  row-gap: 0.8rem;
+  column-gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.cprof-fact-label {
+  color: var(--dash-muted);
+}
+
+.cprof-fact-value {
+  font-weight: 600;
+  color: var(--dash-ink);
+  word-break: break-word;
+}
+
+.cprof-fact-value.is-multiline {
+  white-space: pre-wrap;
+}
+
+.cprof-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.cprof-entry {
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
+
+.cprof-entry-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--dash-ink);
+}
+
+.cprof-entry-at {
+  font-weight: 600;
+  color: var(--dash-ink-2);
+}
+
+.cprof-entry-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--primary-hover);
+}
+
+.cprof-prose {
+  margin: 0.55rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--dash-ink-2);
+}
+
+.cprof-bullets {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+}
+
+.cprof-bullets li {
+  position: relative;
+  padding-left: 1.2rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--dash-ink-2);
+}
+
+.cprof-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 0.25rem;
+  top: 0.6rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.cprof-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cprof-skill {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--primary-hover);
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+/* --- editor --------------------------------------------------------------- */
+.cedit-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
   flex-wrap: wrap;
   margin-bottom: 1rem;
 }
 
-/* Label/value pairs. `minmax(0, 1fr)` rather than `1fr`: a grid track sized
-   `1fr` still refuses to shrink below its content, so one long URL widened the
-   whole modal and forced the body to scroll sideways. */
-.cmv-facts {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  row-gap: 0.85rem;
-  column-gap: 1rem;
-  font-size: 0.95rem;
-}
-
-.cmv-facts > div {
+.cedit-card-head .cedit-card-title {
+  margin: 0;
+  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
-.cmv-form-2 {
+.cedit-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--primary-hover);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cedit-add:hover {
+  background: var(--tint-1);
+  border-color: var(--border-blue-strong);
+}
+
+.cedit-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.85rem;
 }
 
-.cmv-form-2 input,
-.cmv-form-2 textarea {
+.cedit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   min-width: 0;
 }
 
-.cmv-footer {
+.cedit-label {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--dash-muted);
 }
 
-.cmv-footer-group {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.6rem;
+.cedit-hint {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--text-light);
 }
 
-/* One extracted field per row: label, editable value, delete. */
-.cmv-extra-row {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.cmv-header-title-box {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.cedit-input {
   width: 100%;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--dash-ink);
+  font-size: 0.88rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-@media (max-width: 640px) {
-  .modal-overlay {
-    padding: 0 !important;
-    align-items: flex-end !important;
-  }
+.cedit-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.12);
+}
 
-  .modal-container {
-    width: 100% !important;
-    max-width: 100vw !important;
-    max-height: 94vh !important;
-    border-radius: 1.25rem 1.25rem 0 0 !important;
-    margin: 0 !important;
-    border-bottom: none !important;
-  }
+.cedit-textarea {
+  resize: vertical;
+  line-height: 1.55;
+}
 
-  .cmv-headerbar {
-    padding: 0.85rem 1rem;
-    gap: 0.65rem;
-    flex-direction: column;
-    align-items: stretch;
-  }
+.cedit-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.78rem;
+  color: var(--dash-muted);
+}
 
-  .cmv-header-title-box {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    width: 100%;
-  }
+.cedit-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
 
-  .cmv-header-actions {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.35rem;
-  }
+.cedit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
 
-  .cmv-header-actions > .btn {
-    font-size: 0.72rem !important;
-    padding: 0.45rem 0.25rem !important;
-    justify-content: center;
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-shadow: none !important;
-  }
+.cedit-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
 
-  .cmv-body {
-    padding: 0.85rem 0.85rem 1.25rem;
-  }
+.cedit-row-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dash-muted);
+}
 
-  /* Executive Facts View: Clean Card Blocks on Mobile */
-  .cmv-facts {
+.cedit-remove {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--error-ink);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cedit-remove:hover {
+  background: rgba(239, 68, 68, 0.17);
+  border-color: rgba(239, 68, 68, 0.36);
+}
+
+.cedit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cedit-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cedit-extra-row {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cedit-dirty {
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--warning-ink);
+}
+
+/* Pinned to the bottom of the viewport: on a long form the save control must
+   not be a scroll away from whatever is being typed. */
+.cedit-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 1.1rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  box-shadow: 0 -2px 12px rgba(11, 30, 66, 0.06);
+}
+
+.cedit-footer-note {
+  font-size: 0.8rem;
+  color: var(--dash-muted);
+}
+
+/* --- activity log --------------------------------------------------------- */
+.clog-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.09);
+  color: var(--primary-hover);
+  font-variant-numeric: tabular-nums;
+}
+
+.clog-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 2.5rem 1.25rem;
+  text-align: center;
+  border-radius: var(--radius-xl);
+  border: 1px dashed var(--border-blue-strong);
+  background: var(--dash-surface);
+  color: var(--dash-muted);
+}
+
+.clog-empty svg {
+  color: var(--border-blue-strong);
+}
+
+.clog-empty p {
+  margin: 0.4rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--dash-ink-2);
+}
+
+.clog-empty span {
+  font-size: 0.8rem;
+}
+
+.clog-days {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.clog-day {
+  padding: 1.1rem 1.25rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.clog-day-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dash-muted);
+}
+
+.clog-day-count {
+  font-size: 0.68rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--dash-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.clog-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* One grid shared by the header and every row, so the four columns line up all
+   the way down the day — which is the whole reason this is a table and not a
+   list of sentences. */
+.clog-row {
+  display: grid;
+  grid-template-columns: 18px 66px 130px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+  font-size: 0.82rem;
+}
+
+.clog-head {
+  border: none;
+  background: transparent;
+  padding-top: 0;
+  padding-bottom: 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+.clog-icon {
+  display: inline-flex;
+  transform: translateY(3px);
+}
+
+.clog-time {
+  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--dash-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.clog-action {
+  font-weight: 700;
+  color: var(--dash-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.clog-message {
+  color: var(--dash-ink-2);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* The level tints the icon and the verb, never the message — a coloured
+   sentence is harder to read, and two markers are enough to scan by. */
+.clog-info .clog-icon {
+  color: var(--primary);
+}
+
+.clog-success .clog-icon {
+  color: var(--success-ink);
+}
+
+.clog-warn .clog-icon {
+  color: var(--warning-ink);
+}
+
+.clog-error .clog-icon {
+  color: var(--error-ink);
+}
+
+.clog-success .clog-action {
+  color: var(--success-ink);
+}
+
+.clog-warn .clog-action {
+  color: var(--warning-ink);
+}
+
+.clog-error .clog-action {
+  color: var(--error-ink);
+}
+
+.clog-error {
+  border-color: rgba(239, 68, 68, 0.28);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.clog-warn {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.06);
+}
+
+@media (max-width: 900px) {
+  .cprof-facts {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 0.25rem;
   }
 
-  .cmv-facts > div:nth-child(odd) {
-    font-size: 0.74rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    margin-top: 0.4rem;
+  /* Stacked, the label must sit directly on its value and each pair must stay
+     visibly apart — otherwise the column collapses into one undifferentiated
+     run of text. */
+  .cprof-facts>div:nth-child(even) {
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid var(--border-blue-faint);
+    margin-bottom: 0.35rem;
   }
 
-  .cmv-facts > div:nth-child(even) {
-    font-size: 0.92rem;
-    font-weight: 600;
-    color: #0f172a;
-    background: #ffffff;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.4rem;
-    border: 1px solid #e2e8f0;
+  .cprof-facts>div:nth-child(even):last-child {
+    border-bottom: none;
   }
 
-  .cmv-facts > div:nth-child(even):not(:last-child) {
-    margin-bottom: 0.4rem;
+  .cedit-extra-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
   }
 
-  /* Edit Mode Form Grid: Single Column Full Width */
-  .cmv-form-2 {
-    grid-template-columns: minmax(0, 1fr) !important;
-    gap: 0.75rem;
+  .cedit-extra-row input:first-child {
+    grid-column: 1 / -1;
   }
 
-  .cmv-form-2 input,
-  .cmv-form-2 textarea {
-    width: 100% !important;
-    font-size: 0.88rem !important;
-    padding: 0.5rem 0.75rem !important;
+  /* The verb moves onto its own line rather than squeezing the message. */
+  .clog-row {
+    grid-template-columns: 18px 66px minmax(0, 1fr);
   }
 
-  .cmv-extra-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.4rem;
-    background: #ffffff;
-    padding: 0.6rem;
-    border-radius: 0.5rem;
-    border: 1px solid #e2e8f0;
+  .clog-action {
+    grid-column: 3;
+    white-space: normal;
   }
 
-  .cmv-extra-row input:first-child {
-    grid-column: span 2;
-    font-weight: 700;
+  .clog-message {
+    grid-column: 2 / -1;
   }
 
-  /* Footer Actions: Full Width Stacking */
-  .cmv-footer {
-    padding: 0.75rem 1rem;
-    gap: 0.5rem;
-    flex-direction: column-reverse;
+  .clog-head span:last-child {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+
+  .cprof-hero,
+  .cedit-hero,
+  .clog-hero {
+    padding: 1rem;
   }
 
-  .cmv-footer-group {
+  .cprof-card,
+  .cedit-card,
+  .clog-day {
+    padding: 1rem;
+  }
+
+  .cscreen-topbar-actions {
     width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
   }
 
-  .cmv-footer-group > .btn {
-    width: 100% !important;
+  .cscreen-topbar-actions>.cscreen-btn {
+    flex: 1;
     justify-content: center;
-    font-size: 0.85rem !important;
-    padding: 0.55rem 1rem !important;
-  }
-
-  .cmv-section-head {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-
-  .cmv-section-head > h3 {
-    font-size: 0.8rem !important;
-  }
-
-  .cmv-section-head > :not(h3) {
-    flex: 0 0 auto;
   }
 }
 
-/* Bullet list styling for Achievements, Certifications, and Experience/Project descriptions */
-.cmv-bullet-list {
-  list-style-type: none !important;
-  padding-left: 0 !important;
-  margin: 0.4rem 0 0 !important;
+/* --------------------------------------------------------------------------
+   INGESTION PLOT — colours by class, so the chart follows the theme
+   SVG presentation attributes cannot resolve a custom property, so every mark
+   that used to carry a literal hex is now painted from here instead.
+   -------------------------------------------------------------------------- */
+.plot-grid {
+  stroke: var(--dash-grid);
 }
 
-.cmv-bullet-list li {
+.plot-line {
+  stroke: var(--primary);
+}
+
+.plot-crosshair {
+  stroke: var(--primary);
+  stroke-opacity: 0.35;
+}
+
+.plot-dot {
+  fill: var(--primary);
+}
+
+.plot-dot-halo {
+  fill: var(--bg-card);
+}
+
+.plot-dot-swatch {
+  background: var(--primary);
+}
+
+.plot-fill-top {
+  stop-color: var(--primary);
+  stop-opacity: 0.16;
+}
+
+.plot-fill-mid {
+  stop-color: var(--primary);
+  stop-opacity: 0.06;
+}
+
+.plot-fill-end {
+  stop-color: var(--primary);
+  stop-opacity: 0;
+}
+
+/* The status filter sits above the search row on the candidates directory. */
+.cview-filters {
+  margin-bottom: 0.85rem;
+}
+
+/* ==========================================================================
+   CANDIDATE CARDS — the directory's second view
+   Same records, same actions, laid out as cards rather than rows. The table is
+   for comparing across a column; the cards are for reading one person at a
+   time, which is what a recruiter does when the pool is small.
+   ========================================================================== */
+.ccard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.ccard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.ccard:hover {
+  border-color: var(--border-blue-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.ccard:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+.ccard-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.ccard-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--brand-gradient);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.ccard-identity {
+  min-width: 0;
+  flex: 1;
+}
+
+.ccard-name {
+  display: block;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccard-role {
+  display: block;
+  font-size: 0.79rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccard-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+
+.ccard-meta-key {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.ccard-meta-val {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccard-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+/* The row's action cluster, reused verbatim — one set of buttons, one set of
+   behaviours, whichever view you are in. */
+.ccard-foot .ctable-actions {
+  justify-content: flex-end;
+}
+
+/* The view switch sits opposite the status filters. */
+.cview-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------------------
+   SCREEN ALIGNMENT
+   Job Orders and Sourcing Hub predate the content grid and each carried their
+   own outer rhythm — 1.5rem here, 1.25rem there, and one of them setting it
+   from an inline style so no stylesheet could correct it. Both now sit on the
+   same column gap and the same card padding as every DataBlue screen, so a
+   card on one lines up with a card on the other.
+   -------------------------------------------------------------------------- */
+.job-orders-wrapper,
+.sh-root {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Toolbars are cards, so they take the card's padding rather than their own. */
+.jo-toolbar {
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.sh-toolbar {
+  padding: 0.85rem 1rem;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Both screens opened with a white toolbar whose border was heavier than the
+   cards under it. One hairline for everything. */
+.jo-toolbar,
+.sh-toolbar,
+.jo-state {
+  border-color: var(--border-blue);
+  background: var(--bg-card);
+}
+
+/* The stat rows above each screen match the Overview's KPI grid, so the four
+   tiles land on the same column edges wherever you are. */
+/* Both screens run exactly four tiles, so they get four columns rather than an
+   auto-fit that reflows them into 3 + 1 at some widths. */
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 1280px) {
+  .stat-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .stat-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ==========================================================================
+   JOB ORDERS + SOURCING HUB — DataBlue alignment
+   Both screens predate the design system and grew their own vocabulary: three
+   button shapes, two search fields, a saturated filter chip, and a card with a
+   coloured left edge. None of that is wrong, it just does not match the rest of
+   the product.
+
+   This block re-points those existing class names at the DataBlue primitives
+   rather than rewriting the screens, so every behaviour, handler and piece of
+   matching logic is untouched — only the surface changes. It is last in the
+   sheet on purpose: these rules are corrections to declarations further up.
+   ========================================================================== */
+
+/* --- search fields -------------------------------------------------------- */
+/* Both screens now use the header bar's field: same height, same radius, same
+   focus ring, so a search box is the same object wherever you meet one. */
+.sh-search-input {
+  height: 38px;
+  padding: 0 2.1rem 0 2.15rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-family: inherit;
+}
+
+.sh-search-input:focus {
+  background: var(--bg-card);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+/* --- filter badges -------------------------------------------------------- */
+/* The status chips read like the Candidates filter tabs: a soft grey fill when
+   selected, not a saturated blue slab. A row of eight filters, one of them
+   painted solid primary, was the loudest thing on the Job Orders screen. */
+.job-order-status-chip {
+  gap: 0.4rem;
+  padding: 0.42rem 0.7rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.job-order-status-chip:hover {
+  background: var(--tint-2);
+  border-color: transparent;
+  color: var(--text-main);
+}
+
+.job-order-status-chip.active {
+  background: var(--tint-2);
+  border-color: var(--border-blue);
+  color: var(--text-main);
+}
+
+.jo-chip-count {
+  background: var(--tint-3);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.job-order-status-chip.active .jo-chip-count {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-hover);
+}
+
+/* The chip row keeps its FILTER caption, so it stays a labelled row rather than
+   becoming a bordered tab strip that would enclose the caption too. Only the
+   spacing tightens to the tab rhythm. */
+.jo-filters {
+  gap: 0.2rem;
+}
+
+/* Both screens' small uppercase captions take the shared label treatment. */
+.jo-filters-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-label);
+}
+
+/* Sourcing Hub's segmented control is already the right idea; these are the
+   metrics that make it the same object as `.db-tabs`. */
+.sh-segment {
+  gap: 0.2rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+}
+
+.sh-segment-btn {
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.85rem;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sh-segment-btn:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+/* 650 is not a weight either loaded face ships, so the browser was
+   synthesising it. 600 is real. */
+.sh-segment-btn.active {
+  background: var(--tint-2);
+  color: var(--text-main);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.sh-segment-count {
+  background: var(--tint-3);
+  color: var(--text-muted);
+}
+
+.sh-segment-btn.active .sh-segment-count {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-hover);
+}
+
+/* --- buttons -------------------------------------------------------------- */
+/* One primary and one secondary, matching `.db-btn`. */
+.sh-new-btn,
+.btn-new-client,
+.modal-submit-btn,
+.sh-empty-btn.primary,
+.jod-alert-btn.is-solid,
+.jo-late-btn-solid {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sh-new-btn:hover,
+.btn-new-client:hover,
+.modal-submit-btn:hover,
+.sh-empty-btn.primary:hover,
+.jod-alert-btn.is-solid:hover,
+.jo-late-btn-solid:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  box-shadow: none;
+  transform: none;
+}
+
+.jod-btn,
+.jo-late-btn,
+.jod-alert-btn,
+.modal-cancel-btn,
+.sh-empty-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.jod-btn:hover,
+.jo-late-btn:not(.jo-late-btn-solid):hover,
+.jod-alert-btn:not(.is-solid):hover,
+.modal-cancel-btn:hover,
+.sh-empty-btn:not(.primary):hover {
+  background: var(--tint-2);
+  border-color: var(--border-blue-strong);
+  color: var(--text-main);
+  transform: none;
+}
+
+.jod-btn.is-danger {
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+  color: var(--error-ink);
+}
+
+/* Icon-only controls take the table's action-button metrics. */
+.jo-icon-btn,
+.sh-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.jo-icon-btn:hover,
+.sh-icon-btn:hover {
+  background: var(--tint-2);
+  border-color: var(--border-blue-strong);
+  color: var(--text-main);
+}
+
+.sh-new-btn:focus-visible,
+.btn-new-client:focus-visible,
+.jod-btn:focus-visible,
+.jo-icon-btn:focus-visible,
+.sh-icon-btn:focus-visible,
+.job-order-status-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+/* --- card surfaces -------------------------------------------------------- */
+/* A flat 1px card, like every other card in the product. The client type used
+   to be carried by a 3px coloured left edge; it is already stated by the
+   monogram and the type chip inside the card, so the edge was a third telling
+   of the same fact and the only card in the app with an asymmetric border. */
+.sh-card {
+  border: 1px solid var(--border-blue);
+  border-left: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.sh-card:hover {
+  border-color: var(--border-blue-strong);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.sh-monogram {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  /* The tone lives here now — the one place on the card that was already
+     coloured, so nothing is lost by taking it off the border. */
+  background: var(--tone, var(--brand-gradient));
+  box-shadow: none;
+}
+
+/* Job order cards and candidate match cards, same treatment. */
+.job-order-card,
+.jod-card,
+.mc-card {
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+
+.job-order-card:hover,
+.mc-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* --- grid gutters --------------------------------------------------------- */
+/* The same 1rem gutter the Overview's tile and card grids use, so a column
+   edge on one screen lines up with a column edge on another. */
+.jo-grid,
+.sh-grid,
+.jod-match-list {
+  gap: 1rem;
+}
+
+/* --- section headings ----------------------------------------------------- */
+/* Both screens wrote their own section title. They now match `.db-card-title`,
+   so a heading inside Job Orders weighs the same as a heading on the Overview. */
+.jod-section-title,
+.sh-demand-title,
+.sh-modal-title {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text-main);
+}
+
+/* ==========================================================================
+   CANDIDATE TABLE — professional pass
+   Bolder names, a defined header band, alternating rows and a clear hover.
+   Appended last so these win over the earlier declarations they refine.
+   ========================================================================== */
+.ctable-wrap {
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+/* A defined band rather than a wash: the head has to read as a different
+   object from row one, which a barely-there tint does not achieve. */
+.ctable thead tr {
+  background: var(--tint-2);
+}
+
+.ctable thead th {
+  padding: 0.75rem 0.8rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-blue);
+}
+
+/* Zebra striping, at the lightest step that still separates two adjacent rows.
+   With hover and the status pill both in play, anything stronger turns the
+   table into a set of bands and the data stops being the loudest thing on it. */
+.ctable tbody tr:nth-child(even) td {
+  background: var(--tint-1);
+}
+
+.ctable-row:hover td,
+.ctable-row:nth-child(even):hover td {
+  background: rgba(var(--primary-rgb), 0.05);
+}
+
+.ctable-row:focus-visible td {
+  background: rgba(var(--primary-rgb), 0.07);
+}
+
+/* The name is the one thing you scan a directory for. */
+.ctable-name {
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+  color: var(--text-main);
+}
+
+.ctable-sub {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Everything that is not the name steps back to a regular weight, so the
+   column of names is the only bold run down the table. */
+.ctable tbody td {
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.ctable tbody td.ctable-strong {
+  font-weight: 600;
+}
+
+/* Status pills: a filled dot and a vibrant tint, readable in both themes. */
+.ctable-cell-status .db-pill {
+  padding: 0.22rem 0.65rem;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   DARK MODE — the surfaces the token migration could not reach
+   Everything above now paints from tokens, so dark mode follows automatically.
+   These are the handful of cases that need a genuinely different value rather
+   than a darker one: fills mixed from a light-mode alpha, and the two screens'
+   inner sub-panels, which were tinted assuming a white parent.
+   ========================================================================== */
+[data-theme="dark"] .sh-card,
+[data-theme="dark"] .job-order-card,
+[data-theme="dark"] .jod-card,
+[data-theme="dark"] .mc-card,
+[data-theme="dark"] .jo-toolbar,
+[data-theme="dark"] .sh-toolbar,
+[data-theme="dark"] .jo-state {
+  background: var(--bg-card);
+  border-color: var(--border-blue);
+  color: var(--text-main);
+}
+
+/* Sub-panels sit one step above the card they are on, not one step below —
+   on a dark surface "recessed" reads as a hole. */
+[data-theme="dark"] .sh-row,
+[data-theme="dark"] .sh-card-foot,
+[data-theme="dark"] .jod-progress,
+[data-theme="dark"] .jod-dd-panel,
+[data-theme="dark"] .jo-filters,
+[data-theme="dark"] .sh-segment,
+[data-theme="dark"] .db-tabs {
+  background: var(--tint-1);
+  border-color: var(--border-blue);
+}
+
+/* Chips and badges keep their meaning but lose the light-mode paper tint. */
+[data-theme="dark"] .sh-chip,
+[data-theme="dark"] .db-chip,
+[data-theme="dark"] .jod-badge,
+[data-theme="dark"] .jod-spec-chips>* {
+  background: var(--tint-2);
+  border-color: var(--border-blue-strong);
+  color: var(--text-muted);
+}
+
+/* Modals are cards too. */
+[data-theme="dark"] .modal-container,
+[data-theme="dark"] .client-modal-dialog,
+[data-theme="dark"] .modal-body,
+[data-theme="dark"] .modal-header,
+[data-theme="dark"] .modal-footer {
+  background: var(--bg-card);
+  border-color: var(--border-blue);
+  color: var(--text-main);
+}
+
+/* Inputs invert with everything else — a white field on a dark form is the
+   same bug as a white card on a dark page. */
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: var(--tint-1);
+  border-color: var(--border-blue-strong);
+  color: var(--text-main);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: var(--text-light);
+}
+
+/* The one surface that must NOT follow the theme. Re-stated here because the
+   selectors above are broad enough to reach inside it. */
+[data-theme="dark"] .dash-log-scroll {
+  background: #090d16;
+  border-color: #1e293b;
+}
+
+/* ==========================================================================
+   CANDIDATE TABLE — dividers and header weight
+   ========================================================================== */
+/* Explicit dividers between rows. `:not(:last-child)` rather than a blanket
+   bottom border, so the last row's rule does not sit on top of the wrapper's
+   own edge and read as a double line. */
+.ctable tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--border-blue);
+}
+
+.ctable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* The header band is a step darker than the zebra stripe under it, and its
+   labels are ink rather than muted grey — a bold label in a light grey defeats
+   the point of setting it bold. */
+.ctable thead tr {
+  background: var(--tint-2);
+}
+
+.ctable thead th {
+  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--border-blue-strong);
+}
+
+.ctable-sort {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.ctable-sort:hover {
+  color: var(--primary-hover);
+}
+
+/* ==========================================================================
+   DARK MODE — no white card may survive
+   The token migration covers everything that paints from a variable. This is
+   the belt-and-braces pass over the two screens that had the bug: every
+   container, panel and modal inside them takes the card surface explicitly, so
+   a rule further up that still hardcodes a light value cannot win.
+   ========================================================================== */
+[data-theme="dark"] .job-orders-wrapper [class*="card"],
+[data-theme="dark"] .job-orders-wrapper [class*="panel"],
+[data-theme="dark"] .job-orders-wrapper [class*="toolbar"],
+[data-theme="dark"] .sh-root [class*="card"],
+[data-theme="dark"] .sh-root [class*="panel"],
+[data-theme="dark"] .sh-root [class*="toolbar"] {
+  background-color: var(--bg-card);
+  border-color: var(--border-blue);
+  color: var(--text-main);
+}
+
+/* Anything nested inside those cards that was a light fill steps UP from the
+   card, not down — a recessed panel on a dark surface reads as a hole. */
+[data-theme="dark"] .job-orders-wrapper [class*="-row"],
+[data-theme="dark"] .job-orders-wrapper [class*="-foot"],
+[data-theme="dark"] .job-orders-wrapper [class*="-track"],
+[data-theme="dark"] .sh-root [class*="-row"],
+[data-theme="dark"] .sh-root [class*="-foot"],
+[data-theme="dark"] .sh-root [class*="-track"] {
+  background-color: var(--tint-1);
+  border-color: var(--border-blue);
+}
+
+/* Headings and body copy inside both screens. Titles take the bright ink,
+   captions the muted one — the failure mode being fixed is dark-on-dark. */
+[data-theme="dark"] .job-orders-wrapper h1,
+[data-theme="dark"] .job-orders-wrapper h2,
+[data-theme="dark"] .job-orders-wrapper h3,
+[data-theme="dark"] .job-orders-wrapper h4,
+[data-theme="dark"] .sh-root h1,
+[data-theme="dark"] .sh-root h2,
+[data-theme="dark"] .sh-root h3,
+[data-theme="dark"] .sh-root h4 {
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .job-orders-wrapper p,
+[data-theme="dark"] .job-orders-wrapper label,
+[data-theme="dark"] .sh-root p,
+[data-theme="dark"] .sh-root label {
+  color: var(--text-muted);
+}
+
+/* Status pills keep their own ink — those tokens already have dark variants,
+   and the sweep above must not flatten them to plain body text. */
+[data-theme="dark"] .job-orders-wrapper .db-pill,
+[data-theme="dark"] .sh-root .db-pill,
+[data-theme="dark"] .job-orders-wrapper [class*="badge"],
+[data-theme="dark"] .sh-root [class*="badge"] {
+  color: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   INTAKE EXPLAINER — Resume Parser
+   Deliberately not a dropzone. This pipeline ingests from a mailbox and the API
+   has no upload route, so a drop target would take a recruiter's CV and lose
+   it. It states where documents actually come from instead.
+   -------------------------------------------------------------------------- */
+.ov-intake {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1.2rem 0.9rem;
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-blue-strong);
+  background: var(--tint-1);
+}
+
+.ov-intake svg {
+  color: var(--primary);
+  margin-bottom: 0.15rem;
+}
+
+.ov-intake-title {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.ov-intake-sub {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+  max-width: 52ch;
+}
+
+/* ==========================================================================
+   CANDIDATE TIMELINE — the full-screen activity log
+   A single rail down the left with a node per event and a card beside it. The
+   rail is drawn on the list, not on each item, so it stays unbroken between
+   cards however tall they grow.
+   ========================================================================== */
+.tl {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Each day is its own block, so the rail restarts rather than running through
+   a date heading. */
+.tl-day+.tl-day {
+  margin-top: 0.25rem;
+}
+
+.tl-day-label {
+  margin: 0 0 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.tl-track {
   position: relative;
-  padding-left: 1.35rem;
-  margin-bottom: 0.45rem;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: #334155;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1.6rem;
 }
 
-.cmv-bullet-list li::before {
-  content: "•";
+/* The rail. Inset from the top and bottom by half a node so it starts and ends
+   at the first and last dot rather than floating past them. */
+.tl-track::before {
+  content: "";
   position: absolute;
-  left: 0.25rem;
-  top: -0.05rem;
-  color: #2563eb;
-  font-size: 1.2rem;
-  font-weight: 800;
-  line-height: 1.4;
+  left: 5px;
+  top: 0.85rem;
+  bottom: 0.85rem;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border-blue);
+}
+
+.tl-item {
+  position: relative;
+}
+
+.tl-item+.tl-item {
+  margin-top: 0.75rem;
+}
+
+/* The node. The glow is a ring rather than a blur, so it stays crisp at any
+   zoom and reads as a marker on the rail instead of a smudge behind it. */
+.tl-node {
+  position: absolute;
+  left: -1.6rem;
+  top: 0.85rem;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 3px var(--tl-glow), 0 0 10px var(--tl-glow);
+  background: var(--tl-dot);
+}
+
+.tl-node.is-blue {
+  --tl-dot: var(--primary);
+  --tl-glow: rgba(var(--primary-rgb), 0.22);
+}
+
+.tl-node.is-green {
+  --tl-dot: var(--success);
+  --tl-glow: rgba(22, 163, 74, 0.24);
+}
+
+.tl-node.is-amber {
+  --tl-dot: var(--warning);
+  --tl-glow: rgba(217, 119, 6, 0.24);
+}
+
+.tl-node.is-red {
+  --tl-dot: var(--error);
+  --tl-glow: rgba(220, 38, 38, 0.24);
+}
+
+.tl-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.tl-card:hover {
+  border-color: var(--border-blue-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.tl-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tl-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.tl-badge.is-blue {
+  background: rgba(var(--primary-rgb), 0.09);
+  border-color: rgba(var(--primary-rgb), 0.22);
+  color: var(--primary-hover);
+}
+
+.tl-badge.is-green {
+  background: var(--success-fill);
+  border-color: var(--success-edge);
+  color: var(--success-ink);
+}
+
+.tl-badge.is-amber {
+  background: var(--warning-fill);
+  border-color: var(--warning-edge);
+  color: var(--warning-ink);
+}
+
+.tl-badge.is-red {
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+  color: var(--error-ink);
+}
+
+.tl-time {
+  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tl-message {
+  margin: 0.55rem 0 0;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--text-main);
+  word-break: break-word;
+}
+
+.tl-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-blue-faint);
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.tl-actor {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tl-actor svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.tl-stamp {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+
+  .tl-card-head,
+  .tl-card-foot {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
 }
