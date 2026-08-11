@@ -125,7 +125,7 @@ class Settings(BaseSettings):
     # is the only lever on how long a single call can take: a 9-page 1.6 MB scan
     # timed out at 180s as one request, while the same pages two at a time
     # answer in seconds. Raise it only if your OCR is fast and per-call billed.
-    ocr_chunk_pages: int = 2
+    ocr_chunk_pages: int = 5
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
     # resume can legitimately sit on page 15 of 30, and stopping early would
@@ -142,7 +142,7 @@ class Settings(BaseSettings):
     # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume
     # unreadable and the mail stuck retrying. Raise this for mailboxes that get
     # large scans; it is the ceiling on one OCR call, not a per-page budget.
-    veris_timeout_seconds: float = 180.0
+    veris_timeout_seconds: float = 20.0
 
     # ---- Celery ----
     celery_broker_url: str = "redis://localhost:6379/0"
