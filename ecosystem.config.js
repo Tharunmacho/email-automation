@@ -19,16 +19,5 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
-    {
-      name: "resume-beat",
-      script: "venv/bin/celery",
-      args:
-        "-A app.tasks.celery_app beat --loglevel=INFO " +
-        "--schedule /var/lib/resume-ingest/celerybeat-schedule",
-      interpreter: "none",
-      env: {
-        NODE_ENV: "production",
-      },
-    },
   ],
 };
