@@ -34,7 +34,6 @@ import {
   X,
 } from "lucide-react";
 
-import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
 import {
   evaluateCandidate,
   fetchUiConfig,
@@ -44,6 +43,7 @@ import {
   type CandidateRecord,
   type EvaluationStatus,
 } from "@/lib/api";
+import CandidateProfileScreen from "./CandidateProfileScreen";
 
 interface StaffDashboardProps {
   /** Already scoped to this user — the API only ever returns their own. */
@@ -762,113 +762,9 @@ export default function StaffDashboard({
                   )}
                 </div>
 
-                {/* Right: Executive Candidate Profile + Verdict Evaluation Form. */}
-                <div className="eval-pane eval-form">
-                  <div className="eval-contacts">
-                    {profile?.email && (
-                      <span>
-                        <Mail size={13} /> {profile.email}
-                      </span>
-                    )}
-                    {profile?.phone && (
-                      <span>
-                        <Phone size={13} /> {profile.phone}
-                      </span>
-                    )}
-                    {profile?.location && (
-                      <span>
-                        <MapPin size={13} /> {profile.location}
-                      </span>
-                    )}
-                  </div>
-
-                  {(profile?.summary || profile?.resume_summary) && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Summary</h4>
-                      <p className="eval-summary-text" style={{ fontSize: "0.85rem", lineHeight: "1.5", color: "#334155" }}>
-                        {profile.summary || profile.resume_summary}
-                      </p>
-                    </div>
-                  )}
-
-                  {profile?.skills && profile.skills.length > 0 && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Skills</h4>
-                      <div className="eval-chips">
-                        {profile.skills.map((skill) => (
-                          <span key={skill} className="db-chip">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {profile?.work_experience && profile.work_experience.length > 0 && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Work Experience</h4>
-                      <div className="eval-exp-list" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        {profile.work_experience.map((exp, idx) => (
-                          <div key={idx} className="eval-exp-item" style={{ padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                            <strong style={{ fontSize: "0.88rem", color: "#0f172a" }}>
-                              {exp.designation || "Role"} {exp.company ? `· ${exp.company}` : ""}
-                            </strong>
-                            {(exp.start_date || exp.end_date) && (
-                              <p style={{ fontSize: "0.75rem", color: "#64748b", margin: "2px 0 4px" }}>
-                                {[exp.start_date, exp.end_date].filter(Boolean).join(" – ")}
-                              </p>
-                            )}
-                            {exp.description && (
-                              <p style={{ fontSize: "0.8rem", color: "#334155", margin: 0, whiteSpace: "pre-line" }}>
-                                {exp.description}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {profile?.education && profile.education.length > 0 && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Education</h4>
-                      <div className="eval-edu-list" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        {profile.education.map((edu, idx) => (
-                          <div key={idx} style={{ fontSize: "0.82rem", color: "#334155" }}>
-                            <strong>{edu.degree || "Degree"}</strong> {edu.institution ? `· ${edu.institution}` : ""}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {profile?.projects && profile.projects.length > 0 && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Projects</h4>
-                      <div className="eval-proj-list" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                        {profile.projects.map((proj, idx) => (
-                          <div key={idx} style={{ padding: "6px 10px", background: "#f8fafc", borderRadius: "6px" }}>
-                            <strong style={{ fontSize: "0.85rem", color: "#0f172a" }}>{proj.name}</strong>
-                            {proj.technologies && <p style={{ fontSize: "0.75rem", color: "#64748b", margin: "2px 0" }}>Tech: {proj.technologies}</p>}
-                            {proj.description && <p style={{ fontSize: "0.8rem", color: "#334155", margin: 0 }}>{proj.description}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {profile?.certifications && profile.certifications.length > 0 && (
-                    <div className="eval-section">
-                      <h4 className="eval-section-title">Certifications</h4>
-                      <ul style={{ paddingLeft: "18px", margin: "4px 0", fontSize: "0.82rem", color: "#334155" }}>
-                        {profile.certifications.map((cert, idx) => (
-                          <li key={idx}>{cert}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="eval-verdict">
+                {/* Right: Verdict Evaluation Form + Full Executive Candidate Profile View (Image 2). */}
+                <div className="eval-pane eval-form" style={{ padding: "16px", overflowY: "auto" }}>
+                  <div className="eval-verdict" style={{ marginBottom: "24px", border: "2px solid #e2e8f0", padding: "16px", borderRadius: "12px", background: "#ffffff" }}>
                     <h4 className="eval-section-title">Your Verdict</h4>
 
                     <div className="eval-stars">
@@ -909,7 +805,7 @@ export default function StaffDashboard({
                       <label htmlFor="eval-notes">Notes</label>
                       <textarea
                         id="eval-notes"
-                        rows={4}
+                        rows={3}
                         value={notes}
                         onChange={(event) => setNotes(event.target.value)}
                         placeholder="What stood out, and what would you ask them."
@@ -940,6 +836,14 @@ export default function StaffDashboard({
                       </button>
                     </div>
                   </div>
+
+                  {/* Full Executive Profile View (Image 2) */}
+                  <CandidateProfileScreen
+                    candidate={detail}
+                    verifying={false}
+                    onBack={closeDrawer}
+                    onVerify={() => {}}
+                  />
                 </div>
               </div>
             )}
