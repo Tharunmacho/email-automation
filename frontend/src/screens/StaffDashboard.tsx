@@ -841,9 +841,7 @@ export default function StaffDashboard({
                   {/* Full Executive Profile View (Image 2) */}
                   <CandidateProfileScreen
                     candidate={detail}
-                    verifying={false}
-                    onBack={closeDrawer}
-                    onVerify={() => {}}
+                    hideTopbar={true}
                   />
                 </div>
               </div>

@@ -25,55 +25,18 @@ import { formatDateFull, initialsOf } from "@/lib/format";
 
 interface CandidateProfileScreenProps {
   candidate: CandidateRecord;
-  verifying: boolean;
-  onBack: () => void;
-  onVerify: (candidateId: string) => void;
+  verifying?: boolean;
+  onBack?: () => void;
+  onVerify?: (candidateId: string) => void;
+  hideTopbar?: boolean;
 }
 
-/**
- * One label/value pair, or nothing when the value is blank.
- *
- * "N/A" against six labels reads as six findings — the reader has to check each
- * one to learn the resume said nothing about any of them. Omitting the row says
- * the same thing at a glance. Both cells are direct children of `.cprof-facts`
- * so the grid keeps its columns.
- */
-function Fact({ label, value }: { label: string; value?: string | null }) {
-  if (isBlankValue(value)) return null;
-  return (
-    <>
-      <div className="cprof-fact-label">{label}</div>
-      <div className="cprof-fact-value">{(value ?? "").trim()}</div>
-    </>
-  );
-}
-
-function BulletText({ text }: { text: string }) {
-  const lines = toBullets(text);
-  if (lines.length === 0) return null;
-  if (lines.length === 1) return <p className="cprof-prose">{lines[0]}</p>;
-  return (
-    <ul className="cprof-bullets">
-      {lines.map((line, index) => (
-        <li key={index}>{line}</li>
-      ))}
-    </ul>
-  );
-}
-
-/**
- * The executive profile, read-only by construction.
- *
- * There is no edit control anywhere on this screen and no editable state behind
- * it — changing a candidate is a different screen with a different job. That
- * separation is the point: this one can be read, scrolled and shown to someone
- * without any risk that a stray click alters the record.
- */
 export default function CandidateProfileScreen({
   candidate,
-  verifying,
+  verifying = false,
   onBack,
   onVerify,
+  hideTopbar = false,
 }: CandidateProfileScreenProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -143,8 +106,6 @@ export default function CandidateProfileScreen({
       anchor.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      // Inline rather than `alert`, so the failure reads as part of the screen
-      // and says which step failed.
       setDownloadError(err instanceof Error ? err.message : "Could not download the resume file.");
     } finally {
       setDownloading(false);
@@ -161,31 +122,26 @@ export default function CandidateProfileScreen({
 
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
-      <div className="cscreen-topbar">
-        <button type="button" className="jod-back" onClick={onBack} title="Back to the candidates list">
-          <ArrowLeft size={15} /> Back to candidates
-        </button>
+      {!hideTopbar && (
+        <div className="cscreen-topbar">
+          {onBack && (
+            <button type="button" className="jod-back" onClick={onBack} title="Back to the candidates list">
+              <ArrowLeft size={15} /> Back to candidates
+            </button>
+          )}
 
-        <div className="cscreen-topbar-actions">
-          <button
-            type="button"
-            className="cscreen-btn"
-            onClick={handleDownload}
-            disabled={downloading}
-          >
-            <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
-          </button>
-          <button
-            type="button"
-            className={`cscreen-btn ${isVerified ? "is-verified" : ""}`}
-            onClick={() => onVerify(candidate.id)}
-            disabled={verifying || isVerified}
-          >
-            <CheckCircle2 size={15} />
-            {verifying ? "Verifying…" : isVerified ? "Verified profile" : "Verify profile"}
-          </button>
+          <div className="cscreen-topbar-actions">
+            <button
+              type="button"
+              className="cscreen-btn"
+              onClick={handleDownload}
+              disabled={downloading}
+            >
+              <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {downloadError && <div className="cscreen-error">Resume download failed — {downloadError}</div>}
 
