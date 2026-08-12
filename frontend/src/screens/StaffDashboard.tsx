@@ -782,11 +782,11 @@ export default function StaffDashboard({
                     )}
                   </div>
 
-                  {profile?.summary && (
+                  {(profile?.summary || profile?.resume_summary) && (
                     <div className="eval-section">
                       <h4 className="eval-section-title">Summary</h4>
                       <p className="eval-summary-text" style={{ fontSize: "0.85rem", lineHeight: "1.5", color: "#334155" }}>
-                        {profile.summary}
+                        {profile.summary || profile.resume_summary}
                       </p>
                     </div>
                   )}

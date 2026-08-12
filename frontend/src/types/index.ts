@@ -54,6 +54,7 @@ export interface CandidateProfile {
   current_designation?: string | null;
   total_experience_years?: number | null;
 
+  summary?: string | null;
   resume_summary?: string | null;
   additional_info?: Record<string, unknown>;
   raw_ocr?: Record<string, any> | null;
