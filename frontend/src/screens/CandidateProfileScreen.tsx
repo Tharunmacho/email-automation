@@ -30,6 +30,28 @@ interface CandidateProfileScreenProps {
   onVerify?: (candidateId: string) => void;
   hideTopbar?: boolean;
 }
+function Fact({ label, value }: { label: string; value?: string | null }) {
+  if (isBlankValue(value)) return null;
+  return (
+    <>
+      <div className="cprof-fact-label">{label}</div>
+      <div className="cprof-fact-value">{(value ?? "").trim()}</div>
+    </>
+  );
+}
+
+function BulletText({ text }: { text: string }) {
+  const lines = toBullets(text);
+  if (lines.length === 0) return null;
+  if (lines.length === 1) return <p className="cprof-prose">{lines[0]}</p>;
+  return (
+    <ul className="cprof-bullets">
+      {lines.map((line, index) => (
+        <li key={index}>{line}</li>
+      ))}
+    </ul>
+  );
+}
 
 export default function CandidateProfileScreen({
   candidate,
