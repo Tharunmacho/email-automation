@@ -39,6 +39,8 @@ from app.db.ledger import IngestLedger
 from app.db.repository import CandidateRepository
 from app.ingestion.detector import detect
 from app.logging_config import get_logger
+from app.assignment import assign_candidate
+from app.notifications import notify_candidate_assigned
 from app.storage.base import StorageBackend
 from app.storage.factory import get_storage_backend
 from app.extraction.text_extractor import extract_text
@@ -217,6 +219,9 @@ class IngestionPipeline:
             candidate_id = self.repo.insert(record)
             self.ledger.record(email.message_id, resume_hash, candidate_id, "ingested")
 
+            # (5.5) Auto-assign candidate to active staff & trigger push notifications
+            self._allocate(candidate_id, profile)
+
             # (6) Contextual Auto-Reply if enabled.
             reply_sent = False
             # Never on a record we are unsure about. A reply is irreversible and
@@ -272,6 +277,27 @@ class IngestionPipeline:
         except Exception as exc:  # noqa: BLE001 — never let one attachment kill the batch
             log.exception("Unexpected error on attachment %s", att.filename)
             return AttachmentResult(att.filename, "error", detail=str(exc))
+
+    def _allocate(self, candidate_id: str, profile: CandidateProfile) -> None:
+        if not settings.auto_assign_enabled:
+            return
+        try:
+            import app.assignment
+            from app.notifications import notify_candidate_assigned
+
+            result = app.assignment.assign_candidate(candidate_id, profile, repo=self.repo)
+            if getattr(result, "assigned", False):
+                notify_candidate_assigned(
+                    getattr(result, "staff_id", ""),
+                    {
+                        "id": candidate_id,
+                        "full_name": profile.full_name,
+                        "email": profile.email,
+                    },
+                    staff_name=getattr(result, "staff_name", None),
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Auto-allocation step failed for candidate %s: %s", candidate_id, exc)
 
     # ---------------------------------------------------------------- #
     def _build_record(

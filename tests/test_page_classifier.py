@@ -318,3 +318,102 @@ def test_an_actual_passport_scan_is_still_an_id_document():
     result = pc.classify_document([RESUME_PAGE, PASSPORT_PAGE])
     assert result.page_kinds[2] == pc.ID_DOCUMENT
     assert result.resume_pages == [1]
+
+
+# --------------------------------------------------------------------------- #
+#  Rule 5 — a résumé that talks about certificates is not a certificate
+# --------------------------------------------------------------------------- #
+# Veris OCR returns a one-page CV with its layout flattened: each heading ends up
+# on the same line as the section beneath it. This is the real shape of the file
+# that was rejected in production as "document reads as 'certificate'".
+FLATTENED_OCR_RESUME = """THARUN V
+Chennai, Tamil Nadu | +91 98765 43210 | tharun.v@gmail.com
+CAREER OBJECTIVE Seeking a Full Stack Developer role where I can apply my skills.
+EDUCATION B.E. Computer Science, Anna University, 2020 - 2024, CGPA 8.6
+WORK EXPERIENCE Full Stack Intern, Zoho Corporation, Jan 2024 - Jun 2024
+Built REST APIs and React dashboards used by the support engineer team.
+CERTIFICATIONS Certificate of Completion - Full Stack Web Development, Udemy
+Certificate No. UC-8827341. This is to certify that the learner has successfully
+completed the course. Certificate of Participation - Hackathon 2023
+SKILLS Python, React, MongoDB, FastAPI, Docker
+DECLARATION I hereby declare that the above information is true.
+"""
+
+
+def test_a_resume_listing_its_certificates_is_not_a_certificate():
+    """The production failure, verbatim.
+
+    A CERTIFICATIONS section quotes the exact wording a real certificate uses,
+    and at full weight those phrases scored a genuine CV at 0.00 and rejected
+    it. Naming what you have earned is not the same as being the document.
+    """
+    result = pc.classify_document([FLATTENED_OCR_RESUME])
+
+    assert result.is_resume is True
+    assert result.resume_pages == [1]
+
+
+def test_certificate_markers_are_demoted_only_on_a_resume_like_page():
+    """The demotion has to be earned, not automatic.
+
+    The CV keeps most of its score despite carrying more certificate wording
+    than the certificate itself does; the certificate keeps its full penalty.
+    """
+    cv = pc.collect_signals(FLATTENED_OCR_RESUME)
+    certificate = pc.collect_signals(CERTIFICATE_PAGE)
+
+    # Both pages quote certificate wording heavily — the raw marker weight
+    # cannot tell them apart, which is exactly why it must not decide alone.
+    assert cv.marker_hits["certificate"] >= 4.0
+    assert certificate.marker_hits["certificate"] >= 4.0
+
+    # What separates them is everything else on the page.
+    assert pc._resume_structure_strength(cv) >= 3
+    assert pc._resume_structure_strength(certificate) <= 1
+
+    assert pc._marker_penalty(cv) < pc._marker_penalty(certificate)
+    assert pc.score_signals(cv) >= pc._RESUME_SEED_SCORE
+    assert pc.score_signals(certificate) < 0
+
+
+def test_a_bare_certificate_is_still_rejected_after_the_demotion():
+    """The whole point of the marker set must survive the fix."""
+    result = pc.classify_document([CERTIFICATE_PAGE])
+    assert result.is_resume is False
+    assert "certificate" in result.reason
+
+
+# --------------------------------------------------------------------------- #
+#  Rule 6 — headings survive OCR flattening the layout
+# --------------------------------------------------------------------------- #
+def test_headings_are_found_when_ocr_runs_them_into_the_text():
+    """Headings are the strongest signal a page has; losing them to a missing
+    line break is what left a real CV with nothing to score on."""
+    signals = pc.collect_signals(FLATTENED_OCR_RESUME)
+
+    for expected in ("education", "work experience", "skills", "certifications"):
+        assert expected in signals.headings, f"missed the '{expected}' heading"
+
+
+def test_a_heading_on_its_own_line_still_works():
+    """The original layout must not regress while supporting the flattened one."""
+    signals = pc.collect_signals(RESUME_PAGE)
+    assert "work experience" in signals.headings
+    assert "education" in signals.headings
+
+
+def test_prose_that_merely_starts_with_a_heading_word_is_not_a_heading():
+    """"Experience with React" is a sentence, not a section. Only an uppercase
+    run counts, which is how these headings are actually set."""
+    signals = pc.collect_signals(
+        "Experience with React and Django across several teams.\n"
+        "Education was completed part time while working.\n"
+        "Skills include debugging other people's code.\n" * 3
+    )
+    assert signals.headings == []
+
+
+def test_an_all_caps_document_does_not_manufacture_headings_it_lacks():
+    """A shouty certificate must not pick up headings just for being uppercase."""
+    signals = pc.collect_signals(CERTIFICATE_PAGE.upper())
+    assert len(signals.headings) <= 1

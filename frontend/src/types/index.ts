@@ -106,6 +106,119 @@ export interface CandidateRecord {
   raw_ocr?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+
+  /** Which staff member owns this profile, and since when. */
+  assigned_staff_id?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_at?: string | null;
+
+  /** Stamped once, on the owner's first open. Null means the SLA is running. */
+  viewed_at?: string | null;
+  evaluation_status?: EvaluationStatus | null;
+  evaluation_score?: number | null;
+  evaluation_notes?: string | null;
+  evaluated_at?: string | null;
+}
+
+/** Mirrors EVALUATION_STATUSES in app/core/models.py. */
+export type EvaluationStatus =
+  | "pending"
+  | "shortlisted"
+  | "interviewing"
+  | "rejected"
+  | "on_hold"
+  | "hired";
+
+export const EVALUATION_STATUSES: EvaluationStatus[] = [
+  "pending",
+  "shortlisted",
+  "interviewing",
+  "rejected",
+  "on_hold",
+  "hired",
+];
+
+/** One quick-fill button on the login screen. */
+export interface DemoAccount {
+  role: string;
+  label: string;
+  description: string;
+  email: string;
+  password: string;
+}
+
+export interface StaffMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  /** Expertise terms the balancer matches against a candidate's skills. */
+  keywords: string[];
+  active: boolean;
+}
+
+/** One row of the admin's workload matrix. */
+export interface StaffWorkloadRow extends StaffMember {
+  assigned: number;
+  evaluated: number;
+  unviewed: number;
+  pending: number;
+  /** Percentage, precomputed server-side so the bar cannot divide by zero. */
+  progress: number;
+}
+
+export interface StaffWorkloadResponse {
+  items: StaffWorkloadRow[];
+  totals: {
+    staff: number;
+    assigned: number;
+    evaluated: number;
+    unassigned: number;
+    /** Profiles still pointing at a deleted account — only a rebalance clears these. */
+    orphaned: number;
+  };
+}
+
+/**
+ * One row of the bell's feed.
+ *
+ * Stored server-side rather than derived from the socket, so it is still there
+ * after a logout, a restart, or an allocation that happened while nobody was
+ * looking — which is most of them.
+ */
+export interface NotificationRecord {
+  id: string;
+  type: "candidate_assigned" | "candidate_ingested" | "sla_alert" | string;
+  title: string;
+  message: string;
+  candidate_id?: string | null;
+  candidate_name?: string | null;
+  created_at?: string;
+  read: boolean;
+}
+
+export interface SlaAlert {
+  id?: string;
+  candidate_id: string;
+  candidate_name?: string;
+  full_name?: string;
+  assigned_staff_id?: string | null;
+  assigned_staff_name?: string | null;
+  assigned_at?: string | null;
+  hours_overdue: number;
+  /** Which half of the SLA failed. */
+  reason?: "unviewed" | "unevaluated";
+  status?: "active" | "resolved";
+  created_at?: string;
+}
+
+export interface RebalanceResult {
+  status: string;
+  moved: number;
+  unchanged: number;
+  locked: number;
+  total?: number;
+  staff_counts: Record<string, { name: string; assigned: number }>;
 }
 
 export interface CandidateListResponse {

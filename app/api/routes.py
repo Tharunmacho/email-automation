@@ -17,15 +17,26 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.core.models import CandidateProfile
+from app.core.models import EVALUATION_STATUSES, CandidateProfile
 from app.core.security import create_token, read_token
+from app.assignment.balancer import assign_candidate, rebalance_all
 from app.db.mongo import ensure_indexes
+from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
-from app.db.users import UserRepository, ensure_seed_user
+from app.db.users import (
+    ADMIN_ROLE,
+    STAFF_ROLE,
+    UserRepository,
+    ensure_demo_accounts,
+    ensure_seed_user,
+)
+from app.notifications import notify_candidate_assigned
 from app.storage.factory import get_storage_backend
+from app.tasks import sla_checker
+from app.api.websocket import router as websocket_router
 
 from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
 from fastapi.requests import Request
@@ -48,6 +59,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(websocket_router)
 
 
 @app.exception_handler(ServerSelectionTimeoutError)
@@ -73,6 +86,20 @@ def _seed_admin() -> None:
         ensure_seed_user(settings.admin_email, settings.admin_password)
     except Exception:  # noqa: BLE001 — the API must still boot without it
         pass
+
+    # The accounts the login screen advertises. Separate from the operator's own
+    # admin above, and create-only: changing a demo password must survive a
+    # restart.
+    if settings.demo_accounts_enabled:
+        try:
+            ensure_demo_accounts(
+                settings.demo_admin_email,
+                settings.demo_admin_password,
+                settings.demo_staff_email,
+                settings.demo_staff_password,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.on_event("startup")
@@ -121,6 +148,32 @@ def current_user(
     return user.to_public()
 
 
+def require_admin(user: dict = Depends(current_user)) -> dict:
+    if user.get("role") != ADMIN_ROLE:
+        raise HTTPException(status_code=403, detail="Super Admin role required")
+    return user
+
+
+def _staff_scope(user: dict) -> str | None:
+    """Return the staff_id when scoped to a staff member, or None for admin."""
+    return user["id"] if user.get("role") == STAFF_ROLE else None
+
+
+def _owned_or_404(candidate_id: str, user: dict):
+    """The record, or 404 if it does not exist *or* belongs to someone else.
+
+    404 rather than 403 on purpose: 403 confirms the record exists, which is the
+    fact the isolation rule is there to withhold. Another staff member's id has
+    to be indistinguishable from one that was never issued.
+    """
+    record = repo().get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if user.get("role") == STAFF_ROLE and record.assigned_staff_id != user["id"]:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record
+
+
 @app.post("/auth/login")
 def login(payload: LoginRequest) -> dict:
     user = users.authenticate(payload.email, payload.password)
@@ -138,6 +191,49 @@ def login(payload: LoginRequest) -> dict:
         "token": token,
         "user": user.to_public(),
         "expires_in": settings.auth_token_ttl_hours * 3600,
+    }
+
+
+@app.get("/auth/demo-accounts")
+def demo_accounts() -> dict:
+    """The quick-fill button on the login screen.
+
+    One way in, and it is the admin console — the staff account exists and signs
+    in normally, it is just not published here. This endpoint is
+    unauthenticated, so anything it lists is a credential handed to whoever
+    loads the page; turning demo mode off has to silence it completely rather
+    than merely hide the button.
+    """
+    if not settings.demo_accounts_enabled:
+        return {"enabled": False, "accounts": []}
+
+    return {
+        "enabled": True,
+        "accounts": [
+            {
+                "role": "admin",
+                "label": "Super Admin",
+                "description": "Full access: allocation, staff accounts and SLA.",
+                "email": settings.admin_email,
+                "password": settings.admin_password,
+            },
+            {
+                "role": "staff",
+                "label": "Staff Evaluator",
+                "description": "Evaluate candidates allocated to your review queue.",
+                "email": settings.demo_staff_email,
+                "password": settings.demo_staff_password,
+            },
+        ],
+    }
+
+
+@app.get("/config")
+def get_ui_config(_user: dict = Depends(current_user)) -> dict:
+    """UI configuration (SLA threshold, auto-assign flag)."""
+    return {
+        "sla_threshold_hours": settings.sla_threshold_hours,
+        "auto_assign_enabled": settings.auto_assign_enabled,
     }
 
 
@@ -162,24 +258,33 @@ def list_candidates(
         description="'list' for the directory row; 'minimal' for id/name/email/"
                     "phone/status/confidence/created_at only.",
     ),
-    _user: dict = Depends(current_user),
+    user: dict = Depends(current_user),
 ) -> dict:
-    """A page of candidates, projected in the database.
+    """A page of candidates, projected in the database and scoped to the caller.
 
     Never the whole document. The OCR payload alone — stored twice per record,
     under `raw_ocr` and again under `profile.raw_ocr` — put megabytes into a
     200-row response that the frontend was re-fetching every five seconds. Full
     profiles come from `GET /candidates/{id}`, one candidate at a time, when
     something actually opens one.
+
+    A staff member sees only what is allocated to them; an admin sees the lot.
     """
     repository = repo()
-    items = repository.list_summaries(limit=limit, skip=skip, minimal=view == "minimal")
+    staff_id = _staff_scope(user)
+    items = repository.list_summaries(
+        limit=limit, skip=skip, minimal=view == "minimal", staff_id=staff_id
+    )
 
     # A first page that came back short *is* the whole collection, so counting it
     # again is a second round trip to Atlas for an answer already in hand — and
     # against a remote cluster the round trip, not the work, is the response
     # time. Any other page still has to ask.
-    total = len(items) if skip == 0 and len(items) < limit else repository.count()
+    total = (
+        len(items)
+        if skip == 0 and len(items) < limit
+        else repository.count(staff_id=staff_id)
+    )
 
     return {
         "total": total,
@@ -189,19 +294,17 @@ def list_candidates(
 
 
 @app.get("/candidates/{candidate_id}")
-def get_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dict:
+def get_candidate(candidate_id: str, user: dict = Depends(current_user)) -> dict:
     """The whole record, OCR payload included. The only place that serves it."""
-    record = repo().get(candidate_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    record = _owned_or_404(candidate_id, user)
     return record.model_dump(mode="json")
 
 
 @app.get("/candidates/{candidate_id}/resume")
-def download_resume(candidate_id: str, _user: dict = Depends(current_user)) -> Response:
+def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Response:
     import urllib.parse
-    record = repo().get(candidate_id)
-    if not record or not record.resume or not record.resume.storage_key:
+    record = _owned_or_404(candidate_id, user)
+    if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
     backend_name = record.resume.storage_backend or settings.storage_backend
@@ -548,6 +651,318 @@ def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict
     coll = get_db()["job_orders"]
     coll.delete_one({"id": order_id})
     return {"status": "deleted", "id": order_id}
+
+
+# --------------------------------------------------------------------------- #
+#  Staff Administration
+# --------------------------------------------------------------------------- #
+class CreateStaffRequest(BaseModel):
+    email: str
+    password: str
+    name: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+
+
+class UpdateStaffRequest(BaseModel):
+    name: str | None = None
+    keywords: list[str] | None = None
+    active: bool | None = None
+    password: str | None = None
+
+
+@app.get("/staff")
+def list_staff(
+    include_inactive: bool = Query(True),
+    _admin: dict = Depends(require_admin),
+) -> dict:
+    staff_items = users.list_staff(include_inactive=include_inactive)
+    return {"count": len(staff_items), "items": [u.to_public() for u in staff_items]}
+
+
+@app.get("/staff/workload")
+def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
+    """The workload matrix: one row per active staff member, plus the totals.
+
+    `orphaned` is counted against the *whole* roster, deactivated accounts
+    included — a deactivated staff member still owns their work, so only
+    profiles pointing at an account that is gone are unreachable, and nothing
+    but a rebalance brings those back.
+    """
+    repository = repo()
+    everyone = users.list_staff(include_inactive=True)
+    active = [member for member in everyone if member.active]
+
+    items = repository.staff_workload(active)
+    return {
+        "items": items,
+        "totals": {
+            "staff": len(items),
+            "assigned": sum(row["assigned"] for row in items),
+            "evaluated": sum(row["evaluated"] for row in items),
+            "unassigned": repository.unassigned_count(),
+            "orphaned": repository.orphaned_count([member.id for member in everyone]),
+        },
+    }
+
+
+@app.post("/staff")
+def create_staff(
+    payload: CreateStaffRequest, _admin: dict = Depends(require_admin)
+) -> dict:
+    try:
+        user = users.create_staff(
+            email=payload.email,
+            password=payload.password,
+            name=payload.name,
+            keywords=payload.keywords,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    rebalance_result = rebalance_all()
+    return {"staff": user.to_public(), "rebalance": rebalance_result}
+
+
+@app.patch("/staff/{staff_id}")
+def update_staff(
+    staff_id: str, payload: UpdateStaffRequest, _admin: dict = Depends(require_admin)
+) -> dict:
+    try:
+        user = users.update_staff(
+            staff_id,
+            name=payload.name,
+            keywords=payload.keywords,
+            active=payload.active,
+            password=payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not user:
+        raise HTTPException(status_code=404, detail="Staff account not found")
+
+    if payload.active is False:
+        rebalance_all()
+
+    return {"staff": user.to_public()}
+
+
+@app.delete("/staff/{staff_id}")
+def delete_staff(
+    staff_id: str,
+    rebalance: bool = Query(True),
+    _admin: dict = Depends(require_admin),
+) -> dict:
+    deleted = users.delete_staff(staff_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Staff account not found")
+
+    if rebalance:
+        rebalance_all()
+
+    return {"status": "deleted", "id": staff_id}
+
+
+# --------------------------------------------------------------------------- #
+#  Allocation
+# --------------------------------------------------------------------------- #
+class AssignRequest(BaseModel):
+    staff_id: str
+
+
+@app.post("/candidates/{candidate_id}/assign")
+def assign_candidate_route(
+    candidate_id: str, payload: AssignRequest, _admin: dict = Depends(require_admin)
+) -> dict:
+    member = users.get(payload.staff_id)
+    if not member or member.role != STAFF_ROLE or not member.active:
+        raise HTTPException(status_code=400, detail="Target staff member is not active")
+
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    repository.assign(candidate_id, member.id, member.name)
+    notify_candidate_assigned(
+        member.id,
+        {
+            "id": candidate_id,
+            "full_name": record.profile.full_name if record else None,
+            "email": record.profile.email if record else None,
+        },
+        staff_name=member.name,
+    )
+    return {
+        "status": "assigned",
+        "candidate_id": candidate_id,
+        "assigned_staff_id": member.id,
+        "assigned_staff_name": member.name,
+    }
+
+
+@app.post("/candidates/{candidate_id}/auto-assign")
+def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    result = assign_candidate(candidate_id, record.profile, repo=repository)
+    if not result.assigned:
+        raise HTTPException(status_code=409, detail="No active staff member to assign to")
+
+    notify_candidate_assigned(
+        result.staff_id,
+        {"id": candidate_id, "full_name": record.profile.full_name, "email": record.profile.email},
+        staff_name=result.staff_name,
+    )
+    return result.to_public()
+
+
+@app.post("/candidates/rebalance")
+def rebalance_candidates(_admin: dict = Depends(require_admin)) -> dict:
+    result = rebalance_all()
+    if result.get("status") == "error":
+        raise HTTPException(status_code=409, detail=result.get("detail"))
+    return result
+
+
+# --------------------------------------------------------------------------- #
+#  Evaluation (the staff workspace)
+# --------------------------------------------------------------------------- #
+class EvaluationRequest(BaseModel):
+    status: str = Field(description="One of " + ", ".join(EVALUATION_STATUSES))
+    score: int | None = Field(default=None, ge=1, le=5, description="Star rating, 1-5.")
+    notes: str | None = None
+
+
+@app.post("/candidates/{candidate_id}/view")
+def mark_candidate_viewed(candidate_id: str, user: dict = Depends(current_user)) -> dict:
+    _owned_or_404(candidate_id, user)
+    stamped = repo().mark_viewed(candidate_id, staff_id=_staff_scope(user))
+    return {"status": "ok", "candidate_id": candidate_id, "first_view": stamped}
+
+
+@app.post("/candidates/{candidate_id}/evaluate")
+def evaluate_candidate(
+    candidate_id: str, payload: EvaluationRequest, user: dict = Depends(current_user)
+) -> dict:
+    if payload.status not in EVALUATION_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown status '{payload.status}'. Expected one of {', '.join(EVALUATION_STATUSES)}.",
+        )
+    _owned_or_404(candidate_id, user)
+
+    record = repo().save_evaluation(
+        candidate_id,
+        staff_id=_staff_scope(user),
+        status=payload.status,
+        score=payload.score,
+        notes=payload.notes,
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+#  Notifications
+# --------------------------------------------------------------------------- #
+class MarkReadRequest(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+    all: bool = False
+
+
+@app.get("/notifications")
+def list_notifications(
+    limit: int = Query(30, ge=1, le=100),
+    unread_only: bool = Query(False),
+    user: dict = Depends(current_user),
+) -> dict:
+    notifications = NotificationRepository()
+    return {
+        "items": notifications.list_for(user["id"], limit=limit, unread_only=unread_only),
+        "unread": notifications.unread_count(user["id"]),
+    }
+
+
+@app.post("/notifications/read")
+def mark_notifications_read(
+    payload: MarkReadRequest, user: dict = Depends(current_user)
+) -> dict:
+    notifications = NotificationRepository()
+    if payload.all:
+        updated = notifications.mark_all_read(user["id"])
+    else:
+        updated = notifications.mark_read(user["id"], payload.ids)
+    return {"updated": updated, "unread": notifications.unread_count(user["id"])}
+
+
+# --------------------------------------------------------------------------- #
+#  SLA
+# --------------------------------------------------------------------------- #
+@app.get("/sla/alerts")
+def list_sla_alerts(
+    status: str = Query("active", pattern="^(active|resolved|all)$"),
+    limit: int = Query(100, ge=1, le=500),
+    _admin: dict = Depends(require_admin),
+) -> dict:
+    items = sla_checker.list_alerts(status=None if status == "all" else status, limit=limit)
+    return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
+
+
+@app.get("/sla/breaches")
+def current_sla_breaches(_admin: dict = Depends(require_admin)) -> dict:
+    items = sla_checker.find_breaches()
+    return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
+
+
+@app.post("/sla/scan")
+def run_sla_scan(_admin: dict = Depends(require_admin)) -> dict:
+    return sla_checker.scan()
+
+
+# ---- Background ingestion ------------------------------------------------- #
+@app.get("/ingest/workers")
+def ingest_workers(_user: dict = Depends(current_user)) -> dict:
+    from app.tasks.health import workers_online
+    return {"available": workers_online()}
+
+
+@app.post("/ingest/poll/async")
+def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
+    from app.tasks.health import reset_cache, workers_online
+
+    if not workers_online():
+        raise HTTPException(
+            status_code=503,
+            detail="No ingestion worker is running. Start one with: "
+                   "celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=4",
+        )
+
+    from app.tasks.jobs import run_poll_cycle
+
+    try:
+        async_result = run_poll_cycle.delay(query)
+    except Exception as exc:
+        reset_cache()
+        raise HTTPException(status_code=503, detail=f"Could not queue the poll: {exc}")
+
+    return {"task_id": async_result.id, "state": "PENDING"}
+
+
+@app.get("/ingest/tasks/{task_id}")
+def poll_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
+    from app.tasks.celery_app import celery_app
+
+    result = celery_app.AsyncResult(task_id)
+    payload = {"task_id": task_id, "state": result.state, "ready": result.ready()}
+    if result.state == "SUCCESS":
+        payload["result"] = result.result
+    elif result.state == "FAILURE":
+        payload["error"] = str(result.result)
+    return payload
 
 
 # Serve the static files from the Next.js export.

@@ -696,6 +696,200 @@
   color: var(--text-main);
 }
 
+/* ---- Notification bell ----
+   The feed is what makes an allocation announce itself to someone who was not
+   watching the second it happened, which is nearly everyone nearly every time.
+   The badge is therefore the honest headline of the whole feature: a count
+   that survives a logout, not a toast that fired into an empty room. */
+.notif {
+  position: relative;
+  display: inline-flex;
+}
+
+.notif-btn.has-unread {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.notif-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 2px solid var(--bg-card);
+  background: var(--error);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 1200;
+  width: min(360px, calc(100vw - 2rem));
+  max-height: min(460px, 70vh);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--border-blue);
+}
+
+.notif-head strong {
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: var(--text-main);
+}
+
+.notif-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.notif-mark:hover:not(:disabled) {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.notif-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 0;
+  border-bottom: 1px solid var(--border-blue-faint);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-row:hover {
+  background: var(--tint-1);
+}
+
+.notif-row.is-unread {
+  background: var(--primary-glow);
+}
+
+.notif-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.notif-icon.is-candidate_assigned {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.notif-icon.is-candidate_ingested {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.notif-icon.is-sla_alert {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.notif-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.notif-text strong {
+  font-size: 0.78rem;
+  font-weight: 620;
+  color: var(--text-main);
+}
+
+.notif-text em {
+  font-style: normal;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.notif-when {
+  font-size: 0.65rem;
+  color: var(--text-light);
+}
+
+.notif-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.notif-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 2rem 1rem;
+  color: var(--text-light);
+  text-align: center;
+}
+
+.notif-empty p {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.notif-empty span {
+  font-size: 0.72rem;
+}
+
 /* The one primary action in the chrome. A pill, so it does not read as one
    more square icon button in a row of them. */
 .topbar-sync {
@@ -965,6 +1159,18 @@
   font-weight: 700;
   letter-spacing: -0.012em;
   color: var(--text-main);
+}
+
+/* A title may lead with an icon when the card reports a state rather than a
+   subject — it sits on the cap height, not the baseline. */
+.db-card-title svg {
+  vertical-align: -3px;
+  margin-right: 0.35rem;
+  color: var(--text-light);
+}
+
+.db-card-title.is-alert svg {
+  color: var(--error-ink);
 }
 
 .db-card-sub {
@@ -1480,6 +1686,36 @@
   color: var(--text-muted);
 }
 
+/* Three-up variants. The staff console asks three questions where the Overview
+   asks four, and stretching four columns' worth of grid over three cards left
+   each one wider than the number inside it. */
+.ov-actions.is-three,
+.ov-kpis.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* An action card that is mid-flight or has nothing to act on. It stays legible
+   rather than greying out — the admin still needs to read what it does. */
+.ov-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+.ov-action:disabled:hover {
+  border-color: var(--border-blue);
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+/* A KPI that is reporting a problem rather than a measurement. Reserved for
+   counts that should be zero — anything else and the colour stops meaning
+   anything. */
+.ov-kpi-value.is-alert {
+  color: var(--error-ink);
+}
+
 
 /* The range filter on the ingestion card. */
 .ov-select {
@@ -1509,7 +1745,9 @@
 @media (max-width: 1280px) {
 
   .ov-actions,
-  .ov-kpis {
+  .ov-kpis,
+  .ov-actions.is-three,
+  .ov-kpis.is-three {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1517,7 +1755,9 @@
 @media (max-width: 620px) {
 
   .ov-actions,
-  .ov-kpis {
+  .ov-kpis,
+  .ov-actions.is-three,
+  .ov-kpis.is-three {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -2825,6 +3065,23 @@ body {
 
 .modal-submit-btn:hover {
   background: var(--primary-hover);
+}
+
+/* Two submits side by side need a ranking, or the reader has to read both to
+   find the ordinary one. "Save" is the quiet half; "Save & next" carries the
+   fill because continuing is what a queue is for. */
+.modal-submit-btn.is-quiet {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-blue-strong);
+  box-shadow: none;
+}
+
+.modal-submit-btn.is-quiet:hover {
+  background: var(--tint-2);
+  /* Restated because the shared button group below repaints this on hover. */
+  border-color: var(--border-hover);
+  color: var(--text-main);
 }
 
 /* ==========================================================================
@@ -9412,5 +9669,1338 @@ body {
     align-items: flex-start;
     flex-direction: column;
     gap: 0.35rem;
+  }
+}
+
+/* ==========================================================================
+   STAFF ALLOCATION, EVALUATION & SLA
+   Screens: AdminStaffManagement, StaffDashboard.
+
+   Everything here is built from the same tokens as the rest of the product, so
+   both screens follow the light/dark switch without any colours of their own.
+   ========================================================================== */
+
+.staff-admin,
+.staff-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.staff-head-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ---- Callouts ----------------------------------------------------------- //
+   One shape for both notices, because they are the same kind of thing: a fact
+   about the team plus the single button that acts on it. The default is the
+   primary tone — nothing is broken, there is just work to redistribute — and
+   `is-warn` is for the state where profiles are unreachable. */
+.staff-note {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border-blue-strong);
+  background: var(--primary-glow);
+  color: var(--text-main);
+  border-radius: var(--radius-md);
+  font-size: 0.83rem;
+  line-height: 1.45;
+}
+
+.staff-note>svg {
+  flex: none;
+  color: var(--primary);
+}
+
+.staff-note span {
+  flex: 1;
+}
+
+.staff-note .db-btn {
+  flex: none;
+}
+
+.staff-note.is-warn {
+  border-color: var(--warning-edge);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.staff-note.is-warn>svg {
+  color: var(--warning-ink);
+}
+
+@media (max-width: 800px) {
+  .staff-note {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ---- Workload matrix ---- */
+.staff-matrix {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.staff-row {
+  display: grid;
+  /* identity | metrics | progress | actions. Both middle columns are fixed so
+     every figure and every bar starts at the same x — the matrix has to read
+     down a column as easily as across a row. */
+  grid-template-columns: minmax(190px, 1.4fr) 216px minmax(180px, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  transition: border-color 0.15s ease;
+}
+
+.staff-row:hover {
+  border-color: var(--border-blue-strong);
+}
+
+.staff-row.is-inactive {
+  opacity: 0.62;
+}
+
+.staff-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.staff-identity-text {
+  min-width: 0;
+}
+
+.staff-avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--brand-gradient);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.staff-avatar.is-small {
+  width: 28px;
+  height: 28px;
+  font-size: 0.65rem;
+}
+
+.staff-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--text-main);
+}
+
+.staff-flag {
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.staff-flag.is-overdue {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.staff-mail {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.staff-keywords {
+  min-width: 0;
+}
+
+.staff-nokeywords {
+  font-size: 0.73rem;
+  font-style: italic;
+  color: var(--text-light);
+}
+
+/* Three figures per row, in the same order every time — allocated, unviewed,
+   pending. Equal columns so the numbers line up vertically down the matrix. */
+.staff-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.staff-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-1);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.staff-metric em {
+  font-style: normal;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.staff-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.staff-substat {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Queue size drawn against the heaviest queue on the team, so the matrix shows
+   who is carrying it without the reader having to compare numbers. Thinner and
+   quieter than the evaluation bar above it — it is context, not the metric. */
+.staff-load {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--tint-2);
+  overflow: hidden;
+}
+
+.staff-load-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--border-blue-strong);
+}
+
+.staff-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* ---- SLA list ---- */
+.sla-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sla-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--error-edge);
+  background: var(--error-fill);
+  border-radius: var(--radius-sm);
+}
+
+/* The overdue figure is the reason the row exists, so it leads and is the one
+   thing sized to be read at a glance. */
+.sla-hours {
+  flex: none;
+  min-width: 46px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--error-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.sla-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.sla-name {
+  font-weight: 600;
+  font-size: 0.84rem;
+  color: var(--text-main);
+}
+
+.sla-meta {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+/* ---- Allocation directory ---- */
+/* The search sits in the card header opposite the title, so the filter row
+   below it is the only thing between the heading and the table. */
+.staff-search {
+  flex-grow: 0;
+  min-width: 260px;
+  max-width: 320px;
+}
+
+.staff-search .search-input {
+  height: 36px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 0.83rem;
+}
+
+.staff-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.alloc-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.alloc-head,
+.alloc-row {
+  display: grid;
+  /* The last column carries a dropdown and, on an unallocated row, the
+     one-click balancer beside it. */
+  grid-template-columns: minmax(200px, 2fr) minmax(130px, 1fr) 120px 228px;
+  gap: 0.9rem;
+  align-items: center;
+}
+
+.alloc-head {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+  border-bottom: 1px solid var(--border-blue);
+}
+
+.alloc-row {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.alloc-row:hover {
+  background: var(--tint-1);
+}
+
+.alloc-name {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.alloc-name strong {
+  display: block;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.alloc-name em {
+  display: block;
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alloc-name:hover strong {
+  color: var(--primary);
+}
+
+.alloc-owner {
+  font-size: 0.8rem;
+  color: var(--text-main);
+}
+
+.alloc-none {
+  font-style: italic;
+  color: var(--text-light);
+}
+
+.alloc-when {
+  display: block;
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.alloc-select {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The dropdown, plus the one-click balancer for a profile nobody owns. */
+.alloc-assign {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.alloc-auto {
+  flex: none;
+  padding-inline: 0.55rem;
+}
+
+/* A row the sweep is currently reporting. A left edge rather than a fill: the
+   directory can be mostly overdue, and a page of red banners is unreadable. */
+.alloc-row.is-overdue {
+  box-shadow: inset 2px 0 0 var(--error-ink);
+}
+
+.alloc-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.85rem;
+}
+
+/* An empty state inside a card that already has a header explaining itself —
+   the full-height version would leave the card mostly whitespace. */
+.db-empty.is-compact {
+  padding: 1.5rem 1rem;
+  border-style: solid;
+  border-color: var(--border-blue);
+  background: var(--tint-1);
+}
+
+/* ---- Evaluation drawer ---- */
+.eval-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(11, 30, 66, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.eval-drawer {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 94vw);
+  height: 100%;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border-blue);
+  box-shadow: -18px 0 48px rgba(15, 23, 42, 0.18);
+  animation: eval-slide-in 0.22s ease;
+}
+
+@keyframes eval-slide-in {
+  from {
+    transform: translateX(28px);
+    opacity: 0.4;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.eval-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-blue);
+  flex: none;
+}
+
+.eval-head-id {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.eval-head-id h3 {
+  margin: 0;
+  font-family: var(--font-outfit);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.eval-head-id p {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.eval-loading {
+  display: grid;
+  place-items: center;
+  flex: 1;
+}
+
+/* The 50/50 split the evaluation is designed around: evidence on the left,
+   verdict on the right, both on screen at the same time. */
+.eval-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.eval-pane {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.eval-pdf {
+  background: var(--tint-2);
+  border-right: 1px solid var(--border-blue);
+  display: flex;
+  padding: 0.5rem;
+}
+
+.eval-pdf-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+
+.eval-form {
+  padding: 1.1rem 1.25rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.eval-contacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.eval-contacts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.eval-section h4,
+.eval-verdict h4 {
+  margin: 0 0 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-label);
+}
+
+.eval-summary {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--text-main);
+}
+
+.eval-exp {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.eval-exp li {
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--border-blue-strong);
+}
+
+.eval-exp strong {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.eval-exp span {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.eval-exp em {
+  font-style: normal;
+  font-size: 0.7rem;
+  color: var(--text-light);
+}
+
+.eval-verdict {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-blue);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.eval-stars {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.eval-star {
+  background: none;
+  border: 0;
+  padding: 0.15rem;
+  cursor: pointer;
+  color: var(--border-blue-strong);
+  line-height: 0;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.eval-star:hover {
+  transform: scale(1.12);
+}
+
+.eval-star.is-on {
+  color: var(--warning);
+}
+
+.eval-star-note {
+  margin-left: 0.5rem;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+.eval-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* ---- Evaluation pills ---- */
+.db-pill.is-unviewed {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.db-pill.is-unviewed::before {
+  background: var(--warning);
+}
+
+.db-pill.is-shortlisted,
+.db-pill.is-hired {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.db-pill.is-shortlisted::before,
+.db-pill.is-hired::before {
+  background: var(--success);
+}
+
+.db-pill.is-rejected,
+.db-pill.is-error {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.db-pill.is-rejected::before,
+.db-pill.is-error::before {
+  background: var(--error);
+}
+
+.db-pill.is-on_hold {
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.db-pill.is-on_hold::before {
+  background: var(--text-light);
+}
+
+/* ---- Live connection badge ---- */
+.ws-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.ws-pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-light);
+  flex: none;
+}
+
+.ws-pulse.is-live {
+  color: var(--success-ink);
+  border-color: var(--success-edge);
+  background: var(--success-fill);
+}
+
+.ws-pulse.is-live .ws-pulse-dot {
+  background: var(--success);
+  animation: ws-pulse-beat 2s ease-in-out infinite;
+}
+
+.ws-pulse.is-connecting .ws-pulse-dot {
+  background: var(--warning);
+  animation: ws-pulse-beat 1s ease-in-out infinite;
+}
+
+@keyframes ws-pulse-beat {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.5);
+  }
+
+  70% {
+    box-shadow: 0 0 0 5px rgba(22, 163, 74, 0);
+  }
+}
+
+/* Motion is decoration here; the colour already carries the state. */
+@media (prefers-reduced-motion: reduce) {
+
+  .ws-pulse .ws-pulse-dot,
+  .eval-drawer {
+    animation: none;
+  }
+}
+
+.modal-container.is-narrow {
+  max-width: 560px;
+}
+
+.modal-hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* ---- Narrow screens ---- */
+@media (max-width: 1100px) {
+
+  /* Identity and metrics keep the top line; the bars and the controls take a
+     full-width row underneath rather than being squeezed to a stub. */
+  .staff-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    row-gap: 0.75rem;
+  }
+
+  .staff-progress,
+  .staff-actions {
+    grid-column: span 2;
+  }
+
+  /* Below this the split stops being two readable panes, so the resume goes on
+     top and the form under it rather than squeezing both. */
+  .eval-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: 45vh 1fr;
+  }
+
+  .eval-pdf {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-blue);
+  }
+
+  .alloc-head {
+    display: none;
+  }
+
+  .alloc-row {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 0.5rem;
+  }
+}
+
+
+/* ==========================================================================
+   DEMO ACCOUNT BUTTONS (login) + INTERVIEWING STATUS
+   ========================================================================== */
+
+.login-demo {
+  margin-top: 1.25rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+.login-demo-label {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-label);
+  text-align: center;
+}
+
+/* One button, full width. Half-width was right when it sat beside the staff
+   card; alone it would leave the row visibly half-empty. */
+.login-demo-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+
+.login-demo-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.login-demo-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+  transform: translateY(-1px);
+}
+
+.login-demo-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.login-demo-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.login-demo-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.login-demo-btn.is-admin .login-demo-icon {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.login-demo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.login-demo-text strong {
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--text-main);
+}
+
+.login-demo-text em {
+  font-style: normal;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.login-demo-text code {
+  margin-top: 0.15rem;
+  font-family: var(--font-fira-code);
+  font-size: 0.63rem;
+  color: var(--text-light);
+  overflow-wrap: anywhere;
+}
+
+/* Interviewing is in progress rather than decided, so it reads as active work
+   and not as one of the two settled outcomes. */
+.db-pill.is-interviewing {
+  background: var(--primary-glow);
+  color: var(--primary-deep);
+}
+
+.db-pill.is-interviewing::before {
+  background: var(--primary);
+}
+
+/* ==========================================================================
+   V3: RAIL-LESS STAFF SHELL + KEYWORD COLUMN REMOVED
+   ========================================================================== */
+
+/* The staff workspace has no rail, so the content column starts at the window
+   edge. The shell's grid assumes a rail width; this collapses it. */
+.app-shell.is-railless .app-body {
+  grid-template-columns: 1fr;
+}
+
+.app-shell.is-railless .workspace {
+  margin-left: 0;
+  width: 100%;
+}
+
+/* Identity and sign-out move into the bar when there is no rail to hold them. */
+.topbar-account {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--header-hairline);
+}
+
+.topbar-account-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.topbar-account-text strong {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.topbar-account-text em {
+  font-style: normal;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Same disc as the interactive avatar, without the affordance — it is a label
+   here, not a button. */
+.topbar-avatar.is-static {
+  cursor: default;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .topbar-account-text {
+    display: none;
+  }
+}
+
+/* Below two columns the metrics strip and the bars are each too narrow to
+   read, so the row stacks into a small card instead. */
+@media (max-width: 720px) {
+  .staff-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.7rem;
+  }
+
+  .staff-metrics,
+  .staff-progress,
+  .staff-actions {
+    grid-column: auto;
+  }
+}
+
+/* The imbalance and orphan callouts now share one shape — see `.staff-note` in
+   the staff allocation section above. */
+
+/* ==========================================================================
+   STAFF QUEUE — the review list and the verdict form
+   ==========================================================================
+   Built from the admin console's own vocabulary, not a second design system:
+   the same tokens, the same card, the same pills and chips the Staff &
+   Allocation screen uses. A reviewer and an administrator are looking at the
+   same records an hour apart, and a queue row that looked like a different
+   product would make them read it as one.
+
+   Everything specific to this screen is here: the row grid, the SLA countdown,
+   and the verdict controls. Everything else on the screen — the KPI cards, the
+   action buttons, the tabs, the empty states — is the shared admin component
+   set, unmodified.
+   ========================================================================== */
+
+/* ---- queue toolbar ------------------------------------------------------- */
+.queue-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.queue-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem 0.65rem;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+
+.queue-search:focus-within {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.queue-search input {
+  width: 200px;
+  max-width: 42vw;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-main);
+}
+
+.queue-sort {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+/* A tab counting something urgent says so; at zero it is an ordinary tab,
+   because a control that is permanently red stops meaning anything. */
+.db-tab.is-urgent .db-tab-count {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* ---- the queue ----------------------------------------------------------- */
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+}
+
+/* One row, six columns, fixed: name and skills flex, the three status columns
+   do not. Aligned countdowns and pills are what let the list be scanned down a
+   column instead of read row by row. */
+.queue-row {
+  display: grid;
+  grid-template-columns: 36px minmax(170px, 1.6fr) minmax(130px, 1.2fr) 104px 112px 78px;
+  gap: 0.85rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+.queue-row:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(2px);
+}
+
+.queue-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* An unopened profile is the one still carrying the SLA clock, so it is the
+   only row state worth marking on the row itself — the rest the pill says. */
+.queue-row.is-unviewed {
+  border-left: 3px solid var(--warning);
+}
+
+/* Past the window, not merely close to it. Marked on the row because this is
+   the state someone scanning the list has to find without reading every cell. */
+.queue-row.is-breached {
+  border-left: 3px solid var(--error);
+  background: var(--error-fill);
+}
+
+.queue-identity {
+  min-width: 0;
+}
+
+.queue-identity strong {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.queue-identity em {
+  display: block;
+  font-style: normal;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Arrived while this session was open. It outlives the toast, which is the
+   point — four seconds is not long enough to be a way of finding anything. */
+.queue-new {
+  flex: none;
+  padding: 0.05rem 0.34rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.queue-skills {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow: hidden;
+  max-height: 44px;
+}
+
+.queue-when {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+/* Time remaining, escalating only at the two points where the answer changes:
+   worth attention, and already late. */
+.queue-sla {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.queue-sla.is-soon {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.queue-sla.is-over {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.queue-score {
+  display: inline-flex;
+  gap: 1px;
+  color: var(--warning);
+}
+
+/* ---- verdict form -------------------------------------------------------- */
+.eval-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.eval-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.eval-score-label {
+  margin-left: 0.4rem;
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+/* Three buttons rather than a select: the decision is the whole point of the
+   screen, and it should be readable without opening anything. They carry the
+   same colours the status pills use, so the choice and the record agree. */
+.eval-choices {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.9rem 0;
+}
+
+.eval-choice {
+  flex: 1;
+  min-width: 96px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.eval-choice:hover:not(.is-on) {
+  border-color: var(--border-hover);
+  background: var(--tint-1);
+}
+
+.eval-choice:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.eval-choice.is-on.is-shortlisted {
+  border-color: var(--success);
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.eval-choice.is-on.is-interviewing {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+  color: var(--primary-deep);
+}
+
+.eval-choice.is-on.is-rejected {
+  border-color: var(--error);
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.eval-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.eval-field label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.eval-field textarea {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-main);
+  resize: vertical;
+}
+
+.eval-field textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+/* A photographed CV is as common as a PDF one, and an <object> renders it as a
+   download prompt. The image pane scrolls instead, so a tall phone snap can be
+   read top to bottom beside the form. */
+.eval-img-frame {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: var(--tint-1);
+}
+
+/* ---- narrow ---- */
+@media (max-width: 900px) {
+
+  /* Skills and the countdown are the two columns a phone cannot fit and the
+     reader can recover by opening the profile; identity and status stay. */
+  .queue-row {
+    grid-template-columns: 32px 1fr auto;
+  }
+
+  .queue-skills,
+  .queue-when,
+  .queue-score {
+    display: none;
+  }
+
+  .queue-search input {
+    width: 100%;
   }
 }

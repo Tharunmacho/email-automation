@@ -28,6 +28,14 @@ import type {
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  EvaluationStatus,
+  StaffMember,
+  StaffWorkloadRow,
+  StaffWorkloadResponse,
+  SlaAlert,
+  RebalanceResult,
+  DemoAccount,
+  NotificationRecord,
 } from "@/types";
 
 export type {
@@ -45,7 +53,37 @@ export type {
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  EvaluationStatus,
+  StaffMember,
+  StaffWorkloadRow,
+  StaffWorkloadResponse,
+  SlaAlert,
+  RebalanceResult,
+  DemoAccount,
+  NotificationRecord,
 };
+
+export { EVALUATION_STATUSES } from "@/types";
+
+/**
+ * The accounts the login screen offers as quick-fill buttons.
+ *
+ * Unauthenticated, because it is read before anyone has signed in. Returns an
+ * empty list when demo mode is off, which is how the buttons disappear in a
+ * real deployment rather than filling credentials that no longer work.
+ */
+export async function fetchDemoAccounts(): Promise<DemoAccount[]> {
+  try {
+    const response = await fetch(`${API_BASE}/auth/demo-accounts`, { cache: "no-store" });
+    if (!response.ok) return [];
+    const body = (await response.json()) as { enabled: boolean; accounts: DemoAccount[] };
+    return body.enabled ? body.accounts : [];
+  } catch {
+    // An unreachable API is reported by the login attempt itself; the buttons
+    // simply do not appear.
+    return [];
+  }
+}
 
 export const REVIEW_CONFIDENCE_THRESHOLD = 0.85;
 
@@ -343,6 +381,182 @@ export async function fetchHealth(): Promise<{ status: string; candidates: numbe
   const response = await fetch(`${API_BASE}/health`, { cache: "no-store" });
   if (!response.ok) throw new Error(`API replied ${response.status}`);
   return (await response.json()) as { status: string; candidates: number };
+}
+
+// --------------------------------------------------------------------------- //
+//  Staff administration (Super Admin only — the API answers 403 otherwise)
+// --------------------------------------------------------------------------- //
+export function listStaff(includeInactive = true): Promise<{ count: number; items: StaffMember[] }> {
+  return request<{ count: number; items: StaffMember[] }>(
+    `/staff?include_inactive=${includeInactive}`,
+    { cache: "no-store" },
+  );
+}
+
+/** The workload matrix: one row per staff member, with evaluated/assigned progress. */
+export function fetchStaffWorkload(): Promise<StaffWorkloadResponse> {
+  return request<StaffWorkloadResponse>("/staff/workload", { cache: "no-store" });
+}
+
+export function createStaff(payload: {
+  email: string;
+  password: string;
+  name?: string;
+  keywords?: string[];
+}): Promise<{ staff: StaffMember; rebalance: RebalanceResult }> {
+  return request<{ staff: StaffMember; rebalance: RebalanceResult }>("/staff", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateStaff(
+  staffId: string,
+  payload: { name?: string; keywords?: string[]; active?: boolean; password?: string },
+): Promise<{ staff: StaffMember }> {
+  return request<{ staff: StaffMember }>(`/staff/${staffId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Delete a staff account and re-home the profiles it owned.
+ *
+ * Rebalancing defaults on for a reason: the deleted account's candidates
+ * otherwise point at a user that no longer exists, which makes them invisible
+ * to every staff dashboard and accountable to nobody.
+ */
+export function deleteStaff(staffId: string, rebalance = true): Promise<{ status: string }> {
+  return request<{ status: string }>(`/staff/${staffId}?rebalance=${rebalance}`, {
+    method: "DELETE",
+  });
+}
+
+// --------------------------------------------------------------------------- //
+//  Allocation
+// --------------------------------------------------------------------------- //
+/** Move one profile to a named staff member. */
+export function assignCandidate(candidateId: string, staffId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/candidates/${candidateId}/assign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ staff_id: staffId }),
+  });
+}
+
+/**
+ * Let the balancer place one profile: it goes to whoever is holding the fewest.
+ *
+ * The same call ingestion makes, so a profile placed from the console lands
+ * exactly where an automatically-allocated one would have. `reason` is
+ * "workload", or "no_staff" when there is no active account to place it with.
+ */
+export function autoAssignCandidate(candidateId: string): Promise<{
+  candidate_id: string;
+  assigned_staff_id: string | null;
+  assigned_staff_name: string | null;
+  reason: string;
+}> {
+  return request(`/candidates/${candidateId}/auto-assign`, { method: "POST" });
+}
+
+/**
+ * Level the whole collection across the active roster.
+ *
+ * Profiles that have already been viewed or evaluated stay where they are, so
+ * this is safe to run on a working system — it moves untouched work only.
+ */
+export function rebalanceCandidates(): Promise<RebalanceResult> {
+  return request<RebalanceResult>("/candidates/rebalance", { method: "POST" });
+}
+
+// --------------------------------------------------------------------------- //
+//  Evaluation (staff workspace)
+// --------------------------------------------------------------------------- //
+/** Stamp first view. Idempotent — re-opening a profile does not move the clock. */
+export function markCandidateViewed(
+  candidateId: string,
+): Promise<{ status: string; first_view: boolean }> {
+  return request<{ status: string; first_view: boolean }>(`/candidates/${candidateId}/view`, {
+    method: "POST",
+  });
+}
+
+export function evaluateCandidate(
+  candidateId: string,
+  payload: { status: EvaluationStatus; score?: number | null; notes?: string | null },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Server settings the interface has to agree with.
+ *
+ * Chiefly the SLA threshold, which drives every countdown in the staff queue —
+ * assuming 10 hours in the browser would start lying the moment it is changed.
+ */
+export function fetchUiConfig(): Promise<{
+  sla_threshold_hours: number;
+  auto_assign_enabled: boolean;
+}> {
+  return request("/config", { cache: "no-store" });
+}
+
+// --------------------------------------------------------------------------- //
+//  Notifications
+// --------------------------------------------------------------------------- //
+/**
+ * The signed-in user's own feed.
+ *
+ * Scoped server-side by the token, so there is no user id to pass and no way to
+ * ask for someone else's. The socket delivers the same events live; this is
+ * what makes them survive being offline when one fired.
+ */
+export function fetchNotifications(
+  limit = 30,
+): Promise<{ items: NotificationRecord[]; unread: number }> {
+  return request(`/notifications?limit=${limit}`, { cache: "no-store" });
+}
+
+/** Mark specific rows read, or the whole feed with `{ all: true }`. */
+export function markNotificationsRead(
+  payload: { ids?: string[]; all?: boolean },
+): Promise<{ updated: number; unread: number }> {
+  return request("/notifications/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: payload.ids ?? [], all: payload.all ?? false }),
+  });
+}
+
+// --------------------------------------------------------------------------- //
+//  SLA
+// --------------------------------------------------------------------------- //
+export function fetchSlaAlerts(
+  status: "active" | "resolved" | "all" = "active",
+): Promise<{ count: number; items: SlaAlert[]; threshold_hours: number }> {
+  return request(`/sla/alerts?status=${status}`, { cache: "no-store" });
+}
+
+/** Live breach list, computed now rather than read from the audit log. */
+export function fetchSlaBreaches(): Promise<{
+  count: number;
+  items: SlaAlert[];
+  threshold_hours: number;
+}> {
+  return request("/sla/breaches", { cache: "no-store" });
+}
+
+/** Run the sweep immediately instead of waiting for the beat timer. */
+export function runSlaScan(): Promise<{ in_breach: number; new_alerts: number; resolved: number }> {
+  return request("/sla/scan", { method: "POST" });
 }
 
 // ---- Sourcing Clients DB API ----

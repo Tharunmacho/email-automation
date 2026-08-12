@@ -111,6 +111,18 @@ class Settings(BaseSettings):
     admin_email: str = "admin@gmail.com"
     admin_password: str = "admin@123"
 
+    # ---- Demo Accounts & SLA ----
+    # Seeded on startup and published by /auth/demo-accounts, which is
+    # unauthenticated — only the admin account is advertised, and turning this
+    # off silences the endpoint entirely.
+    demo_accounts_enabled: bool = True
+    demo_admin_email: str = "admin@gmail.com"
+    demo_admin_password: str = "admin@123"
+    demo_staff_email: str = "staff@gmail.com"
+    demo_staff_password: str = "staff@123"
+    sla_threshold_hours: int = 10
+    auto_assign_enabled: bool = True
+
     # ---- MongoDB ----
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "resume_ats"

@@ -26,6 +26,10 @@ log = get_logger(__name__)
 _LABEL_IDS: dict[str, str] = {}
 _LABEL_LOCK = threading.Lock()
 
+# Serialises credential loading only. An expired token refreshed by ten threads
+# at once is ten refresh calls against Google for one new token.
+_CREDS_LOCK = threading.Lock()
+
 
 def _header(headers: list[dict], name: str) -> str:
     for h in headers:
@@ -44,8 +48,42 @@ def _parse_from(value: str) -> tuple[str, Optional[str]]:
 
 
 class GmailClient:
+    """One client object, one Gmail transport *per thread*.
+
+    A poll runs its messages across a thread pool and every worker reaches
+    through the same client. The service that ``build()`` returns wraps a single
+    ``httplib2.Http``, which holds a single TLS socket and is documented as not
+    thread-safe: two workers issuing requests at the same moment interleave
+    their reads on that one socket and both come back as
+
+        ssl.SSLError: [SSL: WRONG_VERSION_NUMBER] wrong version number
+
+    — the socket handing one thread the middle of the other's response. One
+    email in a batch always worked; two raced, and the loser was logged as a
+    failed message and silently left un-ingested until someone noticed the count
+    did not match the inbox.
+
+    So the service is thread-local: built on first use in each worker and reused
+    for that worker's lifetime. Credentials are loaded under a lock and shared,
+    because the OAuth token is process-wide state and refreshing it ten times
+    concurrently is ten round-trips for one token.
+    """
+
     def __init__(self):
-        self._service = build("gmail", "v1", credentials=get_credentials(), cache_discovery=False)
+        self._local = threading.local()
+        # Surface a missing/invalid token here, at construction, rather than
+        # inside a pool worker where it would read as a per-message failure.
+        _ = self._service
+
+    @property
+    def _service(self):
+        service = getattr(self._local, "service", None)
+        if service is None:
+            with _CREDS_LOCK:
+                credentials = get_credentials()
+            service = build("gmail", "v1", credentials=credentials, cache_discovery=False)
+            self._local.service = service
+        return service
 
     # ---- searching -------------------------------------------------------- #
     def search_message_ids(self, query: str | None = None, max_results: int | None = None) -> List[str]:

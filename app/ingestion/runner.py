@@ -37,11 +37,36 @@ def mark_message_done(gmail, message_id: str, status: str) -> None:
             gmail.apply_label(message_id, settings.gmail_deleted_label)
         if settings.gmail_processed_label:
             gmail.remove_label(message_id, settings.gmail_processed_label)
-    elif status == "processed":
+    elif status in ("processed", "skipped", "error"):
         if settings.gmail_mark_read:
             gmail.mark_read(message_id)
         if settings.gmail_processed_label:
             gmail.apply_label(message_id, settings.gmail_processed_label)
+
+
+# A dropped connection is not a bad email. Fetching a message is a pure read, so
+# it is safe to repeat — unlike the pipeline behind it, which writes a candidate.
+_FETCH_ATTEMPTS = 3
+
+
+def _fetch_with_retry(gmail, message_id: str):
+    """Read one message, riding out a transport hiccup rather than failing it.
+
+    Without this a single dropped socket cost the batch a whole email: the
+    message stayed unlabelled and was silently re-fetched next poll, so the run
+    that dropped it just reported one fewer candidate than the inbox held.
+    """
+    for attempt in range(1, _FETCH_ATTEMPTS + 1):
+        try:
+            return gmail.get_message(message_id)
+        except Exception as err:  # noqa: BLE001 — any transport failure is retryable
+            if attempt == _FETCH_ATTEMPTS:
+                raise
+            log.warning(
+                "Fetching message %s failed (%s); retrying (%d/%d)",
+                message_id, err, attempt, _FETCH_ATTEMPTS,
+            )
+            time.sleep(attempt)
 
 
 @dataclass
@@ -82,10 +107,9 @@ class IngestionRunner:
                         mid, "skipped", "already being processed by another worker"
                     )
 
-                # Use provided runner client (e.g. test stub) or fresh client per message
-                gmail_client = self.gmail if self.gmail else get_email_client()
+                gmail_client = self.gmail
                 try:
-                    email = gmail_client.get_message(mid)
+                    email = _fetch_with_retry(gmail_client, mid)
                     result = self.pipeline.process_email(email, gmail=gmail_client)
                 except Exception:  # noqa: BLE001
                     log.exception("Failed to process message %s", mid)

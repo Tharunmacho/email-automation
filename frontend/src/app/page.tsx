@@ -16,12 +16,15 @@ import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import CandidateEditScreen from "@/screens/CandidateEditScreen";
 import CandidateLogsScreen from "@/screens/CandidateLogsScreen";
 import LoginScreen from "@/screens/LoginScreen";
+import AdminStaffManagement from "@/screens/AdminStaffManagement";
+import StaffDashboard from "@/screens/StaffDashboard";
 import { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
 import { summariseProfileChange } from "@/lib/candidateProfile";
-import { NAV_META, type NavId } from "@/lib/nav";
+import { useRealtime, type RealtimeEvent } from "@/lib/realtime";
+import { NAV_META, defaultNavFor, navGroupsFor, type NavId } from "@/lib/nav";
 import {
   appendCandidateLog,
   dropCandidateLogs,
@@ -44,6 +47,7 @@ import {
   type CandidateProfile,
   type CandidateRecord,
   type PollSummary,
+  type SlaAlert,
 } from "@/lib/api";
 
 /**
@@ -114,6 +118,18 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<NavId>("overview");
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Bumped whenever a push event says the allocation data moved, so the staff
+  // and admin screens reload without polling on a timer.
+  const [realtimeNonce, setRealtimeNonce] = useState(0);
+  // The admin's SLA modal. Held here rather than in the staff screen because it
+  // has to appear over whatever the admin is currently looking at.
+  const [slaPopup, setSlaPopup] = useState<{ message: string; alerts: SlaAlert[] } | null>(null);
+  // Candidates that arrived over the socket during this session, so the queue
+  // can still mark them "new" long after the toast has faded.
+  const [arrivedIds, setArrivedIds] = useState<Set<string>>(() => new Set());
+  // A profile the bell asked the staff workspace to open.
+  const [queueFocusId, setQueueFocusId] = useState<string | null>(null);
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -318,6 +334,83 @@ export default function Home() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [refreshCandidates, user]);
+
+  /**
+   * The destination actually shown, which is not always the one in state.
+   *
+   * A staff member signing in — or restoring a session last left on Overview —
+   * holds a tab their rail no longer offers and the API refuses. Correcting it
+   * is a derivation, not an effect: computing it here renders the right screen
+   * on the first pass, where writing it back would render the wrong one first
+   * and then correct itself a frame later.
+   */
+  const currentTab = useMemo(() => {
+    if (!user) return activeTab;
+    const reachable = new Set(
+      navGroupsFor(user.role).flatMap((group) => group.items.map((item) => item.id)),
+    );
+    return reachable.has(activeTab) ? activeTab : defaultNavFor(user.role);
+  }, [user, activeTab]);
+
+  /**
+   * Whether this session gets a navigation rail.
+   *
+   * Derived from the rail's own contents rather than from the role, so a rail
+   * can never appear with one item in it — if the destinations ever change,
+   * this follows automatically.
+   */
+  const hasRail = useMemo(() => {
+    const destinations = navGroupsFor(user?.role).flatMap((group) => group.items);
+    return destinations.length >= 1;
+  }, [user]);
+
+  /**
+   * Push events from `/ws`.
+   *
+   * The server has already decided what this user is allowed to be told — a
+   * staff member only receives their own allocations, an admin only the SLA
+   * alerts — so this switches on the event and does not re-check the role.
+   *
+   * An assignment refreshes the list because the new profile is not in it yet;
+   * an SLA alert does not, because nothing about the candidate data changed.
+   */
+  const handleRealtime = useCallback(
+    (event: RealtimeEvent) => {
+      switch (event.type) {
+        case "candidate_assigned": {
+          showToast(event.message, "info");
+          setRealtimeNonce((n) => n + 1);
+          // Mark it as new so the queue can point at what just arrived; the
+          // toast is gone in four seconds and the row has to still say so.
+          setArrivedIds((current) => {
+            const next = new Set(current);
+            if (event.candidate?.id) next.add(event.candidate.id);
+            return next;
+          });
+          void refreshCandidates();
+          break;
+        }
+        // The admin's copy of the same moment. Without this, the person who
+        // pressed Sync watched a poll run and was told nothing at all.
+        case "candidate_ingested": {
+          showToast(event.message, "success");
+          setRealtimeNonce((n) => n + 1);
+          void refreshCandidates();
+          break;
+        }
+        case "sla_alert": {
+          setSlaPopup({ message: event.message, alerts: event.alerts });
+          setRealtimeNonce((n) => n + 1);
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [refreshCandidates, showToast],
+  );
+
+  const { status: realtimeStatus } = useRealtime(Boolean(user), handleRealtime);
 
   // ---- the open candidate ------------------------------------------------ //
   const openCandidateId = screen?.candidateId ?? null;
@@ -649,6 +742,22 @@ export default function Home() {
   const closeScreen = () => setScreen(null);
 
   /**
+   * Open whatever a notification points at.
+   *
+   * The two roles reach a candidate by different routes — an admin through the
+   * directory's profile screen, a staff member through the evaluation drawer in
+   * their queue — so the bell hands over an id and this decides.
+   */
+  const handleOpenCandidateById = (candidateId: string) => {
+    if (user?.role === "staff") {
+      setActiveTab("my-queue");
+      setQueueFocusId(candidateId);
+      return;
+    }
+    openScreen("profile", candidateId);
+  };
+
+  /**
    * The record the open screen is showing, and only once it is the *whole*
    * record for that candidate — a detail still in flight, or one left over from
    * the previously open candidate, resolves to null and the screen waits.
@@ -656,7 +765,7 @@ export default function Home() {
   const screenCandidate =
     screen && detail && detail.id === screen.candidateId ? detail : null;
 
-  const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[activeTab];
+  const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
 
   if (checking) {
     return (
@@ -667,34 +776,58 @@ export default function Home() {
   }
 
   if (!user) {
-    return <LoginScreen onSuccess={setUser} />;
+    return (
+      <LoginScreen
+        onSuccess={(u) => {
+          setUser(u);
+          setActiveTab(defaultNavFor(u.role));
+        }}
+      />
+    );
   }
 
   return (
-    <div className={`app-shell ${railCollapsed ? "is-collapsed" : ""}`}>
+    <div
+      className={`app-shell ${railCollapsed ? "is-collapsed" : ""} ${hasRail ? "" : "is-railless"}`}
+    >
       <TopBar
         user={user}
         syncing={syncing}
+        realtime={realtimeStatus}
+        realtimeNonce={realtimeNonce}
+        hasRail={hasRail}
+        onOpenCandidate={handleOpenCandidateById}
         onSync={runPipeline}
         onOpenActivity={() => handleNavigate("activity")}
         onOpenSettings={() => handleNavigate("settings")}
         onToggleRail={() => setMobileOpen((open) => !open)}
+        onSignOut={handleSignOut}
       />
 
       <div className="app-body">
-        <Sidebar
-          activeId={activeTab}
-          collapsed={railCollapsed}
-          mobileOpen={mobileOpen}
-          user={user}
-          onNavigate={handleNavigate}
-          onToggleCollapse={() => setRailCollapsed((open) => !open)}
-          onCloseMobile={() => setMobileOpen(false)}
-          onSignOut={handleSignOut}
-        />
+        {/* The staff workspace is one screen, so it has no rail at all: a
+            navigation column offering a single destination is a column that
+            only ever tells you where you already are. Identity and sign-out
+            move into the bar above instead. */}
+        {hasRail && (
+          <Sidebar
+            activeId={currentTab}
+            collapsed={railCollapsed}
+            mobileOpen={mobileOpen}
+            user={user}
+            onNavigate={handleNavigate}
+            onToggleCollapse={() => setRailCollapsed((open) => !open)}
+            onCloseMobile={() => setMobileOpen(false)}
+            onSignOut={handleSignOut}
+          />
+        )}
 
         <main className="workspace">
           <div className="db-page">
+            {/* Every destination opens the same way, the staff workspace
+                included. It used to be excepted here on the grounds that it
+                carried its own header; it does not, so the screen began at a
+                row of buttons with nothing naming it. */}
             <header className="db-page-head">
               <div>
                 <span className="db-eyebrow">{meta.eyebrow}</span>
@@ -755,7 +888,7 @@ export default function Home() {
 
             {!screen && (
               <>
-                {activeTab === "overview" && (
+                {currentTab === "overview" && (
                   <OverviewScreen
                     total={total}
                     candidates={candidates}
@@ -765,7 +898,7 @@ export default function Home() {
                   />
                 )}
 
-                {activeTab === "resume-parser" && (
+                {currentTab === "resume-parser" && (
                   <ResumeParserScreen
                     candidates={candidates}
                     syncing={syncing}
@@ -774,7 +907,7 @@ export default function Home() {
                   />
                 )}
 
-                {activeTab === "visualizer" && (
+                {currentTab === "visualizer" && (
                   <PipelineScreen
                     flow={flow}
                     logs={logs}
@@ -786,9 +919,9 @@ export default function Home() {
                   />
                 )}
 
-                {activeTab === "sourcing" && <SourcingHub onActivity={log} />}
+                {currentTab === "sourcing" && <SourcingHub onActivity={log} />}
 
-                {activeTab === "candidates" && (
+                {currentTab === "candidates" && (
                   <CandidatesView
                     candidates={candidates}
                     logCounts={logCounts}
@@ -799,11 +932,32 @@ export default function Home() {
                   />
                 )}
 
-                {activeTab === "job-orders" && (
+                {currentTab === "my-queue" && (
+                  <StaffDashboard
+                    candidates={candidates}
+                    arrivedIds={arrivedIds}
+                    focusCandidateId={queueFocusId}
+                    onFocusHandled={() => setQueueFocusId(null)}
+                    onToast={showToast}
+                    onCandidatesChanged={() => void refreshCandidates()}
+                  />
+                )}
+
+                {currentTab === "staff" && (
+                  <AdminStaffManagement
+                    candidates={candidates}
+                    refreshNonce={realtimeNonce}
+                    onToast={showToast}
+                    onCandidatesChanged={() => void refreshCandidates()}
+                    onOpenCandidate={handleOpenCandidate}
+                  />
+                )}
+
+                {currentTab === "job-orders" && (
                   <JobOrders candidates={candidates} onActivity={log} />
                 )}
 
-                {activeTab === "activity" && (
+                {currentTab === "activity" && (
                   <ActivityLogsScreen
                     systemLogs={logs}
                     candidateLogs={candidateLogs}
@@ -812,7 +966,7 @@ export default function Home() {
                   />
                 )}
 
-                {activeTab === "settings" && (
+                {currentTab === "settings" && (
                   <SettingsScreen user={user} onSignOut={handleSignOut} />
                 )}
               </>
@@ -820,6 +974,74 @@ export default function Home() {
           </div>
         </main>
       </div>
+
+      {/* The SLA alert is a modal rather than a toast on purpose: it reports
+          that someone has stopped working on something, which is not a message
+          that should be allowed to time out unread. */}
+      {slaPopup && (
+        <div className="modal-overlay active" onClick={() => setSlaPopup(null)}>
+          <div
+            className="modal-container is-narrow"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="SLA breach"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Profiles past the SLA</h3>
+                <p className="modal-subtitle">{slaPopup.message}</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setSlaPopup(null)}
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="sla-list">
+                {slaPopup.alerts.slice(0, 8).map((alert) => (
+                  <div key={alert.candidate_id} className="sla-row">
+                    <span className="sla-hours">{Math.round(alert.hours_overdue)}h</span>
+                    <div className="sla-body">
+                      <span className="sla-name">{alert.full_name ?? alert.candidate_name}</span>
+                      <span className="sla-meta">
+                        {alert.assigned_staff_name} ·{" "}
+                        {alert.reason === "unviewed" ? "never opened" : "opened, not evaluated"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {slaPopup.alerts.length > 8 && (
+                  <p className="db-card-sub">and {slaPopup.alerts.length - 8} more.</p>
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-cancel-btn"
+                onClick={() => setSlaPopup(null)}
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                className="modal-submit-btn"
+                onClick={() => {
+                  setSlaPopup(null);
+                  handleNavigate("staff");
+                }}
+              >
+                Review workload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast toast={toast} />
     </div>

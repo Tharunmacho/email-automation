@@ -50,6 +50,10 @@ _CONTINUATION_SCORE = 1.0
 _WEAK_CONTINUATION_PAGES = 2
 # Below this a page holds no usable text at all (a scan with a failed OCR).
 _MIN_PAGE_CHARS = 40
+# The most any amount of other-document wording can cost one page. Without a
+# ceiling an invoice's twelve markers would swamp every positive signal, and a
+# CV that quotes a few of them would never recover.
+_MAX_MARKER_PENALTY = 4.0
 
 
 # --------------------------------------------------------------------------- #
@@ -91,6 +95,9 @@ _HEADINGS = {
     "passport details", "visa status", "availability",
 }
 _MAX_HEADING_LEN = 40
+# How many words of a flattened line may be read as its heading — enough for
+# "DUTIES AND RESPONSIBILITIES", not enough for a sentence in capitals.
+_MAX_INLINE_HEADING_WORDS = 4
 
 # Employment / education date ranges: "Jan 2019 - Present", "2015 – 2018".
 _MONTH = (
@@ -256,19 +263,75 @@ class DocumentClassification:
 _BULLET_PREFIX = re.compile(r"^[\s•●▪·*\-–—\d.)]+")
 
 
-def _heading_on(line: str) -> str | None:
-    """Return the canonical heading if this line *is* a section heading."""
-    cleaned = _BULLET_PREFIX.sub("", line).strip().rstrip(":").strip()
-    if not cleaned or len(cleaned) > _MAX_HEADING_LEN:
+def _canonical_heading(text: str) -> str | None:
+    """Return the canonical heading `text` spells, or None."""
+    cleaned = text.strip().rstrip(":").strip()
+    if not cleaned:
         return None
     # Headings survive OCR as "E D U C A T I O N" often enough to be worth it.
     normalised = re.sub(r"[^a-z&\s]", " ", cleaned.lower())
     normalised = " ".join(normalised.split())
+    if not normalised:
+        return None
     if normalised in _HEADINGS:
         return normalised
     despaced = normalised.replace(" ", "")
     for heading in _HEADINGS:
         if despaced == heading.replace(" ", ""):
+            return heading
+    return None
+
+
+def _heading_on(line: str) -> str | None:
+    """Return the canonical heading if this line *is* a section heading."""
+    cleaned = _BULLET_PREFIX.sub("", line).strip()
+    if not cleaned or len(cleaned) > _MAX_HEADING_LEN:
+        return None
+    return _canonical_heading(cleaned)
+
+
+def _is_capitalised_word(word: str) -> bool:
+    """True for a word set in capitals — "EDUCATION", "B.E.", "&" is not one."""
+    return word == word.upper() and any(ch.isalpha() for ch in word)
+
+
+def _inline_heading_on(line: str) -> str | None:
+    """Return the heading this line *opens with*, when OCR lost its line break.
+
+    Veris returns a flattened one-page CV as "EDUCATION B.E. Computer Science,
+    Anna University, 2020 - 2024" — every heading sharing a line with the
+    section beneath it. Headings are the strongest structural signal a page has,
+    and losing them to a missing newline is what left a real CV with nothing to
+    score on and got it rejected as a certificate.
+
+    Two conditions keep this from inventing headings. The run has to be set in
+    capitals, so "Experience with React and Django" stays a sentence; and the
+    remainder has to read like body text, so a page typeset entirely in capitals
+    is not mistaken for a heading followed by its section.
+    """
+    words = line.split()
+    if len(words) < 2:
+        return None
+
+    run = 0
+    while (
+        run < len(words)
+        and run < _MAX_INLINE_HEADING_WORDS
+        and _is_capitalised_word(words[run])
+    ):
+        run += 1
+    if run == 0 or run == len(words):
+        return None
+
+    remainder = " ".join(words[run:])
+    if not any(ch.islower() for ch in remainder):
+        return None
+
+    # Longest prefix wins, so "WORK EXPERIENCE Full Stack Intern" is read as
+    # "work experience" and not as whatever "work" alone might match.
+    for length in range(run, 0, -1):
+        heading = _canonical_heading(" ".join(words[:length]))
+        if heading:
             return heading
     return None
 
@@ -290,7 +353,7 @@ def collect_signals(text: str) -> PageSignals:
 
     seen_headings: set[str] = set()
     for line in lines:
-        heading = _heading_on(line)
+        heading = _heading_on(line) or _inline_heading_on(line)
         if heading and heading not in seen_headings:
             seen_headings.add(heading)
             signals.headings.append(heading)
@@ -315,6 +378,57 @@ def collect_signals(text: str) -> PageSignals:
     return signals
 
 
+def _resume_structure_strength(signals: PageSignals) -> int:
+    """How much of a résumé's *structure* is on this page.
+
+    Deliberately counts kinds of evidence rather than quantity: a page with six
+    section headings and no contact block is less obviously a CV than one with
+    three headings, an address and an employment date range. Certificates score
+    0–1 here — they carry a name and a date and nothing else a CV is made of.
+    """
+    strength = 0
+    if signals.has_resume_title:
+        strength += 2
+    strength += min(len(signals.headings), 3)
+    if signals.has_email:
+        strength += 1
+    if signals.has_phone:
+        strength += 1
+    if signals.date_ranges:
+        strength += 1
+    if signals.job_titles:
+        strength += 1
+    return strength
+
+
+def _marker_penalty(signals: PageSignals) -> float:
+    """What the other-document wording costs this page, given what surrounds it.
+
+    A CERTIFICATIONS section quotes the exact wording a certificate uses — "this
+    is to certify that", "certificate of completion", a certificate number — and
+    at full weight that scored a genuine CV at 0.00 and rejected it in
+    production. Naming what you have earned is not the same as being the
+    document.
+
+    So the penalty is discounted by how much résumé structure the page has
+    around those phrases, and the discount has to be earned: a bare certificate
+    has no headings, no contact block and no employment dates, so it keeps the
+    full penalty and is still rejected.
+    """
+    raw = min(sum(signals.marker_hits.values()), _MAX_MARKER_PENALTY)
+    if not raw:
+        return 0.0
+
+    strength = _resume_structure_strength(signals)
+    if strength >= 5:
+        factor = 0.25          # unmistakably a CV; the wording is a section of it
+    elif strength >= 3:
+        factor = 0.5
+    else:
+        factor = 1.0           # nothing here says résumé — take the marker at its word
+    return round(raw * factor, 2)
+
+
 def score_signals(signals: PageSignals) -> float:
     """Turn signals into a single "how résumé-like is this page" number."""
     if signals.chars < _MIN_PAGE_CHARS:
@@ -336,7 +450,7 @@ def score_signals(signals: PageSignals) -> float:
     score += min(signals.trade_nouns, 3) * 0.25
 
     # Every certificate carries a name and a date; that is not a résumé.
-    score -= min(sum(signals.marker_hits.values()), 4.0)
+    score -= _marker_penalty(signals)
     return round(score, 2)
 
 

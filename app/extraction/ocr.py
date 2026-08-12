@@ -93,6 +93,16 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
     from pathlib import Path
 
     suffix = Path(filename).suffix or ".pdf"
+    if not settings.veris_ocr_api_key:
+        try:
+            if suffix.lower() == ".pdf":
+                texts = ocr_pdf_page_texts(file_data)
+                return [texts[n] for n in sorted(texts)]
+            return [ocr_image_bytes(file_data)]
+        except Exception as fallback_err:
+            log.warning("Local OCR skipped/failed: %s", fallback_err)
+            return []
+
     with tempfile.TemporaryDirectory() as tmp:
         temp_file = Path(tmp) / f"temp_ocr{suffix}"
         temp_file.write_bytes(file_data)

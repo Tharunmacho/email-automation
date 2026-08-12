@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
@@ -61,33 +61,78 @@ def get_candidates_collection() -> Collection:
     return get_db()[settings.mongo_candidates_collection]
 
 
+def ensure_index(collection: Collection, keys, name: str, **options) -> bool:
+    """Create one index, tolerating a cluster that already has an equivalent.
+
+    An index that exists under a *different* name is not an error to recover
+    from — it is the same index, put there by an earlier version of this
+    function or by hand in Atlas, and the queries it serves are already fast.
+    Mongo disagrees and raises `IndexOptionsConflict`, which used to abort the
+    whole of `ensure_indexes` at the first mismatch: everything declared after
+    it, including the unique index on user emails, then silently never ran.
+
+    So each index stands or falls on its own, and a failure is reported rather
+    than being allowed to take the rest of the list with it.
+    """
+    from pymongo.errors import OperationFailure
+
+    try:
+        collection.create_index(keys, name=name, **options)
+        return True
+    except OperationFailure as exc:
+        # 85 IndexOptionsConflict / 86 IndexKeySpecsConflict — same keys,
+        # different name or options.
+        if exc.code in (85, 86):
+            log.debug("Index %s.%s already present in another form: %s", collection.name, name, exc)
+            return True
+        log.warning("Could not create index %s.%s: %s", collection.name, name, exc)
+        return False
+    except Exception as exc:  # noqa: BLE001 — never block startup on an index
+        log.warning("Could not create index %s.%s: %s", collection.name, name, exc)
+        return False
+
+
 def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
     db = get_db()
     coll = get_candidates_collection()
     # Exact-duplicate detection: one candidate per resume file hash.
-    coll.create_index([("resume_hash", ASCENDING)], name="resume_hash_unique", unique=True, sparse=True)
+    ensure_index(coll, [("resume_hash", ASCENDING)], "resume_hash_unique", unique=True, sparse=True)
     # Person-level dedup lookups.
-    coll.create_index([("email_key", ASCENDING)], name="email_key_idx", sparse=True)
-    coll.create_index([("phone_key", ASCENDING)], name="phone_key_idx", sparse=True)
+    ensure_index(coll, [("email_key", ASCENDING)], "email_key_idx", sparse=True)
+    ensure_index(coll, [("phone_key", ASCENDING)], "phone_key_idx", sparse=True)
     # Idempotency: don't reprocess the same Gmail message.
-    coll.create_index([("source_email.message_id", ASCENDING)], name="source_msg_idx")
+    ensure_index(coll, [("source_email.message_id", ASCENDING)], "source_msg_idx")
     # Common future query paths (search/filter extension).
-    coll.create_index([("profile.skills", ASCENDING)], name="skills_idx")
-    coll.create_index([("created_at", ASCENDING)], name="created_at_idx")
+    ensure_index(coll, [("profile.skills", ASCENDING)], "skills_idx")
+    ensure_index(coll, [("created_at", ASCENDING)], "created_at_idx")
+    # Every staff-side read is scoped to one owner and sorted newest-first, and
+    # the workload aggregation groups on the same key.
+    ensure_index(
+        coll,
+        [("assigned_staff_id", ASCENDING), ("created_at", DESCENDING)],
+        "assigned_staff_created_idx",
+    )
+    # The SLA sweep: assigned, past its deadline, still unopened or unjudged.
+    ensure_index(coll, [("assigned_at", ASCENDING)], "assigned_at_idx", sparse=True)
 
     # Sourcing Clients & Job Orders Collections
-    db["sourcing_clients"].create_index([("id", ASCENDING)], name="sourcing_client_id_idx", sparse=True)
-    db["job_orders"].create_index([("id", ASCENDING)], name="job_order_id_idx", sparse=True)
+    ensure_index(db["sourcing_clients"], [("id", ASCENDING)], "sourcing_client_id_idx", sparse=True)
+    ensure_index(db["job_orders"], [("id", ASCENDING)], "job_order_id_idx", sparse=True)
 
-    # Durable "already ingested / user deleted" ledger.
+    # Durable "already ingested / user deleted" ledger, the accounts, and the
+    # notification feed — the last of which carries the TTL that stops the
+    # collection growing without bound, so it is not optional.
     from app.db.ledger import ensure_ledger_indexes
+    from app.db.notifications import ensure_notification_indexes
     from app.db.users import ensure_user_indexes
 
     ensure_ledger_indexes()
     ensure_user_indexes()
+    ensure_notification_indexes()
 
     log.info(
-        "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders' and 'ingest_ledger'",
+        "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders', "
+        "'ingest_ledger', 'users' and 'notifications'",
         coll.name,
     )

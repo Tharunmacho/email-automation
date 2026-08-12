@@ -260,7 +260,9 @@ class IngestLedger:
 
 
 def ensure_ledger_indexes() -> None:
+    from app.db.mongo import ensure_index
+
     coll = get_ledger_collection()
-    coll.create_index([("resume_hash", ASCENDING)], name="ledger_hash_idx")
-    coll.create_index([("message_id", ASCENDING)], name="ledger_msg_idx")
-    coll.create_index([("candidate_id", ASCENDING)], name="ledger_candidate_idx", sparse=True)
+    ensure_index(coll, [("resume_hash", ASCENDING)], "ledger_hash_idx")
+    ensure_index(coll, [("message_id", ASCENDING)], "ledger_msg_idx")
+    ensure_index(coll, [("candidate_id", ASCENDING)], "ledger_candidate_idx", sparse=True)

@@ -37,19 +37,31 @@ class MockRepository:
     def delete(self, candidate_id: str) -> bool:
         return self.candidates.pop(candidate_id, None) is not None
 
-    def count(self):
-        return len(self.candidates)
+    def count(self, query=None, staff_id=None):
+        return len(self._scoped(staff_id))
 
     def list_candidates(self, limit=50, skip=0):
         return list(self.candidates.values())[skip : skip + limit]
 
-    def list_summaries(self, limit=50, skip=0, minimal=False):
+    def _scoped(self, staff_id=None):
+        """The isolation rule, modelled rather than ignored.
+
+        The double honours `staff_id` instead of accepting and dropping it, so
+        a route that stops passing the scope fails a test here rather than
+        silently serving one staff member another's candidates.
+        """
+        records = list(self.candidates.values())
+        if staff_id:
+            return [r for r in records if getattr(r, "assigned_staff_id", None) == staff_id]
+        return records
+
+    def list_summaries(self, limit=50, skip=0, minimal=False, query=None, staff_id=None):
         """Rows, not records — the same shape the projection produces.
 
         What the projection actually leaves out is pinned in
         tests/test_candidate_listing.py, against the real repository.
         """
-        records = list(self.candidates.values())[skip : skip + limit]
+        records = self._scoped(staff_id)[skip : skip + limit]
         if minimal:
             return [
                 {

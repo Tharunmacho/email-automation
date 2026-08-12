@@ -1,13 +1,39 @@
 "use client";
 
-import React, { useState } from "react";
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail, Sparkles } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import {
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Loader2,
+  Lock,
+  Mail,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 
-import { login, type AuthUser } from "@/lib/api";
+import { fetchDemoAccounts, login, type AuthUser, type DemoAccount } from "@/lib/api";
 
 interface LoginScreenProps {
   onSuccess: (user: AuthUser) => void;
 }
+
+const DEFAULT_DEMO_ACCOUNTS: DemoAccount[] = [
+  {
+    role: "admin",
+    label: "Super Admin",
+    description: "Full access: allocation, staff accounts and SLA.",
+    email: "admin@gmail.com",
+    password: "admin@123",
+  },
+  {
+    role: "staff",
+    label: "Staff Evaluator",
+    description: "Evaluate candidates allocated to your review queue.",
+    email: "staff@gmail.com",
+    password: "staff@123",
+  },
+];
 
 export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   const [email, setEmail] = useState("");
@@ -16,6 +42,48 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Served by the API rather than hard-coded, so a button can never fill a
+  // password that has been changed in settings or an account that is turned off.
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>(DEFAULT_DEMO_ACCOUNTS);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDemoAccounts().then((accounts) => {
+      if (!cancelled) setDemoAccounts(accounts.length > 0 ? accounts : DEFAULT_DEMO_ACCOUNTS);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Fill *and* submit.
+   *
+   * A button that only fills the form asks the reader to notice that something
+   * changed and then find the submit control. The point of a demo button is to
+   * be one press, so it signs in.
+   */
+  const signInWithDemo = async (account: DemoAccount) => {
+    if (busy) return;
+    setEmail(account.email);
+    setPassword(account.password);
+    setError(null);
+    setBusy(true);
+    try {
+      const { user } = await login(account.email, account.password, remember);
+      onSuccess(user);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `${account.label} demo sign-in failed: ${err.message}`
+          : "Could not sign in with the demo account.",
+      );
+      setPassword("");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -138,29 +206,38 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
             </button>
           </form>
 
-          {/* Credentials shown outright, as requested. Clicking the block
-              fills the form so they never have to be typed by hand. */}
-          <button
-            type="button"
-            className="login-creds"
-            onClick={() => {
-              setEmail("admin@gmail.com");
-              setPassword("admin@123");
-              setError(null);
-            }}
-            disabled={busy}
-            title="Fill the form with these credentials"
-          >
-            <span className="login-creds-label">Demo credentials</span>
-            <span className="login-creds-row">
-              <span>Email</span>
-              <code>admin@gmail.com</code>
-            </span>
-            <span className="login-creds-row">
-              <span>Password</span>
-              <code>admin@123</code>
-            </span>
-          </button>
+          {/* The super admin only. The API decides what is offered here, so a
+              deployment that turns demo mode off leaves nothing behind; staff
+              sign in with credentials an admin issues them, not from here. */}
+          {demoAccounts.length > 0 && (
+            <div className="login-demo">
+              <span className="login-demo-label">Demo account</span>
+
+              <div className="login-demo-grid">
+                {demoAccounts.map((account) => (
+                  <button
+                    key={account.email}
+                    type="button"
+                    className={`login-demo-btn is-${account.role}`}
+                    onClick={() => void signInWithDemo(account)}
+                    disabled={busy}
+                    title={`Sign in as ${account.email}`}
+                  >
+                    <span className="login-demo-icon">
+                      <ShieldCheck size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="login-demo-text">
+                      <strong>{account.label}</strong>
+                      <em>{account.description}</em>
+                      <code>
+                        {account.email} · {account.password}
+                      </code>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

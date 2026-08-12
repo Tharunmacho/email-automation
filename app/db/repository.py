@@ -5,7 +5,8 @@ storage engine could change without touching business logic.
 """
 from __future__ import annotations
 
-from typing import List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Sequence
 
 from pymongo.errors import DuplicateKeyError
 
@@ -60,6 +61,15 @@ LIST_PROJECTION = {
     "source_email.from_name": 1,
     "source_email.from_addr": 1,
     "source_email.subject": 1,
+    # Allocation and verdict: the staff queue sorts and colours rows by these,
+    # and the SLA countdown in the list is `assigned_at` against `viewed_at`.
+    "assigned_staff_id": 1,
+    "assigned_staff_name": 1,
+    "assigned_at": 1,
+    "viewed_at": 1,
+    "evaluation_status": 1,
+    "evaluation_score": 1,
+    "evaluated_at": 1,
 }
 
 # The narrowest useful row: identity, state, and when it arrived. For callers
@@ -75,6 +85,29 @@ MINIMAL_PROJECTION = {
     "profile.confidence": 1,
 }
 
+# What the balancer needs to level the collection: who holds each profile and
+# whether anyone has touched it. Nothing else — a rebalance reads every document
+# in the collection, and the OCR payload would make that a multi-megabyte scan.
+REBALANCE_PROJECTION = {
+    "_id": 1,
+    "assigned_staff_id": 1,
+    "viewed_at": 1,
+    "evaluation_status": 1,
+    "created_at": 1,
+}
+
+# What an SLA alert is written from.
+SLA_PROJECTION = {
+    "_id": 1,
+    "assigned_staff_id": 1,
+    "assigned_staff_name": 1,
+    "assigned_at": 1,
+    "viewed_at": 1,
+    "evaluation_status": 1,
+    "profile.full_name": 1,
+    "profile.email": 1,
+}
+
 
 def _minimal_row(doc: dict) -> dict:
     """Flatten a minimally-projected document into the listing contract."""
@@ -88,6 +121,23 @@ def _minimal_row(doc: dict) -> dict:
         "confidence": profile.get("confidence"),
         "created_at": doc.get("created_at"),
     }
+
+
+def _scoped(query: Optional[dict], staff_id: Optional[str]) -> dict:
+    """Narrow a query to one staff member's own candidates.
+
+    `staff_id` is None for an administrator, who sees the whole collection — so
+    the admin path adds no filter rather than a filter that happens to match
+    everything.
+
+    Always returns a new dict. The projections and queries in this module are
+    shared constants, and scoping one in place would leak one staff member's
+    filter into every request that came after it.
+    """
+    scoped = dict(query or {})
+    if staff_id:
+        scoped["assigned_staff_id"] = staff_id
+    return scoped
 
 
 class CandidateRepository:
@@ -206,7 +256,12 @@ class CandidateRepository:
         return [CandidateRecord.from_mongo(d) for d in cursor]
 
     def list_summaries(
-        self, limit: int = 50, skip: int = 0, minimal: bool = False
+        self,
+        limit: int = 50,
+        skip: int = 0,
+        minimal: bool = False,
+        query: Optional[dict] = None,
+        staff_id: Optional[str] = None,
     ) -> List[dict]:
         """A page of list rows, projected in the database.
 
@@ -216,10 +271,13 @@ class CandidateRepository:
         made optional everywhere. The shape mirrors the record — `id` where
         Mongo has `_id` — so a list row reads the same as a detail response for
         the fields it does carry.
+
+        `staff_id` narrows the page to that person's own candidates; None is an
+        administrator and sees everything.
         """
         projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
         cursor = (
-            self._coll.find({}, projection)
+            self._coll.find(_scoped(query, staff_id), projection)
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
@@ -241,5 +299,176 @@ class CandidateRepository:
         res = self._coll.delete_one({"_id": candidate_id})
         return res.deleted_count > 0
 
-    def count(self) -> int:
-        return self._coll.count_documents({})
+    def count(self, query: Optional[dict] = None, staff_id: Optional[str] = None) -> int:
+        return self._coll.count_documents(_scoped(query, staff_id))
+
+    # ---- allocation -------------------------------------------------------- #
+    def assign(self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None) -> bool:
+        """Hand one profile to a staff member, clearing any prior review state.
+
+        The clear is deliberate and is what makes a profile "locked" to its
+        current owner once someone has opened or judged it: moving it would
+        throw that work away, so the balancer refuses to (see
+        `app.assignment.balancer._is_locked`). Anything that calls this on a
+        reviewed profile is asking for the verdict to be reset.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        res = self._coll.update_one(
+            {"_id": candidate_id},
+            {"$set": {
+                "assigned_staff_id": staff_id,
+                "assigned_staff_name": staff_name,
+                "assigned_at": now,
+                "viewed_at": None,
+                "evaluation_status": "pending",
+                "evaluation_score": None,
+                "evaluation_notes": None,
+                "evaluated_at": None,
+                "evaluated_by": None,
+                "updated_at": now,
+            }},
+        )
+        return res.matched_count > 0
+
+    def workload_counts(self) -> Dict[str, Dict[str, int]]:
+        """`{staff_id: {assigned, evaluated, unviewed}}`, aggregated in Mongo.
+
+        Only staff who hold something appear. A staff member with no candidates
+        has no documents to group, so callers must read a missing key as zero
+        rather than as unknown — a brand-new account is exactly the one every
+        incoming résumé should be going to.
+        """
+        pipeline = [
+            {"$match": {"assigned_staff_id": {"$ne": None}}},
+            {"$group": {
+                "_id": "$assigned_staff_id",
+                "assigned": {"$sum": 1},
+                # Anything that is not "pending" is a recorded verdict.
+                "evaluated": {"$sum": {"$cond": [
+                    {"$eq": [{"$ifNull": ["$evaluation_status", "pending"]}, "pending"]}, 0, 1,
+                ]}},
+                "unviewed": {"$sum": {"$cond": [{"$ifNull": ["$viewed_at", False]}, 0, 1]}},
+            }},
+        ]
+        counts: Dict[str, Dict[str, int]] = {}
+        for row in self._coll.aggregate(pipeline):
+            counts[row["_id"]] = {
+                "assigned": row.get("assigned", 0),
+                "evaluated": row.get("evaluated", 0),
+                "unviewed": row.get("unviewed", 0),
+            }
+        return counts
+
+    def list_for_rebalance(self) -> List[dict]:
+        """Every candidate, oldest first, projected down to the allocation fields.
+
+        Oldest first because a rebalance deals the movable profiles out in order
+        and the result has to be reproducible; an unordered scan would place the
+        same collection differently on every run.
+        """
+        cursor = self._coll.find({}, REBALANCE_PROJECTION).sort("created_at", 1)
+        return list(cursor)
+
+    def unassigned_count(self) -> int:
+        """Profiles nobody owns — invisible to every staff dashboard."""
+        return self._coll.count_documents({"assigned_staff_id": None})
+
+    def orphaned_count(self, known_staff_ids: Sequence[str]) -> int:
+        """Profiles pointing at an account that no longer exists.
+
+        A deactivated staff member still owns their work, so only ids that are
+        gone from the roster entirely count here. Nothing but a rebalance clears
+        these, which is why the console surfaces the number.
+        """
+        return self._coll.count_documents(
+            {"assigned_staff_id": {"$nin": [None, *known_staff_ids]}}
+        )
+
+    def staff_workload(self, staff: Sequence[Any]) -> List[dict]:
+        """One workload row per staff member, zero-filled, for the admin console."""
+        counts = self.workload_counts()
+        rows = []
+        for member in staff:
+            tally = counts.get(member.id, {})
+            assigned = tally.get("assigned", 0)
+            evaluated = tally.get("evaluated", 0)
+            row = member.to_public()
+            row.update({
+                "assigned": assigned,
+                "evaluated": evaluated,
+                "unviewed": tally.get("unviewed", 0),
+                "pending": assigned - evaluated,
+                # Precomputed so the progress bar cannot divide by zero.
+                "progress": round(evaluated / assigned * 100) if assigned else 0,
+            })
+            rows.append(row)
+        return rows
+
+    # ---- evaluation -------------------------------------------------------- #
+    def mark_viewed(self, candidate_id: str, staff_id: Optional[str] = None) -> bool:
+        """Stamp the first open. Returns True only the first time.
+
+        `viewed_at: None` is part of the query rather than a read-then-write, so
+        two tabs opening the same profile cannot both claim to be the first and
+        the SLA stop-clock records when the owner actually looked at it.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        res = self._coll.update_one(
+            _scoped({"_id": candidate_id, "viewed_at": None}, staff_id),
+            {"$set": {"viewed_at": now, "updated_at": now}},
+        )
+        return res.modified_count > 0
+
+    def save_evaluation(
+        self,
+        candidate_id: str,
+        staff_id: Optional[str],
+        status: str,
+        score: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Optional[CandidateRecord]:
+        """Record a verdict, and count it as a view if the profile was never opened.
+
+        Returns None when the id does not exist *or* belongs to someone else —
+        the caller cannot tell which, and that is the isolation rule: a staff
+        member must not be able to probe for other people's candidates.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        updates = {
+            "evaluation_status": status,
+            "evaluation_score": score,
+            "evaluation_notes": notes,
+            "evaluated_at": now,
+            "evaluated_by": staff_id,
+            "updated_at": now,
+        }
+        res = self._coll.update_one(_scoped({"_id": candidate_id}, staff_id), {"$set": updates})
+        if res.matched_count == 0:
+            return None
+
+        # Judging a profile is looking at it; without this the SLA sweep would
+        # keep reporting an evaluated profile as never opened.
+        self._coll.update_one(
+            {"_id": candidate_id, "viewed_at": None}, {"$set": {"viewed_at": now}}
+        )
+        return self.get(candidate_id)
+
+    def find_sla_breaches(self, cutoff: datetime) -> List[dict]:
+        """Assigned profiles, older than `cutoff`, that are unopened or unjudged."""
+        return list(self._coll.find(
+            {
+                "assigned_staff_id": {"$ne": None},
+                "assigned_at": {"$ne": None, "$lte": cutoff},
+                "$or": [
+                    {"viewed_at": None},
+                    {"evaluation_status": {"$in": [None, "pending"]}},
+                ],
+            },
+            SLA_PROJECTION,
+        ))

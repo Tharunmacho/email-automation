@@ -211,6 +211,19 @@ class SourceEmail(BaseModel):
     received_date: Optional[str] = None
 
 
+# The verdicts a reviewer can record. "pending" is the state every allocation
+# starts in and the one the SLA clock runs against. Mirrored in
+# frontend/src/types/index.ts.
+EVALUATION_STATUSES = (
+    "pending",
+    "shortlisted",
+    "interviewing",
+    "rejected",
+    "on_hold",
+    "hired",
+)
+
+
 class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
@@ -228,6 +241,24 @@ class CandidateRecord(BaseModel):
     duplicate_of: Optional[str] = None
     auto_reply_sent: bool = False
     raw_ocr: Optional[Dict[str, Any]] = None
+
+    # ---- allocation ------------------------------------------------------- #
+    # Who owns this profile. An unassigned candidate is one nobody is
+    # accountable for and the SLA sweep cannot report, so ingestion places every
+    # record it stores (see app.assignment.balancer).
+    assigned_staff_id: Optional[str] = None
+    assigned_staff_name: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+
+    # ---- evaluation ------------------------------------------------------- #
+    # `viewed_at` is stamped once, on the owner's first open; while it is null
+    # the SLA clock is running. Reassignment clears both this and the verdict.
+    viewed_at: Optional[datetime] = None
+    evaluation_status: str = "pending"
+    evaluation_score: Optional[int] = None      # 1..5 stars
+    evaluation_notes: Optional[str] = None
+    evaluated_at: Optional[datetime] = None
+    evaluated_by: Optional[str] = None          # staff id that recorded it
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

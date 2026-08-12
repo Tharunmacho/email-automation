@@ -1,9 +1,9 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
 
-import { NAV_GROUPS, type NavId } from "@/lib/nav";
+import { navGroupsFor, type NavId } from "@/lib/nav";
 import {
   getThemeServerSnapshot,
   getThemeSnapshot,
@@ -51,6 +51,10 @@ export default function Sidebar({
 }: SidebarProps) {
   const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
 
+  // A staff member gets a shorter rail: the destinations they cannot use are
+  // refused by the API anyway, and offering them is offering a dead end.
+  const groups = useMemo(() => navGroupsFor(user.role), [user.role]);
+
   const go = (id: NavId) => {
     onNavigate(id);
     onCloseMobile();
@@ -74,7 +78,7 @@ export default function Sidebar({
             one the header already draws. The button rides the first group's
             heading instead, at the right edge of the row "GENERAL" starts. */}
         <div className="rail-scroll">
-          {NAV_GROUPS.map((group, index) => (
+          {groups.map((group, index) => (
             <div key={group.label} className="rail-group">
               {index === 0 ? (
                 <div className="rail-group-head">
