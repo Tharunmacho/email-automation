@@ -733,7 +733,7 @@ export default function StaffDashboard({
               </div>
             ) : (
               <div className="eval-split">
-                {/* Left: the evidence. */}
+                {/* Left: the PDF/Image evidence preview. */}
                 <div className="eval-pane eval-pdf">
                   {detail.resume?.storage_key ? (
                     isImageResume ? (
@@ -745,29 +745,12 @@ export default function StaffDashboard({
                         />
                       </div>
                     ) : (
-                      <object
-                        data={resumeDownloadUrl(detail.id)}
-                        type={detail.resume.mime_type ?? "application/pdf"}
+                      <iframe
+                        src={resumeDownloadUrl(detail.id)}
+                        title={detail.resume.original_filename ?? "Résumé PDF"}
                         className="eval-pdf-frame"
-                      >
-                        <div className="db-empty">
-                          <FileText size={22} />
-                          <p className="db-empty-title">
-                            {detail.resume.original_filename ?? "Résumé"}
-                          </p>
-                          <p className="db-empty-sub">
-                            This file cannot be previewed inline.
-                          </p>
-                          <a
-                            className="db-btn"
-                            href={resumeDownloadUrl(detail.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Open the file
-                          </a>
-                        </div>
-                      </object>
+                        style={{ width: "100%", height: "100%", border: "none", minHeight: "550px", borderRadius: "8px" }}
+                      />
                     )
                   ) : (
                     <div className="db-empty">
@@ -779,7 +762,7 @@ export default function StaffDashboard({
                   )}
                 </div>
 
-                {/* Right: the parsed profile, then the verdict. */}
+                {/* Right: Executive Candidate Profile + Verdict Evaluation Form. */}
                 <div className="eval-pane eval-form">
                   <div className="eval-contacts">
                     {profile?.email && (
@@ -799,6 +782,15 @@ export default function StaffDashboard({
                     )}
                   </div>
 
+                  {profile?.summary && (
+                    <div className="eval-section">
+                      <h4 className="eval-section-title">Summary</h4>
+                      <p className="eval-summary-text" style={{ fontSize: "0.85rem", lineHeight: "1.5", color: "#334155" }}>
+                        {profile.summary}
+                      </p>
+                    </div>
+                  )}
+
                   {profile?.skills && profile.skills.length > 0 && (
                     <div className="eval-section">
                       <h4 className="eval-section-title">Skills</h4>
@@ -809,6 +801,70 @@ export default function StaffDashboard({
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {profile?.work_experience && profile.work_experience.length > 0 && (
+                    <div className="eval-section">
+                      <h4 className="eval-section-title">Work Experience</h4>
+                      <div className="eval-exp-list" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        {profile.work_experience.map((exp, idx) => (
+                          <div key={idx} className="eval-exp-item" style={{ padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                            <strong style={{ fontSize: "0.88rem", color: "#0f172a" }}>
+                              {exp.designation || "Role"} {exp.company ? `· ${exp.company}` : ""}
+                            </strong>
+                            {(exp.start_date || exp.end_date) && (
+                              <p style={{ fontSize: "0.75rem", color: "#64748b", margin: "2px 0 4px" }}>
+                                {[exp.start_date, exp.end_date].filter(Boolean).join(" – ")}
+                              </p>
+                            )}
+                            {exp.description && (
+                              <p style={{ fontSize: "0.8rem", color: "#334155", margin: 0, whiteSpace: "pre-line" }}>
+                                {exp.description}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile?.education && profile.education.length > 0 && (
+                    <div className="eval-section">
+                      <h4 className="eval-section-title">Education</h4>
+                      <div className="eval-edu-list" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {profile.education.map((edu, idx) => (
+                          <div key={idx} style={{ fontSize: "0.82rem", color: "#334155" }}>
+                            <strong>{edu.degree || "Degree"}</strong> {edu.institution ? `· ${edu.institution}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile?.projects && profile.projects.length > 0 && (
+                    <div className="eval-section">
+                      <h4 className="eval-section-title">Projects</h4>
+                      <div className="eval-proj-list" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {profile.projects.map((proj, idx) => (
+                          <div key={idx} style={{ padding: "6px 10px", background: "#f8fafc", borderRadius: "6px" }}>
+                            <strong style={{ fontSize: "0.85rem", color: "#0f172a" }}>{proj.name}</strong>
+                            {proj.technologies && <p style={{ fontSize: "0.75rem", color: "#64748b", margin: "2px 0" }}>Tech: {proj.technologies}</p>}
+                            {proj.description && <p style={{ fontSize: "0.8rem", color: "#334155", margin: 0 }}>{proj.description}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile?.certifications && profile.certifications.length > 0 && (
+                    <div className="eval-section">
+                      <h4 className="eval-section-title">Certifications</h4>
+                      <ul style={{ paddingLeft: "18px", margin: "4px 0", fontSize: "0.82rem", color: "#334155" }}>
+                        {profile.certifications.map((cert, idx) => (
+                          <li key={idx}>{cert}</li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 
