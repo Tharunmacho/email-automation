@@ -69,11 +69,20 @@ def test_no_single_ocr_call_exceeds_the_chunk_size(scanned):
 
 
 def test_ocr_stops_as_soon_as_the_resume_is_found(scanned):
-    """A CV on pages 1-2 of a 30-page bundle must not cost 30 pages of OCR."""
+    """A CV on pages 1-2 of a 30-page bundle must not cost 30 pages of OCR.
+
+    The floor is one chunk, not two pages: nothing can be classified before a
+    chunk has been read, so `ocr_chunk_pages` is the granularity at which
+    stopping is possible. Asserted against the setting rather than a constant,
+    because that is the actual guarantee — tuning the chunk size should not
+    require editing this test to keep it true.
+    """
     doc = tx.extract_text(make_pdf(bundle_with_resume_at(1)), "01.pdf")
 
     assert doc.resume_pages == [1, 2]
-    assert sum(scanned) <= 6, f"read {sum(scanned)} pages to find a resume on page 1"
+    assert sum(scanned) <= settings.ocr_chunk_pages, (
+        f"read {sum(scanned)} pages to find a resume on page 1"
+    )
 
 
 def test_a_resume_deep_in_the_bundle_is_still_reached(scanned):

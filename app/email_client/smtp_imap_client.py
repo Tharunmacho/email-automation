@@ -16,6 +16,7 @@ from typing import List, Optional
 
 from app.config import settings
 from app.core.models import Attachment, EmailMessage
+from app.extraction.file_type import ext_for_mime, is_document_mime
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -174,13 +175,30 @@ class SMTPIMAPClient:
             if filename:
                 filename = _decode_header_str(filename)
 
-            is_attachment = "attachment" in content_disposition.lower() or bool(filename)
+            # A part is an attachment if it is *marked* as one, if it is named,
+            # or if it simply carries a document or an image. That last clause
+            # is what catches the CV pasted in as an inline image and the scan
+            # sent by a client that omitted Content-Disposition entirely —
+            # both of which used to fall through to the body branch, be
+            # discarded as non-text, and leave the mail looking attachment-free.
+            disposition = content_disposition.lower()
+            is_body_text = content_type in ("text/plain", "text/html")
+            is_attachment = (
+                "attachment" in disposition
+                or bool(filename)
+                or ("inline" in disposition and not is_body_text)
+                or (not is_body_text and is_document_mime(content_type))
+            )
 
             if is_attachment:
                 payload = part.get_payload(decode=True) or b""
+                if not payload:
+                    continue
                 att_id = f"{message_id}_{part_idx}"
+                if not filename:
+                    filename = f"document_{part_idx}{ext_for_mime(content_type)}"
                 att = Attachment(
-                    filename=filename or f"attachment_{part_idx}.bin",
+                    filename=filename,
                     mime_type=content_type or "application/octet-stream",
                     size=len(payload),
                     attachment_id=att_id,

@@ -7,13 +7,16 @@ message (mark read / apply a processed label).
 from __future__ import annotations
 
 import base64
+import re
 import threading
 from typing import List, Optional
+from urllib.parse import unquote
 
 from googleapiclient.discovery import build
 
 from app.config import settings
 from app.core.models import Attachment, EmailMessage
+from app.extraction.file_type import ext_for_mime
 from app.gmail.auth import get_credentials
 from app.logging_config import get_logger
 
@@ -101,27 +104,94 @@ class GmailClient:
         return "\n".join(parts_text).strip()
 
     def _collect_attachments(self, payload: dict) -> List[Attachment]:
+        """Every non-body part of the message, however it was encoded.
+
+        Two things here are load-bearing, and neither used to be:
+
+        * **Inline bodies.** Gmail only mints an ``attachmentId`` for parts above
+          roughly 50 KB. Anything smaller comes back with the bytes sitting in
+          ``body["data"]`` instead, and requiring an ``attachmentId`` dropped
+          those on the floor — a 30 KB phone scan of a CV was simply invisible
+          to the pipeline.
+        * **Missing filenames.** A part with no ``filename`` is not a part with
+          no content. Clients that send a CV as an inline image, and forwards
+          that lose the disposition header, both produce exactly that. The name
+          is reconstructed from ``Content-Disposition``, then from the MIME
+          type; it is only ever used for display and for a type *hint*, never as
+          a reason to discard.
+        """
         found: list[Attachment] = []
+        counter = {"n": 0}
 
         def walk(part: dict):
-            filename = part.get("filename") or ""
-            body = part.get("body", {})
-            if filename and body.get("attachmentId"):
-                found.append(
-                    Attachment(
-                        filename=filename,
-                        mime_type=part.get("mimeType", "application/octet-stream"),
-                        size=body.get("size", 0),
-                        attachment_id=body["attachmentId"],
-                    )
-                )
+            _collect_one(part)
             for sub in part.get("parts", []) or []:
                 walk(sub)
+
+        def _collect_one(part: dict):
+            mime = (part.get("mimeType") or "").lower()
+            body = part.get("body", {}) or {}
+            filename = part.get("filename") or ""
+            attachment_id = body.get("attachmentId")
+            inline_data = body.get("data")
+
+            # A container holds no bytes of its own.
+            if mime.startswith("multipart/"):
+                return
+            if not attachment_id and not inline_data:
+                return
+
+            headers = part.get("headers", []) or []
+            disposition = _header(headers, "Content-Disposition")
+
+            # The message body itself is not an attachment — unless the sender
+            # explicitly attached it, which is how some clients send a .txt CV.
+            if mime in ("text/plain", "text/html") and not filename:
+                if "attachment" not in disposition.lower():
+                    return
+
+            if not filename:
+                filename = _filename_from_disposition(disposition)
+            if not filename:
+                counter["n"] += 1
+                filename = f"document_{counter['n']}{ext_for_mime(mime)}"
+
+            data: bytes | None = None
+            size = body.get("size", 0) or 0
+            if not attachment_id and inline_data:
+                # Small part: the bytes are already here, so there is nothing to
+                # fetch later. `size` from Gmail is the encoded length, so take
+                # the decoded length as the truth the size floor is judged on.
+                try:
+                    data = _b64url_decode(inline_data)
+                    size = len(data)
+                except Exception as err:  # noqa: BLE001 — a bad part is not a bad message
+                    log.warning("Could not decode inline part '%s': %s", filename, err)
+                    return
+
+            found.append(
+                Attachment(
+                    filename=filename,
+                    mime_type=part.get("mimeType", "application/octet-stream"),
+                    size=size,
+                    attachment_id=attachment_id or "",
+                    data=data,
+                )
+            )
 
         walk(payload)
         return found
 
     def download_attachment(self, message_id: str, attachment: Attachment) -> bytes:
+        # Small parts arrive with their bytes inline and have no attachment id
+        # to fetch by; asking the API for id="" is a 400.
+        if attachment.data is not None:
+            return attachment.data
+        if not attachment.attachment_id:
+            raise ValueError(
+                f"Attachment '{attachment.filename}' has neither inline data nor an "
+                "attachment id — nothing to download."
+            )
         att = (
             self._service.users()
             .messages()
@@ -221,4 +291,23 @@ class GmailClient:
 
 
 def _b64url_decode(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data.encode("utf-8"))
+    # Gmail strips base64 padding on some parts; restore it before decoding.
+    raw = data.encode("utf-8")
+    return base64.urlsafe_b64decode(raw + b"=" * (-len(raw) % 4))
+
+
+_DISPOSITION_FILENAME = re.compile(
+    r"""filename\*?\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\r\n]+))""", re.IGNORECASE,
+)
+
+
+def _filename_from_disposition(disposition: str) -> str:
+    """Pull a filename out of a Content-Disposition / Content-Type header."""
+    match = _DISPOSITION_FILENAME.search(disposition or "")
+    if not match:
+        return ""
+    name = next((g for g in match.groups() if g), "").strip()
+    # RFC 5987: `filename*=UTF-8''resume%20final.pdf`
+    if "''" in name:
+        name = name.split("''", 1)[1]
+    return unquote(name).strip().strip('"')

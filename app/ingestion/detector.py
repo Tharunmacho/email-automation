@@ -20,9 +20,15 @@ from typing import List
 
 from app.config import settings
 from app.core.models import Attachment, EmailMessage
+from app.extraction import file_type as ft
+from app.extraction import page_classifier as pc
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+# A pasted CV is at least this long. Below it, the body is a covering note
+# ("Please find my resume attached") and there is nothing to parse.
+_MIN_BODY_RESUME_CHARS = 400
 
 _RESUME_KEYWORDS = re.compile(
     r"\b(resume|résumé|cv|curriculum\s*vitae|bio|biodata|bio[-\s]?data|candidate|applicant|application|"
@@ -62,7 +68,10 @@ def _sender_ignored(from_addr: str) -> bool:
     return any(frag in addr for frag in settings.ignore_sender_fragments)
 
 
-_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
+# The one list, shared with the extractor. A second copy here drifted the moment
+# `.heic` was added — an iPhone photo of a CV then counted as a document and
+# skipped the size floor entirely.
+_IMAGE_EXTS = ft.IMAGE_EXTENSIONS
 
 
 def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
@@ -85,9 +94,21 @@ def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
 
     for att in attachments:
         ext = os.path.splitext(att.filename)[1].lower()
-        if ext not in allowed:
+        mime = ft.normalize_mime(att.mime_type)
+
+        # Extension *or* declared type. An unnamed inline part reconstructed as
+        # `document_1.bin`, and a `.pages` file nobody thought to list, both have
+        # to survive this: the extension is a hint about a file, not a fact, and
+        # the only thing that settles what a document is, is reading it.
+        if ext not in allowed and not ft.is_document_mime(mime):
+            log.info(
+                "Ignoring '%s': neither its extension (%s) nor its type (%s) "
+                "suggests a document or an image",
+                att.filename, ext or "none", mime or "none",
+            )
             continue
-        if ext in _IMAGE_EXTS and att.size < settings.min_image_attachment_bytes:
+
+        if _looks_like_image(ext, mime) and att.size < settings.min_image_attachment_bytes:
             log.info(
                 "Ignoring image '%s': %d bytes is below the %d-byte floor for a "
                 "legible scanned page (almost certainly a signature logo or icon)",
@@ -98,14 +119,87 @@ def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
     return keep
 
 
+def _looks_like_image(ext: str, mime: str) -> bool:
+    return ext in _IMAGE_EXTS or mime.startswith("image/")
+
+
+def _is_document(att: Attachment) -> bool:
+    """A non-image attachment — something whose text can be read without OCR."""
+    ext = os.path.splitext(att.filename)[1].lower()
+    return not _looks_like_image(ext, ft.normalize_mime(att.mime_type))
+
+
+# Where a CV lives when it did not come as a file. Reported, never fetched.
+_CLOUD_LINK_RE = re.compile(
+    r"https?://(?:[\w.-]*\.)?(?:drive\.google\.com|docs\.google\.com|dropbox\.com|"
+    r"1drv\.ms|onedrive\.live\.com|sharepoint\.com|wetransfer\.com|icloud\.com|"
+    r"mega\.nz|box\.com|linkedin\.com/in)/\S*",
+    re.IGNORECASE,
+)
+
+
+def _body_as_attachment(email: EmailMessage) -> Attachment | None:
+    """The email body itself, as a text attachment, when it reads as a résumé.
+
+    Returned as a synthetic `.txt` attachment rather than handled as a special
+    case, so the rest of the pipeline — hashing, the ledger, dedup, storage,
+    the LLM — needs to know nothing about where the text came from.
+    """
+    body = (email.body_text or "").strip()
+    if len(body) < _MIN_BODY_RESUME_CHARS:
+        return None
+
+    verdict = pc.classify_page(body)
+    if verdict.kind != pc.RESUME:
+        log.info(
+            "Email body of %s is not a resume (kind=%s, score=%.2f)",
+            email.message_id, verdict.kind, verdict.score,
+        )
+        return None
+
+    data = body.encode("utf-8")
+    log.info(
+        "No attachment on %s, but the body scores as a resume (%.2f) — ingesting it",
+        email.message_id, verdict.score,
+    )
+    return Attachment(
+        filename="email_body.txt",
+        mime_type="text/plain",
+        size=len(data),
+        attachment_id="",
+        data=data,
+    )
+
+
 def detect(email: EmailMessage) -> DetectionResult:
     resume_atts = _resume_type_attachments(email.attachments)
 
     if not resume_atts:
+        # No file came with the mail — but plenty of candidates paste the CV
+        # straight into the message, and the body is text we already hold. It
+        # costs nothing to read, and the page classifier judges it on exactly
+        # the same evidence it applies to a PDF page.
+        if _sender_ignored(email.from_addr):
+            return DetectionResult(
+                False, 0.1, f"no attachment; sender ignored ({email.from_addr})", [],
+            )
+
+        body_att = _body_as_attachment(email)
+        if body_att is not None:
+            return DetectionResult(
+                True, 0.7, "no attachment; resume content found in the email body",
+                [body_att],
+            )
+
         names = ", ".join(a.filename for a in email.attachments) or "none"
-        return DetectionResult(
-            False, 0.0, f"no resume-type attachment (saw: {names})", [],
-        )
+        detail = f"no resume-type attachment (saw: {names})"
+        links = _CLOUD_LINK_RE.findall(email.body_text or "")
+        if links:
+            # Not fetched: pulling a stranger's cloud link is an outbound request
+            # to an unknown host, and most are permission-walled anyway. Naming
+            # it in the reason is what lets a recruiter act on it.
+            detail += f"; body links to {links[0]} — open it manually if this is an application"
+        return DetectionResult(False, 0.0, detail, [])
 
     if _sender_ignored(email.from_addr):
         return DetectionResult(False, 0.1, f"sender ignored ({email.from_addr})", resume_atts)
@@ -139,21 +233,28 @@ def detect(email: EmailMessage) -> DetectionResult:
             reasons.append("promotional/transactional subject")
 
     # `Scan_2026.pdf` under the subject "Fwd:" scores 0.50 and would never be
-    # opened, yet it is exactly the file a candidate sends. So a *document*
-    # attachment earns a content inspection on its own: the page classifier
-    # reads it and refuses a hall ticket in milliseconds, which is a far better
-    # judge than a keyword search over a filename.
+    # opened, yet it is exactly the file a candidate sends. So an attachment
+    # earns a content inspection on its own: the page classifier reads it and
+    # refuses a hall ticket in milliseconds, which is a far better judge than a
+    # keyword search over a filename.
+    #
+    # Images count here too, and that is a deliberate trade. A photo of a CV
+    # named `image.png`, sent under the subject "Fwd:", carries no signal a
+    # keyword can find — it was the single largest class of false negative, and
+    # no amount of filename policy recovers it. The cost is an OCR call on
+    # images that turn out to be signature logos, bounded on the other side by
+    # `min_image_attachment_bytes`. Those two settings are one dial: lowering
+    # the floor to catch compressed scans is what makes this inspection matter,
+    # and raising it is the lever if the OCR bill gets loud.
     #
     # A promotional subject still blocks it. That is a judgement about the
-    # email, not about what the attachment is named.
+    # email, not about what its attachments are named.
     promotional = "promotional/transactional subject" in reasons
-    has_document = any(
-        os.path.splitext(a.filename)[1].lower() not in _IMAGE_EXTS for a in resume_atts
-    )
-    if settings.inspect_all_documents and has_document and not promotional:
+    if settings.inspect_all_documents and not promotional:
         is_candidate = True
         if score < settings.detector_min_score:
-            reasons.append("document opened for content inspection regardless of filename")
+            kind = "document" if any(_is_document(a) for a in resume_atts) else "image"
+            reasons.append(f"{kind} opened for content inspection regardless of filename")
     else:
         is_candidate = score >= settings.detector_min_score
 

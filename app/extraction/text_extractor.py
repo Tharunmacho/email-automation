@@ -36,6 +36,8 @@ def extract_text(data: bytes, filename: str = "") -> ExtractedDocument:
         return _extract_docx(data)
     if kind.category == ft.CATEGORY_DOC:
         return _extract_doc(data)
+    if kind.category == ft.CATEGORY_ODT:
+        return _extract_odt(data)
     if kind.category == ft.CATEGORY_IMAGE:
         return _extract_image(data, filename)
     if kind.category == ft.CATEGORY_RTF:
@@ -377,6 +379,45 @@ def _extract_doc(data: bytes) -> ExtractedDocument:
         result = _extract_docx(converted.read_bytes())
         result.method = "doc"
         return result
+
+
+def _extract_odt(data: bytes) -> ExtractedDocument:
+    """OpenDocument text — a zip whose `content.xml` holds the paragraphs.
+
+    Worth the twenty lines: LibreOffice exports .odt by default, so it is what
+    arrives from candidates who do not own Word, and the alternative is telling
+    them their application was unreadable.
+    """
+    import io
+    import zipfile
+    from xml.etree import ElementTree
+
+    _TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            xml = archive.read("content.xml")
+    except (zipfile.BadZipFile, KeyError) as exc:
+        raise TextExtractionError(f"Could not read .odt archive: {exc}") from exc
+
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError as exc:
+        raise TextExtractionError(f"Could not parse .odt content.xml: {exc}") from exc
+
+    lines: list[str] = []
+    # Paragraphs and headings, in document order. `itertext` on each keeps the
+    # spans inside a paragraph (bold runs, hyperlinks) joined to their line.
+    for node in root.iter():
+        if node.tag in (f"{{{_TEXT_NS}}}p", f"{{{_TEXT_NS}}}h"):
+            line = "".join(node.itertext()).strip()
+            if line:
+                lines.append(line)
+
+    text = "\n".join(lines).strip()
+    if not text:
+        raise TextExtractionError("ODT contained no extractable text.")
+    return _classified(_split_pages(text), method="odt")
 
 
 def _extract_image(data: bytes, filename: str = "") -> ExtractedDocument:

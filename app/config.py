@@ -84,7 +84,13 @@ class Settings(BaseSettings):
     # Images cannot be read without OCR, so they are screened on file size
     # rather than name — below this, it is a signature logo or an icon, not a
     # legible scanned page.
-    min_image_attachment_bytes: int = 40_000
+    #
+    # 2 KB, not 40 KB. A phone camera shot of a CV that WhatsApp or Gmail has
+    # re-compressed lands around 15-30 KB, and the old 40 KB floor threw those
+    # away silently — the single largest source of "no resume-type attachment"
+    # on mail that plainly carried one. Icons and signature logos are still
+    # well under 2 KB, so the thing the floor exists to catch is still caught.
+    min_image_attachment_bytes: int = 2_000
     # Stage 2, after parsing: below this the document is not stored as a
     # candidate at all. Guards against a failed OCR falling back to the
     # heuristic parser and turning a hall ticket into a profile.
@@ -121,16 +127,21 @@ class Settings(BaseSettings):
     ocr_min_text_chars: int = 120
     # Quality pass, run only on the pages that hold the résumé.
     ocr_dpi: int = 150
-    # How many pages go into one OCR call. The cloud OCR takes a file, so this
-    # is the only lever on how long a single call can take: a 9-page 1.6 MB scan
-    # timed out at 180s as one request, while the same pages two at a time
-    # answer in seconds. Raise it only if your OCR is fast and per-call billed.
-    ocr_chunk_pages: int = 5
+    # How many pages go into one OCR call, and the granularity at which the
+    # scan stops. The cloud OCR takes a file, so this is the only lever on how
+    # long a single call can take: a 9-page 1.6 MB scan timed out at 180s as one
+    # request, while the same pages in chunks answer in seconds.
+    #
+    # It is also the *early-stopping* granularity. At 10, a bundle whose résumé
+    # sits on pages 25-26 is read as pages 1-10, 11-20, 21-30 and then stops —
+    # pages 31-50 are never rendered, never uploaded, never billed. Raising this
+    # buys fewer round trips at the cost of overshooting further past the CV.
+    ocr_chunk_pages: int = 10
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
-    # resume can legitimately sit on page 15 of 30, and stopping early would
+    # resume can legitimately sit on page 25 of 50, and stopping early would
     # lose it. Truncation is always logged, never silent.
-    ocr_max_pages: int = 40
+    ocr_max_pages: int = 60
     # Give up early on a scan that is plainly not an application at all: after
     # this many pages with no resume *and* no supporting document (certificate,
     # experience letter, ID) among them, there is no CV coming. Certificates do
@@ -174,10 +185,16 @@ class Settings(BaseSettings):
 
     # ---- Derived helpers ----
     # File extensions the pre-filter treats as a possible resume attachment.
+    # This is a *type* hint, not a gate: an attachment whose extension is absent
+    # or unknown is still admitted when its MIME type or magic bytes say it is a
+    # document or an image (see `detector._resume_type_attachments`). `.bin` is
+    # here because Gmail and several webmail clients label a perfectly good PDF
+    # that way when the sender's client omitted a Content-Type.
     resume_extensions: List[str] = Field(
         default_factory=lambda: [
-            ".pdf", ".doc", ".docx", ".rtf", ".txt",
+            ".pdf", ".doc", ".docx", ".rtf", ".txt", ".odt", ".pages",
             ".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp",
+            ".heic", ".heif", ".bin",
         ]
     )
     # Sender fragments / patterns whose mail we never treat as candidate resumes.

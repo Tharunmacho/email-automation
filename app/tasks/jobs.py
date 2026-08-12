@@ -120,6 +120,28 @@ def poll_gmail(query: str | None = None) -> dict:
 )
 def process_message(self, message_id: str) -> dict:
     """One email, end to end: claim it, process it, mark it done in Gmail."""
+    return _process_one(self, message_id)
+
+
+@celery_app.task(
+    name="app.tasks.jobs.process_single_message",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+)
+def process_single_message(self, message_id: str) -> dict:
+    """Alias for `process_message`, under the name the fan-out contract uses.
+
+    Registered as a second task rather than renamed: a rename would strand every
+    `process_message` already sitting in Redis when the workers restart, and
+    those are real candidate emails. Both names take the same per-message claim
+    lock, so a message dispatched under either one is still processed once.
+    """
+    return _process_one(self, message_id)
+
+
+def _process_one(task, message_id: str) -> dict:
+    """The body both task names share. `task` is only used to retry."""
     with claim_message(message_id) as claimed:
         if not claimed:
             # Another worker has it — either a re-dispatch from the next beat
@@ -134,7 +156,7 @@ def process_message(self, message_id: str) -> dict:
             result = pipeline.process_email(email, gmail=gmail)
         except Exception as exc:  # noqa: BLE001
             log.exception("process_message failed for %s", message_id)
-            raise self.retry(exc=exc)
+            raise task.retry(exc=exc)
 
         # Post-processing gets its own guard, matching IngestionRunner: the
         # candidate is already in Mongo, so a Gmail hiccup here must not turn a
@@ -154,3 +176,16 @@ def process_message(self, message_id: str) -> dict:
             "reason": result.reason,
             "candidates": result.ingested_ids,
         }
+
+
+@celery_app.task(name="app.tasks.jobs.process_single_message")
+def process_single_message(message_id: str) -> dict:
+    """Alias for `process_message`, under the name the fan-out contract uses.
+
+    Registered as its own task rather than renaming the original: a rename would
+    strand every `process_message` already sitting in Redis when the workers
+    restart, and those are real candidate emails. Both names route to the same
+    claim lock, so dispatching a message under either one still guarantees a
+    single worker processes it.
+    """
+    return process_message.run(message_id)

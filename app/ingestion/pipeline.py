@@ -257,7 +257,16 @@ class IngestionPipeline:
         except (NotAResumeError,) as exc:
             log.info("Skipping attachment: %s", exc)
             return AttachmentResult(att.filename, "not_resume", detail=str(exc))
-        except (UnsupportedFileTypeError, TextExtractionError, AIParseError) as exc:
+        except UnsupportedFileTypeError as exc:
+            # Permanent, not retryable, and the distinction decides whether the
+            # mail ever gets labelled done. A file type we have no reader for
+            # will not become readable on the next poll, so reporting it as an
+            # error left the message unlabelled and re-fetched forever. Stage 1
+            # now admits attachments on their MIME type alone, which is what
+            # makes an unreadable type reachable here at all.
+            log.info("Attachment '%s' is of a type we cannot read: %s", att.filename, exc)
+            return AttachmentResult(att.filename, "not_resume", detail=str(exc))
+        except (TextExtractionError, AIParseError) as exc:
             log.warning("Attachment failed (%s): %s", att.filename, exc)
             return AttachmentResult(att.filename, "error", detail=str(exc))
         except Exception as exc:  # noqa: BLE001 — never let one attachment kill the batch
