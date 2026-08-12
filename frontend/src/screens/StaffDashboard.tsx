@@ -43,7 +43,7 @@ import {
   type CandidateRecord,
   type EvaluationStatus,
 } from "@/lib/api";
-import { formatInt, initialsOf, timeAgo } from "@/lib/format";
+import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
 import CandidateProfileScreen from "./CandidateProfileScreen";
 
 interface StaffDashboardProps {
