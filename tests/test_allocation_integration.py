@@ -17,7 +17,13 @@ from datetime import datetime, timedelta, timezone
 import mongomock
 import pytest
 
-from app.assignment.balancer import assign_candidate, rebalance_all
+from app.assignment.balancer import (
+    allocate_unassigned,
+    assign_candidate,
+    rebalance_all,
+    redistribute_from_staff,
+    rehome_orphans,
+)
 from app.db.repository import CandidateRepository
 from app.db.users import STAFF_ROLE, UserRepository
 
@@ -258,6 +264,211 @@ def test_a_deactivated_account_keeps_its_work_but_receives_none(db, users, repo)
 
     assert db["candidates"].count_documents({"assigned_staff_id": bob.id}) == 0
     assert db["candidates"].count_documents({"assigned_staff_id": alice.id}) == 4
+
+
+# --------------------------------------------------------------------------- #
+#  Allocating what nobody owns, without disturbing what someone does
+# --------------------------------------------------------------------------- #
+def test_allocate_unassigned_places_only_the_unowned(db, users, repo):
+    """The background pass: give owners to orphans, touch nothing else.
+
+    This runs unprompted, so its blast radius is the whole point. A profile that
+    already belongs to someone must come out of it belonging to the same person
+    even when the roster is wildly uneven — otherwise reading a dashboard could
+    move work out from under whoever was doing it.
+    """
+    alice = make_staff(users, "Alice")
+    bob = make_staff(users, "Bob")
+    for i in range(6):
+        insert_candidate(db, f"a-{i}", alice.id, alice.name, created_offset=i)
+    for i in range(2):
+        insert_candidate(db, f"free-{i}", created_offset=10 + i)
+
+    result = allocate_unassigned(repo=repo, users=users)
+
+    assert result["allocated"] == 2
+    # Both newcomers went to Bob, who was on zero; Alice's six never moved.
+    assert counts_by_name(db, users) == {"Alice": 6, "Bob": 2}
+    assert db["candidates"].count_documents({"assigned_staff_id": None}) == 0
+
+
+def test_allocate_unassigned_does_not_relevel_a_lopsided_roster(db, users, repo):
+    """12/0 with nothing unowned is left at 12/0. Levelling is the admin's call."""
+    alice = make_staff(users, "Alice")
+    make_staff(users, "Bob")
+    for i in range(12):
+        insert_candidate(db, f"a-{i}", alice.id, alice.name, created_offset=i)
+
+    result = allocate_unassigned(repo=repo, users=users)
+
+    assert result["allocated"] == 0
+    assert counts_by_name(db, users) == {"Alice": 12, "Bob": 0}
+
+
+# --------------------------------------------------------------------------- #
+#  Deleting an account: the queue splits in two
+# --------------------------------------------------------------------------- #
+def test_deleting_an_account_reallocates_unviewed_and_orphans_the_rest(db, users, repo):
+    """The two halves need opposite treatment, and this is why.
+
+    Unviewed profiles carry no work, so they move immediately and land with
+    whoever is holding fewest. Reviewed ones carry a verdict that reassignment
+    would erase, so they are left pointing at the account that is gone — visible
+    to nobody, counted as orphaned, and re-homed only when an admin says so.
+    """
+    leaver = make_staff(users, "Leaver")
+    alice = make_staff(users, "Alice")
+
+    for i in range(4):
+        insert_candidate(db, f"open-{i}", leaver.id, leaver.name, created_offset=i)
+    insert_candidate(db, "seen", leaver.id, leaver.name, viewed=True, created_offset=10)
+    insert_candidate(db, "judged", leaver.id, leaver.name, viewed=True,
+                     status="shortlisted", created_offset=11)
+
+    users.delete_staff(leaver.id)
+    result = redistribute_from_staff(leaver.id, repo=repo, users=users)
+
+    assert result == {"status": "ok", "reallocated": 4, "orphaned": 2}
+    assert db["candidates"].count_documents({"assigned_staff_id": alice.id}) == 4
+    # The reviewed pair stayed put, verdict and first-open timestamp intact.
+    judged = db["candidates"].find_one({"_id": "judged"})
+    assert judged["assigned_staff_id"] == leaver.id
+    assert judged["evaluation_status"] == "shortlisted"
+    assert db["candidates"].find_one({"_id": "seen"})["viewed_at"] is not None
+    assert repo.orphaned_count([m.id for m in users.list_staff()]) == 2
+
+
+def test_deleting_the_last_account_orphans_everything(db, users, repo):
+    """Nowhere to put the queue is not a failure — it is what the banner reports."""
+    leaver = make_staff(users, "Leaver")
+    for i in range(3):
+        insert_candidate(db, f"c-{i}", leaver.id, leaver.name, created_offset=i)
+
+    users.delete_staff(leaver.id)
+    result = redistribute_from_staff(leaver.id, repo=repo, users=users)
+
+    assert result["status"] == "no_staff"
+    assert result["orphaned"] == 3
+    assert repo.orphaned_count([]) == 3
+
+
+# --------------------------------------------------------------------------- #
+#  Re-homing orphans, which a rebalance cannot do
+# --------------------------------------------------------------------------- #
+def test_rehoming_orphans_keeps_the_verdict_a_rebalance_would_have_kept_stranded(db, users, repo):
+    """The gap this closes.
+
+    Every orphan is reviewed — that is *why* it was orphaned rather than
+    reallocated — and `rebalance_all` refuses to move reviewed profiles. So a
+    rebalance leaves the orphan count exactly where it was, and the console's
+    warning would never clear. Re-homing moves them and keeps the evaluation.
+    """
+    alice = make_staff(users, "Alice")
+    insert_candidate(db, "stranded", "deleted-account", "Ghost",
+                     viewed=True, status="interviewing")
+
+    # A rebalance sees a reviewed profile and declines, as designed.
+    rebalance_all(repo=repo, users=users)
+    assert repo.orphaned_count([alice.id]) == 1
+
+    result = rehome_orphans(repo=repo, users=users)
+
+    assert result == {"status": "ok", "rehomed": 1, "remaining": 0}
+    stranded = db["candidates"].find_one({"_id": "stranded"})
+    assert stranded["assigned_staff_id"] == alice.id
+    assert stranded["assigned_staff_name"] == "Alice"
+    assert stranded["evaluation_status"] == "interviewing"
+    assert stranded["viewed_at"] is not None
+    assert repo.orphaned_count([alice.id]) == 0
+
+
+def test_rehoming_spreads_orphans_over_the_least_loaded(db, users, repo):
+    alice = make_staff(users, "Alice")
+    bob = make_staff(users, "Bob")
+    for i in range(3):
+        insert_candidate(db, f"a-{i}", alice.id, alice.name, created_offset=i)
+    for i in range(4):
+        insert_candidate(db, f"lost-{i}", "deleted-account", "Ghost",
+                         viewed=True, status="rejected", created_offset=10 + i)
+
+    result = rehome_orphans(repo=repo, users=users)
+
+    assert result["rehomed"] == 4
+    # Bob was on zero, so he absorbs the backlog until the two are level — and
+    # the seventh profile then breaks a 3-3 tie on staff *id*, which is a random
+    # uuid. Asserting which of the two ends up with four would be asserting the
+    # uuid ordering, so the invariant is the split, not who is on which side.
+    counts = counts_by_name(db, users)
+    assert sorted(counts.values()) == [3, 4]
+    assert sum(counts.values()) == 7
+    assert repo.orphaned_count([alice.id, bob.id]) == 0
+
+
+def test_rehoming_without_an_active_account_reports_rather_than_drops(db, users, repo):
+    insert_candidate(db, "stranded", "deleted-account", "Ghost", viewed=True, status="rejected")
+
+    result = rehome_orphans(repo=repo, users=users)
+
+    assert result["status"] == "error"
+    assert result["remaining"] == 1
+    assert db["candidates"].find_one({"_id": "stranded"})["assigned_staff_id"] == "deleted-account"
+
+
+# --------------------------------------------------------------------------- #
+#  The SLA clock, run as a real query
+# --------------------------------------------------------------------------- #
+def sla_row(db, cid, **fields):
+    """A candidate document carrying only the timestamps the sweep reads."""
+    doc = {
+        "_id": cid,
+        "profile": {"full_name": cid.upper()},
+        "assigned_staff_id": "s1",
+        "assigned_staff_name": "Staff One",
+        "viewed_at": None,
+        "evaluation_status": "pending",
+    }
+    doc.update(fields)
+    db["candidates"].insert_one(doc)
+
+
+def test_the_sla_clock_falls_back_from_assigned_at_to_arrival(db, repo):
+    """The regression this fallback exists for.
+
+    The query used to match on `assigned_at` directly. A record allocated by an
+    older build has no such field, so `{"assigned_at": {"$lte": cutoff}}` never
+    matched it — and the sweep reported the profiles that had been waiting
+    *longest* as perfectly fine, because it could not see when their clock had
+    started. Each of the three sources has to select the row and produce the
+    same overdue figure.
+    """
+    from app.tasks.sla_checker import _row_to_alert
+
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(hours=48)
+
+    sla_row(db, "by-assigned", assigned_at=old, created_at=old)
+    sla_row(db, "by-ingested", ingested_at=old, created_at=old)   # no assigned_at
+    sla_row(db, "by-created", created_at=old)                      # neither
+
+    rows = repo.find_sla_breaches(now - timedelta(hours=24))
+
+    assert sorted(r["_id"] for r in rows) == ["by-assigned", "by-created", "by-ingested"]
+    # The query decides *whether*; `_row_to_alert` decides *by how much*. A row
+    # selected by one and measured at zero by the other reads as "0h overdue".
+    assert [round(_row_to_alert(r, now)["hours_overdue"]) for r in rows] == [48, 48, 48]
+
+
+def test_a_profile_inside_the_window_or_already_dealt_with_is_not_a_breach(db, repo):
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(hours=48)
+
+    sla_row(db, "fresh", assigned_at=now, created_at=old)
+    sla_row(db, "judged", assigned_at=old, created_at=old, viewed_at=old,
+            evaluation_status="shortlisted")
+    # Nobody owns it, so there is no one to chase and no alert to address.
+    sla_row(db, "unowned", assigned_staff_id=None, created_at=old)
+
+    assert repo.find_sla_breaches(now - timedelta(hours=24)) == []
 
 
 # --------------------------------------------------------------------------- #

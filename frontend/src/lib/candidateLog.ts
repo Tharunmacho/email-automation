@@ -20,6 +20,8 @@ export type CandidateLogAction =
   | "Edited"
   | "Renamed"
   | "Verified"
+  /** A staff verdict recorded against the profile. */
+  | "Evaluated"
   | "Deleted"
   | "Failed";
 
@@ -51,6 +53,7 @@ const ACTIONS: CandidateLogAction[] = [
   "Edited",
   "Renamed",
   "Verified",
+  "Evaluated",
   "Deleted",
   "Failed",
 ];

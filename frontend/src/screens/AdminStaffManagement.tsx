@@ -46,6 +46,7 @@ import {
   fetchSlaBreaches,
   fetchStaffWorkload,
   rebalanceCandidates,
+  rehomeOrphans,
   runSlaScan,
   updateStaff,
   type CandidateRecord,
@@ -68,11 +69,12 @@ const EMPTY_FORM = { email: "", password: "", name: "" };
 /** The directory is the long block; it opens on one page and grows on request. */
 const PAGE_SIZE = 25;
 
-type AllocFilter = "all" | "unallocated" | "unviewed" | "overdue" | "evaluated";
+type AllocFilter = "all" | "unallocated" | "orphaned" | "unviewed" | "overdue" | "evaluated";
 
 const ALLOC_FILTERS: { id: AllocFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "unallocated", label: "Unallocated" },
+  { id: "orphaned", label: "Orphaned" },
   { id: "unviewed", label: "Unviewed" },
   { id: "overdue", label: "Overdue" },
   { id: "evaluated", label: "Evaluated" },
@@ -87,7 +89,8 @@ export default function AdminStaffManagement({
 }: AdminStaffManagementProps) {
   const [workload, setWorkload] = useState<StaffWorkloadResponse | null>(null);
   const [breaches, setBreaches] = useState<SlaAlert[]>([]);
-  const [thresholdHours, setThresholdHours] = useState(10);
+  // Replaced by the real value the moment /sla/breaches answers.
+  const [thresholdHours, setThresholdHours] = useState(24);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +98,7 @@ export default function AdminStaffManagement({
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [rebalancing, setRebalancing] = useState(false);
+  const [rehoming, setRehoming] = useState(false);
   const [scanning, setScanning] = useState(false);
   /** Which candidate row is mid-move, so only its own controls lock. */
   const [movingId, setMovingId] = useState<string | null>(null);
@@ -195,6 +199,27 @@ export default function AdminStaffManagement({
     [breaches],
   );
 
+  /**
+   * Every account that still exists, deactivated ones included.
+   *
+   * The test for "orphaned" is membership of this, not of `staff` — a
+   * deactivated colleague still owns their queue and those profiles are
+   * perfectly visible to them. Falls back to the active roster only when an
+   * older API build sends no `roster_ids`, which over-reports rather than
+   * under-reports: a deactivated account's work would show as needing a home,
+   * and re-homing it is harmless.
+   */
+  const rosterIds = useMemo(
+    () => new Set(workload?.roster_ids ?? staff.map((member) => member.id)),
+    [workload, staff],
+  );
+
+  const isOrphan = useCallback(
+    (candidate: CandidateRecord) =>
+      Boolean(candidate.assigned_staff_id) && !rosterIds.has(candidate.assigned_staff_id!),
+    [rosterIds],
+  );
+
   /** The heaviest active queue — the scale every load bar is drawn against. */
   const heaviest = useMemo(
     () => Math.max(1, ...staff.map((member) => member.assigned)),
@@ -207,6 +232,8 @@ export default function AdminStaffManagement({
       switch (id) {
         case "unallocated":
           return !candidate.assigned_staff_id;
+        case "orphaned":
+          return isOrphan(candidate);
         case "unviewed":
           return Boolean(candidate.assigned_staff_id) && !candidate.viewed_at;
         case "overdue":
@@ -217,7 +244,7 @@ export default function AdminStaffManagement({
           return true;
       }
     },
-    [overdueIds],
+    [isOrphan, overdueIds],
   );
 
   const filterCounts = useMemo(() => {
@@ -260,13 +287,11 @@ export default function AdminStaffManagement({
         password: form.password,
         name: form.name.trim(),
       });
-      // Creating an account levels the roster server-side, so say what moved
-      // rather than leaving the matrix to silently change under the admin.
-      const moved = result.rebalance?.moved ?? 0;
+      // Nothing was reallocated, and the toast says so: an admin who wants the
+      // existing pile levelled across the new account has to ask for it, and
+      // this is where they find out that is a separate step.
       onToast(
-        moved > 0
-          ? `${result.staff.name} added. ${moved} profile${moved === 1 ? "" : "s"} rebalanced.`
-          : `${result.staff.name} added.`,
+        `${result.staff.name} added to the roster. New arrivals will start routing to them.`,
         "success",
       );
       setForm(EMPTY_FORM);
@@ -296,17 +321,34 @@ export default function AdminStaffManagement({
   };
 
   const handleDelete = async (member: StaffWorkloadRow) => {
+    // Say which half of their queue does what before it happens. "Will be
+    // redistributed" was true of only the unread part, and an admin who had
+    // just deleted an account was surprised to find the evaluated profiles
+    // still pointing at it.
+    const reviewed = Math.max(0, member.assigned - member.unviewed);
     const warning =
       member.assigned > 0
-        ? `Delete ${member.name}? Their ${member.assigned} profile${
-            member.assigned === 1 ? "" : "s"
-          } will be redistributed across the remaining staff.`
+        ? `Delete ${member.name}?\n\n` +
+          `${member.unviewed} unread profile${member.unviewed === 1 ? "" : "s"} will go to the ` +
+          `rest of the team.` +
+          (reviewed > 0
+            ? `\n${reviewed} already reviewed will keep their evaluation and wait for you to ` +
+              `re-home them.`
+            : "")
         : `Delete ${member.name}?`;
     if (!window.confirm(warning)) return;
 
     try {
-      await deleteStaff(member.id, true);
-      onToast(`${member.name} removed and their profiles redistributed.`, "success");
+      const result = await deleteStaff(member.id, true);
+      onToast(
+        result.orphaned > 0
+          ? `${member.name} removed. ${result.reallocated} reallocated, ${result.orphaned} reviewed ` +
+              `profile${result.orphaned === 1 ? "" : "s"} waiting to be re-homed.`
+          : `${member.name} removed and their ${result.reallocated} profile${
+              result.reallocated === 1 ? "" : "s"
+            } redistributed.`,
+        result.orphaned > 0 ? "info" : "success",
+      );
       reload();
       onCandidatesChanged();
     } catch (err) {
@@ -335,6 +377,34 @@ export default function AdminStaffManagement({
       onToast(err instanceof Error ? err.message : "Could not rebalance.", "error");
     } finally {
       setRebalancing(false);
+    }
+  };
+
+  /**
+   * Clear the orphan backlog: give every stranded profile a live owner.
+   *
+   * Not `handleRebalance`, which the banner used to call and which could never
+   * have worked — an orphan is orphaned because it has been reviewed, and a
+   * rebalance is defined by leaving reviewed profiles alone. The banner
+   * therefore stayed on screen no matter how many times it was pressed.
+   */
+  const handleRehome = async () => {
+    setRehoming(true);
+    try {
+      const result = await rehomeOrphans();
+      onToast(
+        result.rehomed === 0
+          ? "Nothing left to re-home."
+          : `${result.rehomed} profile${result.rehomed === 1 ? "" : "s"} re-homed with their ` +
+              `evaluations intact.`,
+        "success",
+      );
+      reload();
+      onCandidatesChanged();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not re-home those profiles.", "error");
+    } finally {
+      setRehoming(false);
     }
   };
 
@@ -419,7 +489,7 @@ export default function AdminStaffManagement({
       id: "create",
       icon: UserPlus,
       title: "Add Staff Member",
-      subtitle: "Create an account and level the existing pile across the team.",
+      subtitle: "Create an account. Existing allocations stay exactly where they are.",
       accent: true,
       arrow: true,
       busy: false,
@@ -556,17 +626,39 @@ export default function AdminStaffManagement({
       )}
 
       {/* Orphans are invisible to every staff dashboard, so they are called out
-          rather than folded into the "waiting on an owner" figure. */}
+          rather than folded into the "waiting on an owner" figure.
+
+          The banner is bound to the count and nothing else: re-home them, or
+          place them by hand from the directory below, and it disappears on the
+          next read without anybody dismissing it. There is no dismiss control
+          on purpose — the only thing that should silence this is the profiles
+          actually having an owner. */}
       {totals && totals.orphaned > 0 && (
         <div className="staff-note is-warn">
           <AlertTriangle size={15} />
           <span>
-            {formatInt(totals.orphaned)} profile{totals.orphaned === 1 ? " is" : "s are"} still
-            assigned to a deleted account and nobody can see{" "}
-            {totals.orphaned === 1 ? "it" : "them"}.
+            <strong>
+              {formatInt(totals.orphaned)} profile{totals.orphaned === 1 ? " is" : "s are"} still
+              assigned to a deleted account and nobody can see{" "}
+              {totals.orphaned === 1 ? "it" : "them"}.
+            </strong>{" "}
+            {totals.orphaned === 1 ? "It was" : "They were"} already reviewed, so re-homing keeps
+            the evaluation — or use the Orphaned filter below to place{" "}
+            {totals.orphaned === 1 ? "it" : "them"} yourself.
           </span>
-          <button type="button" className="db-btn" onClick={() => void handleRebalance()}>
-            Re-home now
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() => void handleRehome()}
+            disabled={rehoming || activeStaff.length === 0}
+            title={
+              activeStaff.length === 0
+                ? "There is no active account to re-home these to"
+                : "Spread them across the active roster, verdicts intact"
+            }
+          >
+            {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
+            {rehoming ? "Re-homing…" : "Re-home now"}
           </button>
         </div>
       )}
@@ -828,6 +920,7 @@ export default function AdminStaffManagement({
                 const status = candidate.evaluation_status ?? "pending";
                 const busy = movingId === candidate.id;
                 const overdue = overdueIds.has(candidate.id);
+                const orphaned = isOrphan(candidate);
                 return (
                   <div
                     key={candidate.id}
@@ -847,10 +940,17 @@ export default function AdminStaffManagement({
                       </span>
                     </button>
 
+                    {/* An orphan still carries the name of whoever owned it,
+                        which on its own reads as "allocated, fine". Saying the
+                        account is gone is the whole point of the row. */}
                     <span className="alloc-owner">
                       {candidate.assigned_staff_name ?? <em className="alloc-none">unallocated</em>}
-                      {candidate.assigned_at && (
-                        <em className="alloc-when">{timeAgo(candidate.assigned_at)}</em>
+                      {orphaned ? (
+                        <em className="alloc-none">account deleted</em>
+                      ) : (
+                        candidate.assigned_at && (
+                          <em className="alloc-when">{timeAgo(candidate.assigned_at)}</em>
+                        )
                       )}
                     </span>
 
@@ -977,8 +1077,9 @@ export default function AdminStaffManagement({
 
               <p className="modal-hint">
                 Candidates are allocated purely by workload — whoever is holding the fewest gets
-                the next résumé — so there is nothing else to configure. Creating this account
-                immediately levels the existing pile across everyone.
+                the next résumé — so there is nothing else to configure. Nothing already allocated
+                moves: this account starts empty and fills up as résumés arrive. To level the
+                existing pile across it, use <strong>Rebalance Workload</strong>.
               </p>
             </div>
 
@@ -991,9 +1092,11 @@ export default function AdminStaffManagement({
               >
                 Cancel
               </button>
+              {/* "Create & rebalance" until this named two actions, and only one
+                  of them was wanted. Creating an account is now exactly that. */}
               <button type="submit" className="modal-submit-btn" disabled={submitting}>
                 {submitting ? <Loader2 size={15} className="icon-spin" /> : <UserPlus size={15} />}
-                {submitting ? "Creating…" : "Create & rebalance"}
+                {submitting ? "Creating…" : "Create staff member"}
               </button>
             </div>
           </form>

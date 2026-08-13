@@ -33,12 +33,14 @@ import {
   subscribeLogs,
 } from "@/lib/candidateLog";
 import {
+  evaluateCandidate,
   fetchMe,
   getCandidate,
   getToken,
   logout as clearSession,
   deleteCandidateAPI,
   listCandidates,
+  markCandidateViewed,
   runPollCycle,
   updateCandidateProfile,
   verifyCandidate,
@@ -49,6 +51,7 @@ import {
   type PollSummary,
   type SlaAlert,
 } from "@/lib/api";
+import type { Verdict } from "@/screens/CandidateProfileScreen";
 
 /**
  * A candidate-scoped screen that takes over the content column.
@@ -149,6 +152,8 @@ export default function Home() {
   const [detailNonce, setDetailNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  /** A staff verdict in flight, which locks the review screen's own buttons. */
+  const [evaluating, setEvaluating] = useState(false);
   // Ids with a DELETE in flight — a second click must not fire a second request.
   const deletingRef = useRef<Set<string>>(new Set());
 
@@ -715,18 +720,40 @@ export default function Home() {
 
   // ---- candidate screens -------------------------------------------------- //
   /**
-   * The directory is the home of every candidate screen, including the ones
-   * opened from the dashboard's recent list — otherwise "Back to candidates"
-   * would land somewhere that is not the candidates list.
+   * Where "Back to candidates" lands, which is not the same place for the two
+   * roles: an admin's list of candidates is the directory, a staff member's is
+   * their queue. Sending a reviewer back to a screen the API refuses them is
+   * how the back button used to end up somewhere they could not be.
    */
+  const listTab: NavId = user?.role === "staff" ? "my-queue" : "candidates";
+
   const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
-    setActiveTab("candidates");
+    setActiveTab(listTab);
     setScreen({ mode, candidateId });
   };
 
+  /**
+   * Open a candidate's full screen — profile and, for staff, the verdict form.
+   *
+   * The single entry point for both roles and every route in: a queue row, the
+   * eye icon, "Review next", a notification. A staff member's first open also
+   * stops that profile's SLA clock, which is why the stamp lives here rather
+   * than in the queue — this is the moment the résumé is actually on screen.
+   */
   const handleOpenCandidate = (candidate: CandidateRecord) => {
     openScreen("profile", candidate.id);
     appendCandidateLog(candidate.id, "Viewed", `Executive profile opened.`, "info", user?.email);
+
+    if (user?.role !== "staff") return;
+    void markCandidateViewed(candidate.id)
+      // A first view changes the queue's counts and its SLA colouring, so the
+      // list behind the screen has to be re-read. A repeat open changes
+      // nothing and is not worth a request's worth of refresh.
+      .then((result) => result.first_view && void refreshCandidates())
+      .catch(() => {
+        // Losing the stamp costs an SLA row its stop-clock; it must not stop
+        // the reviewer reading the profile that is already on screen.
+      });
   };
 
   const handleEditCandidate = (candidate: CandidateRecord) => {
@@ -740,6 +767,78 @@ export default function Home() {
   };
 
   const closeScreen = () => setScreen(null);
+
+  /**
+   * The profile a reviewer should see next: the unopened one closest to its
+   * deadline, excluding whatever is on screen.
+   *
+   * Read from the same list the queue sorts, so "Save & next" and the queue's
+   * own "Review next" always agree about what is most urgent.
+   */
+  const nextUnviewed = useMemo(() => {
+    if (user?.role !== "staff") return null;
+    const waiting = candidates.filter(
+      (candidate) => !candidate.viewed_at && candidate.id !== screen?.candidateId,
+    );
+    if (waiting.length === 0) return null;
+    // Oldest allocation first — that is the one nearest the SLA window.
+    return waiting.reduce((oldest, candidate) => {
+      const a = new Date(candidate.assigned_at ?? candidate.created_at).getTime();
+      const b = new Date(oldest.assigned_at ?? oldest.created_at).getTime();
+      return a < b ? candidate : oldest;
+    });
+  }, [candidates, screen?.candidateId, user?.role]);
+
+  /**
+   * Record a verdict from the review screen, and optionally move straight on.
+   *
+   * `advance` swaps the candidate under a mounted screen rather than closing
+   * and reopening one, so a reviewer working a queue never watches the shell
+   * unmount between profiles. When there is nothing left to advance to it
+   * closes, which is the honest end of the run.
+   */
+  const handleSaveEvaluation = async (
+    candidateId: string,
+    verdict: Verdict,
+    advance: boolean,
+  ) => {
+    setEvaluating(true);
+    // Read before the save: `nextUnviewed` is derived from a list this save is
+    // about to change, and after the refresh the profile just judged is no
+    // longer unviewed — so the "next" computed afterwards could be a different
+    // one from the button the reviewer actually pressed.
+    const following = advance ? nextUnviewed : null;
+    try {
+      await evaluateCandidate(candidateId, {
+        status: verdict.status,
+        score: verdict.score,
+        notes: verdict.notes,
+      });
+      appendCandidateLog(
+        candidateId,
+        "Evaluated",
+        `Recorded as ${verdict.status}${verdict.score ? ` · ${verdict.score} of 5` : ""}.`,
+        "success",
+        user?.email,
+      );
+      await refreshCandidates();
+
+      if (following) {
+        showToast(`Saved. Opening ${candidateNameOf(following)}.`, "success");
+        handleOpenCandidate(following);
+      } else {
+        showToast(advance ? "Saved — nothing else is waiting." : "Evaluation saved.", "success");
+        if (advance) closeScreen();
+        else setDetailNonce((n) => n + 1);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not save the evaluation.";
+      showToast(message, "error");
+      appendCandidateLog(candidateId, "Failed", `Evaluation failed — ${message}`, "error", user?.email);
+    } finally {
+      setEvaluating(false);
+    }
+  };
 
   /**
    * Open whatever a notification points at.
@@ -766,6 +865,9 @@ export default function Home() {
     screen && detail && detail.id === screen.candidateId ? detail : null;
 
   const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
+
+  /** A staff member reading a candidate: the one screen that gets no page head. */
+  const isStaffReview = user?.role === "staff" && screen?.mode === "profile";
 
   if (checking) {
     return (
@@ -798,10 +900,7 @@ export default function Home() {
         hasRail={hasRail}
         onOpenCandidate={handleOpenCandidateById}
         onSync={runPipeline}
-        onOpenActivity={() => handleNavigate("activity")}
-        onOpenSettings={() => handleNavigate("settings")}
         onToggleRail={() => setMobileOpen((open) => !open)}
-        onSignOut={handleSignOut}
       />
 
       <div className="app-body">
@@ -827,25 +926,54 @@ export default function Home() {
             {/* Every destination opens the same way, the staff workspace
                 included. It used to be excepted here on the grounds that it
                 carried its own header; it does not, so the screen began at a
-                row of buttons with nothing naming it. */}
-            <header className="db-page-head">
-              <div>
-                <span className="db-eyebrow">{meta.eyebrow}</span>
-                <h1 className="db-title">{meta.title}</h1>
-                <p className="db-subtitle">{meta.subtitle}</p>
-              </div>
-            </header>
+                row of buttons with nothing naming it.
+
+                The one exception is the reviewer's own candidate screen. That
+                screen is a candidate — their name, their photo-sized monogram,
+                their résumé — and a page title above it saying "Executive
+                Profile" was a second heading competing with the one that
+                matters. The chrome there is the bar's pulse and bell, and
+                nothing else. */}
+            {!isStaffReview && (
+              <header className="db-page-head">
+                <div>
+                  <span className="db-eyebrow">{meta.eyebrow}</span>
+                  <h1 className="db-title">{meta.title}</h1>
+                  <p className="db-subtitle">{meta.subtitle}</p>
+                </div>
+              </header>
+            )}
 
             {/* A candidate screen owns the whole workspace while it is open.
                 Nothing is layered over anything else — the profile, the editor
                 and the activity log are three destinations, not three modes of
                 one. */}
+            {/* One screen, two uses. An admin gets the read-only executive
+                profile with a Verify control; a staff member gets the same
+                profile with the verdict suite live beside it. The evidence and
+                the judgement are never in two places. */}
             {screenCandidate && screen?.mode === "profile" && (
               <CandidateProfileScreen
+                // Identity, not just data: "Save & next" swaps the candidate
+                // without unmounting the screen, and the verdict controls hold
+                // draft state seeded from the record. Keying on the id makes a
+                // different candidate a different component, so no reviewer
+                // ever sees the previous one's notes in the box.
+                key={screenCandidate.id}
                 candidate={screenCandidate}
                 verifying={verifying}
                 onBack={closeScreen}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
+                evaluation={
+                  user?.role === "staff"
+                    ? {
+                        saving: evaluating,
+                        nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
+                        onSave: (verdict, advance) =>
+                          void handleSaveEvaluation(screenCandidate.id, verdict, advance),
+                      }
+                    : undefined
+                }
               />
             )}
 
@@ -941,7 +1069,6 @@ export default function Home() {
                     focusCandidateId={queueFocusId}
                     onFocusHandled={() => setQueueFocusId(null)}
                     onToast={showToast}
-                    onCandidatesChanged={() => void refreshCandidates()}
                     onOpenCandidate={handleOpenCandidate}
                   />
                 )}

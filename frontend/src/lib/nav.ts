@@ -141,7 +141,10 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
   staff: {
     eyebrow: "General",
     title: "Staff & Allocation",
-    subtitle: "Accounts, expertise keywords, workload balance, and the 10-hour SLA.",
+    // No hours in the copy: the window is configuration, every screen that
+    // reports it reads the real value from /config, and a number frozen into a
+    // subtitle is the one that goes stale the day someone changes it.
+    subtitle: "Accounts, expertise keywords, workload balance, and the review SLA.",
   },
   "job-orders": {
     eyebrow: "Tools",

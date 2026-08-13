@@ -31,6 +31,7 @@ from app.core.models import (
     EmailMessage,
     SourceEmail,
     StoredResume,
+    utcnow,
 )
 from app.ai.reply_generator import generate_contextual_reply
 from app.config import settings
@@ -129,6 +130,11 @@ class IngestionPipeline:
 
     # ---------------------------------------------------------------- #
     def _process_attachment(self, email: EmailMessage, att: Attachment, gmail) -> AttachmentResult:
+        # The moment this résumé entered the system. Taken before any of the
+        # expensive work rather than after it, because OCR on a scanned bundle
+        # can run for minutes and the SLA clock is measuring how long a
+        # candidate has been waiting, not how long the parser took.
+        arrived_at = utcnow()
         try:
             data = att.data
             if data is None:
@@ -210,7 +216,8 @@ class IngestionPipeline:
 
             # (5) Store original file + insert record.
             record = self._build_record(
-                email, att, data, resume_hash, extracted, profile, email_key, phone_key
+                email, att, data, resume_hash, extracted, profile, email_key, phone_key,
+                ingested_at=arrived_at,
             )
             if profile.confidence < _MIN_CONFIDENCE:
                 record.status = "needs_review"
@@ -310,6 +317,7 @@ class IngestionPipeline:
         profile: CandidateProfile,
         email_key: Optional[str],
         phone_key: Optional[str],
+        ingested_at: Optional[datetime] = None,
     ) -> CandidateRecord:
         candidate_id = uuid.uuid4().hex
         storage_key = self._storage_key(candidate_id, att.filename)
@@ -341,6 +349,11 @@ class IngestionPipeline:
             resume_hash=resume_hash,
             status="ingested",
             raw_ocr=profile.raw_ocr if getattr(profile, "raw_ocr", None) else None,
+            # Extraction and structuring are done by the time this is called, so
+            # `processed_at` is now; `ingested_at` is when the file arrived, which
+            # is however long ago the parser started.
+            ingested_at=ingested_at or utcnow(),
+            processed_at=utcnow(),
         )
 
     def _storage_key(self, candidate_id: str, filename: str) -> str:

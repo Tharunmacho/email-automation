@@ -1,9 +1,8 @@
 "use client";
 
-import { LogOut, Menu, RefreshCw, ScrollText, Sparkles } from "lucide-react";
+import { Menu, RefreshCw, Sparkles } from "lucide-react";
 
 import NotificationBell from "@/components/NotificationBell";
-import { initialsOf } from "@/lib/format";
 import type { AuthUser } from "@/lib/api";
 
 interface TopBarProps {
@@ -14,33 +13,32 @@ interface TopBarProps {
   /** Bumped on every realtime event, so the bell re-reads its feed at once. */
   realtimeNonce?: number;
   onOpenCandidate?: (candidateId: string) => void;
-  /**
-   * Whether this session has a navigation rail.
-   *
-   * The staff workspace is a single screen and renders without one, which
-   * moves identity and sign-out into this bar — they live on the rail's
-   * account card for everyone else, and a staff member with no rail would
-   * otherwise have no way out of the session.
-   */
+  /** Whether this session has a navigation rail, which owns the menu toggle. */
   hasRail?: boolean;
   onSync: () => void;
-  onOpenActivity: () => void;
-  onOpenSettings: () => void;
   onToggleRail: () => void;
-  onSignOut: () => void;
 }
 
 /**
  * The bar across the very top of the product.
  *
- * Brand on the left, three controls on the right, nothing in between. The
- * search field that used to sit here is gone: every screen it could reach
- * already has its own search over the records it holds, so a global field was
- * a second way to do the same job and the widest object in the chrome.
+ * Brand on the left, status on the right, nothing in between. What is *not*
+ * here is most of the design:
  *
- * Sign-out is not here either — it lives on the rail's account card, next to
- * the name it applies to. The avatar opens Settings, which is where the rest
- * of the account lives.
+ *   * **No account avatar and no sign-out.** Both live on the rail's account
+ *     card, next to the name they apply to. Two ways to leave a session is one
+ *     more than anybody needs, and the initials button did nothing the rail
+ *     card was not already doing.
+ *   * **No activity-log shortcut.** Activity Logs is a rail destination like
+ *     every other screen; a second entrance in the chrome made it look like a
+ *     mode rather than a place.
+ *   * **No global search.** Every screen it could have reached already searches
+ *     the records it holds, and the field was the widest object up here.
+ *
+ * What remains is the state of the system rather than a set of controls: is
+ * push connected, is anything waiting for you, and — for an admin — is a sync
+ * running. A staff member sees exactly the first two, which is the entire bar
+ * for the review workspace.
  */
 export default function TopBar({
   user,
@@ -50,10 +48,7 @@ export default function TopBar({
   hasRail = true,
   onOpenCandidate,
   onSync,
-  onOpenActivity,
-  onOpenSettings,
   onToggleRail,
-  onSignOut,
 }: TopBarProps) {
   return (
     <header className="topbar">
@@ -97,46 +92,15 @@ export default function TopBar({
             at all. What is *in* the feed is already scoped server-side. */}
         <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
 
-        {/* Ingestion and the audit log are for super admin role only.
-            For staff members, they are omitted completely to keep the topbar clean. */}
+        {/* Ingestion is the admin's. Offering it to a staff member would be
+            offering them a 403, and the review workspace is deliberately down
+            to the pulse and the bell. */}
         {user.role === "admin" && (
-          <>
-            <button type="button" className="topbar-sync" onClick={onSync} disabled={syncing}>
-              <RefreshCw size={15} className={syncing ? "icon-spin" : undefined} />
-              <span>{syncing ? "Syncing…" : "Sync Gmail"}</span>
-            </button>
-
-            <button
-              type="button"
-              className="topbar-icon-btn"
-              onClick={onOpenActivity}
-              title="Activity logs"
-              aria-label="Activity logs"
-            >
-              <ScrollText size={20} />
-            </button>
-          </>
+          <button type="button" className="topbar-sync" onClick={onSync} disabled={syncing}>
+            <RefreshCw size={15} className={syncing ? "icon-spin" : undefined} />
+            <span>{syncing ? "Syncing…" : "Sync Gmail"}</span>
+          </button>
         )}
-
-        <button
-          type="button"
-          className="topbar-avatar"
-          onClick={onOpenSettings}
-          title={`${user.email} — open settings`}
-          aria-label={`Account: ${user.name || user.email}`}
-        >
-          {initialsOf(user.name || user.email).charAt(0)}
-        </button>
-
-        <button
-          type="button"
-          className="topbar-icon-btn"
-          onClick={onSignOut}
-          title={`Sign out of ${user.email}`}
-          aria-label="Sign out"
-        >
-          <LogOut size={18} />
-        </button>
       </div>
     </header>
   );

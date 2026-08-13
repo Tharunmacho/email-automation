@@ -108,6 +108,16 @@ export interface CandidateRecord {
   created_at: string;
   updated_at: string;
 
+  /**
+   * When the résumé arrived and when the parser finished with it.
+   *
+   * Absent on records written before these were stored, which is why every
+   * reader falls back to `created_at` rather than treating a missing value as
+   * the epoch — an old profile would otherwise read as infinitely overdue.
+   */
+  ingested_at?: string | null;
+  processed_at?: string | null;
+
   /** Which staff member owns this profile, and since when. */
   assigned_staff_id?: string | null;
   assigned_staff_name?: string | null;
@@ -169,7 +179,18 @@ export interface StaffWorkloadRow extends StaffMember {
 }
 
 export interface StaffWorkloadResponse {
+  /** Active accounts only — the ones work is routed to. */
   items: StaffWorkloadRow[];
+  /**
+   * Every account id on the roster, deactivated ones included.
+   *
+   * `items` omits deactivated accounts, so an owner id missing from it means
+   * one of two very different things: the account is deactivated (fine, they
+   * keep their queue) or it is gone (orphaned, nobody can see the profile).
+   * This is what tells them apart, and it is the same list the server counts
+   * `totals.orphaned` against, so the banner and the directory always agree.
+   */
+  roster_ids?: string[];
   totals: {
     staff: number;
     assigned: number;
@@ -220,6 +241,30 @@ export interface RebalanceResult {
   locked: number;
   total?: number;
   staff_counts: Record<string, { name: string; assigned: number }>;
+}
+
+/**
+ * What re-homing stranded profiles did.
+ *
+ * Distinct from a rebalance because it is the only thing that can clear an
+ * orphan: every orphan carries a verdict, and a rebalance is defined by
+ * refusing to move profiles that do.
+ */
+export interface RehomeResult {
+  status: string;
+  rehomed: number;
+  remaining: number;
+  detail?: string;
+}
+
+/** What deleting a staff account did with the queue it was holding. */
+export interface DeleteStaffResult {
+  status: string;
+  id: string;
+  /** Unviewed profiles handed straight to the least-loaded remaining staff. */
+  reallocated: number;
+  /** Reviewed ones left pointing at the deleted account, awaiting a re-home. */
+  orphaned: number;
 }
 
 export interface CandidateListResponse {

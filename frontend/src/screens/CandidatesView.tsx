@@ -14,9 +14,10 @@ import {
   X,
   LayoutGrid,
   Rows3,
+  FileText,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
-import type { CandidateRecord } from "@/lib/api";
+import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
 
 export type TalentFilter = "all" | "verified" | "pending";
 
@@ -503,6 +504,19 @@ export default function CandidatesView({
                 <div className="ccard-foot" onClick={(event) => event.stopPropagation()}>
                   <span className="ctable-sub">{getEmail(candidate)}</span>
                   <div className="ctable-actions">
+                    {candidate.resume?.storage_key && (
+                      <a
+                        className="ctable-btn ctable-btn-view"
+                        href={resumeDownloadUrl(candidate.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="View original resume"
+                        aria-label={`View original resume of ${displayName}`}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <FileText size={14} />
+                      </a>
+                    )}
                     <button
                       type="button"
                       className="ctable-btn ctable-btn-edit"
@@ -681,6 +695,19 @@ export default function CandidatesView({
                           </div>
                         ) : (
                           <div className="ctable-actions">
+                            {candidate.resume?.storage_key && (
+                              <a
+                                className="ctable-btn ctable-btn-view"
+                                href={resumeDownloadUrl(candidate.id)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="View original resume"
+                                aria-label={`View original resume of ${displayName}`}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <FileText size={14} />
+                              </a>
+                            )}
                             <button
                               type="button"
                               className="ctable-btn ctable-btn-view"

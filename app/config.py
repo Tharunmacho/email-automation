@@ -120,7 +120,12 @@ class Settings(BaseSettings):
     demo_admin_password: str = "admin@123"
     demo_staff_email: str = "staff@gmail.com"
     demo_staff_password: str = "staff@123"
-    sla_threshold_hours: int = 10
+    # How long a profile may sit allocated-but-unresolved before the sweep calls
+    # it a breach, measured from `assigned_at` (falling back to `ingested_at`)
+    # until it is opened or judged. One working day: a résumé that arrives on
+    # Tuesday afternoon should be looked at by Wednesday afternoon, and a
+    # tighter window turns the alert channel into noise nobody reads.
+    sla_threshold_hours: int = 24
     auto_assign_enabled: bool = True
 
     # ---- MongoDB ----

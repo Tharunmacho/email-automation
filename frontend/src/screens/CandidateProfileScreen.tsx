@@ -3,10 +3,13 @@
 import React, { useMemo, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   Download,
+  FileText,
   FolderGit2,
   Link as LinkIcon,
+  Loader2,
   Mail,
   MapPin,
   Phone,
@@ -21,15 +24,54 @@ import {
   toBullets,
   toEditableState,
 } from "@/lib/candidateProfile";
-import { getToken, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
+import {
+  getToken,
+  resumeDownloadUrl,
+  type CandidateRecord,
+  type EvaluationStatus,
+} from "@/lib/api";
 import { formatDateFull, initialsOf } from "@/lib/format";
+
+/** What a reviewer records against a profile. */
+export interface Verdict {
+  status: EvaluationStatus;
+  score: number | null;
+  notes: string | null;
+}
+
+/**
+ * Turns this screen from a read-only profile into a review station.
+ *
+ * Passed only in the staff workspace. Its presence is the whole difference
+ * between the two uses of this screen: with it, the verdict suite is live and
+ * sits alongside the résumé; without it, the stored verdict is shown as a
+ * read-only card and nothing on the screen can change the record.
+ *
+ * The evidence and the judgement have to be on one screen — that is the point.
+ * A reviewer scrolling a résumé in one place and recording a decision in
+ * another is being asked to hold the résumé in their head.
+ */
+export interface EvaluationSuite {
+  saving: boolean;
+  /** The next unopened profile's name, if there is one, for the advance button. */
+  nextName?: string | null;
+  onSave: (verdict: Verdict, advance: boolean) => void;
+}
 
 interface CandidateProfileScreenProps {
   candidate: CandidateRecord;
   verifying?: boolean;
   onBack?: () => void;
   onVerify?: (candidateId: string) => void;
+  /** Supplied by the staff workspace; omitted everywhere else. */
+  evaluation?: EvaluationSuite;
 }
+
+const STATUS_CHOICES: { value: EvaluationStatus; label: string }[] = [
+  { value: "shortlisted", label: "Shortlisted" },
+  { value: "interviewing", label: "Interviewing" },
+  { value: "rejected", label: "Rejected" },
+];
 
 /**
  * One label/value pair, or nothing when the value is blank.
@@ -76,9 +118,27 @@ export default function CandidateProfileScreen({
   verifying = false,
   onBack,
   onVerify,
+  evaluation,
 }: CandidateProfileScreenProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // The verdict controls, seeded from whatever is already on the record so
+  // re-opening an evaluated profile shows the decision that was made rather
+  // than an empty form.
+  //
+  // Seeded once, from the initial value, and that is sufficient: "Save & next"
+  // swaps the candidate under this screen, and the caller keys it on the
+  // candidate id so a different candidate is a different component instance.
+  // Resetting these in an effect instead would render the previous reviewer's
+  // notes for a frame before correcting itself.
+  const [score, setScore] = useState(candidate.evaluation_score ?? 0);
+  const [status, setStatus] = useState<EvaluationStatus>(
+    candidate.evaluation_status && candidate.evaluation_status !== "pending"
+      ? candidate.evaluation_status
+      : "shortlisted",
+  );
+  const [notes, setNotes] = useState(candidate.evaluation_notes ?? "");
 
   const profile = candidate.profile ?? {};
   const view = useMemo(() => toEditableState(candidate.profile ?? {}, candidate), [candidate]);
@@ -106,9 +166,13 @@ export default function CandidateProfileScreen({
   const isVerified = candidate.status === "verified";
   const ingestedOn = candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—";
 
-  const hasVerdict = Boolean(
-    candidate.evaluation_status || candidate.evaluation_notes || candidate.evaluation_score,
-  );
+  const reviewing = Boolean(evaluation);
+  // The stored verdict is worth showing on its own only when nothing on screen
+  // can change it. In review mode the live suite is the verdict, and a card
+  // repeating it above would be a second, stale copy of the same fields.
+  const hasVerdict =
+    !reviewing &&
+    Boolean(candidate.evaluation_status || candidate.evaluation_notes || candidate.evaluation_score);
 
   /** Only sections that actually carry something are offered or drawn. */
   const sections = [
@@ -164,6 +228,12 @@ export default function CandidateProfileScreen({
     { icon: <FolderGit2 size={14} />, value: view.github },
   ].filter((chip) => !isBlankValue(chip.value));
 
+  const submit = (advance: boolean) =>
+    evaluation?.onSave(
+      { status, score: score > 0 ? score : null, notes: notes.trim() || null },
+      advance,
+    );
+
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
       <div className="cscreen-topbar">
@@ -211,7 +281,8 @@ export default function CandidateProfileScreen({
             <span className={`db-pill ${isVerified ? "is-verified" : "is-info"}`}>
               {isVerified ? "Verified" : "Active"}
             </span>
-            <span className="cprof-readonly-tag">Read-only view</span>
+            {/* "Read-only" would be a lie next to a live verdict form. */}
+            {!reviewing && <span className="cprof-readonly-tag">Read-only view</span>}
           </div>
 
           {!isBlankValue(view.designation) && <p className="cprof-role">{view.designation}</p>}
@@ -243,7 +314,13 @@ export default function CandidateProfileScreen({
         </nav>
       )}
 
-      <div className="cprof-sections">
+      {/* In review mode the résumé and the verdict are two columns of one grid,
+          and the verdict column sticks as the résumé scrolls — the decision has
+          to stay reachable from wherever in the CV the reviewer forms it. The
+          grid collapses to a single column on narrow screens, which puts the
+          verdict at the bottom, directly after the evidence. */}
+      <div className={reviewing ? "cprof-review" : "cprof-review is-plain"}>
+        <div className="cprof-sections">
         <section className="cprof-card" id={sectionId("details")}>
           <h3 className="cprof-card-title">Candidate details</h3>
           <div className="cprof-facts">
@@ -419,6 +496,113 @@ export default function CandidateProfileScreen({
               ))}
             </div>
           </section>
+        )}
+        </div>
+
+        {evaluation && (
+          <aside className="cprof-verdict" aria-label="Record your evaluation">
+            <div className="cprof-verdict-inner">
+              <h3 className="cprof-card-title">Your verdict</h3>
+              <p className="cprof-verdict-sub">
+                Rate the fit, record the outcome, and say what you would ask them.
+              </p>
+
+              <div className="eval-stars">
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`eval-star ${score >= value ? "is-on" : ""}`}
+                    // Clicking the star you are already on clears the rating,
+                    // because there is otherwise no way back to "not rated".
+                    onClick={() => setScore(score === value ? 0 : value)}
+                    aria-label={`Rate ${value} star${value === 1 ? "" : "s"}`}
+                  >
+                    <Star size={20} fill={score >= value ? "currentColor" : "none"} />
+                  </button>
+                ))}
+                <span className="eval-score-label">{score > 0 ? `${score} of 5` : "No rating"}</span>
+              </div>
+
+              <div className="eval-choices" role="radiogroup" aria-label="Evaluation status">
+                {STATUS_CHOICES.map((choice) => (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={status === choice.value}
+                    className={`eval-choice is-${choice.value} ${
+                      status === choice.value ? "is-on" : ""
+                    }`}
+                    onClick={() => setStatus(choice.value)}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="eval-field">
+                <label htmlFor="cprof-eval-notes">Notes</label>
+                <textarea
+                  id="cprof-eval-notes"
+                  rows={5}
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="What stood out, and what would you ask them."
+                />
+              </div>
+
+              {candidate.evaluated_at && (
+                <p className="cprof-verdict-stamp">
+                  Last recorded {formatDateFull(new Date(candidate.evaluated_at))}.
+                </p>
+              )}
+
+              <div className="eval-actions is-stacked">
+                <button
+                  type="button"
+                  className="db-btn is-primary"
+                  onClick={() => submit(true)}
+                  disabled={evaluation.saving}
+                  title={
+                    evaluation.nextName
+                      ? `Save, then open ${evaluation.nextName}`
+                      : "Save — nothing else is waiting on a first read"
+                  }
+                >
+                  {evaluation.saving ? (
+                    <Loader2 size={14} className="icon-spin" />
+                  ) : (
+                    <ArrowRight size={14} />
+                  )}
+                  {evaluation.nextName ? "Save & next" : "Save & finish"}
+                </button>
+                <button
+                  type="button"
+                  className="db-btn"
+                  onClick={() => submit(false)}
+                  disabled={evaluation.saving}
+                >
+                  {evaluation.saving ? (
+                    <Loader2 size={14} className="icon-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )}
+                  Save verdict
+                </button>
+                {onBack && (
+                  <button
+                    type="button"
+                    className="db-btn is-quiet"
+                    onClick={onBack}
+                    disabled={evaluation.saving}
+                  >
+                    Back to candidates
+                  </button>
+                )}
+              </div>
+            </div>
+          </aside>
         )}
       </div>
     </div>

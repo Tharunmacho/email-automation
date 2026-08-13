@@ -1,18 +1,25 @@
 "use client";
 
 /**
- * The staff member's workspace, laid out exactly like the Overview and the
- * admin console: three things to do, three numbers that say whether you are
+ * The staff member's workspace, laid out like the Overview and the admin
+ * console: three things to do, then the numbers that say whether you are
  * keeping up, then the work itself.
  *
  * The same markup as both — `ov-action`, `ov-kpi`, `db-card` — because a
  * reviewer and an administrator are looking at the same records an hour apart,
  * and a screen that looked like a different product would read as one.
  *
- * Everything a staff member can do lives here: the queue, its filters, the SLA
- * clock, their own turnaround, and the split-screen evaluation drawer. There is
- * no ingestion control anywhere on it — syncing the mailbox is the admin's, and
- * offering it here would be offering a 403.
+ * This screen is the queue and only the queue: filters, the SLA clock, and this
+ * reviewer's own turnaround. Opening a profile leaves it for the review screen,
+ * which carries the full résumé and the verdict form together.
+ *
+ * It used to open a split drawer instead, and a separate eye icon opened the
+ * executive profile — two views of one candidate, neither complete, and a
+ * reviewer had to guess which one they wanted before they had seen either. The
+ * row and the eye now do the same thing.
+ *
+ * There is no ingestion control anywhere on it — syncing the mailbox is the
+ * admin's, and offering it here would be offering a 403.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -20,27 +27,18 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
-  Download,
   Eye,
+  FileText,
   Gauge,
   Inbox,
-  Loader2,
   Search,
   Sparkles,
   Star,
   Timer,
-  X,
+  Users,
 } from "lucide-react";
 
-import {
-  evaluateCandidate,
-  fetchUiConfig,
-  getCandidate,
-  markCandidateViewed,
-  resumeDownloadUrl,
-  type CandidateRecord,
-  type EvaluationStatus,
-} from "@/lib/api";
+import { fetchUiConfig, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
 
 interface StaffDashboardProps {
@@ -52,15 +50,15 @@ interface StaffDashboardProps {
   focusCandidateId?: string | null;
   onFocusHandled?: () => void;
   onToast: (message: string, type?: "info" | "success" | "error") => void;
-  onCandidatesChanged: () => void;
   /**
-   * Leave the queue for the full executive profile.
+   * Leave the queue for the unified review screen.
    *
-   * The drawer is for judging a résumé against its file, so it carries the
-   * evidence and the verdict and nothing else. Everything the parser extracted
-   * is a screen of its own, and this is the way out to it.
+   * The single way out of this screen, and every route to a candidate goes
+   * through it: the row, the eye, "Review next", and a notification the bell
+   * handed over. One destination means a reviewer never has to know which of
+   * two views they are about to get.
    */
-  onOpenCandidate?: (candidate: CandidateRecord) => void;
+  onOpenCandidate: (candidate: CandidateRecord) => void;
 }
 
 type QueueFilter = "all" | "unviewed" | "pending" | "evaluated" | "at_risk";
@@ -80,13 +78,8 @@ const SORTS: { id: QueueSort; label: string }[] = [
   { id: "name", label: "Name (A–Z)" },
 ];
 
-const STATUS_CHOICES: { value: EvaluationStatus; label: string }[] = [
-  { value: "shortlisted", label: "Shortlisted" },
-  { value: "interviewing", label: "Interviewing" },
-  { value: "rejected", label: "Rejected" },
-];
-
-const DEFAULT_SLA_HOURS = 10;
+/** Only until `/config` answers with the deployment's real threshold. */
+const DEFAULT_SLA_HOURS = 24;
 const AT_RISK_FRACTION = 0.25;
 
 function isEvaluated(candidate: CandidateRecord): boolean {
@@ -129,22 +122,12 @@ export default function StaffDashboard({
   focusCandidateId,
   onFocusHandled,
   onToast,
-  onCandidatesChanged,
   onOpenCandidate,
 }: StaffDashboardProps) {
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [sort, setSort] = useState<QueueSort>("sla");
   const [query, setQuery] = useState("");
   const [slaHours, setSlaHours] = useState(DEFAULT_SLA_HOURS);
-
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<CandidateRecord | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
-
-  const [score, setScore] = useState<number>(0);
-  const [status, setStatus] = useState<EvaluationStatus>("shortlisted");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -299,42 +282,17 @@ export default function StaffDashboard({
     return waiting[0]?.candidate ?? null;
   }, [candidates, slaHours, now]);
 
-  const openDrawer = useCallback(
-    async (candidate: CandidateRecord) => {
-      setOpenId(candidate.id);
-      setDetail(null);
-      setDetailError(null);
-      setScore(candidate.evaluation_score ?? 0);
-      setStatus(
-        candidate.evaluation_status && candidate.evaluation_status !== "pending"
-          ? candidate.evaluation_status
-          : "shortlisted",
-      );
-      setNotes(candidate.evaluation_notes ?? "");
-
-      try {
-        const record = await getCandidate(candidate.id);
-        setDetail(record);
-        setScore(record.evaluation_score ?? 0);
-        setNotes(record.evaluation_notes ?? "");
-      } catch (err) {
-        setDetailError(err instanceof Error ? err.message : "Could not open this profile.");
-        return;
-      }
-
-      try {
-        const result = await markCandidateViewed(candidate.id);
-        if (result.first_view) onCandidatesChanged();
-      } catch {}
-    },
-    [onCandidatesChanged],
+  /**
+   * The one way into a candidate from this screen.
+   *
+   * Marking it viewed is the parent's job, not this one's: the review screen is
+   * what actually shows the profile, and stamping "opened" from here would say
+   * the reviewer had seen a screen that had not finished loading.
+   */
+  const openProfile = useCallback(
+    (candidate: CandidateRecord) => onOpenCandidate(candidate),
+    [onOpenCandidate],
   );
-
-  const closeDrawer = useCallback(() => {
-    setOpenId(null);
-    setDetail(null);
-    setDetailError(null);
-  }, []);
 
   const focusHandledRef = useRef<string | null>(null);
   useEffect(() => {
@@ -342,64 +300,12 @@ export default function StaffDashboard({
     focusHandledRef.current = focusCandidateId;
     const target = candidates.find((candidate) => candidate.id === focusCandidateId);
     if (target) {
-      void openDrawer(target);
+      openProfile(target);
     } else {
       onToast("That profile is no longer in your queue.", "info");
     }
     onFocusHandled?.();
-  }, [focusCandidateId, candidates, openDrawer, onFocusHandled, onToast]);
-
-  useEffect(() => {
-    if (!openId) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDrawer();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openId, closeDrawer]);
-
-  const save = async (advance: boolean) => {
-    if (!openId) return;
-    setSaving(true);
-    try {
-      await evaluateCandidate(openId, {
-        status,
-        score: score > 0 ? score : null,
-        notes: notes.trim() || null,
-      });
-      onCandidatesChanged();
-
-      const following = advance
-        ? candidates.find(
-            (candidate) => candidate.id !== openId && !candidate.viewed_at,
-          ) ?? null
-        : null;
-
-      if (following) {
-        onToast(`Saved. Opening ${nameOf(following)}.`, "success");
-        await openDrawer(following);
-      } else {
-        onToast(advance ? "Saved — nothing else is waiting." : "Evaluation saved.", "success");
-        closeDrawer();
-      }
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not save the evaluation.", "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const profile = detail?.profile;
-
-  // Check if resume file is an image for preview
-  const resumeMime = detail?.resume?.mime_type || "";
-  const resumeName = (detail?.resume?.original_filename || "").toLowerCase();
-  const isImageResume =
-    resumeMime.startsWith("image/") ||
-    resumeName.endsWith(".jpg") ||
-    resumeName.endsWith(".jpeg") ||
-    resumeName.endsWith(".png") ||
-    resumeName.endsWith(".webp");
+  }, [focusCandidateId, candidates, openProfile, onFocusHandled, onToast]);
 
   const progressPct = counts.all ? Math.round((counts.evaluated / counts.all) * 100) : 0;
 
@@ -426,7 +332,7 @@ export default function StaffDashboard({
       arrow: true,
       on: false,
       disabled: !nextUp,
-      onClick: () => nextUp && void openDrawer(nextUp),
+      onClick: () => nextUp && openProfile(nextUp),
     },
     {
       id: "unviewed",
@@ -456,24 +362,39 @@ export default function StaffDashboard({
     },
   ];
 
-  /** Three numbers: the pile, the throughput, the risk. */
+  /**
+   * Four numbers: the whole workload, what is unread, what has been judged, and
+   * the risk.
+   *
+   * "Total candidates" is its own tile rather than a caption on another,
+   * because it answers the question a reviewer opens this screen with — how much
+   * is mine — and reading it out of the corner of a progress tile made it look
+   * like a denominator rather than a figure.
+   */
   const kpis = [
     {
-      label: "Allocated to you",
+      label: "Total candidates",
       value: compactNumber(counts.all),
-      caption: `${formatInt(counts.unviewed)} unopened · ${formatInt(
-        counts.pending,
-      )} awaiting a verdict`,
+      caption: counts.all
+        ? `Everything allocated to you, judged or not`
+        : "Nothing allocated to you yet",
+      icon: Users,
+      alert: false,
+    },
+    {
+      label: "Unviewed",
+      value: compactNumber(counts.unviewed),
+      caption: counts.unviewed
+        ? `Never opened · ${formatInt(counts.pending)} opened, awaiting a verdict`
+        : `Everything allocated has been opened`,
       icon: Inbox,
       alert: false,
     },
     {
-      label: "Evaluation progress",
-      value: `${progressPct}%`,
+      label: "Evaluated",
+      value: compactNumber(counts.evaluated),
       caption: counts.all
-        ? `${formatInt(counts.evaluated)} of ${formatInt(counts.all)} judged · ${formatInt(
-            performance.today,
-          )} today`
+        ? `${progressPct}% of your queue · ${formatInt(performance.today)} today`
         : "Nothing allocated yet",
       icon: CheckCircle2,
       alert: false,
@@ -520,7 +441,8 @@ export default function StaffDashboard({
         })}
       </section>
 
-      <section className="ov-kpis is-three">
+      {/* Four tiles, so no `is-three` — the default grid is a four-up. */}
+      <section className="ov-kpis">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
@@ -638,11 +560,11 @@ export default function StaffDashboard({
                   className={`queue-row ${!candidate.viewed_at ? "is-unviewed" : ""} ${
                     left !== null && left <= 0 ? "is-breached" : ""
                   }`}
-                  onClick={() => void openDrawer(candidate)}
+                  onClick={() => openProfile(candidate)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      void openDrawer(candidate);
+                      openProfile(candidate);
                     }
                   }}
                 >
@@ -703,177 +625,39 @@ export default function StaffDashboard({
                     <span className="queue-score" />
                   )}
 
-                  {onOpenCandidate ? (
-                    <button
-                      type="button"
+                  {candidate.resume?.storage_key && (
+                    <a
                       className="queue-eye"
-                      title={`Open the executive profile for ${name}`}
-                      aria-label={`Open the executive profile for ${name}`}
-                      onClick={(event) => {
-                        // The row underneath opens the drawer; this does not.
-                        event.stopPropagation();
-                        onOpenCandidate(candidate);
-                      }}
+                      href={resumeDownloadUrl(candidate.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`View ${name}'s original resume`}
+                      aria-label={`View ${name}'s original resume`}
+                      onClick={(event) => event.stopPropagation()}
                     >
-                      <Eye size={14} />
-                    </button>
-                  ) : (
-                    <span className="queue-eye-spacer" />
+                      <FileText size={14} />
+                    </a>
                   )}
+
+                  <button
+                    type="button"
+                    className="queue-eye"
+                    title={`Open ${name}'s profile and evaluation`}
+                    aria-label={`Open ${name}'s profile and evaluation`}
+                    onClick={(event) => {
+                      // The row underneath would fire too, opening it twice.
+                      event.stopPropagation();
+                      openProfile(candidate);
+                    }}
+                  >
+                    <Eye size={14} />
+                  </button>
                 </div>
               );
             })}
           </div>
         )}
       </section>
-
-      {/* ---- Split-screen evaluation drawer ---- */}
-      {openId && (
-        <div className="eval-scrim" onClick={closeDrawer}>
-          <aside
-            className="eval-drawer"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Evaluate candidate"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="eval-head">
-              <div className="eval-head-id">
-                <span className="staff-avatar">
-                  {initialsOf(profile?.full_name ?? profile?.email ?? "?")}
-                </span>
-                <div>
-                  <h3>{profile?.full_name ?? "Loading…"}</h3>
-                  <p>
-                    {profile?.current_designation ?? profile?.email ?? ""}
-                    {profile?.total_experience_years
-                      ? ` · ${profile.total_experience_years} yrs`
-                      : ""}
-                  </p>
-                </div>
-              </div>
-              <div className="eval-head-actions">
-                {detail?.resume?.storage_key && (
-                  <a
-                    href={resumeDownloadUrl(detail.id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="eval-head-eye"
-                    style={{ textDecoration: "none", color: "inherit" }}
-                    title="Download / View original resume file"
-                  >
-                    <Download size={15} /> Resume PDF
-                  </a>
-                )}
-                {onOpenCandidate && detail && (
-                  <button
-                    type="button"
-                    className="eval-head-eye"
-                    onClick={() => {
-                      // Read before the close clears it.
-                      const record = detail;
-                      closeDrawer();
-                      onOpenCandidate(record);
-                    }}
-                    title="Open the full executive profile"
-                  >
-                    <Eye size={15} /> Full profile
-                  </button>
-                )}
-                <button type="button" className="modal-close" onClick={closeDrawer} aria-label="Close">
-                  <X size={18} />
-                </button>
-              </div>
-            </header>
-
-            {detailError ? (
-              <div className="db-empty">
-                <p className="db-empty-title">Could not open this profile</p>
-                <p className="db-empty-sub">{detailError}</p>
-              </div>
-            ) : !detail ? (
-              <div className="eval-loading">
-                <span className="app-boot-spinner" />
-              </div>
-            ) : (
-              <div className="eval-form" style={{ padding: "20px" }}>
-                <div className="eval-verdict">
-                  <h4 className="eval-section-title">Your Verdict</h4>
-
-                  <div className="eval-stars">
-                    {[1, 2, 3, 4, 5].map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`eval-star ${score >= value ? "is-on" : ""}`}
-                        onClick={() => setScore(score === value ? 0 : value)}
-                        aria-label={`Rate ${value} star${value === 1 ? "" : "s"}`}
-                      >
-                        <Star size={20} fill={score >= value ? "currentColor" : "none"} />
-                      </button>
-                    ))}
-                    <span className="eval-score-label">
-                      {score > 0 ? `${score} of 5` : "No rating"}
-                    </span>
-                  </div>
-
-                  <div className="eval-choices" role="radiogroup" aria-label="Evaluation status">
-                    {STATUS_CHOICES.map((choice) => (
-                      <button
-                        key={choice.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={status === choice.value}
-                        className={`eval-choice is-${choice.value} ${
-                          status === choice.value ? "is-on" : ""
-                        }`}
-                        onClick={() => setStatus(choice.value)}
-                      >
-                        {choice.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="eval-field">
-                    <label htmlFor="eval-notes">Notes</label>
-                    <textarea
-                      id="eval-notes"
-                      rows={3}
-                      value={notes}
-                      onChange={(event) => setNotes(event.target.value)}
-                      placeholder="What stood out, and what would you ask them."
-                    />
-                  </div>
-
-                  <div className="eval-actions">
-                    <button type="button" className="db-btn" onClick={closeDrawer} disabled={saving}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="db-btn"
-                      onClick={() => void save(false)}
-                      disabled={saving}
-                    >
-                      {saving ? <Loader2 size={14} className="icon-spin" /> : <CheckCircle2 size={14} />}
-                      Save verdict
-                    </button>
-                    <button
-                      type="button"
-                      className="db-btn is-primary"
-                      onClick={() => void save(true)}
-                      disabled={saving}
-                    >
-                      {saving ? <Loader2 size={14} className="icon-spin" /> : <ArrowRight size={14} />}
-                      Save & next
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
     </div>
   );
 }

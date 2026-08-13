@@ -34,6 +34,8 @@ import type {
   StaffWorkloadResponse,
   SlaAlert,
   RebalanceResult,
+  RehomeResult,
+  DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
 } from "@/types";
@@ -59,6 +61,8 @@ export type {
   StaffWorkloadResponse,
   SlaAlert,
   RebalanceResult,
+  RehomeResult,
+  DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
 };
@@ -398,13 +402,21 @@ export function fetchStaffWorkload(): Promise<StaffWorkloadResponse> {
   return request<StaffWorkloadResponse>("/staff/workload", { cache: "no-store" });
 }
 
+/**
+ * Add a staff account to the roster.
+ *
+ * Creates and nothing else — existing allocations are left exactly where they
+ * are. The new account fills up through the normal least-loaded rule as
+ * résumés arrive; moving the pile that is already there is `rebalanceCandidates`,
+ * which the admin triggers deliberately.
+ */
 export function createStaff(payload: {
   email: string;
   password: string;
   name?: string;
   keywords?: string[];
-}): Promise<{ staff: StaffMember; rebalance: RebalanceResult }> {
-  return request<{ staff: StaffMember; rebalance: RebalanceResult }>("/staff", {
+}): Promise<{ staff: StaffMember }> {
+  return request<{ staff: StaffMember }>("/staff", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -423,14 +435,18 @@ export function updateStaff(
 }
 
 /**
- * Delete a staff account and re-home the profiles it owned.
+ * Delete a staff account and deal with the queue it was holding.
  *
- * Rebalancing defaults on for a reason: the deleted account's candidates
+ * Redistribution defaults on for a reason: the deleted account's candidates
  * otherwise point at a user that no longer exists, which makes them invisible
  * to every staff dashboard and accountable to nobody.
+ *
+ * The reply says what happened to each half — `reallocated` unviewed profiles
+ * went straight to the least-loaded staff, `orphaned` reviewed ones kept their
+ * verdict and are waiting on `rehomeOrphans`.
  */
-export function deleteStaff(staffId: string, rebalance = true): Promise<{ status: string }> {
-  return request<{ status: string }>(`/staff/${staffId}?rebalance=${rebalance}`, {
+export function deleteStaff(staffId: string, rebalance = true): Promise<DeleteStaffResult> {
+  return request<DeleteStaffResult>(`/staff/${staffId}?rebalance=${rebalance}`, {
     method: "DELETE",
   });
 }
@@ -471,6 +487,19 @@ export function autoAssignCandidate(candidateId: string): Promise<{
  */
 export function rebalanceCandidates(): Promise<RebalanceResult> {
   return request<RebalanceResult>("/candidates/rebalance", { method: "POST" });
+}
+
+/**
+ * Hand every profile stranded on a deleted account to somebody who exists.
+ *
+ * The one thing a rebalance cannot do. An orphan is orphaned precisely because
+ * it had already been reviewed, and a rebalance is defined by leaving reviewed
+ * profiles alone — so calling `rebalanceCandidates` on a pile of orphans moves
+ * none of them and the console's warning never clears. This re-homes them with
+ * their verdict, score, notes and first-open timestamp intact.
+ */
+export function rehomeOrphans(): Promise<RehomeResult> {
+  return request<RehomeResult>("/candidates/rehome-orphans", { method: "POST" });
 }
 
 // --------------------------------------------------------------------------- //

@@ -70,6 +70,10 @@ LIST_PROJECTION = {
     "evaluation_status": 1,
     "evaluation_score": 1,
     "evaluated_at": 1,
+    # When the résumé arrived, so a row that has never been allocated can still
+    # show how long it has been waiting.
+    "ingested_at": 1,
+    "processed_at": 1,
 }
 
 # The narrowest useful row: identity, state, and when it arrived. For callers
@@ -91,6 +95,7 @@ MINIMAL_PROJECTION = {
 REBALANCE_PROJECTION = {
     "_id": 1,
     "assigned_staff_id": 1,
+    "assigned_staff_name": 1,
     "viewed_at": 1,
     "evaluation_status": 1,
     "created_at": 1,
@@ -102,11 +107,20 @@ SLA_PROJECTION = {
     "assigned_staff_id": 1,
     "assigned_staff_name": 1,
     "assigned_at": 1,
+    "ingested_at": 1,
+    "created_at": 1,
     "viewed_at": 1,
     "evaluation_status": 1,
     "profile.full_name": 1,
     "profile.email": 1,
 }
+
+# The clock every SLA calculation runs from, in Mongo's own expression language:
+# when this profile started waiting. `assigned_at` is the honest answer once
+# someone owns it — allocation is what creates the obligation — and the arrival
+# time is the fallback, so a profile nobody has been given is not silently
+# exempt from the window it has already been sitting in.
+SLA_CLOCK_EXPR = {"$ifNull": ["$assigned_at", {"$ifNull": ["$ingested_at", "$created_at"]}]}
 
 
 def _minimal_row(doc: dict) -> dict:
@@ -332,6 +346,66 @@ class CandidateRepository:
         )
         return res.matched_count > 0
 
+    def reassign(self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None) -> bool:
+        """Change who owns a profile, keeping everything already done to it.
+
+        The counterpart to `assign`, and the difference is the whole point:
+        `assign` clears the verdict because it is placing fresh work, while this
+        moves work that has already been started. It exists for re-homing
+        profiles stranded on a deleted account — that profile has been read and
+        judged, and handing it to someone else must not throw that away and
+        restart the clock, or deleting an account would quietly destroy the
+        evaluations that account had produced.
+
+        `viewed_at` is deliberately left alone too, so the SLA record of when it
+        was first opened survives the move.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        res = self._coll.update_one(
+            {"_id": candidate_id},
+            {"$set": {
+                "assigned_staff_id": staff_id,
+                "assigned_staff_name": staff_name,
+                "reassigned_at": now,
+                "updated_at": now,
+            }},
+        )
+        return res.matched_count > 0
+
+    def list_owned_by(self, staff_id: str) -> List[dict]:
+        """One staff member's profiles, oldest first, projected for allocation."""
+        cursor = (
+            self._coll.find({"assigned_staff_id": staff_id}, REBALANCE_PROJECTION)
+            .sort("created_at", 1)
+        )
+        return list(cursor)
+
+    def list_unassigned(self) -> List[dict]:
+        """Profiles nobody owns, oldest first — the queue auto-allocation drains."""
+        cursor = (
+            self._coll.find({"assigned_staff_id": None}, REBALANCE_PROJECTION)
+            .sort("created_at", 1)
+        )
+        return list(cursor)
+
+    def list_orphaned(self, known_staff_ids: Sequence[str]) -> List[dict]:
+        """Profiles pointing at an account that no longer exists, oldest first.
+
+        The row form of `orphaned_count`, and it has to use the same predicate:
+        the console reports the count and then re-homes what this returns, so a
+        banner that says three and a re-home that finds two would never clear.
+        """
+        cursor = (
+            self._coll.find(
+                {"assigned_staff_id": {"$nin": [None, *known_staff_ids]}},
+                REBALANCE_PROJECTION,
+            )
+            .sort("created_at", 1)
+        )
+        return list(cursor)
+
     def workload_counts(self) -> Dict[str, Dict[str, int]]:
         """`{staff_id: {assigned, evaluated, unviewed}}`, aggregated in Mongo.
 
@@ -460,11 +534,22 @@ class CandidateRepository:
         return self.get(candidate_id)
 
     def find_sla_breaches(self, cutoff: datetime) -> List[dict]:
-        """Assigned profiles, older than `cutoff`, that are unopened or unjudged."""
+        """Assigned profiles, waiting since before `cutoff`, unopened or unjudged.
+
+        "Waiting since" is `SLA_CLOCK_EXPR`, not `assigned_at` alone. A record
+        allocated by an older build carries no `assigned_at`, and matching on
+        that field directly excluded exactly the profiles that had been sitting
+        longest — the sweep reported them as fine because it could not see when
+        their clock had started.
+
+        Still restricted to profiles somebody owns: an SLA is a promise a named
+        person has not kept, and an alert against nobody names nobody to chase.
+        Unallocated profiles are counted separately, on the admin console.
+        """
         return list(self._coll.find(
             {
                 "assigned_staff_id": {"$ne": None},
-                "assigned_at": {"$ne": None, "$lte": cutoff},
+                "$expr": {"$lte": [SLA_CLOCK_EXPR, cutoff]},
                 "$or": [
                     {"viewed_at": None},
                     {"evaluation_status": {"$in": [None, "pending"]}},

@@ -251,12 +251,12 @@ def test_spec_walkthrough_five_four_three_equalises_at_five():
 
 
 def test_new_hire_takes_a_fair_share_of_an_existing_backlog():
-    """One staff member holds all 5 résumés; a second account is created.
+    """One staff member holds all 5 résumés; a second account has been created.
 
-    The new hire starts at zero while the first is deep, so creating the
-    account has to level the pile rather than wait for the next intake to
-    trickle candidates across. 5 across 2 people is 3/2 — an even split to
-    within one, which is as equal as an odd number gets.
+    Creating the account does not itself move anything — that is the admin's
+    explicit Rebalance — but when they do press it, the pile has to level rather
+    than wait for the next intake to trickle candidates across. 5 across 2 people
+    is 3/2, an even split to within one, which is as equal as an odd number gets.
     """
     users = FakeUsers([staff("a", "Anita"), staff("b", "Bala")])
     repo = FakeRepo(rows=[row(f"cand-{i}", "a") for i in range(5)])

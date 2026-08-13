@@ -22,7 +22,13 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.core.models import EVALUATION_STATUSES, CandidateProfile
 from app.core.security import create_token, read_token
-from app.assignment.balancer import assign_candidate, rebalance_all
+from app.assignment.balancer import (
+    allocate_unassigned,
+    assign_candidate,
+    rebalance_all,
+    redistribute_from_staff,
+    rehome_orphans,
+)
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
@@ -692,22 +698,33 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
     everyone = users.list_staff(include_inactive=True)
     active = [member for member in everyone if member.active]
 
-    # Auto-allocate any unassigned candidates immediately so no manual button click is required
+    # Give an owner to anything ingested while the roster was empty, without
+    # waiting to be asked. Deliberately `allocate_unassigned` and not
+    # `rebalance_all`: reading this screen must not move work that already
+    # belongs to someone, and a full re-level on every page load did exactly
+    # that — a staff member's queue could change while they were working it,
+    # because an admin opened a dashboard.
     if active and repository.unassigned_count() > 0:
         try:
-            rebalance_all(repo=repository)
+            allocate_unassigned(repo=repository, users=users)
         except Exception as exc:  # noqa: BLE001
             log.warning("Auto-allocation on staff workload fetch failed: %s", exc)
 
     items = repository.staff_workload(active)
+    roster_ids = [member.id for member in everyone]
     return {
         "items": items,
+        # The whole roster, deactivated accounts included. `items` carries only
+        # the active ones, so without this the console cannot tell a profile
+        # owned by a deactivated colleague from one owned by a deleted account —
+        # and would flag the first as orphaned, which it is not.
+        "roster_ids": roster_ids,
         "totals": {
             "staff": len(items),
             "assigned": sum(row["assigned"] for row in items),
             "evaluated": sum(row["evaluated"] for row in items),
             "unassigned": repository.unassigned_count(),
-            "orphaned": repository.orphaned_count([member.id for member in everyone]),
+            "orphaned": repository.orphaned_count(roster_ids),
         },
     }
 
@@ -716,6 +733,15 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
 def create_staff(
     payload: CreateStaffRequest, _admin: dict = Depends(require_admin)
 ) -> dict:
+    """Add a staff account to the roster. Nothing is reallocated.
+
+    Creating an account used to re-level the whole collection on the spot. It no
+    longer does: adding a colleague is a roster change, and an admin doing it at
+    9am should not thereby reshuffle queues that people are part-way through.
+    The new account starts empty and receives its share through the normal
+    least-loaded rule as résumés arrive; moving the existing pile is the
+    Rebalance control, which is explicit and says what it did.
+    """
     try:
         user = users.create_staff(
             email=payload.email,
@@ -726,8 +752,11 @@ def create_staff(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    rebalance_result = rebalance_all()
-    return {"staff": user.to_public(), "rebalance": rebalance_result}
+    log.info(
+        "Created staff account %s (%s); existing allocations left untouched",
+        user.name, user.email,
+    )
+    return {"staff": user.to_public()}
 
 
 @app.patch("/staff/{staff_id}")
@@ -747,9 +776,11 @@ def update_staff(
     if not user:
         raise HTTPException(status_code=404, detail="Staff account not found")
 
-    if payload.active is False:
-        rebalance_all()
-
+    # Deactivating no longer re-levels the collection. A deactivated account can
+    # still sign in and still owns its queue — "receives nothing new" is the
+    # whole of what deactivation means — so pulling their unread profiles out
+    # from under them contradicted both the console's own wording and the rule
+    # that rebalancing is an explicit act.
     return {"staff": user.to_public()}
 
 
@@ -759,14 +790,31 @@ def delete_staff(
     rebalance: bool = Query(True),
     _admin: dict = Depends(require_admin),
 ) -> dict:
+    """Remove a staff account and deal with the queue it leaves behind.
+
+    Splits that queue rather than re-levelling the whole collection: unviewed
+    profiles go straight to the least-loaded remaining staff, while anything
+    already read or judged is left orphaned so its evaluation survives. The
+    admin console reports the orphans and re-homes them on request.
+
+    `rebalance=false` skips the redistribution entirely, leaving the whole queue
+    orphaned — for an admin who wants to place it by hand.
+    """
     deleted = users.delete_staff(staff_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Staff account not found")
 
-    if rebalance:
-        rebalance_all()
-
-    return {"status": "deleted", "id": staff_id}
+    outcome = (
+        redistribute_from_staff(staff_id, repo=repo(), users=users)
+        if rebalance
+        else {"reallocated": 0, "orphaned": repo().count({"assigned_staff_id": staff_id})}
+    )
+    return {
+        "status": "deleted",
+        "id": staff_id,
+        "reallocated": outcome.get("reallocated", 0),
+        "orphaned": outcome.get("orphaned", 0),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -828,7 +876,23 @@ def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_admi
 
 @app.post("/candidates/rebalance")
 def rebalance_candidates(_admin: dict = Depends(require_admin)) -> dict:
+    """Level untouched profiles across the roster. Reviewed work stays put."""
     result = rebalance_all()
+    if result.get("status") == "error":
+        raise HTTPException(status_code=409, detail=result.get("detail"))
+    return result
+
+
+@app.post("/candidates/rehome-orphans")
+def rehome_orphaned_candidates(_admin: dict = Depends(require_admin)) -> dict:
+    """Re-home profiles stranded on a deleted account, verdicts intact.
+
+    Separate from `/candidates/rebalance` because it does the opposite thing to
+    the same rows: a rebalance refuses to move reviewed profiles, and every
+    orphan is reviewed — that is why it was orphaned instead of reallocated when
+    the account was deleted. Only this endpoint can clear them.
+    """
+    result = rehome_orphans(repo=repo(), users=users)
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result.get("detail"))
     return result

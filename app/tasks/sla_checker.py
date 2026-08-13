@@ -1,9 +1,17 @@
-"""The 10-hour SLA sweep (`app.tasks.sla_checker`).
+"""The SLA sweep (`app.tasks.sla_checker`).
 
-Measures allocation-to-verdict turnaround against ``settings.sla_threshold_hours``.
-A profile is in breach when it has been assigned for longer than the threshold
-and its owner has still not opened it (`viewed_at` is null) or still not judged
-it (`evaluation_status` is "pending").
+Measures arrival-to-verdict turnaround against ``settings.sla_threshold_hours``
+— 24 hours by default, one working day. A profile is in breach when its clock
+has been running for longer than the threshold and its owner has still not
+opened it (`viewed_at` is null) or still not judged it (`evaluation_status` is
+"pending").
+
+The clock starts at `assigned_at`, falling back to `ingested_at` and then
+`created_at` — see ``CandidateRepository.SLA_CLOCK_EXPR``, which the query uses
+and ``_clock_started`` below mirrors. Allocation is what creates the obligation,
+so it is the honest start; the fallbacks exist because records written by older
+builds have no `assigned_at` at all, and matching on that field alone silently
+excluded exactly the profiles that had been waiting longest.
 
 The sweep runs on a beat timer, so it fires at whatever o'clock the interval
 lands on — usually with nobody watching. That shapes the whole design:
@@ -61,10 +69,25 @@ def _hours_since(moment: Optional[datetime], now: datetime) -> float:
     return max(0.0, (now - moment).total_seconds() / 3600.0)
 
 
+def _clock_started(row: Dict[str, Any]) -> Optional[datetime]:
+    """When this profile started waiting — the Python twin of `SLA_CLOCK_EXPR`.
+
+    Both have to agree: the query decides *whether* a row is in breach and this
+    decides *by how much*, and a row selected by one and measured at zero by the
+    other would be reported as "0h overdue".
+    """
+    for field in ("assigned_at", "ingested_at", "created_at"):
+        moment = row.get(field)
+        if isinstance(moment, datetime):
+            return moment
+    return None
+
+
 def _row_to_alert(row: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     """Turn a breaching candidate document into the alert the console renders."""
     profile = row.get("profile") or {}
     name = profile.get("full_name") or profile.get("email") or "Unnamed"
+    started = _clock_started(row)
     return {
         "candidate_id": str(row.get("_id")),
         "full_name": name,
@@ -72,7 +95,7 @@ def _row_to_alert(row: Dict[str, Any], now: datetime) -> Dict[str, Any]:
         "assigned_staff_id": row.get("assigned_staff_id"),
         "assigned_staff_name": row.get("assigned_staff_name") or "Staff",
         "assigned_at": row.get("assigned_at"),
-        "hours_overdue": _hours_since(row.get("assigned_at"), now),
+        "hours_overdue": _hours_since(started, now),
         # The admin's first question is always "did they even look at it?".
         "reason": "unviewed" if not row.get("viewed_at") else "unevaluated",
     }

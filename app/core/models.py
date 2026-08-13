@@ -242,6 +242,21 @@ class CandidateRecord(BaseModel):
     auto_reply_sent: bool = False
     raw_ocr: Optional[Dict[str, Any]] = None
 
+    # ---- lifecycle -------------------------------------------------------- #
+    # When the résumé was pulled out of the mailbox (or the Sourcing Hub), and
+    # when the parser finished turning it into the profile above. Both are
+    # stamped once, at ingestion, and never move again — `created_at` records
+    # when the *document* was written, which is the same instant today but is
+    # not the same fact, and an SLA clock that has to survive a backfill or an
+    # import needs the one about the résumé.
+    #
+    # Documents written before these existed have neither. Every reader treats
+    # a missing value as `created_at` rather than as zero, so an old record
+    # reports the arrival time it always had instead of being permanently in
+    # breach.
+    ingested_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+
     # ---- allocation ------------------------------------------------------- #
     # Who owns this profile. An unassigned candidate is one nobody is
     # accountable for and the SLA sweep cannot report, so ingestion places every

@@ -7863,6 +7863,10 @@ body {
   flex-wrap: wrap;
 }
 
+/* Also worn by an <a> — "View original" is a real link to a real file, and
+   making it a button that calls window.open would break middle-click and
+   open-in-new-tab for no gain. Hence the reset of the two properties an
+   anchor brings with it and a button does not. */
 .cscreen-btn {
   display: inline-flex;
   align-items: center;
@@ -7872,8 +7876,10 @@ body {
   border: 1px solid var(--border-blue);
   background: var(--bg-card);
   color: var(--primary-hover);
+  font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
@@ -8047,6 +8053,95 @@ body {
   background: var(--bg-card);
   border-color: var(--border-blue);
   color: var(--primary-hover);
+}
+
+/* --- the review layout ----------------------------------------------------
+   The staff workspace shows the résumé and the verdict form as one screen, so
+   the profile column and the verdict column are two tracks of one grid. The
+   verdict track is fixed-width and sticky: a reviewer forms the decision part
+   way down a CV, and having to scroll back to the top to record it is what
+   made this two screens in the first place.
+
+   `.is-plain` is the admin's read-only use — one column, no aside, and the
+   grid degenerates to exactly what it was before this existed. */
+.cprof-review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: start;
+  gap: 1rem;
+}
+
+.cprof-review.is-plain {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.cprof-verdict {
+  position: sticky;
+  /* Clear of the app header, which is fixed above it. */
+  top: calc(var(--app-header-h) + 12px);
+  min-width: 0;
+}
+
+.cprof-verdict-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.25rem 1.4rem;
+  border-radius: var(--radius-xl);
+  /* A heavier edge than a profile card: this is the one block on the screen
+     that writes to the record. */
+  border: 1px solid var(--primary);
+  background: var(--dash-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.cprof-verdict-inner .cprof-card-title {
+  margin-bottom: 0;
+}
+
+.cprof-verdict-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.cprof-verdict-stamp {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--text-light);
+}
+
+/* Stacked, full-width actions: the column is too narrow for a button row, and
+   stacking puts the primary action under the thumb on a phone. */
+.eval-actions.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.45rem;
+}
+
+.eval-actions.is-stacked .db-btn {
+  width: 100%;
+}
+
+.db-btn.is-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+/* Below this the two columns cannot both be usable, so the verdict moves under
+   the résumé — the evidence, then the judgement — and stops sticking, because
+   a sticky block in a single column just covers the content. */
+@media (max-width: 1100px) {
+  .cprof-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cprof-verdict {
+    position: static;
+  }
 }
 
 /* --- profile cards -------------------------------------------------------- */
