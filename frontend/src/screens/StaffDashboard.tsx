@@ -20,13 +20,11 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
-  FileText,
+  Download,
+  Eye,
   Gauge,
   Inbox,
   Loader2,
-  Mail,
-  MapPin,
-  Phone,
   Search,
   Sparkles,
   Star,
@@ -44,7 +42,6 @@ import {
   type EvaluationStatus,
 } from "@/lib/api";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
-import CandidateProfileScreen from "./CandidateProfileScreen";
 
 interface StaffDashboardProps {
   /** Already scoped to this user — the API only ever returns their own. */
@@ -56,6 +53,14 @@ interface StaffDashboardProps {
   onFocusHandled?: () => void;
   onToast: (message: string, type?: "info" | "success" | "error") => void;
   onCandidatesChanged: () => void;
+  /**
+   * Leave the queue for the full executive profile.
+   *
+   * The drawer is for judging a résumé against its file, so it carries the
+   * evidence and the verdict and nothing else. Everything the parser extracted
+   * is a screen of its own, and this is the way out to it.
+   */
+  onOpenCandidate?: (candidate: CandidateRecord) => void;
 }
 
 type QueueFilter = "all" | "unviewed" | "pending" | "evaluated" | "at_risk";
@@ -125,6 +130,7 @@ export default function StaffDashboard({
   onFocusHandled,
   onToast,
   onCandidatesChanged,
+  onOpenCandidate,
 }: StaffDashboardProps) {
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [sort, setSort] = useState<QueueSort>("sla");
@@ -622,13 +628,23 @@ export default function StaffDashboard({
               const left = hoursRemaining(candidate, slaHours, now);
               const isNew = arrivedIds?.has(candidate.id) ?? false;
               return (
-                <button
+                // A row, not a <button>: the eye is a second action inside it,
+                // and a button may not contain a button. The role and the two
+                // keys put back exactly what the element gave up.
+                <div
                   key={candidate.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   className={`queue-row ${!candidate.viewed_at ? "is-unviewed" : ""} ${
                     left !== null && left <= 0 ? "is-breached" : ""
                   }`}
                   onClick={() => void openDrawer(candidate)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      void openDrawer(candidate);
+                    }
+                  }}
                 >
                   <span className="staff-avatar">{initialsOf(name)}</span>
 
@@ -686,7 +702,25 @@ export default function StaffDashboard({
                   ) : (
                     <span className="queue-score" />
                   )}
-                </button>
+
+                  {onOpenCandidate ? (
+                    <button
+                      type="button"
+                      className="queue-eye"
+                      title={`Open the executive profile for ${name}`}
+                      aria-label={`Open the executive profile for ${name}`}
+                      onClick={(event) => {
+                        // The row underneath opens the drawer; this does not.
+                        event.stopPropagation();
+                        onOpenCandidate(candidate);
+                      }}
+                    >
+                      <Eye size={14} />
+                    </button>
+                  ) : (
+                    <span className="queue-eye-spacer" />
+                  )}
+                </div>
               );
             })}
           </div>
@@ -718,9 +752,38 @@ export default function StaffDashboard({
                   </p>
                 </div>
               </div>
-              <button type="button" className="modal-close" onClick={closeDrawer} aria-label="Close">
-                <X size={18} />
-              </button>
+              <div className="eval-head-actions">
+                {detail?.resume?.storage_key && (
+                  <a
+                    href={resumeDownloadUrl(detail.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="eval-head-eye"
+                    style={{ textDecoration: "none", color: "inherit" }}
+                    title="Download / View original resume file"
+                  >
+                    <Download size={15} /> Resume PDF
+                  </a>
+                )}
+                {onOpenCandidate && detail && (
+                  <button
+                    type="button"
+                    className="eval-head-eye"
+                    onClick={() => {
+                      // Read before the close clears it.
+                      const record = detail;
+                      closeDrawer();
+                      onOpenCandidate(record);
+                    }}
+                    title="Open the full executive profile"
+                  >
+                    <Eye size={15} /> Full profile
+                  </button>
+                )}
+                <button type="button" className="modal-close" onClick={closeDrawer} aria-label="Close">
+                  <X size={18} />
+                </button>
+              </div>
             </header>
 
             {detailError ? (
@@ -733,116 +796,78 @@ export default function StaffDashboard({
                 <span className="app-boot-spinner" />
               </div>
             ) : (
-              <div className="eval-split">
-                {/* Left: the PDF/Image evidence preview. */}
-                <div className="eval-pane eval-pdf">
-                  {detail.resume?.storage_key ? (
-                    isImageResume ? (
-                      <div className="eval-img-frame" style={{ width: "100%", height: "100%", overflow: "auto", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "12px", background: "#f8fafc" }}>
-                        <img
-                          src={resumeDownloadUrl(detail.id)}
-                          alt={detail.resume.original_filename ?? "Résumé"}
-                          style={{ maxWidth: "100%", height: "auto", borderRadius: "8px", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}
-                        />
-                      </div>
-                    ) : (
-                      <iframe
-                        src={resumeDownloadUrl(detail.id)}
-                        title={detail.resume.original_filename ?? "Résumé PDF"}
-                        className="eval-pdf-frame"
-                        style={{ width: "100%", height: "100%", border: "none", minHeight: "550px", borderRadius: "8px" }}
-                      />
-                    )
-                  ) : (
-                    <div className="db-empty">
-                      <p className="db-empty-title">No résumé file stored</p>
-                      <p className="db-empty-sub">
-                        This profile was parsed from the email body.
-                      </p>
-                    </div>
-                  )}
-                </div>
+              <div className="eval-form" style={{ padding: "20px" }}>
+                <div className="eval-verdict">
+                  <h4 className="eval-section-title">Your Verdict</h4>
 
-                {/* Right: Verdict Evaluation Form + Full Executive Candidate Profile View (Image 2). */}
-                <div className="eval-pane eval-form" style={{ padding: "16px", overflowY: "auto" }}>
-                  <div className="eval-verdict" style={{ marginBottom: "24px", border: "2px solid #e2e8f0", padding: "16px", borderRadius: "12px", background: "#ffffff" }}>
-                    <h4 className="eval-section-title">Your Verdict</h4>
-
-                    <div className="eval-stars">
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <button
-                          key={value}
-                          type="button"
-                          className={`eval-star ${score >= value ? "is-on" : ""}`}
-                          onClick={() => setScore(score === value ? 0 : value)}
-                          aria-label={`Rate ${value} star${value === 1 ? "" : "s"}`}
-                        >
-                          <Star size={20} fill={score >= value ? "currentColor" : "none"} />
-                        </button>
-                      ))}
-                      <span className="eval-score-label">
-                        {score > 0 ? `${score} of 5` : "No rating"}
-                      </span>
-                    </div>
-
-                    <div className="eval-choices" role="radiogroup" aria-label="Evaluation status">
-                      {STATUS_CHOICES.map((choice) => (
-                        <button
-                          key={choice.value}
-                          type="button"
-                          role="radio"
-                          aria-checked={status === choice.value}
-                          className={`eval-choice is-${choice.value} ${
-                            status === choice.value ? "is-on" : ""
-                          }`}
-                          onClick={() => setStatus(choice.value)}
-                        >
-                          {choice.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="eval-field">
-                      <label htmlFor="eval-notes">Notes</label>
-                      <textarea
-                        id="eval-notes"
-                        rows={3}
-                        value={notes}
-                        onChange={(event) => setNotes(event.target.value)}
-                        placeholder="What stood out, and what would you ask them."
-                      />
-                    </div>
-
-                    <div className="eval-actions">
-                      <button type="button" className="db-btn" onClick={closeDrawer} disabled={saving}>
-                        Cancel
-                      </button>
+                  <div className="eval-stars">
+                    {[1, 2, 3, 4, 5].map((value) => (
                       <button
+                        key={value}
                         type="button"
-                        className="db-btn"
-                        onClick={() => void save(false)}
-                        disabled={saving}
+                        className={`eval-star ${score >= value ? "is-on" : ""}`}
+                        onClick={() => setScore(score === value ? 0 : value)}
+                        aria-label={`Rate ${value} star${value === 1 ? "" : "s"}`}
                       >
-                        {saving ? <Loader2 size={14} className="icon-spin" /> : <CheckCircle2 size={14} />}
-                        Save verdict
+                        <Star size={20} fill={score >= value ? "currentColor" : "none"} />
                       </button>
-                      <button
-                        type="button"
-                        className="db-btn is-primary"
-                        onClick={() => void save(true)}
-                        disabled={saving}
-                      >
-                        {saving ? <Loader2 size={14} className="icon-spin" /> : <ArrowRight size={14} />}
-                        Save & next
-                      </button>
-                    </div>
+                    ))}
+                    <span className="eval-score-label">
+                      {score > 0 ? `${score} of 5` : "No rating"}
+                    </span>
                   </div>
 
-                  {/* Full Executive Profile View (Image 2) */}
-                  <CandidateProfileScreen
-                    candidate={detail}
-                    hideTopbar={true}
-                  />
+                  <div className="eval-choices" role="radiogroup" aria-label="Evaluation status">
+                    {STATUS_CHOICES.map((choice) => (
+                      <button
+                        key={choice.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={status === choice.value}
+                        className={`eval-choice is-${choice.value} ${
+                          status === choice.value ? "is-on" : ""
+                        }`}
+                        onClick={() => setStatus(choice.value)}
+                      >
+                        {choice.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="eval-field">
+                    <label htmlFor="eval-notes">Notes</label>
+                    <textarea
+                      id="eval-notes"
+                      rows={3}
+                      value={notes}
+                      onChange={(event) => setNotes(event.target.value)}
+                      placeholder="What stood out, and what would you ask them."
+                    />
+                  </div>
+
+                  <div className="eval-actions">
+                    <button type="button" className="db-btn" onClick={closeDrawer} disabled={saving}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="db-btn"
+                      onClick={() => void save(false)}
+                      disabled={saving}
+                    >
+                      {saving ? <Loader2 size={14} className="icon-spin" /> : <CheckCircle2 size={14} />}
+                      Save verdict
+                    </button>
+                    <button
+                      type="button"
+                      className="db-btn is-primary"
+                      onClick={() => void save(true)}
+                      disabled={saving}
+                    >
+                      {saving ? <Loader2 size={14} className="icon-spin" /> : <ArrowRight size={14} />}
+                      Save & next
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

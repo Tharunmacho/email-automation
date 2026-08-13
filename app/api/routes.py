@@ -692,6 +692,13 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
     everyone = users.list_staff(include_inactive=True)
     active = [member for member in everyone if member.active]
 
+    # Auto-allocate any unassigned candidates immediately so no manual button click is required
+    if active and repository.unassigned_count() > 0:
+        try:
+            rebalance_all(repo=repository)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Auto-allocation on staff workload fetch failed: %s", exc)
+
     items = repository.staff_workload(active)
     return {
         "items": items,

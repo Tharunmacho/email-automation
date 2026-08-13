@@ -163,6 +163,16 @@ class IngestionRunner:
                 for a in res.attachments
             ) or res.reason
             log.info("  %s -> %s | %s", res.message_id, res.status, detail)
+
+        # Auto-assign any unallocated candidates remaining in MongoDB Atlas
+        try:
+            if self.pipeline.repo.unassigned_count() > 0:
+                from app.assignment import rebalance_all
+                rebalance_res = rebalance_all(repo=self.pipeline.repo)
+                log.info("Post-poll auto-assignment: %s candidate(s) allocated", rebalance_res.get("moved", 0))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Post-poll auto-assignment step failed: %s", exc)
+
         return summary
 
     def watch(self, interval_seconds: int = 60, query: str | None = None) -> None:

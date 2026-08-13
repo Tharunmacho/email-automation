@@ -845,7 +845,7 @@ export default function Home() {
                 candidate={screenCandidate}
                 verifying={verifying}
                 onBack={closeScreen}
-                onVerify={handleVerify}
+                onVerify={user?.role === "admin" ? handleVerify : undefined}
               />
             )}
 
@@ -853,8 +853,10 @@ export default function Home() {
               <CandidateEditScreen
                 candidate={screenCandidate}
                 saving={saving}
+                verifying={verifying}
                 onBack={closeScreen}
                 onSave={handleSave}
+                onVerify={user?.role === "admin" ? handleVerify : undefined}
               />
             )}
 
@@ -940,6 +942,7 @@ export default function Home() {
                     onFocusHandled={() => setQueueFocusId(null)}
                     onToast={showToast}
                     onCandidatesChanged={() => void refreshCandidates()}
+                    onOpenCandidate={handleOpenCandidate}
                   />
                 )}
 

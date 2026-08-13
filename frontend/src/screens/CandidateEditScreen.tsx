@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Plus, Save, Trash2 } from "lucide-react";
 
 import {
   editableToProfile,
@@ -18,8 +18,17 @@ import { initialsOf } from "@/lib/format";
 interface CandidateEditScreenProps {
   candidate: CandidateRecord;
   saving: boolean;
+  verifying?: boolean;
   onBack: () => void;
   onSave: (candidateId: string, profile: CandidateProfile) => void;
+  /**
+   * Sign the record off without leaving the editor.
+   *
+   * Correcting what the parser got wrong and then declaring the result correct
+   * is one job, and it used to take two screens: save here, go back, open the
+   * executive view, verify there.
+   */
+  onVerify?: (candidateId: string) => void;
 }
 
 function Field({
@@ -79,10 +88,13 @@ function SectionCard({
 export default function CandidateEditScreen({
   candidate,
   saving,
+  verifying = false,
   onBack,
   onSave,
+  onVerify,
 }: CandidateEditScreenProps) {
   const profile = candidate.profile ?? {};
+  const isVerified = candidate.status === "verified";
 
   // Seeded once per record. Re-deriving on every poll would overwrite whatever
   // the user is halfway through typing, since the list refreshes every 5s.
@@ -133,6 +145,27 @@ export default function CandidateEditScreen({
 
         <div className="cscreen-topbar-actions">
           {dirty && <span className="cedit-dirty">Unsaved changes</span>}
+
+          {/* Held shut while the form is dirty: verifying is a statement about
+              the stored record, and what is on screen is not it yet. */}
+          {/* Shown when onVerify is passed; hidden in StaffScreen view */}
+          {onVerify && (
+            <button
+              type="button"
+              className={`cscreen-btn ${isVerified ? "is-verified" : ""}`}
+              onClick={() => onVerify(candidate.id)}
+              disabled={verifying || saving || isVerified || dirty}
+              title={
+                dirty
+                  ? "Save the changes first — verifying signs off the stored record."
+                  : "Mark this profile as verified"
+              }
+            >
+              <CheckCircle2 size={15} />
+              {verifying ? "Verifying…" : isVerified ? "Verified profile" : "Verify profile"}
+            </button>
+          )}
+
           <button type="button" className="cscreen-btn is-primary" onClick={handleSave} disabled={saving}>
             <Save size={15} /> {saving ? "Saving…" : "Save changes"}
           </button>

@@ -10,6 +10,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  Star,
 } from "lucide-react";
 
 import {
@@ -28,8 +29,16 @@ interface CandidateProfileScreenProps {
   verifying?: boolean;
   onBack?: () => void;
   onVerify?: (candidateId: string) => void;
-  hideTopbar?: boolean;
 }
+
+/**
+ * One label/value pair, or nothing when the value is blank.
+ *
+ * "N/A" against six labels reads as six findings — the reader has to check each
+ * one to learn the resume said nothing about any of them. Omitting the row says
+ * the same thing at a glance. Both cells are direct children of `.cprof-facts`
+ * so the grid keeps its columns.
+ */
 function Fact({ label, value }: { label: string; value?: string | null }) {
   if (isBlankValue(value)) return null;
   return (
@@ -53,12 +62,20 @@ function BulletText({ text }: { text: string }) {
   );
 }
 
+/**
+ * The executive profile, read-only by construction.
+ *
+ * There is no edit control anywhere on this screen and no editable state behind
+ * it — changing a candidate is a different screen with a different job. That
+ * separation is the point: this one can be read, scrolled and shown to someone
+ * without any risk that a stray click alters the record. Verifying is the one
+ * exception, and it changes a status rather than any of the parsed fields.
+ */
 export default function CandidateProfileScreen({
   candidate,
   verifying = false,
   onBack,
   onVerify,
-  hideTopbar = false,
 }: CandidateProfileScreenProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -89,9 +106,14 @@ export default function CandidateProfileScreen({
   const isVerified = candidate.status === "verified";
   const ingestedOn = candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—";
 
+  const hasVerdict = Boolean(
+    candidate.evaluation_status || candidate.evaluation_notes || candidate.evaluation_score,
+  );
+
   /** Only sections that actually carry something are offered or drawn. */
   const sections = [
     { id: "details", label: "Details", present: true },
+    { id: "verdict", label: "Verdict & Evaluation", present: hasVerdict },
     { id: "summary", label: "Summary", present: Boolean(view.summary.trim()) },
     { id: "experience", label: "Experience", present: view.work_experience.length > 0 },
     { id: "skills", label: "Skills", present: skills.length > 0 },
@@ -144,26 +166,37 @@ export default function CandidateProfileScreen({
 
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
-      {!hideTopbar && (
-        <div className="cscreen-topbar">
-          {onBack && (
-            <button type="button" className="jod-back" onClick={onBack} title="Back to the candidates list">
-              <ArrowLeft size={15} /> Back to candidates
-            </button>
-          )}
+      <div className="cscreen-topbar">
+        {onBack && (
+          <button type="button" className="jod-back" onClick={onBack} title="Back to the candidates list">
+            <ArrowLeft size={15} /> Back to candidates
+          </button>
+        )}
 
-          <div className="cscreen-topbar-actions">
+        <div className="cscreen-topbar-actions">
+          <button
+            type="button"
+            className="cscreen-btn"
+            onClick={handleDownload}
+            disabled={downloading}
+          >
+            <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
+          </button>
+
+          {/* Shown when onVerify is passed; hidden in StaffScreen view where staff focus on evaluations */}
+          {onVerify && (
             <button
               type="button"
-              className="cscreen-btn"
-              onClick={handleDownload}
-              disabled={downloading}
+              className={`cscreen-btn ${isVerified ? "is-verified" : "is-primary"}`}
+              onClick={() => onVerify(candidate.id)}
+              disabled={verifying || isVerified}
             >
-              <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
+              <CheckCircle2 size={15} />
+              {verifying ? "Verifying…" : isVerified ? "Verified profile" : "Verify profile"}
             </button>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {downloadError && <div className="cscreen-error">Resume download failed — {downloadError}</div>}
 
@@ -227,6 +260,47 @@ export default function CandidateProfileScreen({
             <Fact label="Address" value={view.location} />
           </div>
         </section>
+
+        {hasVerdict && (
+          <section className="cprof-card" id={sectionId("verdict")}>
+            <h3 className="cprof-card-title">Staff Verdict & Evaluation</h3>
+            <div className="cprof-facts">
+              <Fact
+                label="Verdict Status"
+                value={
+                  candidate.evaluation_status
+                    ? candidate.evaluation_status.replace("_", " ").toUpperCase()
+                    : "Pending"
+                }
+              />
+              {candidate.evaluation_score ? (
+                <>
+                  <div className="cprof-fact-label">Rating</div>
+                  <div
+                    className="cprof-fact-value"
+                    style={{ display: "flex", alignItems: "center", gap: "4px", color: "#f59e0b" }}
+                  >
+                    {Array.from({ length: candidate.evaluation_score }).map((_, i) => (
+                      <Star key={i} size={16} fill="currentColor" />
+                    ))}
+                    <span style={{ color: "var(--dash-ink)", fontSize: "0.85rem", marginLeft: "6px" }}>
+                      ({candidate.evaluation_score} of 5)
+                    </span>
+                  </div>
+                </>
+              ) : null}
+              {candidate.evaluated_at ? (
+                <Fact label="Evaluated At" value={formatDateFull(new Date(candidate.evaluated_at))} />
+              ) : null}
+              {candidate.evaluation_notes ? (
+                <React.Fragment>
+                  <div className="cprof-fact-label">Evaluation Notes</div>
+                  <div className="cprof-fact-value is-multiline">{candidate.evaluation_notes}</div>
+                </React.Fragment>
+              ) : null}
+            </div>
+          </section>
+        )}
 
         {view.summary.trim() && (
           <section className="cprof-card" id={sectionId("summary")}>

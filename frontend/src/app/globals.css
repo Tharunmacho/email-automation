@@ -10175,6 +10175,36 @@ body {
   color: var(--text-muted);
 }
 
+.eval-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+}
+
+/* Named, not just an icon: leaving the drawer for another screen is a bigger
+   move than anything else in this header, and it should say so. */
+.eval-head-eye {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.38rem 0.7rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--primary-hover);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.eval-head-eye:hover {
+  background: var(--tint-1);
+  border-color: var(--primary);
+}
+
 .eval-loading {
   display: grid;
   place-items: center;
@@ -10280,10 +10310,11 @@ body {
   color: var(--text-light);
 }
 
+/* The verdict is the whole right pane now, so it starts at the top of it. The
+   rule used to push itself down with `margin-top: auto` and rule a line above
+   itself, both of which were separating it from a summary that no longer sits
+   there — a line under nothing, and a form floating at the bottom. */
 .eval-verdict {
-  margin-top: auto;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-blue);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -10745,7 +10776,7 @@ body {
    column instead of read row by row. */
 .queue-row {
   display: grid;
-  grid-template-columns: 36px minmax(170px, 1.6fr) minmax(130px, 1.2fr) 104px 112px 78px;
+  grid-template-columns: 36px minmax(170px, 1.6fr) minmax(130px, 1.2fr) 104px 112px 78px 30px;
   gap: 0.85rem;
   align-items: center;
   width: 100%;
@@ -10864,6 +10895,40 @@ body {
   display: inline-flex;
   gap: 1px;
   color: var(--warning);
+}
+
+/* The way out of the queue and into the whole parsed record. Quiet until the
+   row is under the cursor: it is the second thing to do with a row, and the
+   first — open it to evaluate — is the row itself. */
+.queue-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.queue-row:hover .queue-eye {
+  border-color: var(--border-blue);
+  color: var(--primary);
+}
+
+.queue-eye:hover {
+  background: var(--tint-1);
+  border-color: var(--primary);
+  color: var(--primary-hover);
+}
+
+.queue-eye:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 /* ---- verdict form -------------------------------------------------------- */
@@ -10989,9 +11054,10 @@ body {
 @media (max-width: 900px) {
 
   /* Skills and the countdown are the two columns a phone cannot fit and the
-     reader can recover by opening the profile; identity and status stay. */
+     reader can recover by opening the profile; identity, status and the way
+     into the full profile stay. */
   .queue-row {
-    grid-template-columns: 32px 1fr auto;
+    grid-template-columns: 32px 1fr auto 30px;
   }
 
   .queue-skills,
