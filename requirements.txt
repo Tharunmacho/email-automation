@@ -25,6 +25,7 @@ docx2txt>=0.8            # fallback .docx text
 # ---- OCR (scanned PDFs / images) ----
 pytesseract>=0.3.10      # requires Tesseract-OCR binary installed on the host
 Pillow>=10.3
+veriis>=0.1.2
 
 # ---- REST API (extension seam) ----
 fastapi>=0.111

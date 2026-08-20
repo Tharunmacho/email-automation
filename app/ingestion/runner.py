@@ -37,7 +37,7 @@ def mark_message_done(gmail, message_id: str, status: str) -> None:
             gmail.apply_label(message_id, settings.gmail_deleted_label)
         if settings.gmail_processed_label:
             gmail.remove_label(message_id, settings.gmail_processed_label)
-    elif status in ("processed", "skipped", "error"):
+    elif status in ("processed", "error"):
         if settings.gmail_mark_read:
             gmail.mark_read(message_id)
         if settings.gmail_processed_label:

@@ -22,11 +22,11 @@ celery_app = Celery(
     "resume_ingest",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.tasks.jobs"],
+    include=["app.tasks.jobs", "app.tasks.reconciler"],
 )
 
 celery_app.conf.update(
-    imports=["app.tasks.jobs"],
+    imports=["app.tasks.jobs", "app.tasks.reconciler"],
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
@@ -37,6 +37,16 @@ celery_app.conf.update(
     # to fail in seconds rather than hang on the default connect timeout.
     broker_transport_options={"socket_connect_timeout": 3, "socket_timeout": 3},
     result_backend_transport_options={"socket_connect_timeout": 3, "socket_timeout": 3},
+    # The reconciler sweep. Every OCR job the pipeline could not wait out is
+    # sitting on an ingestion row with its job id; this is what goes back for
+    # the answer. It is single-flighted on a Redis lock, so a tick landing on
+    # top of a slow sweep is a no-op rather than a double submission.
+    beat_schedule={
+        "reconcile-ocr-jobs": {
+            "task": "app.tasks.reconciler.reconcile_ocr_jobs",
+            "schedule": float(settings.reconciler_interval_seconds),
+        },
+    },
 )
 
 

@@ -32,6 +32,12 @@ RESUME = "resume"
 CERTIFICATE = "certificate"
 EXPERIENCE_LETTER = "experience_letter"
 ID_DOCUMENT = "id_document"
+# Two *specialisations* of ID_DOCUMENT. The generic bucket is what the résumé
+# scorer penalises with; these two are what the multipass extractor routes to
+# the Aadhaar and passport OCR endpoints, and they are only ever assigned from
+# document-level evidence (see `classify_multipass`).
+AADHAAR = "aadhaar"
+PASSPORT = "passport"
 OTHER = "other"          # invoice, hall ticket, receipt — the reject bucket
 UNKNOWN = "unknown"      # has content, commits to nothing — never a rejection
 BLANK = "blank"
@@ -608,3 +614,259 @@ def select_text(page_texts: Sequence[str], pages: Sequence[int]) -> str:
             if text:
                 out.append(text)
     return "\n\n".join(out)
+
+
+# --------------------------------------------------------------------------- #
+#  Multipass: which pages are an Aadhaar, and which are a passport
+# --------------------------------------------------------------------------- #
+# One 60-page bundle routinely holds a CV, a stack of certificates, an Aadhaar
+# card and a passport scan. The résumé half of this module deliberately refuses
+# to call a page an ID on the strength of the words "Aadhaar" or "Passport No"
+# alone, because every Indian and Gulf CV prints both in its personal-details
+# block — and doing so once cost a real candidate his employment history.
+#
+# Routing a page to the Aadhaar or passport OCR endpoint needs the opposite
+# evidence: not "this page mentions the document" but "this page *is* the
+# document". So the markers below are the wording that only ever appears on the
+# card or the data page itself — the issuing authority, the bilingual field
+# labels, the MRZ — and a bare mention is worth a fraction of a hit.
+
+# What a page must score to be sent for ID extraction at all.
+_ID_SEED_SCORE = 3.0
+# What it must score when it *also* reads as a résumé page. A CV listing a
+# passport number, a nationality and a date of expiry can drift over the seed
+# score on weak markers alone; only unmistakable document evidence — the MRZ,
+# the issuing authority — outranks the résumé reading.
+_ID_OVERRIDE_SCORE = 5.0
+
+_AADHAAR_MARKERS = {
+    "strong": (
+        r"unique\s+identification\s+authority\s+of\s+india",
+        r"\buidai\b",
+        r"mera\s+aadhaar,?\s*meri\s+pehchan",
+        r"aadhaar\s+is\s+(?:a\s+)?proof\s+of\s+identity",
+        # The card prints the issuer and the word within a few lines of each
+        # other. A CV that merely states an Aadhaar number does not.
+        r"government\s+of\s+india[\s\S]{0,160}?\baadha?ar\b",
+        r"\baadha?ar\b[\s\S]{0,160}?government\s+of\s+india",
+        r"enrol(?:l)?ment\s+(?:no|id)\.?\s*[:\-]?\s*\d",
+        r"\bvid\b\s*[:\-]?\s*\d{4}",
+        r"आधार",
+        r"भारत\s*सरकार",
+    ),
+    "weak": (
+        r"\baadha?ar\b",
+        r"\bmy\s+aadhaar\b",
+        r"aadhaar\s+(?:no|number)\.?",
+        r"download\s+date",
+        r"\bc/o\b|\bs/o\b|\bd/o\b|\bw/o\b",
+        r"year\s+of\s+birth",
+        r"\bpin\s*code\b",
+    ),
+}
+
+# UIDAI prints the number as three space-separated groups of four. A résumé
+# usually runs it together or omits it, so the *formatting* carries real signal.
+# We also support masked Aadhaar cards (XXXX XXXX 1234) and hyphen separation.
+_AADHAAR_NUMBER_RE = re.compile(r"\b(?:[xX]{4}|\d{4})[\s\-]+(?:[xX]{4}|\d{4})[\s\-]+\d{4}\b")
+
+_PASSPORT_MARKERS = {
+    "strong": (
+        # The bilingual field labels are printed on the data page and nowhere else.
+        r"passport\s*/\s*passeport",
+        r"\bpasseport\b",
+        r"surname\s*/\s*nom",
+        r"given\s+names?\s*\(?s?\)?\s*/\s*pr[eé]noms?",
+        r"type\s*/\s*type[\s\S]{0,80}?country\s+code",
+        r"country\s+code\s*/\s*code\s+du\s+pays",
+        r"republic\s+of\s+india[\s\S]{0,120}?passport",
+        r"machine\s+readable\s+zone",
+        r"holder.?s\s+signature",
+        r"place\s+of\s+issue[\s\S]{0,240}?date\s+of\s+expiry",
+        # Back page of Indian Passport
+        r"name\s+of\s+father\s*/\s*legal\s+guardian",
+        r"name\s+of\s+mother",
+        r"name\s+of\s+spouse",
+        r"old\s+passport\s+no\.?",
+        # Indian Passport (Hindi/English) bilingual labels
+        r"पासपोर्ट",
+        r"टाईप\s*/\s*type",
+        r"राष्ट्र\s+कोड\s*/\s*country\s+code",
+        r"उपनाम\s*/\s*surname",
+        r"दिया\s+गया\s+नाम",
+        r"राष्ट्रीयता\s*/\s*nationality",
+        r"जन्म\s+तिथि\s*/\s*date\s+of\s+birth",
+        r"समाप्ति\s+की\s+तिथि\s*/\s*date\s+of\s+expiry",
+        r"पिता\s*/\s*कानूनी\s*अभिभावक\s*का\s*नाम",
+        r"माता\s*का\s*नाम",
+        r"पत्नी\s*/\s*पति\s*का\s*नाम",
+    ),
+    "weak": (
+        r"passport\s+no\.?",
+        r"date\s+of\s+expiry",
+        r"place\s+of\s+issue",
+        r"place\s+of\s+birth",
+        r"\bnationality\b",
+        r"\bsurname\b",
+        r"given\s+names?\b",
+        r"\bfile\s+no\.?\b",
+        r"\bsex\b",
+    ),
+}
+
+# The MRZ is the single most reliable thing on a passport. However, if the scan
+# is blurry or rotated, Tesseract often misreads the '<' character as '(', '{', 
+# '[', 'C', 'K', 'E', '«', or '|'. We use a highly forgiving character class and
+# avoid strict ^/$ anchors so it detects MRZs even if the OCR result is messy.
+_MRZ_LINE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z0-9<({\[\]})«»|l1Ii\.,cKE\-_=+'\"]{28,60}(?![A-Za-z0-9])")
+_MRZ_HEAD_RE = re.compile(r"\bP[<K(C\[{\«\|l1I][A-Z0-9]{3}[A-Z0-9<({\[\]})«»|l1Ii\.,cKE\-_=+'\"]{3,}")
+
+_ID_MARKERS_COMPILED = {
+    AADHAAR: {
+        weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+        for weight, patterns in _AADHAAR_MARKERS.items()
+    },
+    PASSPORT: {
+        weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+        for weight, patterns in _PASSPORT_MARKERS.items()
+    },
+}
+
+
+def id_document_scores(text: str) -> Dict[str, float]:
+    """How strongly one page reads as an Aadhaar card and as a passport.
+
+    Reported per kind rather than as a single verdict: a scanner page can carry
+    the back of an Aadhaar *and* a photocopied passport corner, and the caller
+    is the one that decides which endpoint wins.
+    """
+    text = text or ""
+    scores: Dict[str, float] = {AADHAAR: 0.0, PASSPORT: 0.0}
+    if len(text.strip()) < _MIN_PAGE_CHARS:
+        return scores
+
+    for kind, groups in _ID_MARKERS_COMPILED.items():
+        score = 0.0
+        for pattern in groups["strong"]:
+            if pattern.search(text):
+                score += 2.0
+        for pattern in groups["weak"]:
+            if pattern.search(text):
+                score += 0.5
+        scores[kind] = score
+
+    if _AADHAAR_NUMBER_RE.search(text):
+        scores[AADHAAR] += 2.0
+
+    # An MRZ head ("P<INDKUMAR<<RAJESH") is conclusive on its own; a bare pair
+    # of 40-character runs of capitals and chevrons is nearly so.
+    if _MRZ_HEAD_RE.search(text):
+        scores[PASSPORT] += 4.0
+    elif len(_MRZ_LINE_RE.findall(text)) >= 2:
+        scores[PASSPORT] += 3.0
+    elif _MRZ_LINE_RE.search(text):
+        scores[PASSPORT] += 1.5
+
+    return {k: round(v, 2) for k, v in scores.items()}
+
+
+@dataclass
+class MultipassClassification:
+    """Every page of one bundle, routed to the endpoint that can read it.
+
+    ``resume_pages``, ``aadhaar_pages`` and ``passport_pages`` are disjoint and
+    1-based. Everything else — certificates, experience letters, invoices, blank
+    scanner pages — lands in ``ignored_pages`` and is never uploaded anywhere.
+    """
+
+    is_resume: bool
+    confidence: float
+    resume_pages: List[int]
+    aadhaar_pages: List[int]
+    passport_pages: List[int]
+    ignored_pages: List[int]
+    pages: List[PageClassification]
+    reason: str
+
+    @property
+    def page_kinds(self) -> Dict[int, str]:
+        return {p.page_number: p.kind for p in self.pages}
+
+    def modes(self) -> Dict[str, List[int]]:
+        """``{ocr mode: pages}`` for the modes this bundle has work for.
+
+        Résumé first: it is the pass that produces the candidate record every
+        other pass hangs off.
+        """
+        found: Dict[str, List[int]] = {}
+        if self.resume_pages:
+            found[RESUME] = list(self.resume_pages)
+        if self.aadhaar_pages:
+            found[AADHAAR] = list(self.aadhaar_pages)
+        if self.passport_pages:
+            found[PASSPORT] = list(self.passport_pages)
+        return found
+
+
+def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
+    """Split one bundle into résumé pages, Aadhaar pages and passport pages.
+
+    The résumé half is delegated to `classify_document` unchanged — that is the
+    part tuned against real mail, and the ID pass must not be able to move it.
+    Only the pages the résumé pass did *not* claim are offered to the ID
+    scorers, so a CV page that lists a passport number stays a CV page.
+    """
+    texts = list(page_texts or [])
+    base = classify_document(texts)
+
+    resume_pages = list(base.resume_pages)
+    claimed = set(resume_pages)
+    aadhaar_pages: List[int] = []
+    passport_pages: List[int] = []
+    ignored_pages: List[int] = []
+
+    for page in base.pages:
+        number = page.page_number
+        if number in claimed:
+            continue
+        if page.signals.chars < _MIN_PAGE_CHARS:
+            ignored_pages.append(number)
+            continue
+
+        text = texts[number - 1] if number - 1 < len(texts) else ""
+        scores = id_document_scores(text)
+        kind, best = max(scores.items(), key=lambda kv: kv[1])
+
+        # A page the résumé pass merely failed to reach — an unlabelled
+        # continuation, say — still reads as a CV. Only conclusive document
+        # evidence takes it.
+        threshold = _ID_OVERRIDE_SCORE if page.score >= _CONTINUATION_SCORE else _ID_SEED_SCORE
+        if best < threshold:
+            ignored_pages.append(number)
+            continue
+
+        page.kind = kind
+        if kind == AADHAAR:
+            aadhaar_pages.append(number)
+        else:
+            passport_pages.append(number)
+
+    reason = base.reason
+    extra = []
+    if aadhaar_pages:
+        extra.append(f"aadhaar on page(s) {', '.join(str(n) for n in aadhaar_pages)}")
+    if passport_pages:
+        extra.append(f"passport on page(s) {', '.join(str(n) for n in passport_pages)}")
+    if extra:
+        reason = f"{reason}; {'; '.join(extra)}"
+
+    return MultipassClassification(
+        is_resume=base.is_resume,
+        confidence=base.confidence,
+        resume_pages=resume_pages,
+        aadhaar_pages=sorted(aadhaar_pages),
+        passport_pages=sorted(passport_pages),
+        ignored_pages=sorted(ignored_pages),
+        pages=base.pages,
+        reason=reason,
+    )

@@ -223,13 +223,6 @@ def demo_accounts() -> dict:
                 "email": settings.admin_email,
                 "password": settings.admin_password,
             },
-            {
-                "role": "staff",
-                "label": "Staff Evaluator",
-                "description": "Evaluate candidates allocated to your review queue.",
-                "email": settings.demo_staff_email,
-                "password": settings.demo_staff_password,
-            },
         ],
     }
 
@@ -510,6 +503,124 @@ def ingest_rules(_user: dict = Depends(current_user)) -> dict:
 
 
 # ---- Background ingestion ------------------------------------------------- #
+# ---- Multipass OCR state machine ------------------------------------------ #
+@app.get("/ingest/ocr-state")
+def ocr_state(_user: dict = Depends(current_user)) -> dict:
+    """How much OCR work is in flight, and how much of it is stuck.
+
+    One number matters more than the rest: `abandoned`. Everything else drains
+    on its own — a queued job finishes, a failed one is retried by the
+    reconciler — but an abandoned row is waiting for a person.
+    """
+    from app.db.ingestion_state import IngestionStateStore
+
+    try:
+        counts = IngestionStateStore().status_counts()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Ingestion state unavailable: {exc}")
+
+    queue: dict = {}
+    if settings.veris_ocr_api_key:
+        from app.extraction.jobs import AsyncOCRJobClient
+
+        # Never fatal: this is the OCR service reporting on itself, and the
+        # local state above is still worth serving when it cannot be reached.
+        with AsyncOCRJobClient() as client:
+            queue = client.queue_stats()
+
+    return {
+        "rows": counts,
+        "in_flight": counts["received"] + counts["submitting"] + counts["running"],
+        "needs_review": counts["abandoned"],
+        "ocr_queue": queue,
+        "config": {
+            "async_jobs": settings.ocr_async_jobs_enabled,
+            "multipass": settings.multipass_extraction_enabled,
+            "max_attempts": settings.ocr_job_max_attempts,
+            "stuck_after_seconds": settings.reconciler_stuck_after_seconds,
+        },
+    }
+
+
+@app.get("/ingest/ocr-state/review")
+def ocr_review_queue(limit: int = 100, _user: dict = Depends(current_user)) -> dict:
+    """The rows that exhausted their retries and now need a human."""
+    from app.tasks.reconciler import review_queue
+
+    try:
+        return {"items": review_queue(limit)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Ingestion state unavailable: {exc}")
+
+
+@app.post("/ingest/ocr-state/reconcile")
+def run_reconciler(limit: int | None = None, _user: dict = Depends(require_admin)) -> dict:
+    """Run a reconciler sweep now, inline, instead of waiting for beat.
+
+    Admin-only and synchronous: it re-submits OCR work and therefore spends
+    money, so it is not something a staff account triggers by refreshing a page.
+    """
+    from app.tasks.reconciler import reconcile_once
+
+    try:
+        return reconcile_once(limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Reconciler failed: {exc}")
+
+
+@app.post("/ingest/ocr-state/{row_id}/retry")
+def retry_ocr_row(row_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Put one abandoned row back in the queue. The next sweep picks it up."""
+    from app.db.ingestion_state import IngestionStateStore
+
+    store = IngestionStateStore()
+    if not store.reset_for_retry(row_id):
+        raise HTTPException(
+            status_code=404,
+            detail="No abandoned ingestion row with that id (only abandoned rows can be retried).",
+        )
+    return {"row_id": row_id, "status": "received"}
+
+
+@app.get("/candidates/{candidate_id}/identity")
+def candidate_identity_documents(candidate_id: str, user: dict = Depends(current_user)) -> dict:
+    """The Aadhaar and passport read out of this candidate's application.
+
+    Numbers are masked unless the caller is an administrator. A recruiter needs
+    to know the document is on file and reads correctly; the full Aadhaar number
+    is a different question with a different answer.
+    """
+    from app.db.identity_records import find_for_candidate
+
+    # 404s a record that belongs to another staff member, exactly as the
+    # candidate endpoints do — an identity document must not be the thing that
+    # confirms a candidate id exists.
+    _owned_or_404(candidate_id, user)
+
+    try:
+        found = find_for_candidate(candidate_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Identity records unavailable: {exc}")
+
+    is_admin = user.get("role") == ADMIN_ROLE
+
+    def _clean(doc: dict) -> dict:
+        doc = dict(doc)
+        # The raw OCR payload carries the unmasked number in a dozen places.
+        doc.pop("raw", None)
+        if not is_admin:
+            doc.pop("aadhaar_number", None)
+            doc.pop("vid", None)
+            doc.pop("raw_mrz", None)
+        return doc
+
+    return {
+        "candidate_id": candidate_id,
+        "aadhaar": [_clean(d) for d in found["aadhaar"]],
+        "passport": [_clean(d) for d in found["passport"]],
+    }
+
+
 @app.get("/ingest/workers")
 def ingest_workers(_user: dict = Depends(current_user)) -> dict:
     """Lets the frontend pick the async path only when it will actually work."""

@@ -123,6 +123,8 @@ def ensure_indexes() -> None:
     # Durable "already ingested / user deleted" ledger, the accounts, and the
     # notification feed — the last of which carries the TTL that stops the
     # collection growing without bound, so it is not optional.
+    from app.db.identity_records import ensure_identity_indexes
+    from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
     from app.db.notifications import ensure_notification_indexes
     from app.db.users import ensure_user_indexes
@@ -130,9 +132,17 @@ def ensure_indexes() -> None:
     ensure_ledger_indexes()
     ensure_user_indexes()
     ensure_notification_indexes()
+    # The multipass state machine and the two identity collections it feeds.
+    # The compound unique index is what stops a redelivered email queueing a
+    # second Aadhaar job for a card that has already been read.
+    ensure_ingestion_state_indexes()
+    ensure_identity_indexes()
 
     log.info(
         "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders', "
-        "'ingest_ledger', 'users' and 'notifications'",
+        "'ingest_ledger', 'users', 'notifications', 'ingestion_state', "
+        "'%s' and '%s'",
         coll.name,
+        settings.mongo_aadhaar_collection,
+        settings.mongo_passport_collection,
     )
