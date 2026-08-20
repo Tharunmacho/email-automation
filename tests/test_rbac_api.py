@@ -229,7 +229,8 @@ def test_demo_endpoint_offers_only_the_super_admin(api):
     assert body["enabled"] is True
     by_role = {a["role"]: a for a in body["accounts"]}
     assert set(by_role) == {"admin"}
-    assert by_role["admin"]["email"] == "superadmin@gmail.com"
+    from app.config import settings
+    assert by_role["admin"]["email"] == settings.admin_email
     # A button that fills a blank password would fail the sign-in it triggers.
     assert all(a["password"] for a in body["accounts"])
 

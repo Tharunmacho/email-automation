@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     ocr_languages: str = "eng"
     ocr_min_text_chars: int = 120
     # Quality pass, run only on the pages that hold the résumé.
-    ocr_dpi: int = 150
+    ocr_dpi: int = 300
     # How many pages go into one OCR call, and the granularity at which the
     # scan stops. The cloud OCR takes a file, so this is the only lever on how
     # long a single call can take: a 9-page 1.6 MB scan timed out at 180s as one
@@ -171,6 +171,61 @@ class Settings(BaseSettings):
     # unreadable and the mail stuck retrying. Raise this for mailboxes that get
     # large scans; it is the ceiling on one OCR call, not a per-page budget.
     veris_timeout_seconds: float = 100.0
+
+    # ---- Async OCR jobs (POST /v1/jobs) ----
+    # Queue the extraction instead of holding an HTTP connection open for it.
+    # The synchronous endpoint loses the work outright when it times out; a job
+    # survives the disconnect and is collected later by the reconciler. Turn
+    # off to fall back to the synchronous `/v1/resume/extract` call.
+    ocr_async_jobs_enabled: bool = True
+    # How long the pipeline will wait for the résumé job before giving up on
+    # doing it inline. The candidate record depends on this result, so the
+    # budget is generous — a 60-page scan queued behind three others.
+    ocr_job_wait_seconds: float = 240.0
+    # How long it waits for the Aadhaar / passport jobs, which nothing
+    # downstream blocks on. Short on purpose: the ingestion row already holds
+    # the job id, so anything unfinished is collected by the reconciler rather
+    # than holding a Gmail message open.
+    identity_job_wait_seconds: float = 45.0
+    # Poll backoff. Base doubles per attempt, capped, and jittered across the
+    # whole interval so a batch submitted together does not come back in
+    # lockstep. A `Retry-After` from the service overrides both.
+    ocr_job_backoff_base_seconds: float = 1.5
+    ocr_job_backoff_cap_seconds: float = 30.0
+    # How many times one submission rides out a full queue (429/503) before the
+    # row is failed and left to the reconciler.
+    ocr_job_submit_retries: int = 4
+    # Total submissions per ingestion row across all reconciler passes. On the
+    # last one the row is abandoned into the operator review queue rather than
+    # being retried forever.
+    ocr_job_max_attempts: int = 5
+
+    # ---- Multipass extraction ----
+    # Route Aadhaar and passport pages out of the same bundle to their own OCR
+    # endpoints, instead of dropping everything that is not the résumé.
+    multipass_extraction_enabled: bool = True
+    # If True, sends the entire original PDF to the OCR extraction endpoints
+    # instead of cropping out just the pages where the document was detected.
+    # WARNING: Sending a 50MB 60-page PDF to Veris API may cause the connection to drop!
+    send_full_bundle_to_ocr: bool = False
+    # If True, ALWAYS prefers local Tesseract for the scanning phase to prevent cloud timeouts on huge files
+    prefer_local_ocr_for_scanning: bool = True
+    mongo_aadhaar_collection: str = "aadhaar_records"
+    mongo_passport_collection: str = "passport_records"
+
+    # ---- Reconciler ----
+    # A row untouched for this long is assumed stuck. Measured from the last
+    # update rather than from arrival, so a healthy long-running job — which
+    # the poller keeps touching — is never re-submitted underneath itself.
+    reconciler_stuck_after_seconds: int = 600
+    reconciler_batch_size: int = 50
+    # How often celery beat runs the sweep. Well under
+    # `reconciler_stuck_after_seconds`, so a row that goes quiet is picked up on
+    # the first tick after it qualifies rather than a whole interval later.
+    reconciler_interval_seconds: int = 120
+    # How long the reconciler waits on any single job it re-drives. Short: its
+    # job is to move rows along, not to sit on one.
+    reconciler_job_wait_seconds: float = 30.0
 
     # ---- Celery ----
     celery_broker_url: str = "redis://localhost:6379/0"

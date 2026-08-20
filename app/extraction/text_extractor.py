@@ -97,14 +97,18 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
     is_spaced = bool(_SPACED_CHARS.search(joined))
     thin = layer_chars < settings.ocr_min_text_chars
 
-    # OCR only when the text layer cannot be trusted. This used to fire on
-    # "a Veris key is configured", which sent every PDF — text layer and all —
-    # to the cloud in one whole-file call. That is what timed out on a 9-page
-    # scan, and it was pure waste on the PDFs that could already be read.
-    if thin or is_spaced:
+    # OCR when the text layer cannot be trusted overall (thin or spaced).
+    # If multipass is enabled, we also must trigger selective OCR even for a thick
+    # document if any individual page is an image (no text layer), because candidates
+    # often append scanned ID images to a digitally generated résumé PDF.
+    needs_partial_ocr = False
+    if not (thin or is_spaced) and settings.multipass_extraction_enabled:
+        needs_partial_ocr = any(_needs_ocr(t) for t in page_texts)
+
+    if thin or is_spaced or needs_partial_ocr:
         log.info(
-            "PDF OCR triggered (%s, pages=%d, thin=%s, spaced=%s)",
-            filename, page_count, thin, is_spaced,
+            "PDF OCR triggered (%s, pages=%d, thin=%s, spaced=%s, partial=%s)",
+            filename, page_count, thin, is_spaced, needs_partial_ocr,
         )
         page_texts, ocr_pages = _ocr_pdf_selectively(
             data, filename, page_texts, page_count,
@@ -130,7 +134,7 @@ def _ocr_chunk(data: bytes, pages: list[int], filename: str) -> dict[int, str]:
     if not pages:
         return {}
 
-    if settings.veris_ocr_api_key:
+    if settings.veris_ocr_api_key and not settings.prefer_local_ocr_for_scanning:
         payload = pdf_pages.subset_pdf(data, pages) or data
         try:
             texts = [t or "" for t in ocr_via_veris_pages(payload, filename or "resume.pdf")]
@@ -193,12 +197,20 @@ def _ocr_scan_progressively(
             # Keep going only while the résumé might continue onto a page we
             # have not looked at yet.
             if max(result.resume_pages) < read:
-                log.info(
-                    "Resume found on page(s) %s of '%s' after reading %d of %d page(s)",
-                    result.resume_pages, filename, read, page_count,
-                )
-                break
-            continue
+                if settings.multipass_extraction_enabled:
+                    log.info(
+                        "Resume found on page(s) %s of '%s', but multipass is enabled — "
+                        "continuing OCR to look for identity documents",
+                        result.resume_pages, filename,
+                    )
+                else:
+                    log.info(
+                        "Resume found on page(s) %s of '%s' after reading %d of %d page(s)",
+                        result.resume_pages, filename, read, page_count,
+                    )
+                    break
+            if not settings.multipass_extraction_enabled:
+                continue
 
         # Nothing resume-like yet. Whether to keep paying depends on what the
         # pages *are*: certificates, experience letters and ID scans are the
@@ -236,8 +248,13 @@ def _ocr_pdf_selectively(
     has_text_layer = sum(len(t.strip()) for t in page_texts) >= settings.ocr_min_text_chars
 
     if has_text_layer:
-        wanted = pc.classify_document(page_texts).resume_pages
-        targets = [n for n in wanted if _needs_ocr(page_texts[n - 1])]
+        if settings.multipass_extraction_enabled:
+            # We must OCR any image-like page in the bundle to find IDs, even if
+            # the resume itself had a perfectly good text layer.
+            targets = [n for n in range(1, page_count + 1) if _needs_ocr(page_texts[n - 1])]
+        else:
+            wanted = pc.classify_document(page_texts).resume_pages
+            targets = [n for n in wanted if _needs_ocr(page_texts[n - 1])]
         if not targets:
             return page_texts, set()
         log.info("Selective OCR on resume page(s) %s of %d", targets, page_count)
@@ -421,7 +438,7 @@ def _extract_odt(data: bytes) -> ExtractedDocument:
 
 
 def _extract_image(data: bytes, filename: str = "") -> ExtractedDocument:
-    if settings.veris_ocr_api_key:
+    if settings.veris_ocr_api_key and not settings.prefer_local_ocr_for_scanning:
         text = ocr_via_veris(data, filename or "resume.png").strip()
     else:
         text = ocr_image_bytes(data).strip()

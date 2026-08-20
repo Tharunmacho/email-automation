@@ -38,7 +38,9 @@ from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
 from app.db.ledger import IngestLedger
 from app.db.repository import CandidateRepository
+from app.extraction.jobs import JobContext, use_job_context
 from app.ingestion.detector import detect
+from app.ingestion.job_recorder import IngestionStateRecorder
 from app.logging_config import get_logger
 from app.assignment import assign_candidate
 from app.notifications import notify_candidate_assigned
@@ -59,6 +61,10 @@ class AttachmentResult:
     candidate_id: Optional[str] = None
     detail: str = ""
     reply_sent: bool = False
+    # What the Aadhaar / passport passes over the same bundle did, e.g.
+    # "aadhaar p54=succeeded; passport p55=pending". Never affects `status`:
+    # an unreadable passport does not make an ingested resume a failure.
+    identity: str = ""
 
 
 @dataclass
@@ -167,19 +173,37 @@ class IngestionPipeline:
                 )
 
             # (2) Extract text and AI structure.
-            if hasattr(self.parser, "parse_file"):
-                profile, extracted = self.parser.parse_file(data, att.filename)
-            else:
-                extracted = extract_text(data, att.filename)
-                if extracted.is_resume is False:
-                    raise NotAResumeError(
-                        f"Attachment '{att.filename}' is not a resume: "
-                        f"{extracted.classification_reason}"
-                    )
-                # (3) AI structuring — résumé pages only, so a 30-page bundle
-                #     costs the two pages that hold the CV, not all thirty.
-                hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
-                profile = self.parser.parse(extracted.resume_text, hint=hint)
+            #     Under a job context, so that the résumé OCR — which happens
+            #     several calls down inside the extractor — is submitted with an
+            #     idempotency key derived from *this* mail, and lands on an
+            #     ingestion row the reconciler can find if it does not finish.
+            recorder = IngestionStateRecorder(
+                email.message_id,
+                att.attachment_id,
+                filename=att.filename,
+                sha256=resume_hash,
+            )
+            context = JobContext(
+                account_id=recorder.account_id,
+                message_id=email.message_id,
+                attachment_id=att.attachment_id,
+                recorder=recorder,
+            )
+            with use_job_context(context):
+                if hasattr(self.parser, "parse_file"):
+                    profile, extracted = self.parser.parse_file(data, att.filename)
+                else:
+                    extracted = extract_text(data, att.filename)
+                    if extracted.is_resume is False:
+                        raise NotAResumeError(
+                            f"Attachment '{att.filename}' is not a resume: "
+                            f"{extracted.classification_reason}"
+                        )
+                    # (3) AI structuring — résumé pages only, so a 30-page
+                    #     bundle costs the two pages that hold the CV, not all
+                    #     thirty.
+                    hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
+                    profile = self.parser.parse(extracted.resume_text, hint=hint)
 
             if not profile.is_resume:
                 reason = (profile.additional_info or {}).get("rejection_reason") \
@@ -225,6 +249,17 @@ class IngestionPipeline:
             self._store_file(record, data, att)
             candidate_id = self.repo.insert(record)
             self.ledger.record(email.message_id, resume_hash, candidate_id, "ingested")
+            recorder.storage_key = record.resume.storage_key
+            recorder.link_candidate(candidate_id)
+
+            # (5.2) The other documents in the same bundle. The résumé is the
+            #       only thing a candidate record needs, so this runs *after*
+            #       the insert and can never cost one: an Aadhaar page that
+            #       will not read is logged, not raised.
+            identity = self._extract_identity_documents(
+                email, att, data, extracted, resume_hash,
+                record.resume.storage_key, candidate_id,
+            )
 
             # (5.5) Auto-assign candidate to active staff & trigger push notifications
             self._allocate(candidate_id, profile)
@@ -264,6 +299,7 @@ class IngestionPipeline:
                 candidate_id,
                 f"confidence={profile.confidence:.2f}",
                 reply_sent=reply_sent,
+                identity=identity,
             )
 
         except (NotAResumeError,) as exc:
@@ -284,6 +320,59 @@ class IngestionPipeline:
         except Exception as exc:  # noqa: BLE001 — never let one attachment kill the batch
             log.exception("Unexpected error on attachment %s", att.filename)
             return AttachmentResult(att.filename, "error", detail=str(exc))
+
+    def _extract_identity_documents(
+        self,
+        email: EmailMessage,
+        att: Attachment,
+        data: bytes,
+        extracted,
+        resume_hash: str,
+        storage_key: str,
+        candidate_id: str,
+    ) -> str:
+        """Read the Aadhaar and passport out of the same bundle, if they are there.
+
+        Returns a one-line summary for the attachment result. Everything here is
+        best-effort by design: the candidate is already in Mongo, and no failure
+        of a supporting document is allowed to undo that.
+        """
+        if not settings.multipass_extraction_enabled:
+            return ""
+        if not settings.veris_ocr_api_key:
+            # Aadhaar and passport extraction have no local fallback — there is
+            # no Tesseract equivalent for an MRZ — so without a key there is
+            # nothing to attempt and no row worth opening.
+            return ""
+
+        page_texts = [p.text for p in getattr(extracted, "pages", []) or []]
+        if not page_texts:
+            return ""
+
+        try:
+            from app.ingestion.multipass import MultipassExtractor
+
+            result = MultipassExtractor().run(
+                page_texts,
+                data,
+                message_id=email.message_id,
+                attachment_id=att.attachment_id,
+                filename=att.filename,
+                sha256=resume_hash,
+                storage_key=storage_key,
+                candidate_id=candidate_id,
+            )
+            if not result.passes:
+                return ""
+            summary = result.summary()
+            log.info("Identity documents for candidate %s: %s", candidate_id, summary)
+            return summary
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Identity extraction failed for candidate %s (%s): %s",
+                candidate_id, att.filename, exc,
+            )
+            return f"identity extraction failed: {exc}"
 
     def _allocate(self, candidate_id: str, profile: CandidateProfile) -> None:
         if not settings.auto_assign_enabled:
