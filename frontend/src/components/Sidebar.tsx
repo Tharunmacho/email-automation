@@ -53,7 +53,7 @@ export default function Sidebar({
 
   // A staff member gets a shorter rail: the destinations they cannot use are
   // refused by the API anyway, and offering them is offering a dead end.
-  const groups = useMemo(() => navGroupsFor(user.role), [user.role]);
+  const groups = useMemo(() => navGroupsFor(user.role, user.pages), [user.role, user.pages]);
 
   const go = (id: NavId) => {
     onNavigate(id);

@@ -11165,3 +11165,124 @@ body {
     width: 100%;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Data Management & User Management                                   */
+/*                                                                      */
+/*  Both screens are tables of rows an admin edits, which is a shape the */
+/*  product did not have before: `alloc-table` looks like one but is a   */
+/*  flex column of CSS-grid rows, built for the allocation matrix's      */
+/*  fixed four columns. These are real <table> elements, because the     */
+/*  column widths here depend on their contents and a job title is not   */
+/*  the same width as a country name.                                   */
+/* ------------------------------------------------------------------ */
+
+.dm-screen,
+.um-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dm-table th {
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+  border-bottom: 1px solid var(--border-blue);
+  white-space: nowrap;
+}
+
+.dm-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+  vertical-align: top;
+}
+
+.dm-table tbody tr:hover {
+  background: var(--tint-1);
+}
+
+.dm-cell-strong {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dm-cell-muted {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.dm-cell-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* A short status word beside a row: "shown", "hidden", "below the cut". */
+.dm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-1);
+  border: 1px solid var(--border-blue-faint);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dm-pill.is-off {
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dm-question-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.75rem;
+}
+
+/*
+  The permission checkboxes.
+
+  Two columns rather than one long list, because the whole point of the screen
+  is seeing what an account reaches at a glance, and a twelve-item column makes
+  that a scroll instead of a look.
+*/
+.um-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.3rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.um-page-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.um-page-row input[disabled] {
+  cursor: not-allowed;
+}
+
+.um-page-row input[disabled] + * {
+  color: var(--text-muted);
+}

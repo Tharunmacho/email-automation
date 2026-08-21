@@ -30,6 +30,9 @@ veriis>=0.1.2
 # ---- REST API (extension seam) ----
 fastapi>=0.111
 uvicorn[standard]>=0.30
+# Multipart bodies: POST /candidates/{id}/resume takes the résumé as an upload.
+# FastAPI raises at import time without it, so it is a hard dependency now.
+python-multipart>=0.0.9
 
 # ---- Background jobs (extension seam) ----
 celery>=5.4

@@ -9,19 +9,31 @@ Run:
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import os
 import threading
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
 from app.core.models import EVALUATION_STATUSES, CandidateProfile
-from app.core.security import create_token, read_token
+from app.core.security import create_token, read_token, verify_service_key
 from app.assignment.balancer import (
     allocate_unassigned,
     assign_candidate,
@@ -32,6 +44,9 @@ from app.assignment.balancer import (
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
+from app.policy.cv_policy import JOB_CATEGORIES, is_cv_required, policy_version
+from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
+from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
     ADMIN_ROLE,
     STAFF_ROLE,
@@ -44,7 +59,7 @@ from app.storage.factory import get_storage_backend
 from app.tasks import sla_checker
 from app.api.websocket import router as websocket_router
 
-from pymongo.errors import PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import DuplicateKeyError, PyMongoError, ServerSelectionTimeoutError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 
@@ -1145,6 +1160,776 @@ def poll_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
     elif result.state == "FAILURE":
         payload["error"] = str(result.result)
     return payload
+
+
+# --------------------------------------------------------------------------- #
+#  WhatsApp bot integration
+#
+#  The recruitment bot's entire surface on this system: ask what the CV policy
+#  says, submit a finished registration, hand over the résumé. Three endpoints,
+#  authenticated with a service key rather than a staff session, and none of
+#  them reachable with a recruiter's token.
+#
+#  What is deliberately absent is as important as what is here. There is no
+#  endpoint to assign a candidate, evaluate one, or change a hiring decision:
+#  those belong to the CRM and the bot has no business in them. And there is no
+#  way for the bot to write to MongoDB — every one of these goes through the
+#  same repository and the same balancer the mailbox pipeline uses, so the
+#  business logic runs on the way in rather than being re-implemented on the
+#  other side of the wire.
+# --------------------------------------------------------------------------- #
+
+
+def require_service_key(x_service_key: str | None = Header(default=None)) -> None:
+    """Authenticate another *system*, not a person.
+
+    Runs as a dependency so it resolves before the body is validated: a request
+    with no credential is refused for having no credential, and never gets a
+    422 describing the shape of an endpoint it is not allowed to call.
+
+    An unset `WHATSAPP_SERVICE_KEY` refuses everything — see `verify_service_key`.
+    A deployment that forgot to configure it serves nothing rather than serving
+    an open write endpoint.
+    """
+    if not verify_service_key(x_service_key, settings.whatsapp_service_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing service key")
+
+
+class WhatsAppResumeIn(BaseModel):
+    """A résumé travelling with the submission that needs it.
+
+    Base64 rather than a path, because the bot's disk is not this machine's: a
+    `storage_key` from over there names a file nothing here can open, and a
+    recruiter clicking "download résumé" would get a 404 for a document that
+    exists. The bytes cross the wire and are written through the CRM's own
+    storage backend.
+
+    Inline rather than a second call, for the one case that has no other exit: a
+    candidate the policy requires a CV for cannot be created without one, and
+    `POST /candidates/{id}/resume` needs an id that does not exist yet. A résumé
+    that is merely offered can still arrive either way.
+    """
+
+    filename: str = "resume.pdf"
+    mime_type: str = "application/pdf"
+    content_base64: str
+
+
+class WhatsAppProfileIn(BaseModel):
+    """What the bot may say about a candidate. An allow-list, not a passthrough.
+
+    `extra="ignore"` is doing real work here: the bot's own record carries
+    Aadhaar and PAN numbers, because a documentation officer needs them, and
+    this system has no screen that shows them and no workflow that reads them.
+    A model that accepted whatever arrived would store them the first time a
+    mapping bug sent them, and nobody would notice until an audit. Fields not
+    named below are dropped at the door.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: The only thing required. A candidate who finished registering without a
+    #: readable name is still a person a recruiter has to be able to open, so
+    #: the bot falls back to their WhatsApp display name and then their number.
+    full_name: str = Field(min_length=1)
+
+    phone: str | None = None
+    phone_e164: str | None = None
+    email: str | None = None
+
+    # Residence.
+    location: str | None = None
+    city: str | None = None
+    country: str | None = None
+
+    # Destination — one actual country, never a region or a pair.
+    destination_country: str | None = None
+
+    # What they want to do, twice: the controlled value the policy reads, and
+    # their own words for a person to read.
+    job_category: str | None = None
+    job_preference: str | None = None
+
+    skills: list[str] = Field(default_factory=list)
+    trade_skills: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+
+    #: Kept as a band. Never coerced into `total_experience_years` — "3_5"
+    #: becoming 4.0 is a figure the candidate never gave.
+    total_experience_band: str | None = None
+    total_experience_years: float | None = None
+
+    #: Passport only. Overseas placement turns on whether it is in date.
+    passport_number: str | None = None
+    passport_expiry: str | None = None
+
+
+class WhatsAppCandidateIn(BaseModel):
+    source: str = "whatsapp"
+    profile: WhatsAppProfileIn
+    #: Stable per candidate: `whatsapp/{phone_number_id}/{wa_user_id}`. The
+    #: unique index on it is what makes a retry idempotent.
+    idempotency_key: str = Field(min_length=1)
+    #: What the bot believes about the CV requirement. Recorded and compared,
+    #: never trusted — the CRM derives its own answer from the policy table.
+    cv_required_claim: bool | None = None
+    resume: WhatsAppResumeIn | None = None
+
+
+def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
+    """One shape for every refusal, with the code at the top level.
+
+    `detail` is a plain string as well, because that is where an HTTP client
+    looks first and a caller should not have to understand this envelope to log
+    something useful.
+    """
+    body: dict = {"code": exc.code, "detail": exc.message}
+    if exc.code == "CV_REQUIRED":
+        body["cv_required"] = True
+        body["cv_policy_version"] = policy_version()
+    elif cv_required is not None:
+        body["cv_required"] = cv_required
+    return JSONResponse(status_code=exc.status_code, content=body)
+
+
+@app.get("/policy/cv-required")
+def cv_policy_lookup(
+    destination_country: str | None = Query(default=None),
+    job_category: str | None = Query(default=None),
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Whether a CV is needed for this destination and job.
+
+    Asked by the bot mid-conversation, so the question it puts next matches the
+    rule that will be applied when it submits. It is advisory in exactly one
+    sense: `POST /candidates` re-derives the answer and does not consult what
+    the bot was told here, so a stale cache on the bot's side costs a wrong
+    question and never a wrong record.
+
+    An unknown combination is not an error. It resolves to the policy's default,
+    which is "required" — the safe direction, because an unnecessary CV costs a
+    question and a missing one costs a placement.
+    """
+    return {
+        "destination_country": destination_country,
+        "job_category": job_category,
+        "cv_required": is_cv_required(destination_country, job_category),
+        "policy_version": policy_version(),
+    }
+
+
+@app.post("/candidates", status_code=201)
+def create_whatsapp_candidate(
+    payload: WhatsAppCandidateIn,
+    response: Response,
+    _service: None = Depends(require_service_key),
+):
+    """Create (or refresh) one candidate submitted by the WhatsApp bot.
+
+    WhatsApp only. Email candidates are created by the mailbox pipeline and by
+    nothing else: that path already resolves a thread, an attachment and a
+    résumé hash into a record, and a second door into the same collection would
+    be a second set of rules to keep in step with the first.
+
+    The order of operations lives in `intake_whatsapp_candidate`. What this
+    function does is what a route should: authenticate, validate the shape,
+    store the file if one came with it, and translate the outcome into HTTP.
+    """
+    if (payload.source or "").strip().lower() != "whatsapp":
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "unsupported_source",
+                "detail": (
+                    "this endpoint creates whatsapp candidates only; email candidates "
+                    "are created by the mailbox pipeline"
+                ),
+            },
+        )
+
+    # A typo must not sail through to the policy table and land on the default,
+    # which would look like a working rule and be nothing of the sort. Absent is
+    # allowed — a candidate bound for the Gulf never answers this question, and
+    # an unknown category resolves to "CV required" anyway.
+    category = (payload.profile.job_category or "").strip()
+    if category and category not in JOB_CATEGORIES:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "unknown_job_category",
+                "detail": (
+                    f"job_category {category!r} is not one of: {', '.join(JOB_CATEGORIES)}"
+                ),
+            },
+        )
+
+    profile = CandidateProfile(
+        # Nothing here was parsed out of a résumé, and saying otherwise would
+        # put a confidence score on a form somebody filled in by tapping.
+        is_resume=False,
+        confidence=0.0,
+        **payload.profile.model_dump(exclude_none=True),
+    )
+
+    repository = repo()
+
+    # The file, if one came with the submission. Written before the record so a
+    # storage failure refuses the intake rather than leaving a candidate whose
+    # résumé pointer leads nowhere.
+    stored_resume = None
+    if payload.resume is not None:
+        try:
+            raw = base64.b64decode(payload.resume.content_base64, validate=True)
+        except (binascii.Error, ValueError):
+            return JSONResponse(
+                status_code=422,
+                content={"code": "invalid_resume", "detail": "resume content is not valid base64"},
+            )
+        try:
+            stored_resume = store_resume(
+                # Keyed on the submission rather than the candidate id, which
+                # does not exist yet. Stable per candidate, so a retry overwrites
+                # its own file instead of leaving a trail of orphans.
+                candidate_id=_resume_owner_hint(payload.idempotency_key),
+                data=raw,
+                filename=payload.resume.filename,
+                mime_type=payload.resume.mime_type,
+            )
+        except ResumeRejected as exc:
+            return JSONResponse(status_code=422, content={"code": exc.code, "detail": exc.message})
+
+    try:
+        result = intake_whatsapp_candidate(
+            profile=profile,
+            idempotency_key=payload.idempotency_key,
+            cv_required_claim=payload.cv_required_claim,
+            resume=stored_resume,
+            repo=repository,
+        )
+    except IntakeError as exc:
+        return _intake_error_response(exc)
+    except DuplicateKeyError:
+        # The résumé hash collided: this exact file is already on file under
+        # someone else. Reported rather than merged — two people who sent the
+        # same document is a question for a human.
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "duplicate_resume",
+                "detail": "this resume is already on another candidate",
+            },
+        )
+
+    # 201 only when something was actually created. A replay of the same key,
+    # and a re-registration that refreshed someone already on file, are both
+    # 200: nothing new exists because of them.
+    if not result.created:
+        response.status_code = 200
+
+    return {
+        "success": True,
+        "candidate_id": result.candidate_id,
+        "created": result.created,
+        "cv_required": result.cv_required,
+        "cv_policy_version": result.cv_policy_version,
+        "policy_overrode_claim": result.policy_overrode_claim,
+    }
+
+
+def _resume_owner_hint(idempotency_key: str) -> str:
+    """A short, stable, filesystem-safe stand-in for the candidate id.
+
+    A résumé sent with a submission is stored before the candidate exists, so
+    there is no id to key it on. The idempotency key is the next best thing:
+    stable across retries of the same submission, unique per candidate, and
+    already the identifier this whole flow turns on.
+    """
+    return "wa" + hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:20]
+
+
+@app.post("/candidates/{candidate_id}/resume")
+def upload_candidate_resume(
+    candidate_id: str,
+    file: UploadFile = File(...),
+    _service: None = Depends(require_service_key),
+):
+    """Attach a résumé to a candidate who already exists.
+
+    For the file that arrives after the person does: someone the policy exempted
+    who sent a CV anyway, or who sends one later. A candidate the policy
+    *requires* a CV for never reaches this endpoint, because they could not have
+    been created without the file in the first place.
+
+    WhatsApp candidates only. An email candidate's résumé is the thing they were
+    created from, and replacing it here would leave the record disagreeing with
+    the message it was ingested from.
+    """
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if record.source != "whatsapp":
+        raise HTTPException(
+            status_code=409,
+            detail="this endpoint attaches resumes to whatsapp candidates only",
+        )
+    if record.resume is not None:
+        # Attaching, not replacing. A recruiter may have read the résumé on file
+        # and formed a view of this candidate, and swapping the document
+        # underneath that view is a substitution rather than a refresh — one
+        # that would happen silently. The bot treats this as an ordinary outcome
+        # and keeps its own copy.
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "resume_already_present",
+                "detail": "this candidate already has a resume; it was not replaced",
+            },
+        )
+
+    data = file.file.read()
+    try:
+        stored = store_resume(
+            candidate_id=candidate_id,
+            data=data,
+            filename=file.filename,
+            mime_type=file.content_type,
+        )
+    except ResumeRejected as exc:
+        return JSONResponse(status_code=422, content={"code": exc.code, "detail": exc.message})
+
+    try:
+        attached = repository.attach_resume(candidate_id, stored)
+    except DuplicateKeyError:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "duplicate_resume",
+                "detail": "this resume is already on another candidate",
+            },
+        )
+    if not attached:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "resume": stored.model_dump(mode="json"),
+    }
+
+
+# --------------------------------------------------------------------------- #
+#  Data Management
+#
+#  The jobs the agency recruits for, the countries it sends people to, and the
+#  questions it asks about a job. Admin-owned, and the reason they are here
+#  rather than in a constant somewhere is that the person who knows a new job
+#  has opened is an admin and not a programmer.
+#
+#  Two consumers, and only one of them is this screen: the CV policy resolves
+#  `destination_country + job_id` against these rows, and the WhatsApp bot draws
+#  its job and country questions from them. Adding a job here is what puts it in
+#  front of candidates.
+# --------------------------------------------------------------------------- #
+
+
+class JobDesignationIn(BaseModel):
+    """A job as the admin form submits it."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: Omitted when creating — the id is derived from the title once and then
+    #: never changes, because it is what the CV rules and every candidate
+    #: already on file point at.
+    id: str | None = None
+    title: str = Field(min_length=1, max_length=80)
+    active: bool = True
+    bot_visible: bool = True
+    bot_order: int = 100
+    #: The rule when no country says otherwise.
+    cv_required_default: bool = True
+    #: `{"Malaysia": false}` — the exceptions. Keys are country names as a
+    #: person writes them; matching is case-insensitive.
+    cv_overrides: dict[str, bool] = Field(default_factory=dict)
+
+
+class CountryIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    name: str = Field(min_length=1, max_length=60)
+    active: bool = True
+    bot_visible: bool = True
+    bot_order: int = 100
+
+
+class JobQuestionIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    job_id: str = Field(min_length=1)
+    text: str = Field(min_length=1, max_length=300)
+    #: `text` for a typed answer, `choice` for a tap.
+    kind: str = "text"
+    choices: list[str] = Field(default_factory=list)
+    required: bool = False
+    order: int = 100
+    active: bool = True
+
+
+@app.get("/job-designations")
+def list_job_designations(_user: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import list_jobs
+
+    return {"items": list_jobs()}
+
+
+@app.post("/job-designations")
+def save_job_designation(payload: JobDesignationIn, user: dict = Depends(require_admin)) -> dict:
+    """Create a job, or edit one that exists.
+
+    The id is generated from the title on creation and is immutable afterwards.
+    That is the difference between a label and a key: a title is something a
+    person rewords, and every CV rule, every candidate record and every message
+    the bot has ever sent points at the id.
+    """
+    from app.db.taxonomy import get_job, job_doc, slugify, upsert_job
+
+    if payload.id:
+        existing = get_job(payload.id)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Job designation not found")
+        updated = dict(existing)
+        updated.update(
+            {
+                "title": payload.title.strip(),
+                "active": payload.active,
+                "bot_visible": payload.bot_visible,
+                "bot_order": payload.bot_order,
+                "cv_required_default": payload.cv_required_default,
+                "cv_overrides": {
+                    (k or "").strip().casefold(): bool(v)
+                    for k, v in payload.cv_overrides.items()
+                    if (k or "").strip()
+                },
+            }
+        )
+        saved = upsert_job(updated)
+        log.info("Job designation %s edited by %s", saved["id"], user.get("email"))
+        return {"status": "ok", "item": saved}
+
+    job_id = slugify(payload.title)
+    if get_job(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"A job with the id {job_id!r} already exists — edit that one instead",
+        )
+
+    saved = upsert_job(
+        job_doc(
+            job_id=job_id,
+            title=payload.title,
+            cv_required_default=payload.cv_required_default,
+            cv_overrides=payload.cv_overrides,
+            bot_visible=payload.bot_visible,
+            bot_order=payload.bot_order,
+            active=payload.active,
+            created_by=user.get("email"),
+        )
+    )
+    log.info("Job designation %s created by %s", saved["id"], user.get("email"))
+    return {"status": "ok", "item": saved}
+
+
+@app.delete("/job-designations/{job_id}")
+def retire_job_designation(job_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Retire a job. It is deactivated, never erased — candidates point at it."""
+    from app.db.taxonomy import delete_job
+
+    if not delete_job(job_id):
+        raise HTTPException(status_code=404, detail="Job designation not found")
+    return {"status": "retired", "id": job_id}
+
+
+@app.get("/countries")
+def list_country_rows(_user: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import list_countries
+
+    return {"items": list_countries()}
+
+
+@app.post("/countries")
+def save_country(payload: CountryIn, user: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import country_doc, slugify, upsert_country
+
+    doc = country_doc(
+        name=payload.name,
+        bot_visible=payload.bot_visible,
+        bot_order=payload.bot_order,
+        active=payload.active,
+        created_by=user.get("email"),
+    )
+    if payload.id:
+        doc["_id"] = doc["id"] = payload.id
+    else:
+        doc["_id"] = doc["id"] = slugify(payload.name)
+
+    saved = upsert_country(doc)
+    log.info("Country %s saved by %s", saved["id"], user.get("email"))
+    return {"status": "ok", "item": saved}
+
+
+@app.delete("/countries/{country_id}")
+def retire_country(country_id: str, _user: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import delete_country
+
+    if not delete_country(country_id):
+        raise HTTPException(status_code=404, detail="Country not found")
+    return {"status": "retired", "id": country_id}
+
+
+@app.get("/job-questions")
+def list_all_job_questions(
+    job_id: str | None = Query(default=None), _user: dict = Depends(require_admin)
+) -> dict:
+    from app.db.taxonomy import list_job_questions
+
+    return {"items": list_job_questions(job_id)}
+
+
+@app.post("/job-questions")
+def save_job_question(payload: JobQuestionIn, user: dict = Depends(require_admin)) -> dict:
+    """A question the bot asks candidates who choose this job."""
+    from app.db.taxonomy import get_job, question_doc, upsert_job_question
+
+    if not get_job(payload.job_id):
+        raise HTTPException(status_code=404, detail=f"No job with id {payload.job_id!r}")
+
+    doc = question_doc(
+        job_id=payload.job_id,
+        text=payload.text,
+        kind=payload.kind,
+        choices=payload.choices,
+        required=payload.required,
+        order=payload.order,
+        active=payload.active,
+        question_id=payload.id,
+        created_by=user.get("email"),
+    )
+    saved = upsert_job_question(doc)
+    return {"status": "ok", "item": saved}
+
+
+@app.delete("/job-questions/{question_id}")
+def remove_job_question(question_id: str, _user: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import delete_job_question
+
+    if not delete_job_question(question_id):
+        raise HTTPException(status_code=404, detail="Question not found")
+    return {"status": "deleted", "id": question_id}
+
+
+@app.get("/job-designations/{job_id}/cv-matrix")
+def job_cv_matrix(job_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """What this job's rules actually resolve to, country by country.
+
+    The admin form takes a default and a handful of exceptions; what a recruiter
+    wants to see is the answer for each destination they actually send people
+    to. Computed through the same function the bot's request goes through, so
+    the screen cannot drift from the decision.
+    """
+    from app.db.taxonomy import get_job, list_countries
+    from app.policy.cv_policy import resolve_cv_requirement
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job designation not found")
+
+    rows = []
+    for country in list_countries(active_only=True):
+        required, reason = resolve_cv_requirement(country["name"], job_id)
+        rows.append(
+            {
+                "country": country["name"],
+                "cv_required": required,
+                "reason": reason,
+                "is_override": (country["name"] or "").strip().casefold()
+                in (job.get("cv_overrides") or {}),
+            }
+        )
+    return {"job": job, "matrix": rows}
+
+
+# --------------------------------------------------------------------------- #
+#  The taxonomy, as the bot reads it
+#
+#  Service key, not a staff session: this is the bot asking what to put in front
+#  of a candidate, and it is the same credential it submits candidates with.
+#
+#  Only what a candidate can be offered comes back — active, bot-visible, in the
+#  order an admin put them in — because the bot's job is to ask a question, not
+#  to filter an admin's spreadsheet.
+# --------------------------------------------------------------------------- #
+@app.get("/taxonomy")
+def bot_taxonomy(_service: None = Depends(require_service_key)) -> dict:
+    from app.db.taxonomy import BOT_LIST_LIMIT, list_countries, list_jobs, taxonomy_version
+
+    jobs = list_jobs(bot_only=True)
+    countries = list_countries(bot_only=True)
+
+    return {
+        "version": taxonomy_version(),
+        # WhatsApp allows ten rows in a list and rejects an eleventh, so the bot
+        # is told the limit rather than left to discover it. It shows the first
+        # nine and an "Other" row; anything past that is reached by typing.
+        "bot_list_limit": BOT_LIST_LIMIT,
+        "jobs": [
+            {"id": j["id"], "title": j["title"], "order": j.get("bot_order", 100)} for j in jobs
+        ],
+        "countries": [
+            {"id": c["id"], "name": c["name"], "order": c.get("bot_order", 100)}
+            for c in countries
+        ],
+    }
+
+
+@app.get("/jobs/{job_id}/questions")
+def bot_job_questions(job_id: str, _service: None = Depends(require_service_key)) -> dict:
+    """The extra questions to ask a candidate who chose this job.
+
+    Written by an admin who knows what a client asks about a welder and the bot
+    does not. Returned in the admin's order; the bot asks them after the job is
+    chosen and stores the answers on the candidate.
+    """
+    from app.db.taxonomy import list_job_questions
+
+    return {
+        "job_id": job_id,
+        "questions": [
+            {
+                "id": q["id"],
+                "text": q["text"],
+                "kind": q.get("kind", "text"),
+                "choices": q.get("choices", []),
+                "required": bool(q.get("required")),
+            }
+            for q in list_job_questions(job_id, active_only=True)
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- #
+#  User Management
+#
+#  Accounts and what each of them may reach. Two things an admin does here:
+#  create a user, and decide which pages that user sees.
+#
+#  Permissions add; they never subtract. A grant puts a page on someone's rail,
+#  and it does not widen what they are allowed to see once they are on it — a
+#  staff member with the Candidates page still sees only the candidates
+#  allocated to them, because that restriction lives in the API's own scoping
+#  and not in the menu.
+# --------------------------------------------------------------------------- #
+
+
+class UserIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=6)
+    name: str = ""
+    role: str = STAFF_ROLE
+    page_grants: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+
+
+class UserPatch(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    name: str | None = None
+    role: str | None = None
+    active: bool | None = None
+    password: str | None = None
+    page_grants: list[str] | None = None
+    keywords: list[str] | None = None
+
+
+@app.get("/users")
+def list_users(_user: dict = Depends(require_admin)) -> dict:
+    """Every account, and the pages each one reaches."""
+    from app.db.users import PAGES
+
+    return {
+        "items": [u.to_public() for u in users.list_all()],
+        # The vocabulary the permission screen renders its checkboxes from, so a
+        # page added to the system appears there without a frontend release.
+        "pages": list(PAGES),
+    }
+
+
+@app.post("/users", status_code=201)
+def create_user(payload: UserIn, admin: dict = Depends(require_admin)) -> dict:
+    from app.db.users import ADMIN_ROLE as _ADMIN, STAFF_ROLE as _STAFF
+
+    role = payload.role if payload.role in (_ADMIN, _STAFF) else _STAFF
+    try:
+        user = users.create(
+            email=payload.email,
+            password=payload.password,
+            name=payload.name,
+            role=role,
+            page_grants=payload.page_grants,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if payload.keywords:
+        users.update_user(user.id, keywords=payload.keywords)
+        user = users.get(user.id)
+
+    log.info("User %s (%s) created by %s", payload.email, role, admin.get("email"))
+    return {"status": "ok", "user": user.to_public()}
+
+
+@app.patch("/users/{user_id}")
+def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_admin)) -> dict:
+    """Edit an account, including which pages it reaches.
+
+    Two guards, and both exist to stop an admin locking everybody out with one
+    click: the last active administrator cannot be demoted, and cannot be
+    deactivated. There is no way back from either through the interface that
+    would have to be used to undo it.
+    """
+    from app.db.users import ADMIN_ROLE as _ADMIN
+
+    target = users.get(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    losing_an_admin = target.role == _ADMIN and (
+        (payload.role is not None and payload.role != _ADMIN) or payload.active is False
+    )
+    if losing_an_admin and users.count_active_admins() <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This is the last active administrator; promote someone else first.",
+        )
+
+    updated = users.update_user(
+        user_id,
+        name=payload.name,
+        role=payload.role,
+        active=payload.active,
+        password=payload.password,
+        page_grants=payload.page_grants,
+        keywords=payload.keywords,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    log.info("User %s updated by %s", updated.email, admin.get("email"))
+    return {"status": "ok", "user": updated.to_public()}
 
 
 # Serve the static files from the Next.js export.

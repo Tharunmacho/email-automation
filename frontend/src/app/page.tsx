@@ -8,6 +8,8 @@ import OverviewScreen from "@/screens/OverviewScreen";
 import ResumeParserScreen from "@/screens/ResumeParserScreen";
 import PipelineScreen from "@/screens/PipelineScreen";
 import SourcingHub from "@/screens/SourcingHub";
+import DataManagementScreen from "@/screens/DataManagementScreen";
+import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
 import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
@@ -352,7 +354,7 @@ export default function Home() {
   const currentTab = useMemo(() => {
     if (!user) return activeTab;
     const reachable = new Set(
-      navGroupsFor(user.role).flatMap((group) => group.items.map((item) => item.id)),
+      navGroupsFor(user.role, user.pages).flatMap((group) => group.items.map((item) => item.id)),
     );
     return reachable.has(activeTab) ? activeTab : defaultNavFor(user.role);
   }, [user, activeTab]);
@@ -365,7 +367,7 @@ export default function Home() {
    * this follows automatically.
    */
   const hasRail = useMemo(() => {
-    const destinations = navGroupsFor(user?.role).flatMap((group) => group.items);
+    const destinations = navGroupsFor(user?.role, user?.pages).flatMap((group) => group.items);
     return destinations.length >= 1;
   }, [user]);
 
@@ -1050,6 +1052,12 @@ export default function Home() {
                 )}
 
                 {currentTab === "sourcing" && <SourcingHub onActivity={log} />}
+
+                {currentTab === "data-management" && <DataManagementScreen onActivity={log} />}
+
+                {currentTab === "users" && (
+                  <UserManagementScreen onActivity={log} currentUserId={user?.id} />
+                )}
 
                 {currentTab === "candidates" && (
                   <CandidatesView

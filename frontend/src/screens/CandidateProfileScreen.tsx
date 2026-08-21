@@ -228,6 +228,30 @@ export default function CandidateProfileScreen({
     { icon: <FolderGit2 size={14} />, value: view.github },
   ].filter((chip) => !isBlankValue(chip.value));
 
+  /**
+   * Whether there is actually a file behind the download button.
+   *
+   * A WhatsApp candidate for a role the CV policy exempts has no résumé, and
+   * that is a complete record rather than a broken one. Offering a download
+   * that can only 404, and captioning the profile with a "resume.pdf" nobody
+   * uploaded, both tell the recruiter something untrue.
+   */
+  const hasResume = Boolean(
+    candidate.resume?.storage_key || candidate.resume?.original_filename,
+  );
+  const fromWhatsApp = candidate.source === "whatsapp";
+
+  /** Where they are, and where they want to go — shown as two separate facts. */
+  const originLine = [
+    fromWhatsApp ? "WhatsApp" : "Email",
+    candidate.profile?.country ? `from ${candidate.profile.country}` : null,
+    candidate.profile?.destination_country
+      ? `→ ${candidate.profile.destination_country}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const submit = (advance: boolean) =>
     evaluation?.onSave(
       { status, score: score > 0 ? score : null, notes: notes.trim() || null },
@@ -244,14 +268,17 @@ export default function CandidateProfileScreen({
         )}
 
         <div className="cscreen-topbar-actions">
-          <button
-            type="button"
-            className="cscreen-btn"
-            onClick={handleDownload}
-            disabled={downloading}
-          >
-            <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
-          </button>
+          {/* Only offered when a file exists. See `hasResume`. */}
+          {hasResume && (
+            <button
+              type="button"
+              className="cscreen-btn"
+              onClick={handleDownload}
+              disabled={downloading}
+            >
+              <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
+            </button>
+          )}
 
           {/* Shown when onVerify is passed; hidden in StaffScreen view where staff focus on evaluations */}
           {onVerify && (
@@ -287,8 +314,20 @@ export default function CandidateProfileScreen({
 
           {!isBlankValue(view.designation) && <p className="cprof-role">{view.designation}</p>}
 
+          {/*
+            A CV-less candidate gets a description of what they are, not a
+            filename standing in for a file that was never sent. "CV not
+            required" is the actual state of the record and is what a recruiter
+            needs to see before they go looking for a document.
+          */}
           <p className="cprof-meta">
-            {candidate.resume?.original_filename || "resume.pdf"} · Ingested {ingestedOn}
+            {hasResume
+              ? candidate.resume?.original_filename
+              : candidate.cv_required
+                ? "No CV on file — one is required"
+                : "CV not required for this role"}
+            {" · "}
+            {originLine} · Ingested {ingestedOn}
           </p>
 
           {contactChips.length > 0 && (

@@ -17,12 +17,14 @@
 import {
   Briefcase,
   Building2,
+  Database,
   FileText,
   Inbox,
   LayoutDashboard,
   ScrollText,
   Settings as SettingsIcon,
   ShieldCheck,
+  UserCog,
   Users,
   Zap,
   type LucideIcon,
@@ -36,6 +38,8 @@ export type NavId =
   | "job-orders"
   | "resume-parser"
   | "sourcing"
+  | "data-management"
+  | "users"
   | "visualizer"
   | "activity"
   | "settings";
@@ -80,6 +84,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "General",
     items: [
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
+      { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
       { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
       { id: "candidates", label: "Candidates", icon: Users, roles: ["admin"] },
     ],
@@ -89,6 +94,11 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin"] },
+      // The jobs and countries the agency recruits for, as data. What is
+      // configured here decides two things a long way from this screen: which
+      // options the WhatsApp bot offers candidates, and whether a candidate is
+      // asked for a CV.
+      { id: "data-management", label: "Data Management", icon: Database, roles: ["admin"] },
       { id: "visualizer", label: "Flow Visualizer", icon: Zap, roles: ["admin"] },
       { id: "resume-parser", label: "Resume Parser", icon: FileText, roles: ["admin"] },
     ],
@@ -102,11 +112,27 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** The rail as one role sees it, with any group that empties out dropped. */
-export function navGroupsFor(role: string | undefined): NavGroup[] {
+/**
+ * The rail as one account sees it, with any group that empties out dropped.
+ *
+ * `pages` is what the API computed for this user: their role's floor plus
+ * whatever an admin granted them. When it is present it decides the rail, which
+ * is how a staff member ends up with "Job Orders" on theirs without becoming an
+ * admin. When it is absent — an older session, or a caller that has not fetched
+ * the user yet — the `roles` on each item decide, exactly as before.
+ *
+ * Neither is the security. Every screen behind these is guarded by the API, and
+ * a granted page does not widen what its data endpoints will return: a staff
+ * member on the Candidates page still sees only the candidates allocated to
+ * them, because that scoping lives in the API and not in this menu.
+ */
+export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
+  const allowed = pages && pages.length ? new Set(pages) : undefined;
   return NAV_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.roles || item.roles.includes(role ?? "")),
+    items: group.items.filter((item) =>
+      allowed ? allowed.has(item.id) : !item.roles || item.roles.includes(role ?? ""),
+    ),
   })).filter((group) => group.items.length > 0);
 }
 
@@ -159,7 +185,18 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
   sourcing: {
     eyebrow: "Tools",
     title: "Sourcing Hub",
-    subtitle: "Business clients and association members who submit talent requirements.",
+    subtitle: "Agents, associations and business clients who submit talent requirements.",
+  },
+  "data-management": {
+    eyebrow: "Tools",
+    title: "Data Management",
+    subtitle:
+      "Job designations, destination countries, and the CV rule that applies to each pairing.",
+  },
+  users: {
+    eyebrow: "General",
+    title: "User Management",
+    subtitle: "Accounts, roles, and which pages each person can reach.",
   },
   visualizer: {
     eyebrow: "Tools",

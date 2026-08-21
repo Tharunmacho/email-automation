@@ -12,9 +12,9 @@ scoring — a stable schema to build on.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def utcnow() -> datetime:
@@ -153,9 +153,37 @@ class CandidateProfile(BaseModel):
     # Trade résumés routinely carry a home number and a mobile in the Gulf; the
     # single `phone` above is the primary one, this keeps the rest.
     phone_numbers: List[str] = Field(default_factory=list)
+    # The candidate's number in international form, kept alongside `phone`.
+    #
+    # `normalize_phone` compares the last ten digits, which is right for a
+    # single-country mailbox and gets less safe the moment candidates arrive
+    # from WhatsApp in any country code. Rather than change that function — the
+    # email pipeline's deduplication rests on it — the full E.164 number is
+    # stored here so a country-aware comparison has something to work from.
+    phone_e164: Optional[str] = None
     location: Optional[str] = None
     city: Optional[str] = None
+    # Where the candidate *lives*. Read off a résumé for email candidates, and
+    # asked directly by the WhatsApp bot. Never where they want to work — see
+    # `destination_country` below, which exists precisely so these two cannot be
+    # confused. A recruiter filtering on residence must not get Malaysia back
+    # for someone sitting in Tamil Nadu.
     country: Optional[str] = None
+
+    # Where the candidate wants to work.
+    #
+    # One actual country, never a region or a pair: "Singapore", not
+    # "Singapore/Malaysia" and not "GCC". The CV policy keys on this, and a
+    # policy that cannot tell Singapore from Malaysia cannot express a rule
+    # about either.
+    destination_country: Optional[str] = None
+    # What they want to do there, in their own words. Free text, for a person to
+    # read.
+    job_preference: Optional[str] = None
+    # The same thing as a controlled value, for machines to read. This is what
+    # the CV policy keys on; `job_preference` is never consulted for a decision
+    # because free text cannot be matched reliably.
+    job_category: Optional[str] = None
 
     skills: List[str] = Field(default_factory=list)
     technical_skills: List[str] = Field(default_factory=list)
@@ -178,6 +206,29 @@ class CandidateProfile(BaseModel):
     current_company: Optional[str] = None
     current_designation: Optional[str] = None
     total_experience_years: Optional[float] = None
+    # Experience as the candidate actually gave it.
+    #
+    # The WhatsApp bot offers bands ("2-5 years") rather than a number, because
+    # that is how people answer the question out loud. Coercing a band into
+    # `total_experience_years` above would mean inventing a figure — "3_5"
+    # becoming 3.0, or 4.0, neither of which the candidate said — so the band is
+    # kept as a band and the numeric field is left empty. A résumé that states
+    # a figure still fills `total_experience_years`; the two coexist and neither
+    # is derived from the other.
+    total_experience_band: Optional[str] = None
+
+    # ---- identity ---------------------------------------------------------- #
+    # Passport only, and deliberately only passport.
+    #
+    # Overseas placement turns on it: a recruiter has to know whether a passport
+    # expires inside the deployment window, and that is a question the CRM is
+    # asked. Aadhaar and PAN are not stored here at all — no screen or workflow
+    # in this system uses them, and copying an identifier into a second database
+    # for no reason is exposure bought with nothing.
+    #
+    # Never logged. See `app.logging_config` and the intake service.
+    passport_number: Optional[str] = None
+    passport_expiry: Optional[str] = None
 
     resume_summary: Optional[str] = None
     # Anything the AI found that doesn't fit the schema above.
@@ -224,23 +275,78 @@ EVALUATION_STATUSES = (
 )
 
 
+# Where a candidate came from.
+#
+# "email" is everything this system did before: a résumé pulled out of a
+# mailbox, which is why a CV is not optional there and never becomes optional.
+# "whatsapp" is the recruitment bot, where a CV is required for some
+# destination/job combinations and not for others — a question the CV policy
+# answers, not the caller.
+CANDIDATE_SOURCES = ("email", "whatsapp")
+
+
 class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
     id: str                     # stored as Mongo _id
+
+    # Defaulted to "email" so every document written before this field existed
+    # reads back as what it actually is. There is no backfill to run.
+    source: Literal["email", "whatsapp"] = "email"
+
     profile: CandidateProfile
-    resume: StoredResume
-    source_email: SourceEmail
+    # Optional on the type, conditional in practice — see `_check_source_rules`
+    # below, which is where "email always has a CV" is actually enforced. The
+    # annotation had to loosen so a CV-less WhatsApp candidate can exist at all;
+    # the rule did not.
+    resume: Optional[StoredResume] = None
+    source_email: Optional[SourceEmail] = None
 
     # Normalised dedup keys (also indexed in Mongo).
     email_key: Optional[str] = None
     phone_key: Optional[str] = None
-    resume_hash: str = ""
+    # None, never "".
+    #
+    # `resume_hash` carries a unique sparse index (`app/db/mongo.py`), and
+    # "sparse" excludes documents where the field is *missing* — not documents
+    # where it is empty. `to_mongo` drops None and keeps "", so the old default
+    # wrote an empty string into a unique index: the first CV-less candidate
+    # would insert cleanly and the second would collide with them. That is the
+    # worst shape a bug can have, because the feature appears to work.
+    #
+    # With None the field is absent, the sparse index skips it, and any number
+    # of CV-less candidates coexist while real résumé hashes stay unique.
+    resume_hash: Optional[str] = None
 
     status: str = "ingested"    # ingested | duplicate | needs_review | error
     duplicate_of: Optional[str] = None
     auto_reply_sent: bool = False
     raw_ocr: Optional[Dict[str, Any]] = None
+
+    # ---- CV requirement --------------------------------------------------- #
+    # What the policy said when this candidate registered, and which version of
+    # the policy said it.
+    #
+    # A snapshot, not a live derivation. Rules change — a country opens up, a
+    # client starts demanding CVs for a role that never needed one — and when
+    # they do, every candidate already on file must go on reporting the
+    # requirement that actually applied to them. Re-deriving would turn a
+    # complete record into a non-compliant one overnight and leave nobody able
+    # to answer "why has this candidate no CV?".
+    #
+    # Always True for email: the mailbox pipeline has no other mode.
+    cv_required: bool = True
+    cv_policy_version: Optional[str] = None
+
+    # ---- idempotency ------------------------------------------------------ #
+    # The caller's stable key for this candidate, unique-indexed in Mongo.
+    #
+    # A lookup followed by an insert is not idempotent: two retries arriving
+    # together both find nothing and both insert. The unique index is what makes
+    # the second one fail instead, so the intake service can catch the collision
+    # and return the candidate the first one created. Absent on email
+    # candidates, which are deduplicated by message id and résumé hash.
+    idempotency_key: Optional[str] = None
 
     # ---- lifecycle -------------------------------------------------------- #
     # When the résumé was pulled out of the mailbox (or the Sourcing Hub), and
@@ -277,6 +383,41 @@ class CandidateRecord(BaseModel):
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="after")
+    def _check_source_rules(self) -> "CandidateRecord":
+        """What each source must carry, enforced on the model itself.
+
+        Here rather than in the route, because a record is built in three places
+        — the Gmail pipeline, the intake service, and any future importer — and
+        a rule that lives in one caller is a rule the other two can forget. The
+        model is the one thing all of them go through.
+
+        Email is unchanged and stays unchanged: a résumé and the message it
+        arrived on are both mandatory, exactly as they were before WhatsApp
+        existed. Nothing here relaxes that.
+
+        WhatsApp has no email to point at, so `source_email` is not required.
+        Whether a résumé is required is decided by `cv_required` — which the CV
+        policy computes and the caller does not supply. That is the whole
+        mechanism behind "the client cannot bypass the policy": by the time this
+        runs, `cv_required` is the CRM's own answer, so a caller claiming no CV
+        was needed is checked against a value it never got to influence.
+        """
+        if self.source == "email":
+            if self.resume is None:
+                raise ValueError("an email candidate must have a resume")
+            if self.source_email is None:
+                raise ValueError("an email candidate must have source_email")
+            return self
+
+        # WhatsApp. No source_email is expected, and inventing one would be a
+        # lie on the record about where this person came from.
+        if self.cv_required and self.resume is None:
+            raise ValueError(
+                "the CV policy requires a resume for this destination and job category"
+            )
+        return self
 
     def to_mongo(self) -> Dict[str, Any]:
         doc = self.model_dump(mode="python", exclude_none=True)

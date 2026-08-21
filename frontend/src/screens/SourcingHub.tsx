@@ -41,10 +41,24 @@ import {
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
+/**
+ * What kind of party this is.
+ *
+ * Four, because the agency deals with four and calling them all "clients"
+ * loses the distinction that matters: an *agent* introduces candidates, an
+ * *association* represents a membership, a *business* hires directly, and a
+ * *client* is a named account that may be any of those under a contract. They
+ * are sourced differently and chased differently, so the record says which.
+ *
+ * The two original values are unchanged, so every row already in the database
+ * reads back as exactly what it was.
+ */
+export type SourcingType = "agent" | "association" | "business" | "client";
+
 export interface SourcingRecord {
   id: string;
   name: string;
-  type: "association" | "business";
+  type: SourcingType;
   contact: string;
   phone: string;
   email: string;
@@ -55,7 +69,7 @@ export interface SourcingRecord {
   address?: string;
 }
 
-type TypeFilter = "all" | "association" | "business";
+type TypeFilter = "all" | SourcingType;
 type SortKey = "recent" | "name" | "demand";
 
 /** Demand a client is carrying, rolled up from its job orders. */
@@ -82,10 +96,28 @@ const CLIENT_TONE: Record<ClientTone, StatTone> = {
 const INITIAL_RECORDS: SourcingRecord[] = [];
 
 const TYPE_TABS: { key: TypeFilter; label: string; icon: LucideIcon }[] = [
-  { key: "all", label: "All clients", icon: Building2 },
+  { key: "all", label: "Everyone", icon: Building2 },
+  { key: "agent", label: "Agents", icon: User },
   { key: "association", label: "Associations", icon: Users },
   { key: "business", label: "Businesses", icon: Briefcase },
+  { key: "client", label: "Clients", icon: Target },
 ];
+
+/** Singular labels, for the places that describe one record rather than a filter. */
+const TYPE_LABEL: Record<SourcingType, string> = {
+  agent: "agent",
+  association: "association",
+  business: "business",
+  client: "client",
+};
+
+/** The prefix on a generated id, so a reference read over the phone says what it is. */
+const TYPE_PREFIX: Record<SourcingType, string> = {
+  agent: "AGT",
+  association: "ASS",
+  business: "BUS",
+  client: "CLI",
+};
 
 const SORT_LABELS: Record<SortKey, string> = {
   recent: "Recently added",
@@ -161,7 +193,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [formError, setFormError] = useState("");
 
   // Form state, shared by the create and edit flows
-  const [newType, setNewType] = useState<"association" | "business">("business");
+  const [newType, setNewType] = useState<SourcingType>("business");
   const [newName, setNewName] = useState("");
   const [newIndustryOrCategory, setNewIndustryOrCategory] = useState("");
   const [newRegNo, setNewRegNo] = useState("");
@@ -247,7 +279,9 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const openCreateModal = useCallback(() => {
     setEditingId(null);
     resetForm();
-    setNewType(typeFilter === "association" ? "association" : "business");
+    // Adding from a filtered view pre-selects that kind, which is almost always
+    // what the person clicking "Add" while looking at Agents meant.
+    setNewType(typeFilter === "all" ? "business" : typeFilter);
     setIsModalOpen(true);
   }, [resetForm, typeFilter]);
 
@@ -301,11 +335,13 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     [engagementByClient],
   );
 
+  const agentCount = records.filter((r) => r.type === "agent").length;
+  const clientCount = records.filter((r) => r.type === "client").length;
   const associationCount = records.filter((r) => r.type === "association").length;
   const businessCount = records.filter((r) => r.type === "business").length;
 
   const countFor = (key: TypeFilter) =>
-    key === "all" ? records.length : key === "association" ? associationCount : businessCount;
+    key === "all" ? records.length : records.filter((r) => r.type === key).length;
 
   /** Portfolio roll-up that feeds the four tiles. */
   const portfolio = useMemo(() => {
@@ -437,7 +473,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       createSourcingClientAPI(updatedRecord).catch(() => {});
       persist(records.map((r) => (r.id === editingId ? updatedRecord : r)));
     } else {
-      const prefix = newType === "association" ? "ASS" : "BUS";
+      const prefix = TYPE_PREFIX[newType] ?? "SRC";
       const uniqueNum = Math.floor(100 + Math.random() * 900);
       const id = `${prefix}-${uniqueNum}-${Date.now().toString().slice(-4)}`;
 
@@ -455,7 +491,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         address: newAddress.trim(),
       };
 
-      activity(`Added ${newType === "business" ? "business" : "association"} client: ${newRecord.name}.`, "success");
+      activity(`Added ${TYPE_LABEL[newType]}: ${newRecord.name}.`, "success");
       createSourcingClientAPI(newRecord).catch(() => {});
       persist([newRecord, ...records]);
     }
@@ -493,6 +529,31 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   };
 
   const isBusiness = newType === "business";
+  /** Field labels that name the kind of party being added, rather than guessing. */
+  const nameLabel = {
+    agent: "Agent name *",
+    association: "Association name *",
+    business: "Company name *",
+    client: "Client name *",
+  }[newType];
+  const namePlaceholder = {
+    agent: "e.g. Ravi Recruitment Services",
+    association: "e.g. Activ Guild",
+    business: "e.g. Apex Inc.",
+    client: "e.g. Gulf Steel Works",
+  }[newType];
+  const sectorLabel = {
+    agent: "Region / speciality",
+    association: "Category / domain",
+    business: "Industry / sector",
+    client: "Industry / sector",
+  }[newType];
+  const sectorPlaceholder = {
+    agent: "e.g. Tamil Nadu — welders",
+    association: "e.g. Professional Guild",
+    business: "e.g. IT Services",
+    client: "e.g. Oil & Gas",
+  }[newType];
 
   // ---- pieces ------------------------------------------------------------ //
 
@@ -760,7 +821,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           icon={Building2}
           label="Sourcing clients"
           value={formatInt(records.length)}
-          note={`${formatInt(associationCount)} association${associationCount === 1 ? "" : "s"} · ${formatInt(businessCount)} business${businessCount === 1 ? "" : "es"}`}
+          note={`${formatInt(agentCount)} agent${agentCount === 1 ? "" : "s"} · ${formatInt(associationCount)} association${associationCount === 1 ? "" : "s"} · ${formatInt(businessCount)} business${businessCount === 1 ? "" : "es"} · ${formatInt(clientCount)} client${clientCount === 1 ? "" : "s"}`}
         />
         <StatTile
           tone="green"
@@ -896,7 +957,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                 <p className="sh-modal-sub">
                   {editingId
                     ? "Job orders match clients by name — renaming this one detaches the orders raised under the old name."
-                    : "Register an association or business you source candidates through."}
+                    : "Register an agent, association, business or client you source candidates through."}
                 </p>
               </div>
               <button className="sh-modal-close" onClick={closeModal} aria-label="Close">
@@ -907,37 +968,37 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             <form onSubmit={handleSubmitClient}>
               <div className="modal-body sh-modal-body">
                 <div className="sh-field">
-                  <label className="modal-label">Client type</label>
-                  <div className="sh-type-switch" role="group" aria-label="Client type">
-                    <button
-                      type="button"
-                      className={newType === "business" ? "active" : ""}
-                      onClick={() => setNewType("business")}
-                    >
-                      <Briefcase size={14} />
-                      Business
-                    </button>
-                    <button
-                      type="button"
-                      className={newType === "association" ? "active" : ""}
-                      onClick={() => setNewType("association")}
-                    >
-                      <Users size={14} />
-                      Association
-                    </button>
-                  </div>
+                  <label className="modal-label" htmlFor="sh-type">
+                    Type
+                  </label>
+                  {/*
+                    A dropdown rather than a row of buttons, because there are
+                    four kinds now and a fifth would not fit either. The order is
+                    how often each is added, not alphabetical.
+                  */}
+                  <select
+                    id="sh-type"
+                    className="modal-select"
+                    value={newType}
+                    onChange={(e) => setNewType(e.target.value as SourcingType)}
+                  >
+                    <option value="agent">Agent — introduces candidates</option>
+                    <option value="association">Association — represents a membership</option>
+                    <option value="business">Business — hires directly</option>
+                    <option value="client">Client — a named account under contract</option>
+                  </select>
                 </div>
 
                 <div className="modal-row-2">
                   <div className="sh-field">
                     <label className="modal-label" htmlFor="sh-name">
-                      {isBusiness ? "Company name *" : "Association name *"}
+                      {nameLabel}
                     </label>
                     <input
                       id="sh-name"
                       type="text"
                       className="modal-input"
-                      placeholder={isBusiness ? "e.g. Apex Inc." : "e.g. Activ Guild"}
+                      placeholder={namePlaceholder}
                       required
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
@@ -946,14 +1007,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
                   <div className="sh-field">
                     <label className="modal-label" htmlFor="sh-industry">
-                      {isBusiness ? "Industry / sector" : "Category / domain"}
+                      {sectorLabel}
                     </label>
                     <input
                       id="sh-industry"
                       type="text"
                       list="sourcing-industry-datalist"
                       className="modal-input"
-                      placeholder={isBusiness ? "e.g. IT Services" : "e.g. Professional Guild"}
+                      placeholder={sectorPlaceholder}
                       value={newIndustryOrCategory}
                       onChange={(e) => setNewIndustryOrCategory(e.target.value)}
                     />
@@ -999,13 +1060,13 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
                   <div className="sh-field">
                     <label className="modal-label" htmlFor="sh-reg">
-                      {isBusiness ? "Company registration no." : "Association registration no."}
+                      {isBusiness ? "Company registration no." : "Registration no."}
                     </label>
                     <input
                       id="sh-reg"
                       type="text"
                       className="modal-input"
-                      placeholder={isBusiness ? "e.g. CRN-12345" : "e.g. ASSOC-9921"}
+                      placeholder={isBusiness ? "e.g. CRN-12345" : "e.g. REG-9921"}
                       value={newRegNo}
                       onChange={(e) => setNewRegNo(e.target.value)}
                     />
@@ -1044,12 +1105,12 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
                 <div className="sh-field">
                   <label className="modal-label" htmlFor="sh-address">
-                    {isBusiness ? "Head office address" : "Registered office address"}
+                    {isBusiness ? "Head office address" : "Registered address"}
                   </label>
                   <textarea
                     id="sh-address"
                     className="modal-textarea"
-                    placeholder={isBusiness ? "123 Corporate Blvd…" : "456 Association Ave…"}
+                    placeholder={isBusiness ? "123 Corporate Blvd…" : "456 Registered Ave…"}
                     value={newAddress}
                     onChange={(e) => setNewAddress(e.target.value)}
                   />

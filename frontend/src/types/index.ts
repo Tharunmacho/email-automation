@@ -34,11 +34,35 @@ export interface CandidateProfile {
   full_name?: string | null;
   email?: string | null;
   phone?: string | null;
+  /** The full international number, where one is known. */
+  phone_e164?: string | null;
   location?: string | null;
+  city?: string | null;
+  /** Where the candidate lives. Never where they want to work. */
+  country?: string | null;
+
+  /**
+   * Where the candidate wants to work — one actual country, never a region.
+   *
+   * Set for WhatsApp candidates; absent for email ones, whose résumés say where
+   * they have been rather than where they are headed. Kept strictly apart from
+   * `country` above, so a recruiter filtering on residence does not get
+   * Malaysia back for someone living in Tamil Nadu.
+   */
+  destination_country?: string | null;
+  /** What they want to do, in their own words. */
+  job_preference?: string | null;
+  /** The same, as a controlled value. This is what the CV policy reads. */
+  job_category?: string | null;
 
   skills?: string[];
   technical_skills?: string[];
+  trade_skills?: string[];
   languages?: string[];
+
+  /** Passport details, for overseas placement. Aadhaar and PAN are not stored. */
+  passport_number?: string | null;
+  passport_expiry?: string | null;
 
   work_experience?: WorkExperience[];
   education?: Education[];
@@ -53,6 +77,14 @@ export interface CandidateProfile {
   current_company?: string | null;
   current_designation?: string | null;
   total_experience_years?: number | null;
+  /**
+   * Experience as a band ("1_3", "5_10") when that is how it was given.
+   *
+   * The WhatsApp bot offers ranges rather than a number, and turning "3_5" into
+   * 4.0 would put a figure on the record the candidate never said. So the band
+   * is kept as a band and `total_experience_years` stays null.
+   */
+  total_experience_band?: string | null;
 
   summary?: string | null;
   resume_summary?: string | null;
@@ -96,12 +128,31 @@ export interface SourceEmail {
  */
 export interface CandidateRecord {
   id: string;
+  /**
+   * Where this candidate came from. Absent on records written before the
+   * WhatsApp integration, which are all email — read it as `"email"` when
+   * missing rather than treating it as unknown.
+   */
+  source?: "email" | "whatsapp";
   profile: CandidateProfile;
-  resume: StoredResume;
-  source_email: SourceEmail;
+  /**
+   * Optional, because a candidate may genuinely have no CV.
+   *
+   * The WhatsApp bot only asks for one where the CV policy requires it, so a
+   * general worker bound for Malaysia arrives with none — and that is a
+   * complete record, not a broken one. Every reader must handle its absence:
+   * no download button, and no invented filename standing in for a file that
+   * does not exist.
+   */
+  resume?: StoredResume | null;
+  /** Absent for WhatsApp candidates — there is no email, and none is faked. */
+  source_email?: SourceEmail | null;
+  /** What the CV policy decided when this candidate registered. */
+  cv_required?: boolean;
+  cv_policy_version?: string | null;
   email_key?: string | null;
   phone_key?: string | null;
-  resume_hash?: string;
+  resume_hash?: string | null;
   status: string;
   duplicate_of?: string | null;
   raw_ocr?: Record<string, any> | null;
@@ -304,6 +355,17 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  /**
+   * The pages this account may reach: its role's floor plus whatever an admin
+   * granted it. Computed by the API so the browser never has to reimplement the
+   * role rules to draw a menu.
+   *
+   * Optional because a session issued before permissions existed has no such
+   * list, and the rail falls back to the per-item roles in that case.
+   */
+  pages?: string[];
+  /** Only the granted half, for the permission screen's checkboxes. */
+  page_grants?: string[];
 }
 
 export interface SourcingClientRecord {
