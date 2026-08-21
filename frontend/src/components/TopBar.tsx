@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, RefreshCw, Sparkles } from "lucide-react";
+import { Menu, RefreshCw } from "lucide-react";
 
 import NotificationBell from "@/components/NotificationBell";
 import type { AuthUser } from "@/lib/api";
@@ -58,14 +58,11 @@ export default function TopBar({
         </button>
       )}
 
-      {/* Mark and name, one flex row, centred on each other — see `.topbar-brand`
-          for why the line-height is part of that and not decoration. */}
-      <div className="topbar-brand">
-        <span className="topbar-logo" aria-hidden="true">
-          <Sparkles size={20} strokeWidth={2.1} />
-        </span>
-        <span className="topbar-title">TalentFlow AI</span>
-      </div>
+      {/* The brand is gone from here: it lives at the head of the rail now, so
+          the mark sits directly above the navigation it belongs to and the
+          collapsed rail can keep the mark while dropping the word. What is left
+          in this bar is state, not identity — which is all it ever reported. */}
+      <div className="topbar-spacer" />
 
       <div className="topbar-actions">
         {/* The dot reports the real socket state. A badge that always reads

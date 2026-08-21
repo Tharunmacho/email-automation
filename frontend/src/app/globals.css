@@ -40,9 +40,27 @@
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
-  --bg-main: #fcfcfd;
+  --bg-main: #eef2f9;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
+
+  /* ---- Glass -----------------------------------------------------------
+     The frosted-panel look. A glass surface is three things at once and all
+     three have to move together or it reads as a flat translucent box: the
+     tint it washes the backdrop with, the blur that makes the backdrop
+     unreadable through it, and the 1px of near-white along its top edge that
+     stands in for light catching a bevel. `--glass-sheen` is that edge. */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-blur: saturate(180%) blur(20px);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+
+  /* The light the glass refracts. Without something coloured behind it a
+     frosted panel is just a grey box, so the page carries two soft blue blooms
+     for the surfaces to pick up. */
+  --page-glow-1: rgba(37, 99, 235, 0.10);
+  --page-glow-2: rgba(56, 189, 248, 0.08);
 
   /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
      data is what made the old shell read as a theme rather than a tool. */
@@ -82,9 +100,15 @@
 
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
-  --radius-xl: 14px;
-  --radius-md: 10px;
-  --radius-sm: 8px;
+  --radius-xl: 22px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  /* The squircle family. Nested corners must shrink inward or the inner
+     control's arc fights the card's: a 22px card holds 14px controls holding
+     10px chips. `--radius-pill` is for anything that should read as fully
+     round at any height. */
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
 
   --secondary: #0891b2;
   --secondary-hover: #0e7490;
@@ -118,9 +142,13 @@
 
   /* Shadow elevation. Micro-shadows only: at this border weight a card needs
      to lift off the page by a hair, not float above it. */
-  --shadow-sm: 0 1px 2px 0 rgba(17, 24, 39, 0.05);
-  --shadow-md: 0 1px 3px 0 rgba(17, 24, 39, 0.06), 0 1px 2px -1px rgba(17, 24, 39, 0.04);
-  --shadow-lg: 0 8px 16px -6px rgba(17, 24, 39, 0.10), 0 2px 6px -2px rgba(17, 24, 39, 0.05);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 6px 20px -6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 10px 32px -10px rgba(15, 23, 42, 0.16), 0 4px 12px -4px rgba(15, 23, 42, 0.06);
+  /* What a glass panel casts: wide, soft and low-contrast, so the blur reads as
+     depth rather than as a drop shadow stuck under a flat rectangle. */
+  --shadow-glass: 0 8px 32px -8px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
+  --shadow-float: 0 20px 48px -16px rgba(15, 23, 42, 0.20), 0 6px 16px -6px rgba(15, 23, 42, 0.08);
   --shadow-glow: 0 0 0 4px rgba(var(--primary-rgb), 0.10);
   /* The focus ring — one definition, used by every control in the app. */
   --shadow-primary: 0 1px 2px rgba(17, 24, 39, 0.06);
@@ -150,17 +178,34 @@
   --primary-hover: #60a5fa;
   --primary-deep: #1d4ed8;
 
-  --bg-main: #0b0f19;
-  --bg-card: #111827;
-  --bg-sidebar: #111827;
+  /* The plane is nearly black with only enough blue in it to stop it reading
+     as grey — the reference's near-black, not a navy. Cards sit a few points
+     above it, which is the entire elevation story in dark: there is no shadow
+     dark enough to register against this background, so separation has to come
+     from the surface being lighter than what surrounds it. */
+  --bg-main: #070a11;
+  --bg-card: #10151f;
+  --bg-sidebar: #0c111a;
 
-  --tint-1: #161e2e;
-  --tint-2: #1f2937;
-  --tint-3: #283445;
+  --tint-1: #151b27;
+  --tint-2: #1c2430;
+  --tint-3: #263040;
 
-  --border-main: #1f2937;
-  --border-hover: #374151;
+  --border-main: #1e2632;
+  --border-hover: #2f3a49;
   --glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Dark glass. The tint is lighter than the page, never darker: frosting a
+     dark surface scatters light *up*, so a panel that dims its backdrop looks
+     like a hole rather than a pane. */
+  --glass-bg: rgba(20, 27, 40, 0.72);
+  --glass-bg-strong: rgba(22, 30, 44, 0.88);
+  --glass-blur: saturate(160%) blur(20px);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-edge: rgba(255, 255, 255, 0.09);
+
+  --page-glow-1: rgba(37, 99, 235, 0.20);
+  --page-glow-2: rgba(56, 189, 248, 0.10);
 
   --text-main: #f9fafb;
   --text-muted: #9ca3af;
@@ -187,14 +232,16 @@
   --rose-fill: rgba(225, 29, 72, 0.15);
   --rose-edge: rgba(251, 113, 133, 0.32);
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 1px 3px 0 rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 8px 20px -8px rgba(0, 0, 0, 0.60);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.40);
+  --shadow-md: 0 2px 10px -2px rgba(0, 0, 0, 0.50);
+  --shadow-lg: 0 12px 32px -12px rgba(0, 0, 0, 0.70);
+  --shadow-glass: 0 8px 32px -8px rgba(0, 0, 0, 0.55), 0 2px 8px -2px rgba(0, 0, 0, 0.40);
+  --shadow-float: 0 24px 56px -20px rgba(0, 0, 0, 0.80), 0 8px 20px -8px rgba(0, 0, 0, 0.50);
 
   /* The same hairline, inverted — a black edge is invisible on a dark surface. */
   --header-hairline: rgba(255, 255, 255, 0.08);
 
-  --dash-surface: #111827;
+  --dash-surface: #10151f;
   --dash-muted: #9ca3af;
   --dash-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --dash-shadow-hover: 0 6px 16px -8px rgba(0, 0, 0, 0.6);
@@ -11285,4 +11332,777 @@ body {
 
 .um-page-row input[disabled] + * {
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   ADIRA — GLASS SHELL
+   ==========================================================================
+   Everything below re-states surfaces the sheet above already defined. It is
+   appended rather than edited in place because the screens were written against
+   those earlier rules and still depend on their box models: this layer changes
+   what a surface is made of — tint, blur, corner, edge — and deliberately
+   touches nothing about where it sits or how big it is.
+   ========================================================================== */
+
+/* --- 1. the plane ---------------------------------------------------------
+   Frosted glass needs something behind it to frost. On a flat fill a blurred
+   panel is indistinguishable from an opaque one, so the page carries two wide,
+   very low-alpha blooms — one at each diagonal — and every surface over them
+   picks up a slightly different wash. They are fixed rather than scrolled: the
+   light source stays put while the content moves past it. */
+.app-shell {
+  background:
+    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+  background-attachment: fixed;
+}
+
+/* --- 2. the rail owns the brand -------------------------------------------
+   The rail now runs the full height of the window and the header starts to its
+   right, so the mark sits above the navigation instead of over in the header
+   band. `top: 0` is the whole change; the header's own offset follows below. */
+.rail {
+  top: 0;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
+}
+
+/* The brand row is pinned to the header's height so the hairline under it and
+   the one under the header meet across the shell and read as a single line. */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--app-header-h);
+  padding: 0 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--header-hairline);
+  overflow: hidden;
+}
+
+/* A white tile under the mark, in both themes. The logo is a full-colour mark
+   with its own navy and crimson: on a dark rail it would either sit in a white
+   box of its own making or lose its edges entirely, and a deliberate tile is
+   the better-looking of those two. */
+.rail-brand-mark {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm), var(--glass-sheen);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rail-brand-mark img {
+  width: 24px;
+  height: auto;
+  object-fit: contain;
+}
+
+.rail-brand-name {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed: the word goes, the mark centres and holds the slot alone. */
+.rail.is-collapsed .rail-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.rail.is-collapsed .rail-brand-name {
+  display: none;
+}
+
+/* --- 3. the header starts beside the rail ---------------------------------
+   It used to span the rail as well, because it held the brand. It no longer
+   does, so it begins where the rail ends and moves with it on collapse. */
+.topbar {
+  left: var(--rail-w);
+  right: 0;
+  inset-inline-start: var(--rail-w);
+  width: auto;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-top: none;
+  border-bottom: 1px solid var(--header-hairline);
+  transition: left 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Takes the space the brand used to hold, so the status controls stay right. */
+.topbar-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The staff workspace has no rail, so the header returns to the full width. */
+.app-shell.is-railless .topbar {
+  left: 0;
+  inset-inline-start: 0;
+}
+
+/* --- 4. glass surfaces -----------------------------------------------------
+   The card families across every screen, given one material. They are listed
+   rather than reached with a wildcard because the same screens also use
+   bordered boxes that must stay flat — a table row, a form field, a chip — and
+   frosting those would turn a dense screen into fog.
+
+   `backdrop-filter` is the expensive property here. It is set once per card and
+   never on anything that repeats per row, which is what keeps a 200-row table
+   scrolling at full rate. */
+.dash-card,
+.dash-chart-card,
+.dash-log-card,
+.db-card,
+.sh-card,
+.mc-card,
+.jod-card,
+.job-order-card,
+.candidate-card,
+.ccard,
+.cedit-card,
+.cprof-card,
+.tl-card,
+.flow-card,
+.glass-card,
+.login-card,
+.metric-tile,
+.stat-tile,
+.ov-kpi,
+.ctable-wrap,
+.notif-panel,
+.modal-container,
+.sh-modal,
+.client-modal-dialog,
+.jod-dd-panel,
+.sourcing-dropdown-menu,
+.eval-drawer,
+.sh-toolbar,
+.jo-toolbar,
+.jo-state {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+}
+
+/* What lifts on hover is the card, not its contents: a translate of one pixel
+   plus a wider shadow reads as the surface rising, where a scale reads as the
+   text growing. Only the families that are actually clickable get it. */
+.sh-card,
+.mc-card,
+.jod-card,
+.job-order-card,
+.candidate-card,
+.ccard,
+.tl-card {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.sh-card:hover,
+.mc-card:hover,
+.jod-card:hover,
+.job-order-card:hover,
+.candidate-card:hover,
+.ccard:hover,
+.tl-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+  border-color: var(--border-hover);
+}
+
+/* Anything that floats free of the page — a dialog, a popover, the drawer —
+   is frosted harder and lifted further, because it has the whole screen behind
+   it rather than a card's worth of background. */
+.modal-container,
+.sh-modal,
+.client-modal-dialog,
+.notif-panel,
+.jod-dd-panel,
+.sourcing-dropdown-menu,
+.eval-drawer {
+  background: var(--glass-bg-strong);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+}
+
+/* The scrim behind a dialog blurs the page rather than only darkening it, which
+   is what makes the dialog read as glass in front of the app instead of a box
+   on a grey wash. */
+.modal-overlay {
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* --- 5. corner rhythm -----------------------------------------------------
+   Nested corners have to shrink inward or the inner arc cuts the outer one.
+   Cards are --radius-xl above; the controls that sit inside them take the next
+   size down, and anything that reads as a token takes a full round. */
+.db-btn,
+.sh-new-btn,
+.jod-btn,
+.jo-icon-btn,
+.sh-icon-btn,
+.modal-submit-btn,
+.modal-cancel-btn,
+.modal-input,
+.modal-select,
+.modal-textarea,
+.search-input,
+.sh-search-input,
+.login-field,
+.topbar-icon-btn,
+.topbar-sync,
+.cscreen-btn {
+  border-radius: var(--radius-md);
+}
+
+.db-pill,
+.mc-badge,
+.jod-badge,
+.sh-chip,
+.db-chip,
+.tl-badge,
+.job-order-status-chip,
+.ws-pulse {
+  border-radius: var(--radius-pill);
+}
+
+/* --- 6. the rail's own furniture ------------------------------------------ */
+.rail-item {
+  border-radius: var(--radius-md);
+}
+
+/* The active row is a filled tint with the accent carried by the icon and the
+   label, matching the reference: a left-edge bar would be a second marker
+   saying the same thing the fill already says. */
+.rail-item.is-active {
+  background: rgba(var(--primary-rgb), 0.10);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.16);
+}
+
+.rail-account,
+.theme-switch,
+.rail-theme-mini {
+  border-radius: var(--radius-pill);
+}
+
+.rail-account {
+  border-radius: var(--radius-md);
+}
+
+/* --- 7. narrow viewports ---------------------------------------------------
+   Under 900px the rail is off-canvas, so the header has no rail to sit beside
+   and returns to the full width. Without this it would keep a 252px indent
+   against a rail that is not on screen. */
+@media (max-width: 900px) {
+  .topbar {
+    left: 0;
+    inset-inline-start: 0;
+  }
+
+  /* Off-canvas it starts under the header again, so the slide-in does not
+     cover the bar it was opened from. */
+  .rail {
+    top: var(--app-header-h);
+  }
+
+  .rail-brand {
+    display: none;
+  }
+}
+
+/* Respect a reduced-motion preference: the lift and the rail's slide are
+   decoration, and the blur alone carries the look without them. */
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .topbar,
+  .sh-card,
+  .mc-card,
+  .jod-card,
+  .job-order-card,
+  .candidate-card,
+  .ccard,
+  .tl-card {
+    transition: none;
+  }
+
+  .sh-card:hover,
+  .mc-card:hover,
+  .jod-card:hover,
+  .job-order-card:hover,
+  .candidate-card:hover,
+  .ccard:hover,
+  .tl-card:hover {
+    transform: none;
+  }
+}
+
+/* --- 8. the login lockup --------------------------------------------------
+   The mark is full-colour — navy and crimson — so it needs a light tile under
+   it in both themes. It used to sit on the brand gradient, which is the one
+   background its own navy cannot survive: the triangle and the tile were the
+   same colour and the mark read as a red shape on blue. Same white tile as the
+   rail's, one size up. */
+.login-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md), var(--glass-sheen);
+  overflow: hidden;
+}
+
+.login-logo img {
+  width: 30px;
+  height: auto;
+  object-fit: contain;
+}
+
+/* The sign-in page gets the same two blooms as the shell, so the card has
+   something to frost against instead of a flat white field. */
+.login-page {
+  background:
+    radial-gradient(120% 90% at 10% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 5%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+}
+
+.login-card {
+  border-radius: var(--radius-2xl);
+  padding: 2.6rem 2.5rem 2.2rem;
+}
+
+/* ==========================================================================
+   ADIRA — FLOATING RAIL, TREE CONNECTORS, BOXED GRID
+   ==========================================================================
+   The reference does three things this shell was not doing: the rail is a panel
+   floating inside the page rather than a column flush to its edge, the nav rows
+   hang off a spine that descends from their heading, and every region of the
+   page is a discrete rounded box with one consistent gutter between boxes.
+   ========================================================================== */
+
+/* --- 1. the rail floats ---------------------------------------------------
+   Inset on all four sides and rounded, so the page plane runs behind it and the
+   panel reads as sitting *on* the app rather than as the app's left wall.
+   `--rail-gap` is the inset, and the header and workspace are laid out from it
+   as well, so all three move together. */
+.app-shell {
+  --rail-gap: 14px;
+}
+
+.rail {
+  top: var(--rail-gap);
+  bottom: var(--rail-gap);
+  left: var(--rail-gap);
+  height: auto;
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  overflow: hidden;
+}
+
+/* The brand row sits inside the panel now, so its hairline stops at the
+   panel's edge instead of running to the window's. */
+.rail-brand {
+  height: 62px;
+  padding: 0 16px;
+}
+
+/* The header and the workspace start clear of the floating panel: the rail's
+   own width plus the gap on each side of it. */
+.topbar {
+  left: calc(var(--rail-w) + var(--rail-gap) * 2);
+  inset-inline-start: calc(var(--rail-w) + var(--rail-gap) * 2);
+  top: var(--rail-gap);
+  right: var(--rail-gap);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  height: 60px;
+}
+
+.app-body {
+  padding-top: calc(60px + var(--rail-gap) * 2);
+}
+
+.workspace {
+  margin-left: calc(var(--rail-w) + var(--rail-gap) * 2);
+  padding-right: var(--rail-gap);
+}
+
+.app-shell.is-railless .topbar {
+  left: var(--rail-gap);
+  inset-inline-start: var(--rail-gap);
+}
+
+/* --- 2. the connector spine -----------------------------------------------
+   A single vertical line down the group, with a short arm reaching out to each
+   row — the tree the reference draws under every heading. The spine is one
+   pseudo-element on the wrapper rather than a top border on each row, so it
+   stays continuous through the gaps between rows.
+
+   It is positioned at 19px: the icon column's centre, so the spine descends
+   from directly under the heading's first letter and the arms meet each row
+   just before its glyph. */
+.rail-group-items {
+  position: relative;
+  padding-left: 18px;
+}
+
+.rail-group-items::before {
+  content: "";
+  position: absolute;
+  left: 19px;
+  /* Starts under the heading and stops at the centre of the last row, so the
+     line does not overshoot into empty space below the group. */
+  top: -2px;
+  bottom: 16px;
+  width: 1px;
+  background: var(--border-blue-strong);
+  opacity: 0.55;
+  border-radius: 1px;
+}
+
+/* The arm out to one row. */
+.rail-group-items .rail-item {
+  position: relative;
+}
+
+.rail-group-items .rail-item::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  width: 10px;
+  height: 1px;
+  background: var(--border-blue-strong);
+  opacity: 0.55;
+  transition: background 0.16s ease, opacity 0.16s ease;
+}
+
+/* The active row lights its own arm, so the eye can follow the spine straight
+   to where it is. */
+.rail-group-items .rail-item.is-active::before,
+.rail-group-items .rail-item:hover::before {
+  background: var(--primary);
+  opacity: 1;
+}
+
+/* --- 3. the heading is a control ------------------------------------------ */
+.rail-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.rail-group-label:hover:not(:disabled) {
+  color: var(--text-main);
+}
+
+.rail-group-label:disabled {
+  cursor: default;
+}
+
+.rail-group-caret {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Folded: the caret points right, the way every disclosure in the product
+   does. */
+.rail-group.is-shut .rail-group-caret {
+  transform: rotate(-90deg);
+}
+
+/* --- 4. collapsed: no spine, no carets ------------------------------------
+   At 68px the rows are centred icons with nothing to hang off, and a spine
+   through their middles would read as a strike-through. */
+.rail.is-collapsed .rail-group-items {
+  padding-left: 0;
+}
+
+.rail.is-collapsed .rail-group-items::before,
+.rail.is-collapsed .rail-group-items .rail-item::before,
+.rail.is-collapsed .rail-group-caret {
+  display: none;
+}
+
+/* --- 5. the collapse control rides the rail's edge -------------------------
+   Out of the heading row and onto the border, where the reference puts it: one
+   round button straddling the panel's right edge at brand height. It is the
+   same control in both states — a chevron that points the way the rail will
+   move — so there is nothing to find again after collapsing.
+
+   The rail drops `overflow: hidden` for this: the button is deliberately half
+   outside the panel, and clipping it would leave a half-moon on the border. */
+.rail {
+  overflow: visible;
+}
+
+/* The scroller keeps the clipping the panel gave up, so a long list still stops
+   at the rounded corner instead of running past it. */
+.rail-scroll {
+  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+}
+
+.rail-toggle {
+  position: absolute;
+  top: 24px;
+  right: -14px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+  color: var(--text-muted);
+}
+
+.rail-toggle:hover {
+  background: var(--bg-card);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: scale(1.06);
+}
+
+/* The heading row is the heading's alone again. */
+.rail-group-head {
+  min-height: 0;
+  margin-bottom: 0.2rem;
+}
+
+/* --- 6. connector geometry -------------------------------------------------
+   Tightened against the first pass: the spine starts directly under the
+   heading's first letter and stops on the last row's centre line, and the arms
+   are short enough to read as ticks rather than as rules. */
+.rail-group-items {
+  padding-left: 14px;
+}
+
+.rail-group-items::before {
+  left: 8px;
+  top: 0;
+  bottom: 18px;
+}
+
+.rail-group-items .rail-item::before {
+  left: -6px;
+  width: 6px;
+}
+
+/* Collapsed, the toggle centres on the panel's edge at the same height. */
+.rail.is-collapsed .rail-toggle {
+  right: -14px;
+}
+
+/* --- 7. narrow viewports, restated ----------------------------------------
+   These have to come after the floating-panel rules above rather than in the
+   900px block further up the sheet: same specificity, and the later rule wins.
+   Without this the header keeps `calc(--rail-w + gap*2)` on a phone, and since
+   `--rail-w` is 0 there it lands 28px from the left against 14px on the right —
+   off-centre by exactly one gap. */
+@media (max-width: 900px) {
+  .topbar,
+  .app-shell.is-railless .topbar {
+    left: var(--rail-gap);
+    inset-inline-start: var(--rail-gap);
+    right: var(--rail-gap);
+  }
+
+  .workspace {
+    margin-left: 0;
+  }
+
+  /* The drawer keeps the brand: slid over the content it is the only place the
+     product is named, and it is full height because there is no header beside
+     it to leave room for. */
+  .rail,
+  .rail.is-collapsed {
+    top: var(--rail-gap);
+    bottom: var(--rail-gap);
+    left: var(--rail-gap);
+  }
+
+  .rail-brand {
+    display: flex;
+  }
+
+  /* The edge toggle is a desktop affordance — the drawer is opened from the
+     header's menu button and closed by tapping the backdrop. */
+  .rail-toggle {
+    display: none;
+  }
+
+  .rail-backdrop.is-open {
+    inset: 0;
+  }
+}
+
+/* --- 8. collapsed group dividers ------------------------------------------
+   The heading became a flex button with a word and a caret inside it, and the
+   old collapsed rule squashed that whole flex row to 1px and hid the overflow —
+   which left the word's ascenders showing through as a dashed line rather than
+   drawing a clean rule. The children are taken out of the flow explicitly now,
+   and the divider is the element's own background again. */
+.rail.is-collapsed .rail-group-label {
+  display: block;
+  height: 1px;
+  padding: 0;
+  margin: 0.65rem 0.5rem;
+  background: var(--border-blue);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.rail.is-collapsed .rail-group-word {
+  display: none;
+}
+
+/* The first group opens the list, so it needs no rule above it. */
+.rail.is-collapsed .rail-group:first-child .rail-group-label {
+  display: none;
+}
+
+/* ==========================================================================
+   RAIL CONNECTORS — WEIGHT AND FLOW
+   ==========================================================================
+   The spine and its arms, drawn to be seen, with a pulse running down them.
+
+   The line is two layers: a static rule that is always there at readable
+   contrast, and a travelling highlight over it. Keeping them separate is what
+   lets the tree stay legible when the animation is suppressed — the structure
+   is the static layer's job, and the motion only decorates it.
+   ========================================================================== */
+
+/* --- the static rule, stronger -------------------------------------------- */
+.rail-group-items::before {
+  width: 2px;
+  left: 8px;
+  /* Was a hairline at 55% of a faint grey, which on the frosted panel came out
+     close to invisible. A solid two-pixel rule at full strength is the weight
+     the reference draws it at. */
+  background: var(--border-hover);
+  opacity: 1;
+}
+
+.rail-group-items .rail-item::before {
+  height: 2px;
+  left: -6px;
+  width: 8px;
+  border-radius: 1px;
+  background: var(--border-hover);
+  opacity: 1;
+}
+
+/* The active row owns its whole path: a thicker, accent-coloured arm with a
+   node where it meets the row, so the branch you are on is legible at a glance
+   rather than only on close inspection. */
+.rail-group-items .rail-item.is-active::before {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18),
+    0 0 10px 1px rgba(var(--primary-rgb), 0.55);
+}
+
+.rail-group-items .rail-item:hover::before {
+  background: var(--primary);
+  opacity: 1;
+}
+
+/* --- the pulse ------------------------------------------------------------
+   A repeating gradient the height of one pulse cycle, scrolled down by exactly
+   one cycle per iteration. Because the travel equals the tile, the loop is
+   seamless — there is no jump at the restart, which is what a keyframe that
+   moves a single blob from top to bottom always gives you.
+
+   It rides directly over the static rule at the same width and offset, so the
+   line does not appear to thicken as the pulse passes. */
+.rail-group-items::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 18px;
+  width: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(var(--primary-rgb), 0) 0px,
+    rgba(var(--primary-rgb), 0.25) 16px,
+    rgba(var(--primary-rgb), 1) 30px,
+    rgba(var(--primary-rgb), 0.25) 44px,
+    rgba(var(--primary-rgb), 0) 60px
+  );
+  background-size: 2px 190px;
+  background-repeat: repeat-y;
+  animation: railFlow 2.8s linear infinite;
+  /* The glow is on the layer that moves, so the rule underneath stays crisp. */
+  filter: drop-shadow(0 0 4px rgba(var(--primary-rgb), 0.85));
+}
+
+@keyframes railFlow {
+  from {
+    background-position: 0 -190px;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Offset per group so the three spines do not pulse in lockstep — in step they
+   read as one bar sweeping the rail, which is a different (and louder) effect
+   than a signal running down each branch. */
+.rail-group:nth-child(2) .rail-group-items::after {
+  animation-delay: -0.9s;
+}
+
+.rail-group:nth-child(3) .rail-group-items::after {
+  animation-delay: -1.8s;
+}
+
+.rail-group:nth-child(4) .rail-group-items::after {
+  animation-delay: -2.4s;
+}
+
+/* Collapsed there is no spine to run down. */
+.rail.is-collapsed .rail-group-items::after {
+  display: none;
+}
+
+/* Motion is the decoration; the rule under it carries the structure. Suppressed
+   here rather than dimmed, so the tree is unchanged and only the pulse stops. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-group-items::after {
+    animation: none;
+    opacity: 0;
+  }
 }

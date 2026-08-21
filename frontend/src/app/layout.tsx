@@ -32,7 +32,7 @@ const firaCode = Fira_Code({
 });
 
 export const metadata: Metadata = {
-  title: "TalentFlow AI",
+  title: "Adira",
   description: "Candidate sourcing, email extraction, and resume parsing in one workspace.",
 };
 
