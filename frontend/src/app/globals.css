@@ -12405,3 +12405,485 @@ body {
 .app-body {
   padding-top: calc(58px + var(--rail-gap) * 2);
 }
+
+/* --- what the slab was actually for ---------------------------------------
+   Taking the panel away left the bar transparent over a page that scrolls
+   under it: table rows ran between the pills and collided with the search
+   field. The card was doing real work, and only its *appearance* was the
+   problem.
+
+   So the work is kept and the appearance is not. A layer behind the row
+   diffuses whatever passes under it and is masked to nothing at its lower
+   edge, which is what stops it reading as a band: there is no bottom border to
+   see, just content becoming progressively less legible until it is gone.
+   Blur rather than a fill in `--bg-main`, because the page carries two colour
+   blooms and a flat scrim would stamp a rectangle of the wrong colour over the
+   corner where the first one sits. */
+.topbar::before {
+  content: "";
+  position: absolute;
+  /* Out to the window edges, past the bar's own inset, so nothing shows in the
+     margin beside it. */
+  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -22px;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+}
+
+/* Masking a `backdrop-filter` does not survive in Chrome — the mask applies to
+   the element's own paint and the filtered backdrop is dropped, so the layer
+   above came out doing nothing at all. Replaced with something that does not
+   depend on that interaction.
+
+   The trick is `background-attachment: fixed`. `.app-shell` paints its two
+   blooms that way, which positions them against the viewport rather than the
+   element; repeating the identical stack here, also fixed, produces a strip
+   that is pixel-for-pixel the page behind it, wherever it happens to sit. So
+   the scrim cannot be seen as a rectangle of not-quite-the-right-colour — it
+   *is* the background — and the mask fades it to nothing at the bottom edge.
+   Content scrolling under simply dissolves into the page. */
+.topbar::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -26px;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background:
+    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+  background-attachment: fixed;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+}
+
+/* --- the rail's toggle was being painted over ------------------------------
+   Two things were burying the right half of the collapse button.
+
+   The scrim behind the top bar was inset -14px on its left, reaching one gap
+   further left than the bar itself — which is precisely the gutter the toggle
+   straddles. It never needed to: the workspace starts at `rail-w + gap*2`, the
+   same place the bar does, so there is no content in that gutter to cover and
+   the overhang was only ever covering the rail.
+
+   And the bar carries `z-index: 120` against the rail's 110, so everything in
+   the bar's stacking context — the scrim included, negative z-index and all —
+   paints above the whole rail. The rail is a panel floating over the page and
+   its own controls belong on top of the chrome beside it, so it goes up. */
+.topbar::before {
+  left: 0;
+}
+
+.rail {
+  z-index: 130;
+}
+
+/* ==========================================================================
+   MY CANDIDATES — THREE BOXES
+   ==========================================================================
+   The screen was four stat tiles in a row, a loose performance banner and a
+   queue card: seven bordered objects reporting on one queue. It is three now —
+   the queue in one number with its breakdown as columns inside, the split as a
+   chart, and the queue itself.
+   ========================================================================== */
+
+.sq-summary,
+.sq-chart,
+.sq-recent {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  padding: 1.25rem 1.4rem 1.35rem;
+}
+
+/* --- box 1: summary -------------------------------------------------------- */
+.sq-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sq-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 100%;
+  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.sq-next span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sq-next:hover:not(:disabled) {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
+}
+
+.sq-next:disabled {
+  background: var(--tint-2);
+  border-color: var(--border-blue);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+.sq-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 1.1rem 0 0.2rem;
+}
+
+.sq-headline-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 2.9rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+}
+
+.sq-headline-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sq-headline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+/* The four readings, as columns of one box rather than four boxes. The rule
+   between them is a border on the item, not a separator element, so the row
+   reflows to two-up and then one-up without leaving orphaned rules behind. */
+.sq-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1.15rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+.sq-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0 1.1rem;
+  border-left: 1px solid var(--border-blue);
+  min-width: 0;
+}
+
+.sq-metric:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+.sq-metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sq-metric-label svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.sq-metric-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-main);
+}
+
+.sq-metric-value.is-alert {
+  color: var(--error);
+}
+
+.sq-metric-note {
+  font-style: normal;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--text-light);
+}
+
+/* --- the two-up row -------------------------------------------------------- */
+.sq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* --- box 2: the rings ------------------------------------------------------ */
+.sq-chart-total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.9rem;
+}
+
+.sq-chart-total-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sq-chart-total-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.sq-chart-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.sq-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.sq-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.sq-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sq-legend-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sq-legend-value {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.sq-rings {
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+
+/* Every arc starts at the top and grows clockwise, which is the only reading
+   order a ring has. Rotating the element rather than each arc keeps the four
+   in register. */
+.sq-rings circle {
+  fill: none;
+  stroke-width: 11;
+  transform: rotate(-90deg);
+  transform-origin: 90px 90px;
+}
+
+.sq-ring-track {
+  stroke: var(--tint-2);
+}
+
+.sq-ring-arc {
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- box 3: recent --------------------------------------------------------- */
+.sq-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: none;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.sq-detail:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+  border-color: var(--primary);
+}
+
+.sq-recent-list {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sq-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.55rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.sq-recent-row:hover {
+  background: var(--tint-1);
+}
+
+.sq-recent-list li + li .sq-recent-row {
+  border-top: 1px solid var(--border-blue-faint);
+  border-radius: 0;
+}
+
+.sq-recent-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.sq-recent-identity strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sq-recent-identity em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sq-recent-when {
+  font-size: 0.72rem;
+  color: var(--text-light);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The four badges the list uses. `reviewed` and `risk` are new names for this
+   screen; the pill's other states are already defined further up. */
+.db-pill.is-reviewed {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.db-pill.is-risk {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.db-pill.is-unviewed {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+}
+
+/* --- reflow ---------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .sq-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .sq-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1.1rem;
+  }
+
+  /* On two columns the third item starts a new row, so it is the one that must
+     lose its rule — not the first. */
+  .sq-metric:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .sq-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sq-metric {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .sq-chart-body {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
+}

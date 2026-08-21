@@ -41,6 +41,34 @@ import {
 import { fetchUiConfig, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
 
+
+/**
+ * The single status a row shows.
+ *
+ * The rings in the chart are independent shares of the total and overlap by
+ * design — an unopened profile can also be running out of clock. A row cannot
+ * overlap, so it resolves to one badge in priority order: a judged profile is
+ * done whatever its clock said, and after that the deadline outranks how far
+ * through the read you are.
+ */
+function statusOf(
+  candidate: CandidateRecord,
+  slaHours: number,
+  now: number,
+): "reviewed" | "risk" | "unviewed" | "pending" {
+  if (isEvaluated(candidate)) return "reviewed";
+  const left = hoursRemaining(candidate, slaHours, now);
+  if (left !== null && left <= slaHours * AT_RISK_FRACTION) return "risk";
+  return candidate.viewed_at ? "pending" : "unviewed";
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  reviewed: "Reviewed",
+  unviewed: "Unviewed",
+  pending: "Pending review",
+  risk: "Risk",
+};
+
 interface StaffDashboardProps {
   /** Already scoped to this user — the API only ever returns their own. */
   candidates: CandidateRecord[];
@@ -126,6 +154,14 @@ export default function StaffDashboard({
 }: StaffDashboardProps) {
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [sort, setSort] = useState<QueueSort>("sla");
+  /**
+   * Whether the queue box is showing the newest handful or the whole list.
+   *
+   * Compact by default: this screen answers "what is waiting on me" before it
+   * answers "show me all of them", and the full table with its search, sort and
+   * five tabs is a lot of furniture to put in front of that first question.
+   */
+  const [showAll, setShowAll] = useState(false);
   const [query, setQuery] = useState("");
   const [slaHours, setSlaHours] = useState(DEFAULT_SLA_HOURS);
 
@@ -282,6 +318,33 @@ export default function StaffDashboard({
     return waiting[0]?.candidate ?? null;
   }, [candidates, slaHours, now]);
 
+
+  /**
+   * The four rings, and the legend beside them.
+   *
+   * Each is its own share of the total rather than a slice of one pie: they
+   * overlap (an unopened profile can also be at risk), so they are drawn as
+   * concentric arcs, which is a shape that does not claim to add up to a whole
+   * the way a donut does.
+   */
+  const segments = [
+    { key: "reviewed", label: "Reviewed", value: counts.evaluated, tone: "var(--success)" },
+    { key: "unviewed", label: "Unviewed", value: counts.unviewed, tone: "var(--primary)" },
+    { key: "pending", label: "Pending review", value: counts.pending, tone: "var(--warning)" },
+    { key: "risk", label: "Risk", value: counts.at_risk, tone: "var(--rose)" },
+  ];
+
+  /** The newest handful, for the compact view of the queue. */
+  const recent = useMemo(() => {
+    return [...candidates]
+      .sort((a, b) => {
+        const at = new Date(a.assigned_at ?? a.ingested_at ?? 0).getTime();
+        const bt = new Date(b.assigned_at ?? b.ingested_at ?? 0).getTime();
+        return bt - at;
+      })
+      .slice(0, 5);
+  }, [candidates]);
+
   /**
    * The one way into a candidate from this screen.
    *
@@ -320,47 +383,6 @@ export default function StaffDashboard({
     .join(", and ");
 
   /** The three things a reviewer comes here to do. */
-  const actions = [
-    {
-      id: "next",
-      icon: Sparkles,
-      title: nextUp ? `Review next — ${nameOf(nextUp)}` : "Queue clear",
-      subtitle: nextUp
-        ? "The unopened profile closest to its deadline."
-        : "Nothing is waiting on a first read.",
-      accent: true,
-      arrow: true,
-      on: false,
-      disabled: !nextUp,
-      onClick: () => nextUp && openProfile(nextUp),
-    },
-    {
-      id: "unviewed",
-      icon: Inbox,
-      title: `Unopened (${formatInt(counts.unviewed)})`,
-      subtitle: counts.unviewed
-        ? "Allocated to you and not yet read."
-        : "Everything allocated has been opened.",
-      accent: false,
-      arrow: false,
-      on: filter === "unviewed",
-      disabled: false,
-      onClick: () => setFilter(filter === "unviewed" ? "all" : "unviewed"),
-    },
-    {
-      id: "at_risk",
-      icon: Timer,
-      title: `Due soon (${formatInt(counts.at_risk)})`,
-      subtitle: counts.at_risk
-        ? `Inside the last quarter of the ${slaHours}-hour window.`
-        : `Every profile is well inside the ${slaHours}-hour window.`,
-      accent: false,
-      arrow: false,
-      on: filter === "at_risk",
-      disabled: false,
-      onClick: () => setFilter(filter === "at_risk" ? "all" : "at_risk"),
-    },
-  ];
 
   /**
    * Four numbers: the whole workload, what is unread, what has been judged, and
@@ -371,117 +393,218 @@ export default function StaffDashboard({
    * is mine — and reading it out of the corner of a progress tile made it look
    * like a denominator rather than a figure.
    */
-  const kpis = [
-    {
-      label: "Total candidates",
-      value: compactNumber(counts.all),
-      caption: counts.all
-        ? `Everything allocated to you, judged or not`
-        : "Nothing allocated to you yet",
-      icon: Users,
-      alert: false,
-    },
-    {
-      label: "Unviewed",
-      value: compactNumber(counts.unviewed),
-      caption: counts.unviewed
-        ? `Never opened · ${formatInt(counts.pending)} opened, awaiting a verdict`
-        : `Everything allocated has been opened`,
-      icon: Inbox,
-      alert: false,
-    },
-    {
-      label: "Evaluated",
-      value: compactNumber(counts.evaluated),
-      caption: counts.all
-        ? `${progressPct}% of your queue · ${formatInt(performance.today)} today`
-        : "Nothing allocated yet",
-      icon: CheckCircle2,
-      alert: false,
-    },
-    {
-      label: `Past the ${slaHours}h SLA`,
-      value: formatInt(counts.overdue),
-      caption: counts.overdue
-        ? "Already over — open these first"
-        : counts.at_risk
-          ? `${formatInt(counts.at_risk)} approaching the deadline`
-          : "Every profile is inside the window",
-      icon: Clock,
-      alert: counts.overdue > 0,
-    },
-  ];
 
   return (
     <div className="staff-workspace">
-      <section className="ov-actions is-three">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className={`ov-action ${action.accent || action.on ? "is-accent" : ""}`}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              aria-pressed={action.accent ? undefined : action.on}
-            >
-              <span className="ov-action-icon" aria-hidden="true">
-                <Icon size={19} strokeWidth={2} />
-              </span>
-              <span className="ov-action-text">
-                <span className="ov-action-title">
-                  {action.title}
-                  {action.arrow && <ArrowRight size={14} />}
-                </span>
-                <span className="ov-action-sub">{action.subtitle}</span>
-              </span>
-            </button>
-          );
-        })}
-      </section>
+      {/* ---- Box 1: the queue in one number, then the four that break it down.
+           These used to be four separate tiles in a row above a fourth card.
+           Four boxes reporting on one queue is four borders, four shadows and
+           four headings for what is a single reading — so they are one box now,
+           with the breakdown as columns inside it. ---- */}
+      <section className="sq-summary">
+        <header className="sq-summary-head">
+          <div>
+            <h3 className="db-card-title">Queue overview</h3>
+            <p className="db-card-sub">Everything allocated to you, judged or not.</p>
+          </div>
 
-      {/* Four tiles, so no `is-three` — the default grid is a four-up. */}
-      <section className="ov-kpis">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <article key={kpi.label} className="ov-kpi">
-              <p className="ov-kpi-label">
-                {kpi.label}
-                <Icon size={15} strokeWidth={2} />
-              </p>
-              <p className={`ov-kpi-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</p>
-              <p className="ov-kpi-caption">{kpi.caption}</p>
-            </article>
-          );
-        })}
-      </section>
+          {/* The only action left on this screen. The two filter buttons that
+              used to sit beside it said what the queue's own tabs already say. */}
+          <button
+            type="button"
+            className="sq-next"
+            onClick={() => nextUp && openProfile(nextUp)}
+            disabled={!nextUp}
+          >
+            <Sparkles size={16} />
+            <span>{nextUp ? `Review next — ${nameOf(nextUp)}` : "Queue clear"}</span>
+            {nextUp && <ArrowRight size={15} />}
+          </button>
+        </header>
 
-      {/* Your own turnaround, which is the half of the SLA the tiles cannot
-          show: they report what is outstanding now, this reports how you have
-          been clearing it. Hidden until there is something to average. */}
-      {performance.turnaround !== null && (
-        <div className="staff-note">
-          <Gauge size={16} />
-          <span>
-            <strong>Average turnaround {formatHours(performance.turnaround)}.</strong>
-            {pace && ` ${pace}.`}
+        <div className="sq-headline">
+          <span className="sq-headline-value">{compactNumber(counts.all)}</span>
+          <span className="sq-headline-chip">{progressPct}% judged</span>
+          <span className="sq-headline-label">
+            <Users size={14} /> Total candidates
           </span>
         </div>
-      )}
 
-      {/* ---- The queue ---- */}
-      <section className="db-card">
+        <div className="sq-metrics">
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Inbox size={14} /> Unviewed
+            </span>
+            <strong className="sq-metric-value">{compactNumber(counts.unviewed)}</strong>
+            <em className="sq-metric-note">
+              {counts.unviewed
+                ? `${formatInt(counts.pending)} opened, awaiting a verdict`
+                : "Everything allocated has been opened"}
+            </em>
+          </div>
+
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <CheckCircle2 size={14} /> Evaluated
+            </span>
+            <strong className="sq-metric-value">{compactNumber(counts.evaluated)}</strong>
+            <em className="sq-metric-note">
+              {counts.all ? `${formatInt(performance.today)} judged today` : "Nothing allocated yet"}
+            </em>
+          </div>
+
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Clock size={14} /> Past the {slaHours}h SLA
+            </span>
+            <strong className={`sq-metric-value ${counts.overdue ? "is-alert" : ""}`}>
+              {formatInt(counts.overdue)}
+            </strong>
+            <em className="sq-metric-note">
+              {counts.overdue
+                ? "Already over — open these first"
+                : counts.at_risk
+                  ? `${formatInt(counts.at_risk)} approaching the deadline`
+                  : "Every profile is inside the window"}
+            </em>
+          </div>
+
+          {/* The performance note used to be a loose banner under the tiles. It
+              is the same reading as the three beside it — how the queue is
+              going — so it belongs in the same row rather than below it. */}
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Gauge size={14} /> Avg turnaround
+            </span>
+            <strong className="sq-metric-value">
+              {performance.turnaround !== null ? formatHours(performance.turnaround) : "—"}
+            </strong>
+            <em className="sq-metric-note">
+              {performance.turnaround !== null
+                ? pace || "Across everything you have judged"
+                : "Nothing judged yet to average"}
+            </em>
+          </div>
+        </div>
+      </section>
+
+      <div className="sq-row">
+        {/* ---- Box 2: the split, as concentric arcs. ---- */}
+        <section className="sq-chart">
+          <header className="db-card-head">
+            <h3 className="db-card-title">Candidates</h3>
+          </header>
+
+          <p className="sq-chart-total">
+            <span className="sq-chart-total-label">Total candidates</span>
+            <span className="sq-chart-total-value">{compactNumber(counts.all)}</span>
+          </p>
+
+          <div className="sq-chart-body">
+            <ul className="sq-legend">
+              {segments.map((segment) => (
+                <li key={segment.key} className="sq-legend-row">
+                  <span className="sq-legend-dot" style={{ background: segment.tone }} />
+                  <span className="sq-legend-label">{segment.label}</span>
+                  <span className="sq-legend-value">{formatInt(segment.value)}</span>
+                </li>
+              ))}
+            </ul>
+
+            <svg className="sq-rings" viewBox="0 0 180 180" role="img"
+              aria-label={segments.map((x) => `${x.label} ${x.value}`).join(", ")}>
+              {segments.map((segment, index) => {
+                const radius = 76 - index * 18;
+                const circumference = 2 * Math.PI * radius;
+                const share = counts.all ? segment.value / counts.all : 0;
+                return (
+                  <g key={segment.key}>
+                    <circle className="sq-ring-track" cx="90" cy="90" r={radius} />
+                    {/* A round cap on a zero-length arc still paints a dot, so
+                        an empty metric drew a mark the size of a small one. */}
+                    {share > 0 && (
+                      <circle
+                        className="sq-ring-arc"
+                        cx="90"
+                        cy="90"
+                        r={radius}
+                        stroke={segment.tone}
+                        strokeDasharray={`${circumference * share} ${circumference}`}
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        </section>
+
+      {/* ---- Box 3: the queue itself, compact until asked otherwise. ---- */}
+      <section className="sq-recent">
         <header className="db-card-head">
           <div>
-            <h3 className="db-card-title">My candidates</h3>
+            <h3 className="db-card-title">
+              {showAll ? "All candidates" : "Recent candidates"}
+            </h3>
             <p className="db-card-sub">
-              Open a profile to read the résumé and record your evaluation.
+              {showAll
+                ? "Open a profile to read the résumé and record your evaluation."
+                : `The ${recent.length} most recently allocated to you.`}
             </p>
           </div>
 
-          <div className="queue-tools">
+          <button type="button" className="sq-detail" onClick={() => setShowAll((on) => !on)}>
+            {showAll ? "Show recent" : "View details"}
+            <ArrowRight size={14} />
+          </button>
+        </header>
+
+        {/* Compact: no tools, no tabs, one badge each. The full view below is
+            the same records with everything needed to work through them. */}
+        {!showAll && (
+          recent.length === 0 ? (
+            <div className="db-empty">
+              <p className="db-empty-title">Nothing allocated to you yet</p>
+              <p className="db-empty-sub">
+                New résumés are allocated automatically as they are ingested.
+              </p>
+            </div>
+          ) : (
+            <ul className="sq-recent-list">
+              {recent.map((candidate) => {
+                const name = nameOf(candidate);
+                const status = statusOf(candidate, slaHours, now);
+                return (
+                  <li key={candidate.id}>
+                    <button
+                      type="button"
+                      className="sq-recent-row"
+                      onClick={() => openProfile(candidate)}
+                    >
+                      <span className="staff-avatar">{initialsOf(name)}</span>
+                      <span className="sq-recent-identity">
+                        <strong>{name}</strong>
+                        <em>
+                          {candidate.profile?.current_designation ??
+                            candidate.profile?.email ??
+                            "No designation parsed"}
+                        </em>
+                      </span>
+                      <span className="sq-recent-when">
+                        {candidate.assigned_at ? timeAgo(candidate.assigned_at) : "—"}
+                      </span>
+                      <span className={`db-pill is-${status}`}>{STATUS_LABEL[status]}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        )}
+
+        {showAll && (
+        <>
+        <div className="queue-tools">
             <label className="queue-search">
               <Search size={14} />
               <input
@@ -505,7 +628,6 @@ export default function StaffDashboard({
               ))}
             </select>
           </div>
-        </header>
 
         <div className="db-tabs" role="tablist">
           {FILTERS.map((tab) => (
@@ -657,7 +779,10 @@ export default function StaffDashboard({
             })}
           </div>
         )}
+        </>
+        )}
       </section>
+      </div>
     </div>
   );
 }
