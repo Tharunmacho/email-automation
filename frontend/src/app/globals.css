@@ -12887,3 +12887,115 @@ body {
     align-items: flex-start;
   }
 }
+
+/* --- staff & allocation: what it needs beyond the candidate screen ---------
+   The three boxes are the same objects as My Candidates and reuse its classes
+   outright. Only two things differ: this screen has three actions in the head
+   rather than one, and its roster rows carry a percentage rather than a
+   status badge. */
+
+.sq-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The two secondary actions beside the primary. Same height and radius as
+   `.sq-next`, hairline instead of fill — they are things you occasionally run,
+   not the thing you came here to do. */
+.sq-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 40px;
+  padding: 0 0.95rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.sq-action:hover:not(:disabled) {
+  background: var(--tint-2);
+  border-color: var(--border-hover);
+  color: var(--text-main);
+}
+
+.sq-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* A roster row is a reading, not a link: unlike a candidate row there is
+   nothing behind it to open, so it drops the pointer and the hover fill that
+   would promise one. */
+.sq-recent-row.is-static {
+  cursor: default;
+}
+
+.sq-recent-row.is-static:hover {
+  background: none;
+}
+
+.sq-staff-pct {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
+}
+
+/* The orphan warning now sits inside the summary box rather than loose between
+   two cards, so it takes its margin from the metrics above it. */
+.sq-summary .staff-note {
+  margin-top: 1.15rem;
+  margin-bottom: 0;
+}
+
+/* The three sections folded into the roster box keep their own headings and
+   spacing but give up their surface: a card inside a card draws two borders
+   and two shadows around one piece of content, which is the box-in-a-box the
+   three-box layout exists to get rid of. A rule between them carries the
+   separation the borders were carrying. */
+.sq-recent .db-card {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1.35rem 0 0;
+  margin-top: 1.35rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+/* The first of them follows the box's own header, which already rules off. */
+.sq-recent .db-card:first-of-type {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* The balance chip turns amber when the roster is uneven — the same slot
+   carrying good news and bad has to look different in each, or a glance reads
+   "Uneven load" as another neutral statistic. */
+.sq-headline-chip.is-warn {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+/* The "+N more" row stands for the reviewers past the four the chart draws, so
+   it is quieter than the named rows above it. */
+.sq-legend-row.is-rest .sq-legend-label,
+.sq-legend-row.is-rest .sq-legend-value {
+  color: var(--text-light);
+}

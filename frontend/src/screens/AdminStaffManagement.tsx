@@ -23,6 +23,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  Inbox,
   KeyRound,
   Loader2,
   Plus,
@@ -95,6 +96,14 @@ export default function AdminStaffManagement({
   const [error, setError] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
+  /**
+   * Whether the roster box is showing the summary or everything.
+   *
+   * Summary by default, matching My Candidates: this screen answers "is the
+   * work spread evenly and is anything late" before it answers "show me every
+   * account, every breach and every allocation".
+   */
+  const [showAll, setShowAll] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [rebalancing, setRebalancing] = useState(false);
@@ -246,6 +255,45 @@ export default function AdminStaffManagement({
     },
     [isOrphan, overdueIds],
   );
+
+
+  /**
+   * One ring per reviewer, sized by the share of the allocated pool they are
+   * holding. This is a staff screen, so the chart answers "is the work spread
+   * evenly" rather than "what state are the candidates in" — which is the
+   * candidate screen's question and was being asked twice.
+   *
+   * Capped at four: a fifth arc lands inside a radius too small to read, and
+   * the roster below is where a full list belongs. The remainder is counted
+   * rather than dropped silently.
+   */
+  const staffSegments = useMemo(() => {
+    const tones = [
+      "var(--primary)",
+      "var(--success)",
+      "var(--warning)",
+      "var(--rose)",
+    ];
+    const ranked = [...activeStaff].sort((a, b) => b.assigned - a.assigned);
+    return {
+      shown: ranked.slice(0, 4).map((member, index) => ({
+        key: member.id,
+        label: member.name || member.email,
+        value: member.assigned,
+        tone: tones[index],
+      })),
+      rest: Math.max(0, ranked.length - 4),
+      restLoad: ranked.slice(4).reduce((sum, member) => sum + member.assigned, 0),
+    };
+  }, [activeStaff]);
+
+  /** How many reviewers currently have at least one profile past the window. */
+  const reviewersBehind = Object.keys(breachesByStaff).length;
+
+  /** Mean queue depth across the active roster. */
+  const averageLoad = activeStaff.length
+    ? Math.round((totals?.assigned ?? 0) / activeStaff.length)
+    : 0;
 
   const filterCounts = useMemo(() => {
     const counts = {} as Record<AllocFilter, number>;
@@ -484,185 +532,286 @@ export default function AdminStaffManagement({
   }
 
   /** The three things an admin comes to this screen to do. */
-  const actions = [
-    {
-      id: "create",
-      icon: UserPlus,
-      title: "Add Staff Member",
-      subtitle: "Create an account. Existing allocations stay exactly where they are.",
-      accent: true,
-      arrow: true,
-      busy: false,
-      disabled: false,
-      onClick: () => setCreating(true),
-    },
-    {
-      id: "rebalance",
-      icon: Scale,
-      title: rebalancing ? "Rebalancing…" : "Rebalance Workload",
-      subtitle: "Level untouched profiles. Anything reviewed stays with its owner.",
-      accent: false,
-      arrow: false,
-      busy: rebalancing,
-      disabled: rebalancing || activeStaff.length === 0,
-      onClick: () => void handleRebalance(),
-    },
-    {
-      id: "sweep",
-      icon: ShieldCheck,
-      title: scanning ? "Sweeping…" : "Run SLA Sweep",
-      subtitle: `Re-check every allocation against the ${thresholdHours}-hour window.`,
-      accent: false,
-      arrow: false,
-      busy: scanning,
-      disabled: scanning,
-      onClick: () => void handleScan(),
-    },
-  ];
 
   /** Three numbers: the pile, the throughput, the risk. */
-  const kpis = [
-    {
-      label: "Candidate pool",
-      value: compactNumber(pool),
-      caption: `${formatInt(totals?.assigned ?? 0)} allocated · ${formatInt(
-        totals?.unassigned ?? 0,
-      )} waiting on an owner`,
-      icon: Users,
-      alert: false,
-    },
-    {
-      label: "Evaluation progress",
-      value: `${evaluatedPct}%`,
-      caption:
-        totals && totals.assigned > 0
-          ? `${formatInt(totals.evaluated)} of ${formatInt(totals.assigned)} allocated profiles judged`
-          : "Nothing allocated yet",
-      icon: CheckCircle2,
-      alert: false,
-    },
-    {
-      label: `Past the ${thresholdHours}h SLA`,
-      value: formatInt(breaches.length),
-      caption: breaches.length
-        ? "Allocated, and still not opened or not judged"
-        : "Every allocated profile is inside the window",
-      icon: Clock,
-      alert: breaches.length > 0,
-    },
-  ];
 
   return (
     <div className="staff-admin">
-      <section className="ov-actions is-three">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className={`ov-action ${action.accent ? "is-accent" : ""}`}
-              onClick={action.onClick}
-              disabled={action.disabled}
-            >
-              <span className="ov-action-icon" aria-hidden="true">
-                {action.busy ? (
-                  <Loader2 size={19} strokeWidth={2} className="icon-spin" />
-                ) : (
-                  <Icon size={19} strokeWidth={2} />
-                )}
-              </span>
-              <span className="ov-action-text">
-                <span className="ov-action-title">
-                  {action.title}
-                  {action.arrow && <ArrowRight size={14} />}
-                </span>
-                <span className="ov-action-sub">{action.subtitle}</span>
-              </span>
+      {/* ---- Box 1: the pool in one number, with the breakdown as columns.
+           Three action cards and three stat tiles used to open this screen —
+           six bordered objects before the first piece of actual work. They are
+           one box now, the same shape My Candidates uses. ---- */}
+      <section className="sq-summary">
+        <header className="sq-summary-head">
+          <div>
+            <h3 className="db-card-title">Allocation overview</h3>
+            <p className="db-card-sub">Everything ingested, and who is holding it.</p>
+          </div>
+
+          {/* The three actions, as controls rather than as cards. Their old
+              subtitles are gone: a sentence explaining what Rebalance does
+              belongs in a tooltip, not in a permanent third of the screen. */}
+          <div className="sq-actions">
+            <button type="button" className="sq-next" onClick={() => setCreating(true)}>
+              <UserPlus size={16} />
+              <span>Add staff member</span>
+              <ArrowRight size={15} />
             </button>
-          );
-        })}
+
+            <button
+              type="button"
+              className="sq-action"
+              onClick={() => void handleRebalance()}
+              disabled={rebalancing || activeStaff.length === 0}
+              title="Level untouched profiles. Anything reviewed stays with its owner."
+            >
+              {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
+              <span>{rebalancing ? "Rebalancing…" : "Rebalance"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="sq-action"
+              onClick={() => void handleScan()}
+              disabled={scanning}
+              title={`Re-check every allocation against the ${thresholdHours}-hour window.`}
+            >
+              {scanning ? <Loader2 size={15} className="icon-spin" /> : <ShieldCheck size={15} />}
+              <span>{scanning ? "Sweeping…" : "Run SLA sweep"}</span>
+            </button>
+          </div>
+        </header>
+
+        <div className="sq-headline">
+          <span className="sq-headline-value">{formatInt(activeStaff.length)}</span>
+          <span className={`sq-headline-chip ${imbalance ? "is-warn" : ""}`}>
+            {imbalance ? "Uneven load" : "Balanced"}
+          </span>
+          <span className="sq-headline-label">
+            <Users size={14} /> Active reviewers
+          </span>
+        </div>
+
+        <div className="sq-metrics">
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <UserPlus size={14} /> Accounts
+            </span>
+            <strong className="sq-metric-value">{formatInt(staff.length)}</strong>
+            <em className="sq-metric-note">
+              {formatInt(activeStaff.length)} active ·{" "}
+              {formatInt(Math.max(0, staff.length - activeStaff.length))} deactivated
+            </em>
+          </div>
+
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Inbox size={14} /> Average queue
+            </span>
+            <strong className="sq-metric-value">{formatInt(averageLoad)}</strong>
+            <em className="sq-metric-note">
+              {activeStaff.length
+                ? `${formatInt(totals?.assigned ?? 0)} profiles across the roster`
+                : "No active reviewer to allocate to"}
+            </em>
+          </div>
+
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Scale size={14} /> Load spread
+            </span>
+            <strong className={`sq-metric-value ${imbalance ? "is-alert" : ""}`}>
+              {formatInt(imbalance?.spread ?? 0)}
+            </strong>
+            <em className="sq-metric-note">
+              {imbalance
+                ? `${imbalance.busiest.name || imbalance.busiest.email} is holding the most — rebalance to level it`
+                : "Every reviewer is within one profile of the others"}
+            </em>
+          </div>
+
+          <div className="sq-metric">
+            <span className="sq-metric-label">
+              <Clock size={14} /> Reviewers behind
+            </span>
+            <strong className={`sq-metric-value ${reviewersBehind ? "is-alert" : ""}`}>
+              {formatInt(reviewersBehind)}
+            </strong>
+            <em className="sq-metric-note">
+              {reviewersBehind
+                ? `${formatInt(breaches.length)} profiles past the ${thresholdHours}h window`
+                : "Nobody is past the review window"}
+            </em>
+          </div>
+        </div>
+
+        {totals && totals.orphaned > 0 && (
+          <div className="staff-note is-warn">
+            <AlertTriangle size={15} />
+            <span>
+              <strong>
+                {formatInt(totals.orphaned)} profile{totals.orphaned === 1 ? " is" : "s are"} still
+                assigned to a deleted account and nobody can see{" "}
+                {totals.orphaned === 1 ? "it" : "them"}.
+              </strong>{" "}
+              {totals.orphaned === 1 ? "It was" : "They were"} already reviewed, so re-homing keeps
+              the evaluation — or use the Orphaned filter below to place{" "}
+              {totals.orphaned === 1 ? "it" : "them"} yourself.
+            </span>
+            <button
+              type="button"
+              className="db-btn is-primary"
+              onClick={() => void handleRehome()}
+              disabled={rehoming || activeStaff.length === 0}
+              title={
+                activeStaff.length === 0
+                  ? "There is no active account to re-home these to"
+                  : "Spread them across the active roster, verdicts intact"
+              }
+            >
+              {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
+              {rehoming ? "Re-homing…" : "Re-home now"}
+            </button>
+          </div>
+        )}
       </section>
 
-      <section className="ov-kpis is-three">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <article key={kpi.label} className="ov-kpi">
-              <p className="ov-kpi-label">
-                {kpi.label}
-                <Icon size={15} strokeWidth={2} />
+      <div className="sq-row">
+        {/* ---- Box 2: where the pool stands, as concentric arcs. ---- */}
+        <section className="sq-chart">
+          <header className="db-card-head">
+            <h3 className="db-card-title">Workload split</h3>
+          </header>
+
+          <p className="sq-chart-total">
+            <span className="sq-chart-total-label">Allocated across the roster</span>
+            <span className="sq-chart-total-value">
+              {compactNumber(totals?.assigned ?? 0)}
+            </span>
+          </p>
+
+          <div className="sq-chart-body">
+            <ul className="sq-legend">
+              {staffSegments.shown.length === 0 ? (
+                <li className="sq-legend-row">
+                  <span className="sq-legend-label">No active reviewers</span>
+                </li>
+              ) : (
+                staffSegments.shown.map((segment) => (
+                  <li key={segment.key} className="sq-legend-row">
+                    <span className="sq-legend-dot" style={{ background: segment.tone }} />
+                    <span className="sq-legend-label">{segment.label}</span>
+                    <span className="sq-legend-value">{formatInt(segment.value)}</span>
+                  </li>
+                ))
+              )}
+
+              {/* Never let the cap hide people: the arcs stop at four, the
+                  count does not. */}
+              {staffSegments.rest > 0 && (
+                <li className="sq-legend-row is-rest">
+                  <span className="sq-legend-dot" style={{ background: "var(--tint-3)" }} />
+                  <span className="sq-legend-label">
+                    +{formatInt(staffSegments.rest)} more
+                  </span>
+                  <span className="sq-legend-value">{formatInt(staffSegments.restLoad)}</span>
+                </li>
+              )}
+            </ul>
+
+            <svg
+              className="sq-rings"
+              viewBox="0 0 180 180"
+              role="img"
+              aria-label={staffSegments.shown
+                .map((x) => `${x.label} ${x.value}`)
+                .join(", ")}
+            >
+              {staffSegments.shown.map((segment, index) => {
+                const radius = 76 - index * 18;
+                const circumference = 2 * Math.PI * radius;
+                const allocated = totals?.assigned ?? 0;
+                const share = allocated ? segment.value / allocated : 0;
+                return (
+                  <g key={segment.key}>
+                    <circle className="sq-ring-track" cx="90" cy="90" r={radius} />
+                    {share > 0 && (
+                      <circle
+                        className="sq-ring-arc"
+                        cx="90"
+                        cy="90"
+                        r={radius}
+                        stroke={segment.tone}
+                        strokeDasharray={`${circumference * share} ${circumference}`}
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        </section>
+
+        {/* ---- Box 3: the roster, compact until asked otherwise. Expanded it
+             carries the three cards this screen used to end with: the workload
+             matrix, the SLA breaches and the allocation directory. ---- */}
+        <section className="sq-recent">
+          <header className="db-card-head">
+            <div>
+              <h3 className="db-card-title">
+                {showAll ? "Workload, SLA and allocation" : "Staff workload"}
+              </h3>
+              <p className="db-card-sub">
+                {showAll
+                  ? "Every account, every breach, and who owns each profile."
+                  : `${activeStaff.length} active · new profiles go to whoever is holding the fewest.`}
               </p>
-              <p className={`ov-kpi-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</p>
-              <p className="ov-kpi-caption">{kpi.caption}</p>
-            </article>
-          );
-        })}
-      </section>
+            </div>
 
-      {/* The roster is out of balance and something can be done about it.
-          Shown above the matrix rather than inside it: the matrix reports per
-          person, and this is a fact about the team. */}
-      {imbalance && (
-        <div className="staff-note">
-          <Scale size={16} />
-          <span>
-            <strong>Workloads are uneven.</strong> {imbalance.busiest.name} is holding{" "}
-            {formatInt(imbalance.busiest.assigned)} while {imbalance.lightest.name} has{" "}
-            {formatInt(imbalance.lightest.assigned)}. New arrivals go to whoever is behind, but a
-            pile already sitting in the wrong place has to be moved. Reviewed profiles stay with
-            their owner.
-          </span>
-          <button
-            type="button"
-            className="db-btn is-primary"
-            onClick={() => void handleRebalance()}
-            disabled={rebalancing}
-          >
-            {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
-            {rebalancing ? "Levelling…" : "Level now"}
-          </button>
-        </div>
-      )}
+            <button type="button" className="sq-detail" onClick={() => setShowAll((on) => !on)}>
+              {showAll ? "Show summary" : "View details"}
+              <ArrowRight size={14} />
+            </button>
+          </header>
 
-      {/* Orphans are invisible to every staff dashboard, so they are called out
-          rather than folded into the "waiting on an owner" figure.
+          {!showAll &&
+            (activeStaff.length === 0 ? (
+              <div className="db-empty">
+                <p className="db-empty-title">No active staff accounts</p>
+                <p className="db-empty-sub">
+                  Add one and new profiles will start being allocated automatically.
+                </p>
+              </div>
+            ) : (
+              <ul className="sq-recent-list">
+                {activeStaff.map((member) => {
+                  const opened = Math.max(0, member.assigned - member.unviewed);
+                  const pct = member.assigned
+                    ? Math.round((member.evaluated / member.assigned) * 100)
+                    : 0;
+                  return (
+                    <li key={member.id}>
+                      <div className="sq-recent-row is-static">
+                        <span className="staff-avatar">
+                          {initialsOf(member.name || member.email)}
+                        </span>
+                        <span className="sq-recent-identity">
+                          <strong>{member.name || member.email}</strong>
+                          <em>{member.email}</em>
+                        </span>
+                        <span className="sq-recent-when">
+                          {formatInt(member.assigned)} allocated · {formatInt(opened)} opened
+                        </span>
+                        <span className="sq-staff-pct">{pct}%</span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ))}
 
-          The banner is bound to the count and nothing else: re-home them, or
-          place them by hand from the directory below, and it disappears on the
-          next read without anybody dismissing it. There is no dismiss control
-          on purpose — the only thing that should silence this is the profiles
-          actually having an owner. */}
-      {totals && totals.orphaned > 0 && (
-        <div className="staff-note is-warn">
-          <AlertTriangle size={15} />
-          <span>
-            <strong>
-              {formatInt(totals.orphaned)} profile{totals.orphaned === 1 ? " is" : "s are"} still
-              assigned to a deleted account and nobody can see{" "}
-              {totals.orphaned === 1 ? "it" : "them"}.
-            </strong>{" "}
-            {totals.orphaned === 1 ? "It was" : "They were"} already reviewed, so re-homing keeps
-            the evaluation — or use the Orphaned filter below to place{" "}
-            {totals.orphaned === 1 ? "it" : "them"} yourself.
-          </span>
-          <button
-            type="button"
-            className="db-btn is-primary"
-            onClick={() => void handleRehome()}
-            disabled={rehoming || activeStaff.length === 0}
-            title={
-              activeStaff.length === 0
-                ? "There is no active account to re-home these to"
-                : "Spread them across the active roster, verdicts intact"
-            }
-          >
-            {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
-            {rehoming ? "Re-homing…" : "Re-home now"}
-          </button>
-        </div>
-      )}
-
+          {showAll && (
+          <>
       {/* ---- Workload matrix ---- */}
       <section className="db-card">
         <header className="db-card-head">
@@ -1008,6 +1157,11 @@ export default function AdminStaffManagement({
           </>
         )}
       </section>
+
+          </>
+          )}
+        </section>
+      </div>
 
       {/* ---- Create staff modal ---- */}
       <div
