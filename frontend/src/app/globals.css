@@ -12106,3 +12106,270 @@ body {
     opacity: 0;
   }
 }
+
+/* ==========================================================================
+   TOP BAR — PILL ROW
+   ==========================================================================
+   One row of rounded controls at a single weight: the sync action, the clock,
+   the search field, the bell and the account. The reference's bar has no bare
+   glyphs in it — every control sits in a pill or a circle with a hairline —
+   and that is what holds the row together as a set rather than a row of
+   mismatched buttons.
+   ========================================================================== */
+
+.topbar-actions {
+  gap: 0.5rem;
+}
+
+/* The shared pill: hairline, transparent fill, full round. Each control below
+   states only what makes it different from this. */
+.topbar-sync,
+.topbar-clock,
+.topbar-search,
+.topbar-avatar,
+.notif-btn {
+  height: 38px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+/* --- sync ---------------------------------------------------------------- */
+.topbar-sync {
+  gap: 0.45rem;
+  padding: 0 1rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  /* The one filled control in the row: it is the only thing up here that
+     changes the state of the system rather than reporting it. */
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
+}
+
+.topbar-sync:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
+}
+
+.topbar-sync:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* --- clock --------------------------------------------------------------- */
+.topbar-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  /* Tabular figures, so the minute ticking over does not shift the pill's
+     width and nudge everything to its left. */
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar-clock svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+/* --- search -------------------------------------------------------------- */
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.95rem;
+  width: 280px;
+  max-width: 32vw;
+}
+
+.topbar-search:focus-within {
+  border-color: var(--primary);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-search-icon {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.topbar-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.topbar-search-input::placeholder {
+  color: var(--text-light);
+}
+
+/* The browser's own clear affordance is a grey cross that ignores the theme. */
+.topbar-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* --- bell ---------------------------------------------------------------- */
+.notif-btn {
+  width: 38px;
+  padding: 0;
+  color: var(--text-muted);
+}
+
+.notif-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-main);
+}
+
+/* --- account ------------------------------------------------------------- */
+.topbar-account {
+  position: relative;
+}
+
+.topbar-avatar {
+  width: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: var(--brand-gradient);
+  border-color: transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+.topbar-avatar:hover {
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.22);
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 200;
+  min-width: 232px;
+  padding: 0.4rem;
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+  animation: fadeIn 0.14s ease;
+}
+
+.topbar-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.7rem 0.7rem;
+  border-bottom: 1px solid var(--border-blue);
+  margin-bottom: 0.35rem;
+}
+
+.topbar-menu-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.topbar-menu-mail {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.topbar-menu-role {
+  margin-top: 0.3rem;
+  align-self: flex-start;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.topbar-menu-item:hover {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* --- narrow bars ----------------------------------------------------------
+   The row sheds from the least load-bearing end: the clock first, then the
+   search field, then the sync label. The bell and the account always stay. */
+@media (max-width: 1180px) {
+  .topbar-clock {
+    display: none;
+  }
+
+  .topbar-search {
+    width: 200px;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar-search {
+    display: none;
+  }
+
+  .topbar-sync span {
+    display: none;
+  }
+
+  .topbar-sync {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* `.topbar-account` carried a left hairline and an inset from the bar's earlier
+   staff-only layout, where it separated a name-and-email block from the
+   controls beside it. That block is gone and this class now wraps the avatar
+   button alone, where the rule drew a stray divider between the bell and the
+   account. The old declarations are left in place above rather than deleted —
+   they are the whole of that former design and are worth having to hand — and
+   only the two that do not apply here are cleared. */
+.topbar-account {
+  padding-left: 0;
+  border-left: none;
+}
