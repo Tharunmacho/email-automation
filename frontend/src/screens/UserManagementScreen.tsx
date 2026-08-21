@@ -50,8 +50,6 @@ const PAGE_LABELS: Record<string, string> = {
   sourcing: "Sourcing Hub",
   "data-management": "Data Management",
   users: "User Management",
-  visualizer: "Flow Visualizer",
-  "resume-parser": "Resume Parser",
   activity: "Activity Logs",
   settings: "Settings",
 };

@@ -18,7 +18,6 @@ import {
   Briefcase,
   Building2,
   Database,
-  FileText,
   Inbox,
   LayoutDashboard,
   ScrollText,
@@ -26,7 +25,6 @@ import {
   ShieldCheck,
   UserCog,
   Users,
-  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,11 +34,9 @@ export type NavId =
   | "my-queue"
   | "staff"
   | "job-orders"
-  | "resume-parser"
   | "sourcing"
   | "data-management"
   | "users"
-  | "visualizer"
   | "activity"
   | "settings";
 
@@ -99,8 +95,6 @@ export const NAV_GROUPS: NavGroup[] = [
       // options the WhatsApp bot offers candidates, and whether a candidate is
       // asked for a CV.
       { id: "data-management", label: "Data Management", icon: Database, roles: ["admin"] },
-      { id: "visualizer", label: "Flow Visualizer", icon: Zap, roles: ["admin"] },
-      { id: "resume-parser", label: "Resume Parser", icon: FileText, roles: ["admin"] },
     ],
   },
   {
@@ -177,11 +171,6 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     title: "Job Orders",
     subtitle: "Client requisitions and the candidate matching pipeline.",
   },
-  "resume-parser": {
-    eyebrow: "Tools",
-    title: "Resume Parser",
-    subtitle: "How résumés reach the parser, what it scored them at, and the fields it extracts.",
-  },
   sourcing: {
     eyebrow: "Tools",
     title: "Sourcing Hub",
@@ -197,11 +186,6 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "General",
     title: "User Management",
     subtitle: "Accounts, roles, and which pages each person can reach.",
-  },
-  visualizer: {
-    eyebrow: "Tools",
-    title: "Flow Visualizer",
-    subtitle: "Gmail → AI extraction → MongoDB, stage by stage, as the pipeline runs it.",
   },
   activity: {
     eyebrow: "Support",

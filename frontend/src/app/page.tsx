@@ -5,8 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import OverviewScreen from "@/screens/OverviewScreen";
-import ResumeParserScreen from "@/screens/ResumeParserScreen";
-import PipelineScreen from "@/screens/PipelineScreen";
 import SourcingHub from "@/screens/SourcingHub";
 import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
@@ -20,7 +18,6 @@ import CandidateLogsScreen from "@/screens/CandidateLogsScreen";
 import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
-import { IDLE_FLOW, type FlowState } from "@/screens/FlowVisualizer";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
@@ -46,11 +43,9 @@ import {
   runPollCycle,
   updateCandidateProfile,
   verifyCandidate,
-  fetchWorkerStatus,
   type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
-  type PollSummary,
   type SlaAlert,
 } from "@/lib/api";
 import type { Verdict } from "@/screens/CandidateProfileScreen";
@@ -159,13 +154,9 @@ export default function Home() {
   // Ids with a DELETE in flight — a second click must not fire a second request.
   const deletingRef = useRef<Set<string>>(new Set());
 
-  const [flow, setFlow] = useState<FlowState>(IDLE_FLOW);
   const [syncing, setSyncing] = useState(false);
   // Reported by the Overview and Gmail Sync screens. Null means "not this
   // session" rather than "never" — the backend keeps no run history.
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [lastSummary, setLastSummary] = useState<PollSummary | null>(null);
-  const [workersOnline, setWorkersOnline] = useState<boolean | null>(null);
   const syncingRef = useRef(false);
   const bootLoggedRef = useRef(false);
   // When the list was last known to be current, so returning to the tab can
@@ -452,26 +443,6 @@ export default function Home() {
     };
   }, [openCandidateId, detailNonce]);
 
-  /**
-   * One fact about the deployment rather than about the data: whether a Celery
-   * worker is up, which the pipeline screen reports. Read once per session — it
-   * does not change while the tab is open, so putting it on the five-second
-   * poll would be a wasted request a tick.
-   */
-  useEffect(() => {
-    if (!user) return;
-    let active = true;
-
-    fetchWorkerStatus().then(
-      (status) => active && setWorkersOnline(status.available),
-      () => active && setWorkersOnline(null),
-    );
-
-    return () => {
-      active = false;
-    };
-  }, [user]);
-
   const handleNavigate = useCallback(
     (next: NavId) => {
       setActiveTab(next);
@@ -490,25 +461,16 @@ export default function Home() {
     setSyncing(true);
 
     log("Step 1: Connecting to Gmail API & searching for unread candidate emails...", "info");
-    setFlow({ ...IDLE_FLOW, gmail: "active" });
     await sleep(600);
 
     try {
-      setFlow((prev) => ({ ...prev, gmail: "success", connGmailFilter: true, filter: "active" }));
       log("Step 2: Applying resume detection filter & score validation...", "info");
       await sleep(600);
 
       const summary = await runPollCycle();
-      setLastSummary(summary);
-      setLastSyncAt(new Date().toISOString());
 
       log(`Step 3: Fetched ${summary.fetched} email(s); reading attachments...`, "info");
       const didWork = summary.ingested_candidates > 0 || summary.processed > 0;
-      setFlow((prev) =>
-        didWork
-          ? { ...prev, filter: "success", connFilterVeris: true, veris: "active" }
-          : { ...prev, filter: "success" },
-      );
 
       // Report what the backend actually did, every outcome of it. The previous
       // version logged attachments only on a successful cycle and matched a
@@ -573,10 +535,8 @@ export default function Home() {
       }
 
       if (didWork) {
-        setFlow((prev) => ({ ...prev, veris: "success", connVerisDb: true, db: "active" }));
         log("Step 4: Writing structured Candidate Profile to MongoDB Atlas collection 'candidates'...", "info");
         await sleep(700);
-        setFlow((prev) => ({ ...prev, db: "success" }));
       }
 
       // A cycle that declined the lock did no work at all. Saying "no new
@@ -609,14 +569,12 @@ export default function Home() {
 
       await refreshCandidates();
     } catch (err: unknown) {
-      setFlow(IDLE_FLOW);
       const message = err instanceof Error ? err.message : "Unknown error";
       log(`[ERROR] Inbound pipeline execution failed: ${message}`, "error");
       showToast("Failed to poll Gmail inbox.", "error");
     }
 
     await sleep(4000);
-    setFlow(IDLE_FLOW);
     setSyncing(false);
     syncingRef.current = false;
   }, [log, refreshCandidates, showToast]);
@@ -1027,27 +985,6 @@ export default function Home() {
                     logs={logs}
                     onNavigate={handleNavigate}
                     onOpenCandidate={handleOpenCandidate}
-                  />
-                )}
-
-                {currentTab === "resume-parser" && (
-                  <ResumeParserScreen
-                    candidates={candidates}
-                    syncing={syncing}
-                    onSync={runPipeline}
-                    onNavigate={handleNavigate}
-                  />
-                )}
-
-                {currentTab === "visualizer" && (
-                  <PipelineScreen
-                    flow={flow}
-                    logs={logs}
-                    syncing={syncing}
-                    lastSyncAt={lastSyncAt}
-                    lastSummary={lastSummary}
-                    workersOnline={workersOnline}
-                    onSync={runPipeline}
                   />
                 )}
 
