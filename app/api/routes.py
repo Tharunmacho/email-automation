@@ -324,12 +324,14 @@ def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Re
     backend_name = record.resume.storage_backend or settings.storage_backend
     try:
         data = get_storage_backend(backend_name).load(record.resume.storage_key)
-    except Exception:
+    except Exception as e1:
         # Fallback check: if record backend failed, try alternate storage backend (local vs gridfs)
         try:
             alt_backend = "local" if backend_name == "gridfs" else "gridfs"
             data = get_storage_backend(alt_backend).load(record.resume.storage_key)
-        except Exception:
+        except Exception as e2:
+            import logging
+            logging.error(f"Failed to load resume. e1={e1}, e2={e2}")
             filename = record.resume.original_filename or "resume.pdf"
             raise HTTPException(
                 status_code=404,
