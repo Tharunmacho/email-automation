@@ -442,46 +442,28 @@ class ResumeParser:
                 temp_file.write_bytes(parse_data)
                 log.info("Sending resume to Veris OCR Resume API endpoint: %s", parse_name)
                 try:
-                    from recursai.veris_ocr import VerisOCR
-                    import concurrent.futures
-                    def _do_veris():
-                        kwargs = {
-                            "api_key": settings.veris_ocr_api_key,
-                            "base_url": settings.veris_ocr_base_url,
-                        }
-                        # Ask the client to honour the timeout itself; the socket
-                        # default below only covers connect/read, not the client's
-                        # own retry loop.
-                        try:
-                            client = VerisOCR(timeout=settings.veris_timeout_seconds, **kwargs)
-                        except TypeError:
-                            client = VerisOCR(**kwargs)
-                        with client:
-                            return client.resume.extract(str(temp_file))
+                    from app.extraction.jobs import AsyncOCRJobClient, current_job_context, content_key, OCRJobError
+                    from recursai.veris_ocr.models import ResumeResult
 
-                    import socket
-                    old_timeout = socket.getdefaulttimeout()
-                    res = None
-                    last_veris_exc = None
-                    try:
-                        for attempt in range(1, 3):
-                            try:
-                                socket.setdefaulttimeout(settings.veris_timeout_seconds)
-                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                                    future = executor.submit(_do_veris)
-                                    res = future.result(timeout=settings.veris_timeout_seconds)
-                                    break
-                            except Exception as exc:
-                                last_veris_exc = exc
-                                if attempt < 2:
-                                    log.warning("Veris OCR attempt %d failed (%s); retrying...", attempt, exc)
-                                    import time
-                                    time.sleep(1)
-                    finally:
-                        socket.setdefaulttimeout(old_timeout)
-
-                    if res is None:
-                        raise last_veris_exc or RuntimeError("Veris OCR failed after retries")
+                    ctx = current_job_context()
+                    idempotency_key = ctx.key_for("resume_parse") if ctx else content_key(parse_data)
+                    
+                    with AsyncOCRJobClient() as job_client:
+                        handle, outcome = job_client.run(
+                            parse_data,
+                            parse_name,
+                            mode="resume",
+                            idempotency_key=idempotency_key,
+                            budget_seconds=settings.veris_timeout_seconds
+                        )
+                        
+                        if outcome.timed_out:
+                            raise TimeoutError(f"Veris OCR async job timed out after {settings.veris_timeout_seconds}s")
+                        
+                        if not outcome.succeeded:
+                            raise OCRJobError(f"Veris OCR job failed: {outcome.error}")
+                        
+                        res = ResumeResult.from_dict(outcome.result or {})
 
                     veris_text = resume_text or ""
                     veris_extracted = extracted.model_copy(update={
