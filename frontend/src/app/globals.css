@@ -40,9 +40,27 @@
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
-  --bg-main: #fcfcfd;
+  --bg-main: #eef2f9;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
+
+  /* ---- Glass -----------------------------------------------------------
+     The frosted-panel look. A glass surface is three things at once and all
+     three have to move together or it reads as a flat translucent box: the
+     tint it washes the backdrop with, the blur that makes the backdrop
+     unreadable through it, and the 1px of near-white along its top edge that
+     stands in for light catching a bevel. `--glass-sheen` is that edge. */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.86);
+  --glass-blur: saturate(180%) blur(20px);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+
+  /* The light the glass refracts. Without something coloured behind it a
+     frosted panel is just a grey box, so the page carries two soft blue blooms
+     for the surfaces to pick up. */
+  --page-glow-1: rgba(37, 99, 235, 0.10);
+  --page-glow-2: rgba(56, 189, 248, 0.08);
 
   /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
      data is what made the old shell read as a theme rather than a tool. */
@@ -82,9 +100,15 @@
 
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
-  --radius-xl: 14px;
-  --radius-md: 10px;
-  --radius-sm: 8px;
+  --radius-xl: 22px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  /* The squircle family. Nested corners must shrink inward or the inner
+     control's arc fights the card's: a 22px card holds 14px controls holding
+     10px chips. `--radius-pill` is for anything that should read as fully
+     round at any height. */
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
 
   --secondary: #0891b2;
   --secondary-hover: #0e7490;
@@ -118,9 +142,13 @@
 
   /* Shadow elevation. Micro-shadows only: at this border weight a card needs
      to lift off the page by a hair, not float above it. */
-  --shadow-sm: 0 1px 2px 0 rgba(17, 24, 39, 0.05);
-  --shadow-md: 0 1px 3px 0 rgba(17, 24, 39, 0.06), 0 1px 2px -1px rgba(17, 24, 39, 0.04);
-  --shadow-lg: 0 8px 16px -6px rgba(17, 24, 39, 0.10), 0 2px 6px -2px rgba(17, 24, 39, 0.05);
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 6px 20px -6px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 10px 32px -10px rgba(15, 23, 42, 0.16), 0 4px 12px -4px rgba(15, 23, 42, 0.06);
+  /* What a glass panel casts: wide, soft and low-contrast, so the blur reads as
+     depth rather than as a drop shadow stuck under a flat rectangle. */
+  --shadow-glass: 0 8px 32px -8px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
+  --shadow-float: 0 20px 48px -16px rgba(15, 23, 42, 0.20), 0 6px 16px -6px rgba(15, 23, 42, 0.08);
   --shadow-glow: 0 0 0 4px rgba(var(--primary-rgb), 0.10);
   /* The focus ring — one definition, used by every control in the app. */
   --shadow-primary: 0 1px 2px rgba(17, 24, 39, 0.06);
@@ -150,17 +178,34 @@
   --primary-hover: #60a5fa;
   --primary-deep: #1d4ed8;
 
-  --bg-main: #0b0f19;
-  --bg-card: #111827;
-  --bg-sidebar: #111827;
+  /* The plane is nearly black with only enough blue in it to stop it reading
+     as grey — the reference's near-black, not a navy. Cards sit a few points
+     above it, which is the entire elevation story in dark: there is no shadow
+     dark enough to register against this background, so separation has to come
+     from the surface being lighter than what surrounds it. */
+  --bg-main: #070a11;
+  --bg-card: #10151f;
+  --bg-sidebar: #0c111a;
 
-  --tint-1: #161e2e;
-  --tint-2: #1f2937;
-  --tint-3: #283445;
+  --tint-1: #151b27;
+  --tint-2: #1c2430;
+  --tint-3: #263040;
 
-  --border-main: #1f2937;
-  --border-hover: #374151;
+  --border-main: #1e2632;
+  --border-hover: #2f3a49;
   --glass-border: rgba(255, 255, 255, 0.08);
+
+  /* Dark glass. The tint is lighter than the page, never darker: frosting a
+     dark surface scatters light *up*, so a panel that dims its backdrop looks
+     like a hole rather than a pane. */
+  --glass-bg: rgba(20, 27, 40, 0.72);
+  --glass-bg-strong: rgba(22, 30, 44, 0.88);
+  --glass-blur: saturate(160%) blur(20px);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-edge: rgba(255, 255, 255, 0.09);
+
+  --page-glow-1: rgba(37, 99, 235, 0.20);
+  --page-glow-2: rgba(56, 189, 248, 0.10);
 
   --text-main: #f9fafb;
   --text-muted: #9ca3af;
@@ -187,14 +232,16 @@
   --rose-fill: rgba(225, 29, 72, 0.15);
   --rose-edge: rgba(251, 113, 133, 0.32);
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 1px 3px 0 rgba(0, 0, 0, 0.40);
-  --shadow-lg: 0 8px 20px -8px rgba(0, 0, 0, 0.60);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.40);
+  --shadow-md: 0 2px 10px -2px rgba(0, 0, 0, 0.50);
+  --shadow-lg: 0 12px 32px -12px rgba(0, 0, 0, 0.70);
+  --shadow-glass: 0 8px 32px -8px rgba(0, 0, 0, 0.55), 0 2px 8px -2px rgba(0, 0, 0, 0.40);
+  --shadow-float: 0 24px 56px -20px rgba(0, 0, 0, 0.80), 0 8px 20px -8px rgba(0, 0, 0, 0.50);
 
   /* The same hairline, inverted — a black edge is invisible on a dark surface. */
   --header-hairline: rgba(255, 255, 255, 0.08);
 
-  --dash-surface: #111827;
+  --dash-surface: #10151f;
   --dash-muted: #9ca3af;
   --dash-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --dash-shadow-hover: 0 6px 16px -8px rgba(0, 0, 0, 0.6);
@@ -11164,4 +11211,1791 @@ body {
   .queue-search input {
     width: 100%;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Data Management & User Management                                   */
+/*                                                                      */
+/*  Both screens are tables of rows an admin edits, which is a shape the */
+/*  product did not have before: `alloc-table` looks like one but is a   */
+/*  flex column of CSS-grid rows, built for the allocation matrix's      */
+/*  fixed four columns. These are real <table> elements, because the     */
+/*  column widths here depend on their contents and a job title is not   */
+/*  the same width as a country name.                                   */
+/* ------------------------------------------------------------------ */
+
+.dm-screen,
+.um-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dm-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dm-table th {
+  padding: 0.5rem 0.6rem;
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-label);
+  border-bottom: 1px solid var(--border-blue);
+  white-space: nowrap;
+}
+
+.dm-table td {
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+  vertical-align: top;
+}
+
+.dm-table tbody tr:hover {
+  background: var(--tint-1);
+}
+
+.dm-cell-strong {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dm-cell-muted {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.dm-cell-actions {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* A short status word beside a row: "shown", "hidden", "below the cut". */
+.dm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-1);
+  border: 1px solid var(--border-blue-faint);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dm-pill.is-off {
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dm-question-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 0.75rem;
+}
+
+/*
+  The permission checkboxes.
+
+  Two columns rather than one long list, because the whole point of the screen
+  is seeing what an account reaches at a glance, and a twelve-item column makes
+  that a scroll instead of a look.
+*/
+.um-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.3rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.um-page-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.um-page-row input[disabled] {
+  cursor: not-allowed;
+}
+
+.um-page-row input[disabled] + * {
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   ADIRA — GLASS SHELL
+   ==========================================================================
+   Everything below re-states surfaces the sheet above already defined. It is
+   appended rather than edited in place because the screens were written against
+   those earlier rules and still depend on their box models: this layer changes
+   what a surface is made of — tint, blur, corner, edge — and deliberately
+   touches nothing about where it sits or how big it is.
+   ========================================================================== */
+
+/* --- 1. the plane ---------------------------------------------------------
+   Frosted glass needs something behind it to frost. On a flat fill a blurred
+   panel is indistinguishable from an opaque one, so the page carries two wide,
+   very low-alpha blooms — one at each diagonal — and every surface over them
+   picks up a slightly different wash. They are fixed rather than scrolled: the
+   light source stays put while the content moves past it. */
+.app-shell {
+  background:
+    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+  background-attachment: fixed;
+}
+
+/* --- 2. the rail owns the brand -------------------------------------------
+   The rail now runs the full height of the window and the header starts to its
+   right, so the mark sits above the navigation instead of over in the header
+   band. `top: 0` is the whole change; the header's own offset follows below. */
+.rail {
+  top: 0;
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-right: 1px solid var(--glass-border);
+}
+
+/* The brand row is pinned to the header's height so the hairline under it and
+   the one under the header meet across the shell and read as a single line. */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--app-header-h);
+  padding: 0 14px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--header-hairline);
+  overflow: hidden;
+}
+
+/* A white tile under the mark, in both themes. The logo is a full-colour mark
+   with its own navy and crimson: on a dark rail it would either sit in a white
+   box of its own making or lose its edges entirely, and a deliberate tile is
+   the better-looking of those two. */
+.rail-brand-mark {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm), var(--glass-sheen);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.rail-brand-mark img {
+  width: 24px;
+  height: auto;
+  object-fit: contain;
+}
+
+.rail-brand-name {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed: the word goes, the mark centres and holds the slot alone. */
+.rail.is-collapsed .rail-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.rail.is-collapsed .rail-brand-name {
+  display: none;
+}
+
+/* --- 3. the header starts beside the rail ---------------------------------
+   It used to span the rail as well, because it held the brand. It no longer
+   does, so it begins where the rail ends and moves with it on collapse. */
+.topbar {
+  left: var(--rail-w);
+  right: 0;
+  inset-inline-start: var(--rail-w);
+  width: auto;
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-top: none;
+  border-bottom: 1px solid var(--header-hairline);
+  transition: left 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Takes the space the brand used to hold, so the status controls stay right. */
+.topbar-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The staff workspace has no rail, so the header returns to the full width. */
+.app-shell.is-railless .topbar {
+  left: 0;
+  inset-inline-start: 0;
+}
+
+/* --- 4. glass surfaces -----------------------------------------------------
+   The card families across every screen, given one material. They are listed
+   rather than reached with a wildcard because the same screens also use
+   bordered boxes that must stay flat — a table row, a form field, a chip — and
+   frosting those would turn a dense screen into fog.
+
+   `backdrop-filter` is the expensive property here. It is set once per card and
+   never on anything that repeats per row, which is what keeps a 200-row table
+   scrolling at full rate. */
+.dash-card,
+.dash-chart-card,
+.dash-log-card,
+.db-card,
+.sh-card,
+.mc-card,
+.jod-card,
+.job-order-card,
+.candidate-card,
+.ccard,
+.cedit-card,
+.cprof-card,
+.tl-card,
+.flow-card,
+.glass-card,
+.login-card,
+.metric-tile,
+.stat-tile,
+.ov-kpi,
+.ctable-wrap,
+.notif-panel,
+.modal-container,
+.sh-modal,
+.client-modal-dialog,
+.jod-dd-panel,
+.sourcing-dropdown-menu,
+.eval-drawer,
+.sh-toolbar,
+.jo-toolbar,
+.jo-state {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+}
+
+/* What lifts on hover is the card, not its contents: a translate of one pixel
+   plus a wider shadow reads as the surface rising, where a scale reads as the
+   text growing. Only the families that are actually clickable get it. */
+.sh-card,
+.mc-card,
+.jod-card,
+.job-order-card,
+.candidate-card,
+.ccard,
+.tl-card {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.sh-card:hover,
+.mc-card:hover,
+.jod-card:hover,
+.job-order-card:hover,
+.candidate-card:hover,
+.ccard:hover,
+.tl-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+  border-color: var(--border-hover);
+}
+
+/* Anything that floats free of the page — a dialog, a popover, the drawer —
+   is frosted harder and lifted further, because it has the whole screen behind
+   it rather than a card's worth of background. */
+.modal-container,
+.sh-modal,
+.client-modal-dialog,
+.notif-panel,
+.jod-dd-panel,
+.sourcing-dropdown-menu,
+.eval-drawer {
+  background: var(--glass-bg-strong);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+}
+
+/* The scrim behind a dialog blurs the page rather than only darkening it, which
+   is what makes the dialog read as glass in front of the app instead of a box
+   on a grey wash. */
+.modal-overlay {
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+}
+
+/* --- 5. corner rhythm -----------------------------------------------------
+   Nested corners have to shrink inward or the inner arc cuts the outer one.
+   Cards are --radius-xl above; the controls that sit inside them take the next
+   size down, and anything that reads as a token takes a full round. */
+.db-btn,
+.sh-new-btn,
+.jod-btn,
+.jo-icon-btn,
+.sh-icon-btn,
+.modal-submit-btn,
+.modal-cancel-btn,
+.modal-input,
+.modal-select,
+.modal-textarea,
+.search-input,
+.sh-search-input,
+.login-field,
+.topbar-icon-btn,
+.topbar-sync,
+.cscreen-btn {
+  border-radius: var(--radius-md);
+}
+
+.db-pill,
+.mc-badge,
+.jod-badge,
+.sh-chip,
+.db-chip,
+.tl-badge,
+.job-order-status-chip,
+.ws-pulse {
+  border-radius: var(--radius-pill);
+}
+
+/* --- 6. the rail's own furniture ------------------------------------------ */
+.rail-item {
+  border-radius: var(--radius-md);
+}
+
+/* The active row is a filled tint with the accent carried by the icon and the
+   label, matching the reference: a left-edge bar would be a second marker
+   saying the same thing the fill already says. */
+.rail-item.is-active {
+  background: rgba(var(--primary-rgb), 0.10);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.16);
+}
+
+.rail-account,
+.theme-switch,
+.rail-theme-mini {
+  border-radius: var(--radius-pill);
+}
+
+.rail-account {
+  border-radius: var(--radius-md);
+}
+
+/* --- 7. narrow viewports ---------------------------------------------------
+   Under 900px the rail is off-canvas, so the header has no rail to sit beside
+   and returns to the full width. Without this it would keep a 252px indent
+   against a rail that is not on screen. */
+@media (max-width: 900px) {
+  .topbar {
+    left: 0;
+    inset-inline-start: 0;
+  }
+
+  /* Off-canvas it starts under the header again, so the slide-in does not
+     cover the bar it was opened from. */
+  .rail {
+    top: var(--app-header-h);
+  }
+
+  .rail-brand {
+    display: none;
+  }
+}
+
+/* Respect a reduced-motion preference: the lift and the rail's slide are
+   decoration, and the blur alone carries the look without them. */
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .topbar,
+  .sh-card,
+  .mc-card,
+  .jod-card,
+  .job-order-card,
+  .candidate-card,
+  .ccard,
+  .tl-card {
+    transition: none;
+  }
+
+  .sh-card:hover,
+  .mc-card:hover,
+  .jod-card:hover,
+  .job-order-card:hover,
+  .candidate-card:hover,
+  .ccard:hover,
+  .tl-card:hover {
+    transform: none;
+  }
+}
+
+/* --- 8. the login lockup --------------------------------------------------
+   The mark is full-colour — navy and crimson — so it needs a light tile under
+   it in both themes. It used to sit on the brand gradient, which is the one
+   background its own navy cannot survive: the triangle and the tile were the
+   same colour and the mark read as a red shape on blue. Same white tile as the
+   rail's, one size up. */
+.login-logo {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md), var(--glass-sheen);
+  overflow: hidden;
+}
+
+.login-logo img {
+  width: 30px;
+  height: auto;
+  object-fit: contain;
+}
+
+/* The sign-in page gets the same two blooms as the shell, so the card has
+   something to frost against instead of a flat white field. */
+.login-page {
+  background:
+    radial-gradient(120% 90% at 10% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 5%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+}
+
+.login-card {
+  border-radius: var(--radius-2xl);
+  padding: 2.6rem 2.5rem 2.2rem;
+}
+
+/* ==========================================================================
+   ADIRA — FLOATING RAIL, TREE CONNECTORS, BOXED GRID
+   ==========================================================================
+   The reference does three things this shell was not doing: the rail is a panel
+   floating inside the page rather than a column flush to its edge, the nav rows
+   hang off a spine that descends from their heading, and every region of the
+   page is a discrete rounded box with one consistent gutter between boxes.
+   ========================================================================== */
+
+/* --- 1. the rail floats ---------------------------------------------------
+   Inset on all four sides and rounded, so the page plane runs behind it and the
+   panel reads as sitting *on* the app rather than as the app's left wall.
+   `--rail-gap` is the inset, and the header and workspace are laid out from it
+   as well, so all three move together. */
+.app-shell {
+  --rail-gap: 14px;
+}
+
+.rail {
+  top: var(--rail-gap);
+  bottom: var(--rail-gap);
+  left: var(--rail-gap);
+  height: auto;
+  border-radius: var(--radius-2xl);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  overflow: hidden;
+}
+
+/* The brand row sits inside the panel now, so its hairline stops at the
+   panel's edge instead of running to the window's. */
+.rail-brand {
+  height: 62px;
+  padding: 0 16px;
+}
+
+/* The header and the workspace start clear of the floating panel: the rail's
+   own width plus the gap on each side of it. */
+.topbar {
+  left: calc(var(--rail-w) + var(--rail-gap) * 2);
+  inset-inline-start: calc(var(--rail-w) + var(--rail-gap) * 2);
+  top: var(--rail-gap);
+  right: var(--rail-gap);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  height: 60px;
+}
+
+.app-body {
+  padding-top: calc(60px + var(--rail-gap) * 2);
+}
+
+.workspace {
+  margin-left: calc(var(--rail-w) + var(--rail-gap) * 2);
+  padding-right: var(--rail-gap);
+}
+
+.app-shell.is-railless .topbar {
+  left: var(--rail-gap);
+  inset-inline-start: var(--rail-gap);
+}
+
+/* --- 2. the connector spine -----------------------------------------------
+   A single vertical line down the group, with a short arm reaching out to each
+   row — the tree the reference draws under every heading. The spine is one
+   pseudo-element on the wrapper rather than a top border on each row, so it
+   stays continuous through the gaps between rows.
+
+   It is positioned at 19px: the icon column's centre, so the spine descends
+   from directly under the heading's first letter and the arms meet each row
+   just before its glyph. */
+.rail-group-items {
+  position: relative;
+  padding-left: 18px;
+}
+
+.rail-group-items::before {
+  content: "";
+  position: absolute;
+  left: 19px;
+  /* Starts under the heading and stops at the centre of the last row, so the
+     line does not overshoot into empty space below the group. */
+  top: -2px;
+  bottom: 16px;
+  width: 1px;
+  background: var(--border-blue-strong);
+  opacity: 0.55;
+  border-radius: 1px;
+}
+
+/* The arm out to one row. */
+.rail-group-items .rail-item {
+  position: relative;
+}
+
+.rail-group-items .rail-item::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 50%;
+  width: 10px;
+  height: 1px;
+  background: var(--border-blue-strong);
+  opacity: 0.55;
+  transition: background 0.16s ease, opacity 0.16s ease;
+}
+
+/* The active row lights its own arm, so the eye can follow the spine straight
+   to where it is. */
+.rail-group-items .rail-item.is-active::before,
+.rail-group-items .rail-item:hover::before {
+  background: var(--primary);
+  opacity: 1;
+}
+
+/* --- 3. the heading is a control ------------------------------------------ */
+.rail-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.16s ease;
+}
+
+.rail-group-label:hover:not(:disabled) {
+  color: var(--text-main);
+}
+
+.rail-group-label:disabled {
+  cursor: default;
+}
+
+.rail-group-caret {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Folded: the caret points right, the way every disclosure in the product
+   does. */
+.rail-group.is-shut .rail-group-caret {
+  transform: rotate(-90deg);
+}
+
+/* --- 4. collapsed: no spine, no carets ------------------------------------
+   At 68px the rows are centred icons with nothing to hang off, and a spine
+   through their middles would read as a strike-through. */
+.rail.is-collapsed .rail-group-items {
+  padding-left: 0;
+}
+
+.rail.is-collapsed .rail-group-items::before,
+.rail.is-collapsed .rail-group-items .rail-item::before,
+.rail.is-collapsed .rail-group-caret {
+  display: none;
+}
+
+/* --- 5. the collapse control rides the rail's edge -------------------------
+   Out of the heading row and onto the border, where the reference puts it: one
+   round button straddling the panel's right edge at brand height. It is the
+   same control in both states — a chevron that points the way the rail will
+   move — so there is nothing to find again after collapsing.
+
+   The rail drops `overflow: hidden` for this: the button is deliberately half
+   outside the panel, and clipping it would leave a half-moon on the border. */
+.rail {
+  overflow: visible;
+}
+
+/* The scroller keeps the clipping the panel gave up, so a long list still stops
+   at the rounded corner instead of running past it. */
+.rail-scroll {
+  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
+}
+
+.rail-toggle {
+  position: absolute;
+  top: 24px;
+  right: -14px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+  color: var(--text-muted);
+}
+
+.rail-toggle:hover {
+  background: var(--bg-card);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: scale(1.06);
+}
+
+/* The heading row is the heading's alone again. */
+.rail-group-head {
+  min-height: 0;
+  margin-bottom: 0.2rem;
+}
+
+/* --- 6. connector geometry -------------------------------------------------
+   Tightened against the first pass: the spine starts directly under the
+   heading's first letter and stops on the last row's centre line, and the arms
+   are short enough to read as ticks rather than as rules. */
+.rail-group-items {
+  padding-left: 14px;
+}
+
+.rail-group-items::before {
+  left: 8px;
+  top: 0;
+  bottom: 18px;
+}
+
+.rail-group-items .rail-item::before {
+  left: -6px;
+  width: 6px;
+}
+
+/* Collapsed, the toggle centres on the panel's edge at the same height. */
+.rail.is-collapsed .rail-toggle {
+  right: -14px;
+}
+
+/* --- 7. narrow viewports, restated ----------------------------------------
+   These have to come after the floating-panel rules above rather than in the
+   900px block further up the sheet: same specificity, and the later rule wins.
+   Without this the header keeps `calc(--rail-w + gap*2)` on a phone, and since
+   `--rail-w` is 0 there it lands 28px from the left against 14px on the right —
+   off-centre by exactly one gap. */
+@media (max-width: 900px) {
+  .topbar,
+  .app-shell.is-railless .topbar {
+    left: var(--rail-gap);
+    inset-inline-start: var(--rail-gap);
+    right: var(--rail-gap);
+  }
+
+  .workspace {
+    margin-left: 0;
+  }
+
+  /* The drawer keeps the brand: slid over the content it is the only place the
+     product is named, and it is full height because there is no header beside
+     it to leave room for. */
+  .rail,
+  .rail.is-collapsed {
+    top: var(--rail-gap);
+    bottom: var(--rail-gap);
+    left: var(--rail-gap);
+  }
+
+  .rail-brand {
+    display: flex;
+  }
+
+  /* The edge toggle is a desktop affordance — the drawer is opened from the
+     header's menu button and closed by tapping the backdrop. */
+  .rail-toggle {
+    display: none;
+  }
+
+  .rail-backdrop.is-open {
+    inset: 0;
+  }
+}
+
+/* --- 8. collapsed group dividers ------------------------------------------
+   The heading became a flex button with a word and a caret inside it, and the
+   old collapsed rule squashed that whole flex row to 1px and hid the overflow —
+   which left the word's ascenders showing through as a dashed line rather than
+   drawing a clean rule. The children are taken out of the flow explicitly now,
+   and the divider is the element's own background again. */
+.rail.is-collapsed .rail-group-label {
+  display: block;
+  height: 1px;
+  padding: 0;
+  margin: 0.65rem 0.5rem;
+  background: var(--border-blue);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.rail.is-collapsed .rail-group-word {
+  display: none;
+}
+
+/* The first group opens the list, so it needs no rule above it. */
+.rail.is-collapsed .rail-group:first-child .rail-group-label {
+  display: none;
+}
+
+/* ==========================================================================
+   RAIL CONNECTORS — WEIGHT AND FLOW
+   ==========================================================================
+   The spine and its arms, drawn to be seen, with a pulse running down them.
+
+   The line is two layers: a static rule that is always there at readable
+   contrast, and a travelling highlight over it. Keeping them separate is what
+   lets the tree stay legible when the animation is suppressed — the structure
+   is the static layer's job, and the motion only decorates it.
+   ========================================================================== */
+
+/* --- the static rule, stronger -------------------------------------------- */
+.rail-group-items::before {
+  width: 2px;
+  left: 8px;
+  /* Was a hairline at 55% of a faint grey, which on the frosted panel came out
+     close to invisible. A solid two-pixel rule at full strength is the weight
+     the reference draws it at. */
+  background: var(--border-hover);
+  opacity: 1;
+}
+
+.rail-group-items .rail-item::before {
+  height: 2px;
+  left: -6px;
+  width: 8px;
+  border-radius: 1px;
+  background: var(--border-hover);
+  opacity: 1;
+}
+
+/* The active row owns its whole path: a thicker, accent-coloured arm with a
+   node where it meets the row, so the branch you are on is legible at a glance
+   rather than only on close inspection. */
+.rail-group-items .rail-item.is-active::before {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18),
+    0 0 10px 1px rgba(var(--primary-rgb), 0.55);
+}
+
+.rail-group-items .rail-item:hover::before {
+  background: var(--primary);
+  opacity: 1;
+}
+
+/* --- the pulse ------------------------------------------------------------
+   A repeating gradient the height of one pulse cycle, scrolled down by exactly
+   one cycle per iteration. Because the travel equals the tile, the loop is
+   seamless — there is no jump at the restart, which is what a keyframe that
+   moves a single blob from top to bottom always gives you.
+
+   It rides directly over the static rule at the same width and offset, so the
+   line does not appear to thicken as the pulse passes. */
+.rail-group-items::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 0;
+  bottom: 18px;
+  width: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(var(--primary-rgb), 0) 0px,
+    rgba(var(--primary-rgb), 0.25) 16px,
+    rgba(var(--primary-rgb), 1) 30px,
+    rgba(var(--primary-rgb), 0.25) 44px,
+    rgba(var(--primary-rgb), 0) 60px
+  );
+  background-size: 2px 190px;
+  background-repeat: repeat-y;
+  animation: railFlow 2.8s linear infinite;
+  /* The glow is on the layer that moves, so the rule underneath stays crisp. */
+  filter: drop-shadow(0 0 4px rgba(var(--primary-rgb), 0.85));
+}
+
+@keyframes railFlow {
+  from {
+    background-position: 0 -190px;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Offset per group so the three spines do not pulse in lockstep — in step they
+   read as one bar sweeping the rail, which is a different (and louder) effect
+   than a signal running down each branch. */
+.rail-group:nth-child(2) .rail-group-items::after {
+  animation-delay: -0.9s;
+}
+
+.rail-group:nth-child(3) .rail-group-items::after {
+  animation-delay: -1.8s;
+}
+
+.rail-group:nth-child(4) .rail-group-items::after {
+  animation-delay: -2.4s;
+}
+
+/* Collapsed there is no spine to run down. */
+.rail.is-collapsed .rail-group-items::after {
+  display: none;
+}
+
+/* Motion is the decoration; the rule under it carries the structure. Suppressed
+   here rather than dimmed, so the tree is unchanged and only the pulse stops. */
+@media (prefers-reduced-motion: reduce) {
+  .rail-group-items::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   TOP BAR — PILL ROW
+   ==========================================================================
+   One row of rounded controls at a single weight: the sync action, the clock,
+   the search field, the bell and the account. The reference's bar has no bare
+   glyphs in it — every control sits in a pill or a circle with a hairline —
+   and that is what holds the row together as a set rather than a row of
+   mismatched buttons.
+   ========================================================================== */
+
+.topbar-actions {
+  gap: 0.5rem;
+}
+
+/* The shared pill: hairline, transparent fill, full round. Each control below
+   states only what makes it different from this. */
+.topbar-sync,
+.topbar-clock,
+.topbar-search,
+.topbar-avatar,
+.notif-btn {
+  height: 38px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+/* --- sync ---------------------------------------------------------------- */
+.topbar-sync {
+  gap: 0.45rem;
+  padding: 0 1rem;
+  font-weight: 600;
+  font-size: 0.82rem;
+  /* The one filled control in the row: it is the only thing up here that
+     changes the state of the system rather than reporting it. */
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
+}
+
+.topbar-sync:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
+}
+
+.topbar-sync:disabled {
+  opacity: 0.65;
+  cursor: progress;
+}
+
+/* --- clock --------------------------------------------------------------- */
+.topbar-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  /* Tabular figures, so the minute ticking over does not shift the pill's
+     width and nudge everything to its left. */
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar-clock svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+/* --- search -------------------------------------------------------------- */
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.95rem;
+  width: 280px;
+  max-width: 32vw;
+}
+
+.topbar-search:focus-within {
+  border-color: var(--primary);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-search-icon {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.topbar-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.topbar-search-input::placeholder {
+  color: var(--text-light);
+}
+
+/* The browser's own clear affordance is a grey cross that ignores the theme. */
+.topbar-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* --- bell ---------------------------------------------------------------- */
+.notif-btn {
+  width: 38px;
+  padding: 0;
+  color: var(--text-muted);
+}
+
+.notif-btn:hover {
+  border-color: var(--border-hover);
+  color: var(--text-main);
+}
+
+/* --- account ------------------------------------------------------------- */
+.topbar-account {
+  position: relative;
+}
+
+.topbar-avatar {
+  width: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  background: var(--brand-gradient);
+  border-color: transparent;
+  box-shadow: var(--shadow-sm);
+}
+
+.topbar-avatar:hover {
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.22);
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 200;
+  min-width: 232px;
+  padding: 0.4rem;
+  border-radius: var(--radius-xl);
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-float), var(--glass-sheen);
+  animation: fadeIn 0.14s ease;
+}
+
+.topbar-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.7rem 0.7rem;
+  border-bottom: 1px solid var(--border-blue);
+  margin-bottom: 0.35rem;
+}
+
+.topbar-menu-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.topbar-menu-mail {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.topbar-menu-role {
+  margin-top: 0.3rem;
+  align-self: flex-start;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.topbar-menu-item:hover {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* --- narrow bars ----------------------------------------------------------
+   The row sheds from the least load-bearing end: the clock first, then the
+   search field, then the sync label. The bell and the account always stay. */
+@media (max-width: 1180px) {
+  .topbar-clock {
+    display: none;
+  }
+
+  .topbar-search {
+    width: 200px;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar-search {
+    display: none;
+  }
+
+  .topbar-sync span {
+    display: none;
+  }
+
+  .topbar-sync {
+    width: 38px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+/* `.topbar-account` carried a left hairline and an inset from the bar's earlier
+   staff-only layout, where it separated a name-and-email block from the
+   controls beside it. That block is gone and this class now wraps the avatar
+   button alone, where the rule drew a stray divider between the bell and the
+   account. The old declarations are left in place above rather than deleted —
+   they are the whole of that former design and are worth having to hand — and
+   only the two that do not apply here are cleared. */
+.topbar-account {
+  padding-left: 0;
+  border-left: none;
+}
+
+/* --- the bar loses its card -----------------------------------------------
+   In the reference there is no panel behind the top controls: they sit
+   straight on the page as a row of floating pills. The bar here was a
+   full-width glass card, and since the controls all group to the right it read
+   as a large empty white slab taking up two thirds of the row.
+
+   The bar keeps its geometry and stays fixed — it is only the surface that
+   goes. Nothing is lost to legibility by that: every control in the row is an
+   opaque pill in its own right, so content scrolling underneath shows only in
+   the gaps between them, which is what makes them read as floating. */
+.topbar {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  /* Clicks fall through the empty stretch to whatever is under it; the
+     controls take their own back. */
+  pointer-events: none;
+}
+
+.topbar > * {
+  pointer-events: auto;
+}
+
+/* The row hung off the bottom of a 60px band. With the band gone it needs its
+   own vertical rhythm against the workspace below. */
+.app-body {
+  padding-top: calc(58px + var(--rail-gap) * 2);
+}
+
+/* --- what the slab was actually for ---------------------------------------
+   Taking the panel away left the bar transparent over a page that scrolls
+   under it: table rows ran between the pills and collided with the search
+   field. The card was doing real work, and only its *appearance* was the
+   problem.
+
+   So the work is kept and the appearance is not. A layer behind the row
+   diffuses whatever passes under it and is masked to nothing at its lower
+   edge, which is what stops it reading as a band: there is no bottom border to
+   see, just content becoming progressively less legible until it is gone.
+   Blur rather than a fill in `--bg-main`, because the page carries two colour
+   blooms and a flat scrim would stamp a rectangle of the wrong colour over the
+   corner where the first one sits. */
+.topbar::before {
+  content: "";
+  position: absolute;
+  /* Out to the window edges, past the bar's own inset, so nothing shows in the
+     margin beside it. */
+  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -22px;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
+}
+
+/* Masking a `backdrop-filter` does not survive in Chrome — the mask applies to
+   the element's own paint and the filtered backdrop is dropped, so the layer
+   above came out doing nothing at all. Replaced with something that does not
+   depend on that interaction.
+
+   The trick is `background-attachment: fixed`. `.app-shell` paints its two
+   blooms that way, which positions them against the viewport rather than the
+   element; repeating the identical stack here, also fixed, produces a strip
+   that is pixel-for-pixel the page behind it, wherever it happens to sit. So
+   the scrim cannot be seen as a rectangle of not-quite-the-right-colour — it
+   *is* the background — and the mask fades it to nothing at the bottom edge.
+   Content scrolling under simply dissolves into the page. */
+.topbar::before {
+  content: "";
+  position: absolute;
+  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -26px;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background:
+    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
+    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
+    var(--bg-main);
+  background-attachment: fixed;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+}
+
+/* --- the rail's toggle was being painted over ------------------------------
+   Two things were burying the right half of the collapse button.
+
+   The scrim behind the top bar was inset -14px on its left, reaching one gap
+   further left than the bar itself — which is precisely the gutter the toggle
+   straddles. It never needed to: the workspace starts at `rail-w + gap*2`, the
+   same place the bar does, so there is no content in that gutter to cover and
+   the overhang was only ever covering the rail.
+
+   And the bar carries `z-index: 120` against the rail's 110, so everything in
+   the bar's stacking context — the scrim included, negative z-index and all —
+   paints above the whole rail. The rail is a panel floating over the page and
+   its own controls belong on top of the chrome beside it, so it goes up. */
+.topbar::before {
+  left: 0;
+}
+
+.rail {
+  z-index: 130;
+}
+
+/* ==========================================================================
+   MY CANDIDATES — THREE BOXES
+   ==========================================================================
+   The screen was four stat tiles in a row, a loose performance banner and a
+   queue card: seven bordered objects reporting on one queue. It is three now —
+   the queue in one number with its breakdown as columns inside, the split as a
+   chart, and the queue itself.
+   ========================================================================== */
+
+.sq-summary,
+.sq-chart,
+.sq-recent {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass), var(--glass-sheen);
+  padding: 1.25rem 1.4rem 1.35rem;
+}
+
+/* --- box 1: summary -------------------------------------------------------- */
+.sq-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sq-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 100%;
+  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
+  transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.sq-next span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sq-next:hover:not(:disabled) {
+  background: var(--primary-hover);
+  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
+}
+
+.sq-next:disabled {
+  background: var(--tint-2);
+  border-color: var(--border-blue);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: default;
+}
+
+.sq-headline {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin: 1.1rem 0 0.2rem;
+}
+
+.sq-headline-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 2.9rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+}
+
+.sq-headline-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.sq-headline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+/* The four readings, as columns of one box rather than four boxes. The rule
+   between them is a border on the item, not a separator element, so the row
+   reflows to two-up and then one-up without leaving orphaned rules behind. */
+.sq-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 1.15rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+.sq-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0 1.1rem;
+  border-left: 1px solid var(--border-blue);
+  min-width: 0;
+}
+
+.sq-metric:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+
+.sq-metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sq-metric-label svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.sq-metric-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-main);
+}
+
+.sq-metric-value.is-alert {
+  color: var(--error);
+}
+
+.sq-metric-note {
+  font-style: normal;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--text-light);
+}
+
+/* --- the two-up row -------------------------------------------------------- */
+.sq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* --- box 2: the rings ------------------------------------------------------ */
+.sq-chart-total {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.9rem;
+}
+
+.sq-chart-total-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sq-chart-total-value {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+}
+
+.sq-chart-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+}
+
+.sq-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.sq-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.sq-legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sq-legend-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sq-legend-value {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.sq-rings {
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+}
+
+/* Every arc starts at the top and grows clockwise, which is the only reading
+   order a ring has. Rotating the element rather than each arc keeps the four
+   in register. */
+.sq-rings circle {
+  fill: none;
+  stroke-width: 11;
+  transform: rotate(-90deg);
+  transform-origin: 90px 90px;
+}
+
+.sq-ring-track {
+  stroke: var(--tint-2);
+}
+
+.sq-ring-arc {
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* --- box 3: recent --------------------------------------------------------- */
+.sq-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: none;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.sq-detail:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+  border-color: var(--primary);
+}
+
+.sq-recent-list {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sq-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.7rem 0.55rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.sq-recent-row:hover {
+  background: var(--tint-1);
+}
+
+.sq-recent-list li + li .sq-recent-row {
+  border-top: 1px solid var(--border-blue-faint);
+  border-radius: 0;
+}
+
+.sq-recent-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.sq-recent-identity strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sq-recent-identity em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sq-recent-when {
+  font-size: 0.72rem;
+  color: var(--text-light);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The four badges the list uses. `reviewed` and `risk` are new names for this
+   screen; the pill's other states are already defined further up. */
+.db-pill.is-reviewed {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.db-pill.is-risk {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.db-pill.is-unviewed {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary);
+}
+
+/* --- reflow ---------------------------------------------------------------- */
+@media (max-width: 1180px) {
+  .sq-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .sq-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1.1rem;
+  }
+
+  /* On two columns the third item starts a new row, so it is the one that must
+     lose its rule — not the first. */
+  .sq-metric:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .sq-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sq-metric {
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .sq-chart-body {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
+}
+
+/* --- staff & allocation: what it needs beyond the candidate screen ---------
+   The three boxes are the same objects as My Candidates and reuse its classes
+   outright. Only two things differ: this screen has three actions in the head
+   rather than one, and its roster rows carry a percentage rather than a
+   status badge. */
+
+.sq-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* The two secondary actions beside the primary. Same height and radius as
+   `.sq-next`, hairline instead of fill — they are things you occasionally run,
+   not the thing you came here to do. */
+.sq-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 40px;
+  padding: 0 0.95rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-blue);
+  background: var(--tint-1);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.sq-action:hover:not(:disabled) {
+  background: var(--tint-2);
+  border-color: var(--border-hover);
+  color: var(--text-main);
+}
+
+.sq-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* A roster row is a reading, not a link: unlike a candidate row there is
+   nothing behind it to open, so it drops the pointer and the hover fill that
+   would promise one. */
+.sq-recent-row.is-static {
+  cursor: default;
+}
+
+.sq-recent-row.is-static:hover {
+  background: none;
+}
+
+.sq-staff-pct {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
+}
+
+/* The orphan warning now sits inside the summary box rather than loose between
+   two cards, so it takes its margin from the metrics above it. */
+.sq-summary .staff-note {
+  margin-top: 1.15rem;
+  margin-bottom: 0;
+}
+
+/* The three sections folded into the roster box keep their own headings and
+   spacing but give up their surface: a card inside a card draws two borders
+   and two shadows around one piece of content, which is the box-in-a-box the
+   three-box layout exists to get rid of. A rule between them carries the
+   separation the borders were carrying. */
+.sq-recent .db-card {
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1.35rem 0 0;
+  margin-top: 1.35rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+/* The first of them follows the box's own header, which already rules off. */
+.sq-recent .db-card:first-of-type {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+/* The balance chip turns amber when the roster is uneven — the same slot
+   carrying good news and bad has to look different in each, or a glance reads
+   "Uneven load" as another neutral statistic. */
+.sq-headline-chip.is-warn {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+/* The "+N more" row stands for the reviewers past the four the chart draws, so
+   it is quieter than the named rows above it. */
+.sq-legend-row.is-rest .sq-legend-label,
+.sq-legend-row.is-rest .sq-legend-value {
+  color: var(--text-light);
 }

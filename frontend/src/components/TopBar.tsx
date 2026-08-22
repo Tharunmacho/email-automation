@@ -1,15 +1,16 @@
 "use client";
 
-import { Menu, RefreshCw, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarDays, LogOut, Menu, RefreshCw, Search } from "lucide-react";
 
 import NotificationBell from "@/components/NotificationBell";
+import { initialsOf } from "@/lib/format";
+import { useIsMounted } from "@/lib/useIsMounted";
 import type { AuthUser } from "@/lib/api";
 
 interface TopBarProps {
   user: AuthUser;
   syncing: boolean;
-  /** State of the push connection, shown as a pulse beside the sync control. */
-  realtime?: "connecting" | "live" | "offline";
   /** Bumped on every realtime event, so the bell re-reads its feed at once. */
   realtimeNonce?: number;
   onOpenCandidate?: (candidateId: string) => void;
@@ -17,90 +18,164 @@ interface TopBarProps {
   hasRail?: boolean;
   onSync: () => void;
   onToggleRail: () => void;
+  /** Runs a search from the bar: opens the candidate pool on the term. */
+  onSearch?: (term: string) => void;
+  onSignOut: () => void;
+}
+
+/** "12:37 PM, Wed" — the reference's format, in the viewer's own locale. */
+function stamp(now: Date): string {
+  const time = now.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const day = now.toLocaleDateString(undefined, { weekday: "short" });
+  return `${time}, ${day}`;
 }
 
 /**
- * The bar across the very top of the product.
+ * The bar across the top of the workspace.
  *
- * Brand on the left, status on the right, nothing in between. What is *not*
- * here is most of the design:
+ * One row of pills: the sync action, the clock, the search field, the bell and
+ * the account. Everything is a rounded control on the bar rather than a bare
+ * icon, so the row reads as a set of objects at one weight instead of a mix of
+ * buttons and glyphs.
  *
- *   * **No account avatar and no sign-out.** Both live on the rail's account
- *     card, next to the name they apply to. Two ways to leave a session is one
- *     more than anybody needs, and the initials button did nothing the rail
- *     card was not already doing.
- *   * **No activity-log shortcut.** Activity Logs is a rail destination like
- *     every other screen; a second entrance in the chrome made it look like a
- *     mode rather than a place.
- *   * **No global search.** Every screen it could have reached already searches
- *     the records it holds, and the field was the widest object up here.
- *
- * What remains is the state of the system rather than a set of controls: is
- * push connected, is anything waiting for you, and — for an admin — is a sync
- * running. A staff member sees exactly the first two, which is the entire bar
- * for the review workspace.
+ * What is *not* here: the brand, which lives at the head of the rail; and the
+ * live-socket pulse, which was a badge reporting a state that is only worth
+ * interrupting for when it is bad.
  */
 export default function TopBar({
   user,
   syncing,
-  realtime = "offline",
   realtimeNonce = 0,
   hasRail = true,
   onOpenCandidate,
   onSync,
   onToggleRail,
+  onSearch,
+  onSignOut,
 }: TopBarProps) {
+  const mounted = useIsMounted();
+  const [now, setNow] = useState(() => new Date());
+  const [term, setTerm] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Ticks on the minute boundary rather than every 60s from mount, so the
+  // displayed minute changes when the clock does and not up to 59s late.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      const ms = 60000 - (Date.now() % 60000);
+      timer = setTimeout(() => {
+        setNow(new Date());
+        schedule();
+      }, ms);
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Close the account menu on an outside click or on Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    onSearch?.(term.trim());
+  };
+
   return (
     <header className="topbar">
       {hasRail && (
-        <button className="topbar-icon-btn topbar-menu-btn" onClick={onToggleRail} aria-label="Open navigation">
+        <button
+          className="topbar-icon-btn topbar-menu-btn"
+          onClick={onToggleRail}
+          aria-label="Open navigation"
+        >
           <Menu size={20} />
         </button>
       )}
 
-      {/* Mark and name, one flex row, centred on each other — see `.topbar-brand`
-          for why the line-height is part of that and not decoration. */}
-      <div className="topbar-brand">
-        <span className="topbar-logo" aria-hidden="true">
-          <Sparkles size={20} strokeWidth={2.1} />
-        </span>
-        <span className="topbar-title">TalentFlow AI</span>
-      </div>
+      <div className="topbar-spacer" />
 
       <div className="topbar-actions">
-        {/* The dot reports the real socket state. A badge that always reads
-            "live" would be worse than none — the one thing it has to be able
-            to say is that push has stopped working. */}
-        <span
-          className={`ws-pulse is-${realtime}`}
-          title={
-            realtime === "live"
-              ? "Live updates connected"
-              : realtime === "connecting"
-                ? "Connecting to live updates…"
-                : "Live updates offline — reconnecting"
-          }
-        >
-          <span className="ws-pulse-dot" aria-hidden="true" />
-          <span className="ws-pulse-label">
-            {realtime === "live" ? "Live" : realtime === "connecting" ? "…" : "Offline"}
-          </span>
-        </span>
-
-        {/* Both roles get the bell: being told what has been allocated to you
-            is the staff member's half of the feature, and the reason it exists
-            at all. What is *in* the feed is already scoped server-side. */}
-        <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
-
         {/* Ingestion is the admin's. Offering it to a staff member would be
-            offering them a 403, and the review workspace is deliberately down
-            to the pulse and the bell. */}
+            offering them a 403. */}
         {user.role === "admin" && (
           <button type="button" className="topbar-sync" onClick={onSync} disabled={syncing}>
             <RefreshCw size={15} className={syncing ? "icon-spin" : undefined} />
             <span>{syncing ? "Syncing…" : "Sync Gmail"}</span>
           </button>
         )}
+
+        {/* Held back until mounted: the server prerenders this page once, at
+            build time, in whatever timezone the build ran in. Rendering a clock
+            there would ship a wrong time baked into the HTML and then hydrate
+            over it. */}
+        <div className="topbar-clock" suppressHydrationWarning>
+          <CalendarDays size={15} />
+          <span>{mounted ? stamp(now) : "—"}</span>
+        </div>
+
+        <form className="topbar-search" onSubmit={submit} role="search">
+          <Search size={15} className="topbar-search-icon" />
+          <input
+            type="search"
+            className="topbar-search-input"
+            placeholder="Search candidates by name, role, skill…"
+            value={term}
+            onChange={(event) => setTerm(event.target.value)}
+            aria-label="Search candidates"
+          />
+        </form>
+
+        <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
+
+        {/* The account. The rail carries the same identity, but the rail is
+            collapsible and absent for a staff reviewer, so the bar keeps a copy
+            that is always reachable. */}
+        <div className="topbar-account" ref={menuRef}>
+          <button
+            type="button"
+            className="topbar-avatar"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            title={user.email}
+          >
+            {initialsOf(user.name || user.email)}
+          </button>
+
+          {menuOpen && (
+            <div className="topbar-menu" role="menu">
+              <div className="topbar-menu-head">
+                <span className="topbar-menu-name">{user.name || "Account"}</span>
+                <span className="topbar-menu-mail">{user.email}</span>
+                <span className="topbar-menu-role">
+                  {user.role === "admin" ? "Super Admin" : "Staff"}
+                </span>
+              </div>
+              <button type="button" className="topbar-menu-item" onClick={onSignOut} role="menuitem">
+                <LogOut size={14} /> Sign out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

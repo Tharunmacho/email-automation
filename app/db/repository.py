@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from pymongo.errors import DuplicateKeyError
 
-from app.core.models import CandidateProfile, CandidateRecord
+from app.core.models import CandidateProfile, CandidateRecord, StoredResume
 from app.db.mongo import get_candidates_collection
 from app.logging_config import get_logger
 
@@ -163,8 +163,22 @@ class CandidateRepository:
         doc = self._coll.find_one({"source_email.message_id": message_id})
         return CandidateRecord.from_mongo(doc) if doc else None
 
-    def find_by_resume_hash(self, resume_hash: str) -> Optional[CandidateRecord]:
+    def find_by_resume_hash(self, resume_hash: Optional[str]) -> Optional[CandidateRecord]:
+        # A falsy hash finds nothing rather than everything. CV-less candidates
+        # store no `resume_hash` at all, and `{"resume_hash": None}` in MongoDB
+        # matches every document where the field is missing — so without this
+        # guard, looking up "the candidate with no résumé hash" would return an
+        # arbitrary CV-less stranger.
+        if not resume_hash:
+            return None
         doc = self._coll.find_one({"resume_hash": resume_hash})
+        return CandidateRecord.from_mongo(doc) if doc else None
+
+    def find_by_idempotency_key(self, key: Optional[str]) -> Optional[CandidateRecord]:
+        """The candidate a previous call with this key created, if any."""
+        if not key:
+            return None
+        doc = self._coll.find_one({"idempotency_key": key})
         return CandidateRecord.from_mongo(doc) if doc else None
 
     def find_by_email_or_phone(
@@ -185,7 +199,17 @@ class CandidateRepository:
         try:
             self._coll.insert_one(record.to_mongo())
         except DuplicateKeyError:
-            # Lost a race on resume_hash uniqueness — treat as duplicate.
+            # Lost a race on a unique index. Two of them can fire here now, so
+            # both are resolved rather than assuming which one it was: the
+            # idempotency key (two concurrent retries of the same WhatsApp
+            # submission) and the résumé hash (the same file ingested twice).
+            #
+            # The key is checked first because it is the more specific claim —
+            # it identifies this exact submission, where a matching hash only
+            # says some candidate already has this file.
+            existing = self.find_by_idempotency_key(record.idempotency_key)
+            if existing:
+                return existing.id
             existing = self.find_by_resume_hash(record.resume_hash)
             if existing:
                 return existing.id
@@ -248,6 +272,110 @@ class CandidateRepository:
             {"_id": candidate_id},
             {"$set": update_dict},
         )
+
+    #: Profile fields a re-registration is allowed to refresh.
+    #
+    #: An allow-list, not a deny-list, and that direction is the whole point.
+    #: Adding a field to `CandidateProfile` must not silently make it writable
+    #: by anyone who re-runs the bot's flow — a new field is not refreshable
+    #: until somebody decides it is and puts it here.
+    WHATSAPP_REFRESHABLE_FIELDS = (
+        "full_name",
+        "phone",
+        "phone_e164",
+        "location",
+        "city",
+        "country",
+        "destination_country",
+        "job_preference",
+        "job_category",
+        "trade_skills",
+        "skills",
+        "languages",
+        "education",
+        "total_experience_band",
+        "total_experience_years",
+        "passport_number",
+        "passport_expiry",
+    )
+
+    def refresh_whatsapp_profile(self, candidate_id: str, profile: CandidateProfile) -> None:
+        """Update the facts a candidate can restate, and nothing else.
+
+        Someone who walks through the bot a second time — because they changed
+        their mind about a destination, or simply started over — is telling us
+        about *themselves*. They are not telling us anything about how the
+        agency has assessed them.
+
+        So this writes profile fields and stops. `evaluation_status`,
+        `evaluation_score`, `evaluation_notes`, `assigned_staff_id`,
+        `viewed_at`: none of them appear below, and none of them can be reached
+        from here. That is deliberate and it is the most important property of
+        this method. A recruiter who spent twenty minutes assessing someone and
+        marked them `rejected` must not find them back in the queue as `pending`
+        because the candidate reopened WhatsApp — and an SLA clock must not
+        restart on a profile that was reviewed last week.
+
+        Only fields with a real value are written. A second registration that
+        skipped a question must not blank the answer the first one captured.
+        """
+        from app.core.models import utcnow
+        from app.db.dedup import normalize_email, normalize_phone
+
+        incoming = profile.model_dump(mode="python")
+        updates: dict = {}
+
+        for field in self.WHATSAPP_REFRESHABLE_FIELDS:
+            value = incoming.get(field)
+            if value in (None, "", [], {}):
+                continue
+            updates[f"profile.{field}"] = value
+
+        if not updates:
+            return
+
+        # The dedup keys are derived, so they follow whatever the phone became.
+        if profile.phone:
+            updates["phone_key"] = normalize_phone(profile.phone)
+        if profile.email:
+            updates["email_key"] = normalize_email(profile.email)
+
+        updates["updated_at"] = utcnow()
+        self._coll.update_one({"_id": candidate_id}, {"$set": updates})
+        log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
+
+    def attach_resume(self, candidate_id: str, resume: "StoredResume") -> bool:
+        """Hang a stored résumé on a candidate that already exists.
+
+        Used when the file arrives after the person does — an exempt candidate
+        who sent a CV anyway, or one who sends it later. `resume_hash` is set
+        from the same digest, because that field is what the unique index reads
+        and a résumé recorded without one is a résumé the duplicate check cannot
+        see.
+
+        A `DuplicateKeyError` here means this exact file is already on another
+        candidate. It is raised rather than swallowed: silently leaving the
+        record without the résumé it was just given is the kind of quiet failure
+        that gets discovered months later, and the caller can say something
+        useful about it.
+
+        Returns False when the candidate does not exist.
+        """
+        from app.core.models import utcnow
+
+        result = self._coll.update_one(
+            {"_id": candidate_id},
+            {
+                "$set": {
+                    "resume": resume.model_dump(mode="python"),
+                    "resume_hash": resume.sha256,
+                    "updated_at": utcnow(),
+                }
+            },
+        )
+        if result.matched_count:
+            log.info("Attached resume %s to candidate %s", resume.storage_key, candidate_id)
+        return bool(result.matched_count)
 
     def mark_auto_reply_sent(self, candidate_id: str) -> None:
         from app.core.models import utcnow

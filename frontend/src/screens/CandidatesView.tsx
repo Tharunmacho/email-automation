@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Search,
   UsersRound,
@@ -23,6 +23,9 @@ export type TalentFilter = "all" | "verified" | "pending";
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
+  /** A term handed down from the top bar's search. Seeds this screen's own
+   *  field, which then owns it — typing here must not be fought by the bar. */
+  seedQuery?: string;
   /** How many activity entries each candidate has, keyed by id. */
   logCounts: Record<string, number>;
   onOpenCandidate: (candidate: CandidateRecord) => void;
@@ -263,12 +266,20 @@ const ALIGN: Record<string, string> = Object.fromEntries(
 export default function CandidatesView({
   candidates: allCandidates,
   logCounts,
+  seedQuery = "",
   onOpenCandidate,
   onEditCandidate,
   onOpenLogs,
   onDeleteCandidate,
 }: CandidatesViewProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(seedQuery);
+
+  // Adopt a new term from the bar. Keyed on `seedQuery` alone, so a search run
+  // from the bar replaces what is in the field while anything typed into the
+  // field afterwards stands.
+  useEffect(() => {
+    setQuery(seedQuery);
+  }, [seedQuery]);
   const [filter, setFilter] = useState<TalentFilter>("all");
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);

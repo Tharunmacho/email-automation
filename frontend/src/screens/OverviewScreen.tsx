@@ -96,13 +96,6 @@ export default function OverviewScreen({
       onClick: () => onNavigate("job-orders"),
     },
     {
-      id: "parser",
-      icon: FileText,
-      title: "Resume Parser",
-      subtitle: "Confidence breakdown and the fields the engine extracts.",
-      onClick: () => onNavigate("resume-parser"),
-    },
-    {
       id: "engine",
       icon: Cpu,
       title: "AI Engine",

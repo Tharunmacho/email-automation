@@ -97,3 +97,28 @@ def read_token(token: str, secret: str) -> Optional[str]:
         return None
     subject = payload.get("sub")
     return subject if isinstance(subject, str) and subject else None
+
+
+# --------------------------------------------------------------------------- #
+#  Service-to-service keys
+# --------------------------------------------------------------------------- #
+def verify_service_key(presented: Optional[str], expected: Optional[str]) -> bool:
+    """Whether a caller's `X-Service-Key` matches the configured one.
+
+    Separate from the session tokens above, and deliberately so. A session token
+    identifies a person, comes from a login form and expires in hours; a service
+    key identifies another system, is issued once and lives until it is rotated.
+    Collapsing the two would mean a leaked recruiter session could create
+    candidates, and rotating the bot's credential would sign every recruiter out.
+
+    An unset `expected` returns False. A blank configuration is a closed door,
+    not an open one — a deployment that forgot to set the key must fail every
+    request rather than accept an empty header and serve an unauthenticated
+    write endpoint.
+
+    `compare_digest` throughout: a plain `==` on a secret leaks its length and
+    its matching prefix through timing, and this value is a bearer credential.
+    """
+    if not expected or not presented:
+        return False
+    return hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))

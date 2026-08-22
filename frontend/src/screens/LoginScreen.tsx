@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import {
   AlertCircle,
   Eye,
@@ -9,7 +10,6 @@ import {
   Lock,
   Mail,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 
 import { fetchDemoAccounts, login, type AuthUser, type DemoAccount } from "@/lib/api";
@@ -116,10 +116,10 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           <header className="login-head">
             <div className="login-brand">
               <span className="login-logo">
-                <Sparkles size={20} strokeWidth={2.3} />
+                <Image src="/adira-logo@4x.png" alt="" width={224} height={200} preload />
               </span>
               <span className="login-brandline">
-                <span className="login-brandname">TalentFlow AI</span>
+                <span className="login-brandname">Adira</span>
                 <span className="login-brandsub">Candidate sourcing workspace</span>
               </span>
             </div>

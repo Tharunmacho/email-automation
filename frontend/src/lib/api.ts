@@ -632,6 +632,183 @@ export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> 
 
 
 
+// ---- Data Management: job designations, countries, job questions ---------- //
+//
+// The jobs the agency recruits for and the countries it sends people to, as
+// rows an admin edits. Two consumers read them: the CV policy, which resolves
+// `destination_country + job_id` against the rules stored on a job, and the
+// WhatsApp bot, which draws its questions from the same table. Adding a job
+// here is what puts it in front of candidates.
+
+export interface JobDesignation {
+  /** Stable, derived from the title once, and never changed afterwards — the
+   *  CV rules and every candidate on file point at it. */
+  id: string;
+  title: string;
+  active: boolean;
+  /** Whether the bot offers it. WhatsApp shows nine plus "Other". */
+  bot_visible: boolean;
+  bot_order: number;
+  /** The rule when no country says otherwise. */
+  cv_required_default: boolean;
+  /** `{ malaysia: false }` — the exceptions, keyed on the lowercased country. */
+  cv_overrides: Record<string, boolean>;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string | null;
+}
+
+export interface CountryRow {
+  id: string;
+  name: string;
+  active: boolean;
+  bot_visible: boolean;
+  bot_order: number;
+}
+
+export interface JobQuestion {
+  id: string;
+  job_id: string;
+  text: string;
+  kind: "text" | "choice";
+  choices: string[];
+  required: boolean;
+  order: number;
+  active: boolean;
+}
+
+/** One row of "what does this job actually resolve to, per destination". */
+export interface CvMatrixRow {
+  country: string;
+  cv_required: boolean;
+  /** Which rule answered — the override, or the job's default. */
+  reason: string;
+  is_override: boolean;
+}
+
+export function listJobDesignationsAPI(): Promise<{ items: JobDesignation[] }> {
+  return request<{ items: JobDesignation[] }>("/job-designations");
+}
+
+export function saveJobDesignationAPI(
+  job: Partial<JobDesignation> & { title: string },
+): Promise<{ status: string; item: JobDesignation }> {
+  return request<{ status: string; item: JobDesignation }>("/job-designations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(job),
+  });
+}
+
+export function retireJobDesignationAPI(jobId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/job-designations/${jobId}`, { method: "DELETE" });
+}
+
+export function jobCvMatrixAPI(
+  jobId: string,
+): Promise<{ job: JobDesignation; matrix: CvMatrixRow[] }> {
+  return request<{ job: JobDesignation; matrix: CvMatrixRow[] }>(
+    `/job-designations/${jobId}/cv-matrix`,
+  );
+}
+
+export function listCountriesAPI(): Promise<{ items: CountryRow[] }> {
+  return request<{ items: CountryRow[] }>("/countries");
+}
+
+export function saveCountryAPI(
+  country: Partial<CountryRow> & { name: string },
+): Promise<{ status: string; item: CountryRow }> {
+  return request<{ status: string; item: CountryRow }>("/countries", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(country),
+  });
+}
+
+export function retireCountryAPI(countryId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/countries/${countryId}`, { method: "DELETE" });
+}
+
+export function listJobQuestionsAPI(jobId?: string): Promise<{ items: JobQuestion[] }> {
+  const query = jobId ? `?job_id=${encodeURIComponent(jobId)}` : "";
+  return request<{ items: JobQuestion[] }>(`/job-questions${query}`);
+}
+
+export function saveJobQuestionAPI(
+  question: Partial<JobQuestion> & { job_id: string; text: string },
+): Promise<{ status: string; item: JobQuestion }> {
+  return request<{ status: string; item: JobQuestion }>("/job-questions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(question),
+  });
+}
+
+export function deleteJobQuestionAPI(questionId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/job-questions/${questionId}`, { method: "DELETE" });
+}
+
+// ---- User management ------------------------------------------------------ //
+//
+// Accounts, and which pages each one reaches. Permissions add and never
+// subtract: a grant puts a page on someone's rail and does not widen what they
+// may see once they are on it — a staff member with the Candidates page still
+// sees only the candidates allocated to them, because that restriction lives in
+// the API's own scoping rather than in the menu.
+
+export interface ManagedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  keywords: string[];
+  created_at: string | null;
+  /** The extra pages an admin ticked. */
+  page_grants: string[];
+  /** What the rail actually shows: the role's floor plus the grants. */
+  pages: string[];
+}
+
+export function listUsersAPI(): Promise<{ items: ManagedUser[]; pages: string[] }> {
+  return request<{ items: ManagedUser[]; pages: string[] }>("/users");
+}
+
+export function createUserAPI(payload: {
+  email: string;
+  password: string;
+  name?: string;
+  role?: string;
+  page_grants?: string[];
+  keywords?: string[];
+}): Promise<{ status: string; user: ManagedUser }> {
+  return request<{ status: string; user: ManagedUser }>("/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateUserAPI(
+  userId: string,
+  patch: {
+    name?: string;
+    role?: string;
+    active?: boolean;
+    password?: string;
+    page_grants?: string[];
+    keywords?: string[];
+  },
+): Promise<{ status: string; user: ManagedUser }> {
+  return request<{ status: string; user: ManagedUser }>(`/users/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
+
 /** Card/badge theme derived from status + parser confidence. */
 export function candidateTheme(candidate: CandidateRecord): {
   cardClass: string;

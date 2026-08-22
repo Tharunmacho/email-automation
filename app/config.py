@@ -128,6 +128,28 @@ class Settings(BaseSettings):
     sla_threshold_hours: int = 24
     auto_assign_enabled: bool = True
 
+    # ---- WhatsApp bot integration ----
+    # The recruitment bot's credential for POST /candidates and
+    # GET /policy/cv-required, presented as `X-Service-Key`.
+    #
+    # Deliberately not `auth_secret` above. That one signs a session token which
+    # identifies a person and expires in hours; this identifies another system
+    # and lives until it is rotated. Sharing one would mean a leaked recruiter
+    # session could inject candidates, and rotating the bot's credential would
+    # sign every recruiter out.
+    #
+    # The empty default is a closed door, not an open one: `verify_service_key`
+    # returns False for an unset expectation, so a deployment that forgot to set
+    # this rejects every request rather than serving an unauthenticated write
+    # endpoint to the internet.
+    whatsapp_service_key: str = ""
+
+    # Path to the CV policy table (JSON). Empty uses the built-in rules in
+    # `app/policy/cv_policy.py`, which are a starting point rather than the
+    # agency's real ones — pointing this at a file is how the table changes
+    # without a release.
+    cv_policy_path: str = ""
+
     # ---- MongoDB ----
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "resume_ats"

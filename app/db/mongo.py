@@ -103,6 +103,27 @@ def ensure_indexes() -> None:
     ensure_index(coll, [("phone_key", ASCENDING)], "phone_key_idx", sparse=True)
     # Idempotency: don't reprocess the same Gmail message.
     ensure_index(coll, [("source_email.message_id", ASCENDING)], "source_msg_idx")
+    # Idempotency for API submissions, and the only thing that actually makes
+    # them idempotent.
+    #
+    # The intake service looks the key up before inserting, but a lookup cannot
+    # win the race it exists for: two retries of the same WhatsApp submission
+    # arriving together both read an empty collection and both insert. The
+    # unique index is what turns the second insert into a DuplicateKeyError,
+    # which `CandidateRepository.insert` catches and resolves by returning the
+    # candidate the winner created. Without this index that path is unreachable
+    # and concurrent retries quietly create two people.
+    #
+    # Sparse because email candidates carry no key: they are deduplicated by
+    # message id and résumé hash, and a unique index over a field they all lack
+    # would let exactly one of them exist.
+    ensure_index(
+        coll,
+        [("idempotency_key", ASCENDING)],
+        "idempotency_key_unique",
+        unique=True,
+        sparse=True,
+    )
     # Common future query paths (search/filter extension).
     ensure_index(coll, [("profile.skills", ASCENDING)], "skills_idx")
     ensure_index(coll, [("created_at", ASCENDING)], "created_at_idx")
@@ -127,11 +148,18 @@ def ensure_indexes() -> None:
     from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
     from app.db.notifications import ensure_notification_indexes
+    from app.db.taxonomy import ensure_taxonomy_indexes, seed_taxonomy
     from app.db.users import ensure_user_indexes
 
     ensure_ledger_indexes()
     ensure_user_indexes()
     ensure_notification_indexes()
+    # The jobs and countries an admin edits, and the CV rules hanging off them.
+    # Seeded here rather than by a migration script so a fresh database answers
+    # the same questions a long-running one does — and seeding is additive, so
+    # a rule someone changed is never reset by a restart.
+    ensure_taxonomy_indexes()
+    seed_taxonomy()
     # The multipass state machine and the two identity collections it feeds.
     # The compound unique index is what stops a redelivered email queueing a
     # second Aadhaar job for a card that has already been read.
