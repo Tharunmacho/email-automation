@@ -191,31 +191,27 @@
      re-picked per rule. */
   --primary-glow: rgba(var(--primary-rgb), 0.16);
 
-  /* The page is true black; a card is the first step off it. At this distance
-     the hairline does most of the separating, which is why the border below is
-     brighter relative to the surface than its light-mode counterpart. */
-  --bg-main: #000000;
-  --bg-card: #0d0d0d;
-  /* The rail sits between the two: darker than a card, so the content column
-     still reads as the lit part of the screen. */
-  --bg-sidebar: #070707;
+  /* Deepest navy, replicating the old theme, and entirely borderless. */
+  --bg-main: #0b0f19;
+  --bg-card: #111827;
+  --bg-sidebar: #0b0f19;
 
-  --tint-1: #141414;
-  --tint-2: #1c1c1c;
-  --tint-3: #262626;
+  --tint-1: #111827;
+  --tint-2: #1f2937;
+  --tint-3: #374151;
 
-  --border-main: #262626;
-  --border-hover: #3f3f3f;
-  --glass-border: rgba(255, 255, 255, 0.10);
+  --border-main: transparent;
+  --border-hover: transparent;
+  --glass-border: rgba(255, 255, 255, 0.05);
 
-  --text-main: #fafafa;
-  --text-muted: #a3a3a3;
-  --text-light: #737373;
-  --text-label: #a3a3a3;
+  --text-main: #f9fafb;
+  --text-muted: #9ca3af;
+  --text-light: #6b7280;
+  --text-label: #9ca3af;
 
-  --border-blue: #262626;
-  --border-blue-strong: #3f3f3f;
-  --border-blue-faint: #1a1a1a;
+  --border-blue: transparent;
+  --border-blue-strong: transparent;
+  --border-blue-faint: rgba(255, 255, 255, 0.04);
 
   --success-ink: #4ade80;
   --success-fill: rgba(22, 163, 74, 0.16);
@@ -311,9 +307,7 @@
     transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-[data-theme="dark"] .rail {
-  border-right-color: var(--primary);
-}
+
 
 /* The brand block. Pinned to `--app-header-h` and closed with the same
    hairline the header draws, so the two rules meet and read as one line across
@@ -331,9 +325,7 @@
   overflow: hidden;
 }
 
-[data-theme="dark"] .rail-brand {
-  border-bottom-color: var(--primary);
-}
+
 
 .rail-logo {
   width: 36px;
@@ -852,11 +844,12 @@
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 12px rgba(16, 24, 40, 0.04);
 }
 
-/* On a dark plane we use the primary blue border, no need for the hairline override */
 [data-theme="dark"] .topbar {
-  /* box-shadow removed in favor of border-bottom */
-  border-bottom-color: var(--primary);
+  background: var(--bg-main);
+  box-shadow: none;
 }
+
+
 
 /* Mark and name on one line, centred on each other. `line-height: 1` is what
    makes that true rather than approximately true: the name's own leading is
