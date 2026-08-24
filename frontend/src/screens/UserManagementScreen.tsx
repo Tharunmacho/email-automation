@@ -19,12 +19,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
+  ArrowRight,
   Check,
   KeyRound,
-  Loader2,
   Lock,
   Pencil,
+  Plus,
   RefreshCw,
   ShieldCheck,
   UserPlus,
@@ -32,6 +32,8 @@ import {
   X,
 } from "lucide-react";
 
+import Checkbox from "@/components/ui/Checkbox";
+import Select from "@/components/ui/Select";
 import { initialsOf, timeAgo } from "@/lib/format";
 import {
   createUserAPI,
@@ -40,7 +42,13 @@ import {
   type ManagedUser,
 } from "@/lib/api";
 
-/** Human labels for the page ids the API hands back. */
+/**
+ * Human labels for the page ids the API hands back.
+ *
+ * Every id in `PAGES` in `app/db/users.py` needs an entry here. Two of them —
+ * `visualizer` and `resume-parser` — had none, so the permission list was
+ * printing the raw ids in among the labelled rows.
+ */
 const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
   candidates: "Candidates",
@@ -50,9 +58,48 @@ const PAGE_LABELS: Record<string, string> = {
   sourcing: "Sourcing Hub",
   "data-management": "Data Management",
   users: "User Management",
+  visualizer: "Visualizer",
+  "resume-parser": "Résumé Parser",
   activity: "Activity Logs",
   settings: "Settings",
 };
+
+/**
+ * The permission list, grouped the way the rail is grouped.
+ *
+ * One flat run of twelve checkboxes gave an admin nothing to navigate by — the
+ * order was the API's tuple order, which is not an order that means anything on
+ * screen. These are the rail's own groups, so what you tick here is laid out
+ * like the thing it produces.
+ *
+ * An id the API sends that is not listed here still gets rendered, under
+ * "Other" — a permission that silently vanishes from this screen because
+ * somebody added it to the backend and not to this constant is worse than an
+ * ungrouped row.
+ */
+const PAGE_GROUPS: { label: string; pages: string[] }[] = [
+  { label: "Workspace", pages: ["my-queue"] },
+  { label: "General", pages: ["overview", "candidates", "staff", "users"] },
+  {
+    label: "Tools",
+    pages: ["job-orders", "sourcing", "data-management", "visualizer", "resume-parser"],
+  },
+  { label: "Support", pages: ["activity", "settings"] },
+];
+
+/** The two roles, with what each one means stated against it rather than after it. */
+const ROLE_OPTIONS = [
+  {
+    value: "staff",
+    label: "Staff",
+    hint: "Reviews the candidates allocated to them.",
+  },
+  {
+    value: "admin",
+    label: "Super Admin",
+    hint: "Everything, including this page.",
+  },
+];
 
 /**
  * Pages a role already reaches without being granted anything.
@@ -140,109 +187,183 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
 
   if (loading) {
     return (
-      <div className="db-empty">
-        <Loader2 size={18} className="icon-spin" />
-        <div className="db-empty-title">Loading</div>
-      </div>
+      <section className="db-card">
+        <span className="app-boot-spinner" />
+      </section>
     );
   }
 
+  const staffCount = users.filter((u) => u.role === "staff").length;
+
   return (
-    <div className="um-screen">
-      <div className="db-tabs">
+    <div className="staff-admin">
+      {error && (
+        <section className="db-card">
+          <h3 className="db-card-title">Could not load</h3>
+          <p className="db-card-sub">{error}</p>
+          <button type="button" className="db-btn" onClick={() => void load()}>
+            Try again
+          </button>
+        </section>
+      )}
+
+      <section className="ov-actions is-three">
         <button
           type="button"
-          className={`db-btn ${section === "manage" ? "is-primary" : ""}`}
-          onClick={() => setSection("manage")}
-        >
-          <Users size={14} /> Manage users
-          <span className="db-tab-count">{users.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`db-btn ${section === "create" ? "is-primary" : ""}`}
+          className="ov-action is-accent"
           onClick={() => setSection("create")}
         >
-          <UserPlus size={14} /> Create user
+          <span className="ov-action-icon" aria-hidden="true">
+            <UserPlus size={19} strokeWidth={2} />
+          </span>
+          <span className="ov-action-text">
+            <span className="ov-action-title">
+              Create User
+              <ArrowRight size={14} />
+            </span>
+            <span className="ov-action-sub">Provision a new admin or staff account.</span>
+          </span>
         </button>
-        <button type="button" className="db-btn" onClick={() => void load()}>
-          <RefreshCw size={14} /> Refresh
-        </button>
-      </div>
 
-      {error && (
-        <div className="db-card">
-          <div className="db-card-head">
-            <AlertTriangle size={16} />
-            <div className="db-card-title">Could not load</div>
+        <button
+          type="button"
+          className="ov-action"
+          onClick={() => void load()}
+        >
+          <span className="ov-action-icon" aria-hidden="true">
+            <RefreshCw size={19} strokeWidth={2} />
+          </span>
+          <span className="ov-action-text">
+            <span className="ov-action-title">Refresh List</span>
+            <span className="ov-action-sub">Fetch the latest accounts from the server.</span>
+          </span>
+        </button>
+      </section>
+
+      {/* ── Shopeers-style KPI cards ── */}
+      <div className="ov-kpi-row">
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Total Accounts</span>
+            <span className="ov-kpi-card-icon"><Users size={17} /></span>
           </div>
-          <div className="db-card-sub">{error}</div>
-        </div>
-      )}
+          <p className="ov-kpi-card-value">{users.length}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">Managed users in the system</span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Active Admins</span>
+            <span className="ov-kpi-card-icon is-success"><ShieldCheck size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{activeAdmins}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">Super Admins with full access</span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Staff Roles</span>
+            <span className="ov-kpi-card-icon is-warning"><Users size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{staffCount}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">Reviewers and coordinators</span>
+          </div>
+        </article>
+      </div>
 
       {section === "create" && (
         <CreateUserForm pages={pages} onCancel={() => setSection("manage")} onCreate={create} />
       )}
 
-      {section === "manage" && (
-        <div className="db-card">
-          <div className="db-card-head">
-            <ShieldCheck size={16} />
-            <div className="db-card-title">Accounts</div>
+      <section className="db-card">
+        <header className="db-card-head">
+          <div>
+            <h3 className="db-card-title">Accounts matrix</h3>
+            <p className="db-card-sub">
+              {users.length} total accounts. A grant puts a page on someone's rail. It does not widen the data behind it.
+            </p>
           </div>
-          <div className="db-card-sub">
-            A grant puts a page on someone’s rail. It does not widen the data behind it — a staff
-            member with the Candidates page still sees only the candidates allocated to them.
+          <div className="staff-head-actions">
+            <button type="button" className="db-btn is-primary" onClick={() => setSection("create")}>
+              <Plus size={15} />
+              Create User
+            </button>
           </div>
+        </header>
 
-          <table className="dm-table">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>Role</th>
-                <th>Pages they reach</th>
-                <th>Added</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id}>
-                  <td className="dm-cell-strong">
-                    <span className="dm-pill">{initialsOf(user.name || user.email)}</span>{" "}
-                    {user.name || user.email}
-                    <div className="dm-cell-muted">{user.email}</div>
-                  </td>
-                  <td>
+        {users.length === 0 ? (
+          <div className="db-empty">
+            <Users size={22} />
+            <p className="db-empty-title">No accounts found</p>
+          </div>
+        ) : (
+          <div className="staff-matrix">
+            {users.map((user) => (
+              <article
+                key={user.id}
+                className={`staff-row ${user.active ? "" : "is-inactive"}`}
+              >
+                <div className="staff-identity">
+                  <span className="staff-avatar">{initialsOf(user.name || user.email)}</span>
+                  <div className="staff-identity-text">
+                    <span className="staff-name">
+                      {user.name || user.email}
+                      {!user.active && <em className="staff-flag">deactivated</em>}
+                    </span>
+                    <span className="staff-mail">{user.email}</span>
+                  </div>
+                </div>
+
+                <div className="staff-metrics">
+                  <span className="staff-metric">
+                    <em>Role</em>
                     {user.role === "admin" ? "Super Admin" : "Staff"}
-                    {!user.active && <span className="dm-pill is-off"> · disabled</span>}
-                  </td>
-                  <td className="dm-cell-muted">
-                    {user.role === "admin"
-                      ? "Everything"
-                      : user.pages.map((p) => PAGE_LABELS[p] ?? p).join(", ")}
-                  </td>
-                  <td className="dm-cell-muted">
+                  </span>
+                  <span className="staff-metric">
+                    <em>Added</em>
                     {user.created_at ? timeAgo(user.created_at) : "—"}
-                  </td>
-                  <td className="dm-cell-actions">
-                    <button type="button" className="db-btn" onClick={() => setEditing(user)}>
-                      <Pencil size={13} /> Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </div>
 
-          {activeAdmins <= 1 && (
-            <div className="db-card-sub">
-              <Lock size={12} /> One active administrator. They cannot be demoted or disabled until
-              somebody else is promoted — there would be no way back in.
-            </div>
-          )}
-        </div>
-      )}
+                <div className="staff-progress">
+                  <div className="db-bar-row">
+                    <span className="db-bar-label">
+                      <strong>Pages:</strong>{" "}
+                      {user.role === "admin"
+                        ? "Everything"
+                        : user.pages.map((p) => PAGE_LABELS[p] ?? p).join(", ")}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="staff-actions">
+                  <button
+                    type="button"
+                    className="db-btn"
+                    onClick={() => setEditing(user)}
+                    title="Edit account details and permissions"
+                  >
+                    <Pencil size={14} />
+                    Edit
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        {activeAdmins <= 1 && (
+          <div className="db-card-sub" style={{ marginTop: "1rem" }}>
+            <Lock size={12} /> One active administrator. They cannot be demoted or disabled until
+            somebody else is promoted — there would be no way back in.
+          </div>
+        )}
+      </section>
 
       {editing && (
         <EditUserModal
@@ -283,73 +404,92 @@ function CreateUserForm({
   const [role, setRole] = useState("staff");
   const [grants, setGrants] = useState<string[]>([]);
 
+  // Stated once, next to the control it governs, rather than being discovered
+  // by pressing a disabled button and guessing why.
+  const tooShort = password.length > 0 && password.length < 6;
+  const ready = Boolean(email.trim()) && password.length >= 6;
+
   return (
-    <div className="db-card">
+    <div className="db-card um-create-card">
       <div className="db-card-head">
-        <UserPlus size={16} />
-        <div className="db-card-title">Create a user</div>
-      </div>
-
-      <div className="modal-row-2">
-        <div className="field-group">
-          <label className="modal-label" htmlFor="u-name">
-            Name
-          </label>
-          <input
-            id="u-name"
-            className="modal-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Priya Raman"
-          />
-        </div>
-        <div className="field-group">
-          <label className="modal-label" htmlFor="u-email">
-            Email
-          </label>
-          <input
-            id="u-email"
-            className="modal-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="priya@example.com"
-          />
-        </div>
-      </div>
-
-      <div className="modal-row-2">
-        <div className="field-group">
-          <label className="modal-label" htmlFor="u-password">
-            Password
-          </label>
-          <input
-            id="u-password"
-            className="modal-input"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <div className="modal-hint">
-            They can be given a new one from this screen at any time; it is never shown back.
+        <div className="um-create-head">
+          <UserPlus size={16} />
+          <div>
+            <h3 className="db-card-title">Create a user</h3>
+            <p className="db-card-sub">They can sign in as soon as this is saved.</p>
           </div>
         </div>
-        <div className="field-group">
-          <label className="modal-label" htmlFor="u-role">
-            Role
-          </label>
-          <select
-            id="u-role"
-            className="modal-select"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          >
-            <option value="staff">Staff — reviews the candidates allocated to them</option>
-            <option value="admin">Super Admin — everything, including this page</option>
-          </select>
-        </div>
       </div>
 
-      <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
+      {/* Two columns of equal-width fields, and every label on the same
+          baseline as the one beside it — which is what `.um-form-grid` buys
+          over the old `.modal-row-2`: a hint under one field no longer pushes
+          its neighbour's input out of line, because the hint sits in the
+          field's own row rather than in the grid's. */}
+      <div className="um-form">
+        <div className="um-form-grid">
+          <div className="field-group">
+            <label className="modal-label" htmlFor="u-name">
+              Name
+            </label>
+            <input
+              id="u-name"
+              className="modal-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Priya Raman"
+            />
+          </div>
+          <div className="field-group">
+            <label className="modal-label" htmlFor="u-email">
+              Email
+            </label>
+            <input
+              id="u-email"
+              className="modal-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="priya@example.com"
+            />
+          </div>
+
+          <div className="field-group">
+            <label className="modal-label" htmlFor="u-password">
+              Password
+            </label>
+            <input
+              id="u-password"
+              className="modal-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 6 characters"
+            />
+            <p className={`modal-hint ${tooShort ? "is-warn" : ""}`}>
+              {tooShort
+                ? "Six characters minimum."
+                : "Never shown back. You can set a new one from this screen at any time."}
+            </p>
+          </div>
+          <div className="field-group">
+            <span className="modal-label">Role</span>
+            <Select
+              value={role}
+              options={ROLE_OPTIONS}
+              onChange={setRole}
+              ariaLabel="Role"
+            />
+            <p className="modal-hint">
+              {role === "admin"
+                ? "Full access, and can edit these permissions."
+                : "Sees only the candidates allocated to them."}
+            </p>
+          </div>
+        </div>
+
+        <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
+      </div>
 
       <div className="modal-footer">
         <button type="button" className="modal-cancel-btn" onClick={onCancel}>
@@ -358,7 +498,7 @@ function CreateUserForm({
         <button
           type="button"
           className="db-btn is-primary"
-          disabled={!email.trim() || password.length < 6}
+          disabled={!ready}
           onClick={() => onCreate({ email, password, name, role, grants })}
         >
           <Check size={14} /> Create
@@ -398,100 +538,106 @@ function EditUserModal({
   const locked = isLastAdmin;
 
   return (
-    <div className="modal-container is-narrow">
-      <div className="modal-header">
-        <div className="modal-label">{user.email}</div>
-        <button type="button" className="modal-close" onClick={onCancel}>
-          <X size={16} />
-        </button>
-      </div>
-
-      <div className="modal-body">
-        <div className="field-group">
-          <label className="modal-label" htmlFor="e-name">
-            Name
-          </label>
-          <input
-            id="e-name"
-            className="modal-input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+    <div className="modal-overlay active" onClick={onCancel}>
+      <div className="modal-container is-narrow" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-label">{user.email}</div>
+          <button type="button" className="modal-close" onClick={onCancel}>
+            <X size={16} />
+          </button>
         </div>
 
-        <div className="modal-row-2">
+        <div className="modal-body">
           <div className="field-group">
-            <label className="modal-label" htmlFor="e-role">
-              Role
+            <label className="modal-label" htmlFor="e-name">
+              Name
             </label>
-            <select
-              id="e-role"
-              className="modal-select"
-              value={role}
-              disabled={locked}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              <option value="staff">Staff</option>
-              <option value="admin">Super Admin</option>
-            </select>
+            <input
+              id="e-name"
+              className="modal-input"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </div>
-          <div className="field-group">
-            <label className="modal-label">
-              <input
-                type="checkbox"
-                checked={active}
+
+          <div className="um-form-grid">
+            <div className="field-group">
+              <span className="modal-label">Role</span>
+              <Select
+                value={role}
+                options={ROLE_OPTIONS}
+                onChange={setRole}
                 disabled={locked}
-                onChange={(e) => setActive(e.target.checked)}
-              />{" "}
-              Account is active
+                ariaLabel="Role"
+              />
+            </div>
+            <div className="field-group">
+              <span className="modal-label">Status</span>
+              {/* The checkbox is the control, so it sits where an input would —
+                  on the field's own row, aligned with the dropdown beside it.
+                  It used to live inside the label, which put it half a line
+                  above every other control in the form. */}
+              <div className="um-form-control">
+                <Checkbox
+                  checked={active}
+                  disabled={locked}
+                  onChange={setActive}
+                  label="Account is active"
+                  hint={
+                    active
+                      ? "Receives new allocations."
+                      : "Keeps existing work, receives nothing new."
+                  }
+                />
+              </div>
+              {isSelf && <p className="modal-hint">This is you.</p>}
+            </div>
+          </div>
+
+          {locked && (
+            <div className="modal-hint">
+              <Lock size={12} /> The last active administrator. Promote somebody else before changing
+              this account’s role or disabling it.
+            </div>
+          )}
+
+          <div className="field-group">
+            <label className="modal-label" htmlFor="e-password">
+              <KeyRound size={12} /> New password
             </label>
-            {isSelf && <div className="modal-hint">This is you.</div>}
+            <input
+              id="e-password"
+              className="modal-input"
+              type="password"
+              value={password}
+              placeholder="leave blank to keep the current one"
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
+
+          <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
         </div>
 
-        {locked && (
-          <div className="modal-hint">
-            <Lock size={12} /> The last active administrator. Promote somebody else before changing
-            this account’s role or disabling it.
-          </div>
-        )}
-
-        <div className="field-group">
-          <label className="modal-label" htmlFor="e-password">
-            <KeyRound size={12} /> New password
-          </label>
-          <input
-            id="e-password"
-            className="modal-input"
-            type="password"
-            value={password}
-            placeholder="leave blank to keep the current one"
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        <div className="modal-footer">
+          <button type="button" className="modal-cancel-btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() =>
+              onSave({
+                name,
+                role,
+                active,
+                page_grants: grants,
+                ...(password ? { password } : {}),
+              })
+            }
+          >
+            <Check size={14} /> Save
+          </button>
         </div>
-
-        <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
-      </div>
-
-      <div className="modal-footer">
-        <button type="button" className="modal-cancel-btn" onClick={onCancel}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="db-btn is-primary"
-          onClick={() =>
-            onSave({
-              name,
-              role,
-              active,
-              page_grants: grants,
-              ...(password ? { password } : {}),
-            })
-          }
-        >
-          <Check size={14} /> Save
-        </button>
       </div>
     </div>
   );
@@ -523,32 +669,62 @@ function PagePicker({
     onChange(grants.includes(page) ? grants.filter((p) => p !== page) : [...grants, page]);
   };
 
+  // Grouped the way the rail is grouped, and only over the ids the API actually
+  // sent. Anything it sent that no group claims lands in "Other" rather than
+  // being dropped — see PAGE_GROUPS.
+  const available = new Set(pages);
+  const claimed = new Set(PAGE_GROUPS.flatMap((group) => group.pages));
+  const groups = [
+    ...PAGE_GROUPS.map((group) => ({
+      label: group.label,
+      pages: group.pages.filter((page) => available.has(page)),
+    })),
+    { label: "Other", pages: pages.filter((page) => !claimed.has(page)) },
+  ].filter((group) => group.pages.length > 0);
+
+  const grantedCount = pages.filter((page) => floor.has(page) || grants.includes(page)).length;
+
   return (
-    <div className="field-group">
-      <div className="modal-label">Pages this account can reach</div>
-      <div className="modal-hint">
-        {isAdmin
-          ? "A Super Admin reaches every page, including this one. Nothing to choose."
-          : "Ticking a page puts it on their rail. It does not change what the page shows them — a staff member still sees only the candidates allocated to them."}
+    <div className="um-pages">
+      <div className="um-pages-head">
+        <div>
+          <span className="modal-label">Pages this account can reach</span>
+          <p className="modal-hint">
+            {isAdmin
+              ? "A Super Admin reaches every page, including this one. Nothing to choose."
+              : "Ticking a page puts it on their rail. It does not change what the page shows them — a staff member still sees only the candidates allocated to them."}
+          </p>
+        </div>
+        {/* A running count, because the answer to "what does this account
+            reach?" is otherwise a manual tally of twelve checkboxes. */}
+        <span className="um-pages-count">
+          {isAdmin ? "All pages" : `${grantedCount} of ${pages.length}`}
+        </span>
       </div>
 
       <div className="um-page-grid">
-        {pages.map((page) => {
-          const inFloor = floor.has(page);
-          const checked = inFloor || grants.includes(page);
-          return (
-            <label key={page} className="modal-label um-page-row">
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={isAdmin || inFloor}
-                onChange={() => toggle(page)}
-              />{" "}
-              {PAGE_LABELS[page] ?? page}
-              {inFloor && !isAdmin && <span className="dm-cell-muted"> — always</span>}
-            </label>
-          );
-        })}
+        {groups.map((group) => (
+          <div key={group.label} className="um-page-group">
+            <p className="um-page-group-label">{group.label}</p>
+            {group.pages.map((page) => {
+              const inFloor = floor.has(page);
+              return (
+                <Checkbox
+                  key={page}
+                  checked={grants.includes(page)}
+                  // An admin reaches everything and a staff member always
+                  // reaches their own queue: both are "on because the role says
+                  // so", which is what `locked` draws — a padlock, not a greyed
+                  // tick that reads as unavailable.
+                  locked={isAdmin || inFloor}
+                  onChange={() => toggle(page)}
+                  label={PAGE_LABELS[page] ?? page}
+                  hint={inFloor && !isAdmin ? "Always on their rail" : undefined}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

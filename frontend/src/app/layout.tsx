@@ -1,34 +1,17 @@
 import type { Metadata } from "next";
-import { Inter, Outfit, Poppins, Fira_Code } from "next/font/google";
+import { Outfit } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
-
-// Poppins has no variable cut on Google Fonts, so the weights the dashboard
-// actually sets have to be named here. Anything not listed gets synthesised by
-// the browser — which is why the dashboard rules use 400/500/600/700 only and
-// no longer ask for the 450 and 650 that Inter's variable axis used to serve.
-const poppins = Poppins({
-  variable: "--font-poppins",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
+// One family, product-wide. Outfit is a variable font on Google Fonts, so the
+// whole 100–900 axis arrives in a single file and every weight the sheet asks
+// for is a real cut rather than a synthetic smear. Nothing else is loaded: the
+// places that used to reach for Inter, Poppins or a monospace now take this
+// same face, with `tabular-nums` and letter-spacing doing the work that a
+// second family used to.
 const outfit = Outfit({
   variable: "--font-outfit",
   subsets: ["latin"],
-});
-
-// 700 is here for the dashboard console's level tags, which ask for bold. With
-// only 400/500 loaded the browser was smearing a synthetic bold onto a 0.64rem
-// monospace — the one place on the screen where stroke weight has to stay even.
-const firaCode = Fira_Code({
-  variable: "--font-fira-code",
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -50,7 +33,7 @@ export default function RootLayout({
       lang="en"
       data-theme="light"
       style={{ colorScheme: "light" }}
-      className={`${inter.variable} ${outfit.variable} ${poppins.variable} ${firaCode.variable} h-full antialiased`}
+      className={`${outfit.variable} h-full antialiased`}
     >
       {/* The shell owns its own layout now — a flex body would fight the fixed
           header and rail it lays out for itself. */}

@@ -117,9 +117,6 @@ export default function Home() {
 
   const [activeTab, setActiveTab] = useState<NavId>("overview");
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // The term the top bar last searched on. Held here rather than in the bar so
-  // it survives navigating away from the pool and back.
-  const [globalSearch, setGlobalSearch] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Bumped whenever a push event says the allocation data moved, so the staff
@@ -453,22 +450,6 @@ export default function Home() {
       // open, so coming back lands on the list rather than mid-edit.
       setScreen(null);
       if (next === "candidates") void refreshCandidates();
-    },
-    [refreshCandidates],
-  );
-
-  /**
-   * The bar's search. There is no separate results screen: the candidate pool
-   * is already the screen that lists and filters candidates, so searching from
-   * the bar opens it on the term rather than building a second view of the same
-   * records that would then have to be kept in step with the first.
-   */
-  const handleGlobalSearch = useCallback(
-    (term: string) => {
-      setGlobalSearch(term);
-      setScreen(null);
-      setActiveTab("candidates");
-      void refreshCandidates();
     },
     [refreshCandidates],
   );
@@ -874,13 +855,12 @@ export default function Home() {
       <TopBar
         user={user}
         syncing={syncing}
+        realtime={realtimeStatus}
         realtimeNonce={realtimeNonce}
         hasRail={hasRail}
         onOpenCandidate={handleOpenCandidateById}
         onSync={runPipeline}
         onToggleRail={() => setMobileOpen((open) => !open)}
-        onSearch={handleGlobalSearch}
-        onSignOut={handleSignOut}
       />
 
       <div className="app-body">
@@ -1020,7 +1000,6 @@ export default function Home() {
                   <CandidatesView
                     candidates={candidates}
                     logCounts={logCounts}
-                    seedQuery={globalSearch}
                     onOpenCandidate={handleOpenCandidate}
                     onEditCandidate={handleEditCandidate}
                     onOpenLogs={handleOpenLogs}

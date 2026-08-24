@@ -116,7 +116,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           <header className="login-head">
             <div className="login-brand">
               <span className="login-logo">
-                <Image src="/adira-logo@4x.png" alt="" width={224} height={200} preload />
+                <Image src="/adira-logo@4x.png" alt="Adira" width={224} height={200} preload />
               </span>
               <span className="login-brandline">
                 <span className="login-brandname">Adira</span>

@@ -1,10 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  /* Brand Typography & Colors */
-  --font-inter: 'Inter', sans-serif;
-  --font-outfit: 'Outfit', sans-serif;
-  --font-fira-code: 'Fira Code', monospace;
+  /* Typography. One family, product-wide — `next/font` sets this variable from
+     the loaded Outfit face and the fallback here is only what paints before it
+     arrives. There is deliberately no second family and no monospace: the
+     places that used to reach for one (the log console, timestamps, the
+     confidence figures) now hold their columns with `tabular-nums` and a wider
+     letter-spacing instead. */
+  --font-outfit: 'Outfit', system-ui, sans-serif;
+  /* Kept as a name because rules across the sheet still ask for it, and code
+     and clocks want even digits wherever they appear. */
+  --font-numeric: var(--font-outfit);
+
+  /* Tailwind reads these two for its own preflight (`html`, and
+     `code, kbd, samp, pre`) and for the `font-sans`/`font-mono` utilities. They
+     are unset by default, so those rules fall back to a system sans and a
+     system monospace — a second and a third family, arriving through the
+     framework rather than through this sheet. Pointing both at Outfit closes
+     that door: there is no way to ask this stylesheet for another face. */
+  --font-sans: var(--font-outfit);
+  --font-mono: var(--font-outfit);
 
   /* ------------------------------------------------------------------------
      COLOUR SYSTEM — "DataBlue"
@@ -23,8 +38,13 @@
   /* Accent channel. Stated as raw RGB so every tint, ring and shadow can be
      mixed from it with an alpha instead of being hand-picked per rule. */
   --primary-rgb: 37, 99, 235;
-  /* Royal blue 600 — 4.8:1 on white, so it is safe as text, not just as fill */
-  --accent-rgb: 59, 130, 246;
+  /* Royal blue 600 — 4.8:1 on white, so it is safe as text, not just as fill.
+     There is exactly one blue in the product now. `--accent` used to be a
+     second, lighter one (blue 500), which is why a chip, a connector and a card
+     wash could each be a different blue on the same screen — the eye read that
+     as three meanings when there was only ever one. Accent is the same channel
+     as primary; only the alpha it is mixed at changes. */
+  --accent-rgb: var(--primary-rgb);
 
   --primary: rgb(var(--primary-rgb));
   --primary-hover: #1d4ed8;
@@ -40,27 +60,9 @@
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
-  --bg-main: #eef2f9;
+  --bg-main: #f5f6fa;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
-
-  /* ---- Glass -----------------------------------------------------------
-     The frosted-panel look. A glass surface is three things at once and all
-     three have to move together or it reads as a flat translucent box: the
-     tint it washes the backdrop with, the blur that makes the backdrop
-     unreadable through it, and the 1px of near-white along its top edge that
-     stands in for light catching a bevel. `--glass-sheen` is that edge. */
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-bg-strong: rgba(255, 255, 255, 0.86);
-  --glass-blur: saturate(180%) blur(20px);
-  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --glass-edge: rgba(255, 255, 255, 0.85);
-
-  /* The light the glass refracts. Without something coloured behind it a
-     frosted panel is just a grey box, so the page carries two soft blue blooms
-     for the surfaces to pick up. */
-  --page-glow-1: rgba(37, 99, 235, 0.10);
-  --page-glow-2: rgba(56, 189, 248, 0.08);
 
   /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
      data is what made the old shell read as a theme rather than a tool. */
@@ -100,19 +102,13 @@
 
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
-  --radius-xl: 22px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  /* The squircle family. Nested corners must shrink inward or the inner
-     control's arc fights the card's: a 22px card holds 14px controls holding
-     10px chips. `--radius-pill` is for anything that should read as fully
-     round at any height. */
-  --radius-2xl: 28px;
-  --radius-pill: 999px;
+  --radius-xl: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
 
-  --secondary: #0891b2;
-  --secondary-hover: #0e7490;
-  --secondary-glow: rgba(8, 145, 178, 0.08);
+  --secondary: var(--primary);
+  --secondary-hover: var(--primary-hover);
+  --secondary-glow: var(--primary-glow);
 
   --success: #16a34a;
   /* Green 600 — the "Verified" pill */
@@ -142,17 +138,20 @@
 
   /* Shadow elevation. Micro-shadows only: at this border weight a card needs
      to lift off the page by a hair, not float above it. */
-  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 1px 3px 0 rgba(15, 23, 42, 0.04);
-  --shadow-md: 0 2px 8px -2px rgba(15, 23, 42, 0.06), 0 6px 20px -6px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 10px 32px -10px rgba(15, 23, 42, 0.16), 0 4px 12px -4px rgba(15, 23, 42, 0.06);
-  /* What a glass panel casts: wide, soft and low-contrast, so the blur reads as
-     depth rather than as a drop shadow stuck under a flat rectangle. */
-  --shadow-glass: 0 8px 32px -8px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
-  --shadow-float: 0 20px 48px -16px rgba(15, 23, 42, 0.20), 0 6px 16px -6px rgba(15, 23, 42, 0.08);
+  --shadow-sm: 0 1px 2px 0 rgba(17, 24, 39, 0.05);
+  --shadow-md: 0 1px 3px 0 rgba(17, 24, 39, 0.06), 0 1px 2px -1px rgba(17, 24, 39, 0.04);
+  --shadow-lg: 0 8px 16px -6px rgba(17, 24, 39, 0.10), 0 2px 6px -2px rgba(17, 24, 39, 0.05);
   --shadow-glow: 0 0 0 4px rgba(var(--primary-rgb), 0.10);
   /* The focus ring — one definition, used by every control in the app. */
   --shadow-primary: 0 1px 2px rgba(17, 24, 39, 0.06);
   --shadow-primary-hover: 0 2px 6px rgba(17, 24, 39, 0.10);
+
+  /* The card's own elevation. Cards now float off a grey plane rather than
+     sitting flat on an almost-white one, so the lift is a real two-part
+     shadow — a contact edge plus a soft cast — instead of a hairline's worth
+     of grey. Every surface that reads as a card uses this one token. */
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.08), 0 4px 12px rgba(16, 24, 40, 0.05);
+  --shadow-card-hover: 0 1px 3px rgba(16, 24, 40, 0.10), 0 8px 22px -6px rgba(16, 24, 40, 0.12);
 
   /* Shared card/tile surface tokens — used by every screen, not just the
      dashboard, so they live at the root rather than on the dashboard wrapper. */
@@ -166,6 +165,11 @@
   --dash-track: var(--tint-3);
   --dash-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
   --dash-shadow-hover: 0 1px 3px rgba(17, 24, 39, 0.07), 0 6px 14px -8px rgba(17, 24, 39, 0.14);
+
+  /* Scrollbars. One pair for the whole product, so a track on a dark surface is
+     not a fixed navy alpha that disappears the moment the page turns black. */
+  --scroll-thumb: rgba(17, 24, 39, 0.16);
+  --scroll-thumb-hover: rgba(17, 24, 39, 0.30);
 }
 
 /* --------------------------------------------------------------------------
@@ -174,77 +178,84 @@
    the whole product follows without a second set of selectors.
    -------------------------------------------------------------------------- */
 [data-theme="dark"] {
+  /* Black, and neutral. The old dark theme was a navy: every surface carried a
+     blue cast (#0b0f19, #111827, #1f2937), which put a second hue on screen
+     everywhere and left the one real blue — the accent — with nothing to
+     contrast against. These greys have no hue at all, so the accent is the only
+     colour in the theme and it reads as loudly on black as it does on white. */
   --primary-rgb: 59, 130, 246;
   --primary-hover: #60a5fa;
   --primary-deep: #1d4ed8;
+  /* An 8% wash is invisible on black. The active nav pill, the selected chip
+     and the focus ring all mix from this, so it doubles here rather than being
+     re-picked per rule. */
+  --primary-glow: rgba(var(--primary-rgb), 0.16);
 
-  /* The plane is nearly black with only enough blue in it to stop it reading
-     as grey — the reference's near-black, not a navy. Cards sit a few points
-     above it, which is the entire elevation story in dark: there is no shadow
-     dark enough to register against this background, so separation has to come
-     from the surface being lighter than what surrounds it. */
-  --bg-main: #070a11;
-  --bg-card: #10151f;
-  --bg-sidebar: #0c111a;
+  /* The page is true black; a card is the first step off it. At this distance
+     the hairline does most of the separating, which is why the border below is
+     brighter relative to the surface than its light-mode counterpart. */
+  --bg-main: #000000;
+  --bg-card: #0d0d0d;
+  /* The rail sits between the two: darker than a card, so the content column
+     still reads as the lit part of the screen. */
+  --bg-sidebar: #070707;
 
-  --tint-1: #151b27;
-  --tint-2: #1c2430;
-  --tint-3: #263040;
+  --tint-1: #141414;
+  --tint-2: #1c1c1c;
+  --tint-3: #262626;
 
-  --border-main: #1e2632;
-  --border-hover: #2f3a49;
-  --glass-border: rgba(255, 255, 255, 0.08);
+  --border-main: #262626;
+  --border-hover: #3f3f3f;
+  --glass-border: rgba(255, 255, 255, 0.10);
 
-  /* Dark glass. The tint is lighter than the page, never darker: frosting a
-     dark surface scatters light *up*, so a panel that dims its backdrop looks
-     like a hole rather than a pane. */
-  --glass-bg: rgba(20, 27, 40, 0.72);
-  --glass-bg-strong: rgba(22, 30, 44, 0.88);
-  --glass-blur: saturate(160%) blur(20px);
-  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --glass-edge: rgba(255, 255, 255, 0.09);
+  --text-main: #fafafa;
+  --text-muted: #a3a3a3;
+  --text-light: #737373;
+  --text-label: #a3a3a3;
 
-  --page-glow-1: rgba(37, 99, 235, 0.20);
-  --page-glow-2: rgba(56, 189, 248, 0.10);
-
-  --text-main: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-light: #6b7280;
-
-  --border-blue: #1f2937;
-  --border-blue-strong: #374151;
-  --border-blue-faint: #1a2231;
+  --border-blue: #262626;
+  --border-blue-strong: #3f3f3f;
+  --border-blue-faint: #1a1a1a;
 
   --success-ink: #4ade80;
-  --success-fill: rgba(22, 163, 74, 0.14);
-  --success-edge: rgba(74, 222, 128, 0.28);
+  --success-fill: rgba(22, 163, 74, 0.16);
+  --success-edge: rgba(74, 222, 128, 0.30);
 
   --warning-ink: #fbbf24;
-  --warning-fill: rgba(217, 119, 6, 0.16);
-  --warning-edge: rgba(251, 191, 36, 0.30);
+  --warning-fill: rgba(217, 119, 6, 0.18);
+  --warning-edge: rgba(251, 191, 36, 0.32);
 
   --error-ink: #f87171;
-  --error-fill: rgba(220, 38, 38, 0.14);
-  --error-edge: rgba(248, 113, 113, 0.30);
+  --error-fill: rgba(220, 38, 38, 0.16);
+  --error-edge: rgba(248, 113, 113, 0.32);
 
   --rose: #fb7185;
   --rose-ink: #fda4af;
-  --rose-fill: rgba(225, 29, 72, 0.15);
-  --rose-edge: rgba(251, 113, 133, 0.32);
+  --rose-fill: rgba(225, 29, 72, 0.17);
+  --rose-edge: rgba(251, 113, 133, 0.34);
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.40);
-  --shadow-md: 0 2px 10px -2px rgba(0, 0, 0, 0.50);
-  --shadow-lg: 0 12px 32px -12px rgba(0, 0, 0, 0.70);
-  --shadow-glass: 0 8px 32px -8px rgba(0, 0, 0, 0.55), 0 2px 8px -2px rgba(0, 0, 0, 0.40);
-  --shadow-float: 0 24px 56px -20px rgba(0, 0, 0, 0.80), 0 8px 20px -8px rgba(0, 0, 0, 0.50);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.60);
+  --shadow-md: 0 1px 3px 0 rgba(0, 0, 0, 0.70);
+  --shadow-lg: 0 8px 20px -8px rgba(0, 0, 0, 0.85);
+
+  /* A cast shadow is invisible on black, so the lift is drawn as light rather
+     than as dark: a one-pixel inner highlight along the card's top edge, which
+     is how a raised surface reads when there is nothing darker to fall onto. */
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.80);
+  --shadow-card-hover: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 24px -8px rgba(0, 0, 0, 0.90);
 
   /* The same hairline, inverted — a black edge is invisible on a dark surface. */
-  --header-hairline: rgba(255, 255, 255, 0.08);
+  --header-hairline: rgba(255, 255, 255, 0.09);
 
-  --dash-surface: #10151f;
-  --dash-muted: #9ca3af;
-  --dash-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --dash-shadow-hover: 0 6px 16px -8px rgba(0, 0, 0, 0.6);
+  --dash-surface: #0d0d0d;
+  --dash-muted: #a3a3a3;
+  --dash-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --dash-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 20px -8px rgba(0, 0, 0, 0.85);
+
+  --scroll-thumb: rgba(255, 255, 255, 0.16);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.30);
 }
 
 /* ==========================================================================
@@ -282,10 +293,15 @@
   --rail-toggle-size: 28px;
 
   position: fixed;
-  top: var(--app-header-h);
+  /* Full height: the brand lives at the top of the rail now, and the header
+     bar starts where the rail ends. A rail that began under the header left
+     the product's name floating over the content column instead of over its
+     own navigation. */
+  top: 0;
   bottom: 0;
   left: 0;
-  z-index: 110;
+  /* Above the header, so the mobile drawer slides over it whole. */
+  z-index: 130;
   width: var(--rail-w);
   display: flex;
   flex-direction: column;
@@ -295,6 +311,74 @@
     transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+[data-theme="dark"] .rail {
+  border-right-color: var(--primary);
+}
+
+/* The brand block. Pinned to `--app-header-h` and closed with the same
+   hairline the header draws, so the two rules meet and read as one line across
+   the shell — the reason that height is a variable in the first place. */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--app-header-h);
+  padding: 0 var(--rail-pad);
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--header-hairline);
+  flex-shrink: 0;
+  line-height: 1;
+  overflow: hidden;
+}
+
+[data-theme="dark"] .rail-brand {
+  border-bottom-color: var(--primary);
+}
+
+.rail-logo {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.rail-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.rail-brandname {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Collapsed, the mark centres in the 68px stub and the word goes. */
+.rail.is-collapsed .rail-brand {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+}
+
+.rail.is-collapsed .rail-brandname {
+  display: none;
+}
+
 /* --- group headings --------------------------------------------------------- */
 /* There is no head row above these. The rail used to open with a 48px band that
    held nothing but the collapse button and closed with a hairline of its own —
@@ -302,7 +386,7 @@
    and the navigation started an empty row late. The button now rides the first
    heading row, which is the line it was always trying to align with. */
 .rail-group+.rail-group {
-  margin-top: 0.5rem;
+  margin-top: 1.1rem;
 }
 
 /* The heading and the toggle: heading left, control hard right, both centred on
@@ -319,13 +403,14 @@
 
 .rail-group-label {
   /* Indented to the icon column, not to the rail's edge, so every heading starts
-     where the glyphs under it start. */
-  padding: 0 var(--rail-pad) 0.3rem;
-  font-size: 0.65rem;
+     where the glyphs under it start. Same `--rail-pad` the rows use, which is
+     what keeps the two in register at both widths. */
+  padding: 0 var(--rail-pad) 0.45rem;
+  font-size: 0.62rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--text-label);
+  color: var(--text-light);
   white-space: nowrap;
   overflow: hidden;
 }
@@ -371,28 +456,91 @@
   box-shadow: var(--shadow-glow);
 }
 
-/* No scrollbar. Eight destinations in three groups fit any laptop, so the list
-   is sized to the content and the overflow is hidden rather than scrolled — a
-   rail that scrolls hides part of the navigation, which is the one thing it
-   must never do. `min-height: 0` still lets it give way before the footer does
-   on a genuinely tiny viewport. */
+/* The list scrolls. It used to be `overflow: hidden` on the argument that eight
+   destinations fit any laptop — but the rail is grant-driven, so an account with
+   every page ticked plus a short viewport (or a browser at 125% zoom, or a
+   laptop in a docked window) had rows clipped off the bottom with no way to
+   reach them. Hidden overflow does not make a long list fit; it makes the part
+   that does not fit unreachable, which is the one thing a rail must never do.
+
+   `min-height: 0` is what actually lets it scroll inside the flex column —
+   without it the track grows to fit its content and pushes the account card off
+   the bottom instead. The footer keeps `flex-shrink: 0`, so it is always the
+   list that gives way, never the sign-out. */
 .rail-scroll {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* A wheel at the end of this list must not carry on and scroll the workspace
+     behind it — the rail and the page are two separate readings. */
+  overscroll-behavior: contain;
   /* 16px above the first heading, 12px each side, 8px below the last row. The
      top value is the whole gap between the header's hairline and "GENERAL" —
-     there is nothing else between them to add to it. */
-  padding: 16px 12px 8px;
+     there is nothing else between them to add to it. The right inset is 6px
+     with 6px given back to the scrollbar gutter, so the rows sit in the same
+     place whether the bar is there or not and nothing shifts when a grant is
+     added. */
+  padding: 16px 6px 8px 12px;
+  scrollbar-gutter: stable;
+}
+
+/* The bar itself: 4px, and only drawn while the rail is being used. A permanent
+   track down the side of the navigation is a piece of furniture nobody asked
+   for; at rest the rail should look exactly as it did before it could scroll. */
+.rail-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.rail-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.rail:hover .rail-scroll::-webkit-scrollbar-thumb,
+.rail-scroll:focus-within::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+}
+
+.rail-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+}
+
+/* Firefox has no thumb pseudo-element, so it says the same thing with
+   `scrollbar-color`: the track keeps its width, and only the thumb goes
+   transparent at rest. Toggling `scrollbar-width` between none and thin instead
+   would be the obvious way to write this and the wrong one — the gutter would
+   appear on hover and shove every label in the rail 8px left. */
+.rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.rail:hover .rail-scroll,
+.rail-scroll:focus-within {
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+/* Collapsed there is no room for a gutter, and no labels to be pushed out of
+   line by one appearing — so the bar goes and the 68px stub keeps its symmetry. */
+.rail.is-collapsed .rail-scroll {
+  padding-left: 6px;
+  padding-right: 6px;
+  scrollbar-width: none;
+}
+
+.rail.is-collapsed .rail-scroll::-webkit-scrollbar {
+  width: 0;
 }
 
 .rail-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.65rem;
   width: 100%;
-  padding: 0.5rem var(--rail-pad);
-  margin-bottom: 1px;
+  padding: 0.6rem var(--rail-pad);
+  margin-bottom: 2px;
   border: none;
   border-radius: var(--radius-md);
   background: none;
@@ -428,16 +576,36 @@
   color: var(--text-muted);
 }
 
-/* The active state is a soft light-grey fill, not a blue slab. The one blue
-   thing is the icon, which is enough to find the current page at a glance. */
+/* The active state: a soft blue pill with an accent bar down its leading edge.
+   The bar is a pseudo-element rather than a real `border-left`, for two
+   reasons — a border adds 3px to the box and shunts every label on the current
+   page out of line with the rest of the list, and a square border on a rounded
+   pill cuts the corner off. Drawn this way it sits inside the radius and costs
+   the layout nothing. */
 .rail-item.is-active {
-  background: var(--tint-2);
-  color: var(--text-main);
+  background: var(--primary-glow);
+  color: var(--primary);
   font-weight: 700;
 }
 
+.rail-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 58%;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+}
 
 .rail-item.is-active svg {
+  color: var(--primary);
+}
+
+.rail-item.is-active:hover {
+  background: rgba(var(--primary-rgb), 0.12);
   color: var(--primary);
 }
 
@@ -451,7 +619,11 @@
 .rail-foot {
   flex-shrink: 0;
   padding: 0.6rem var(--rail-pad) var(--rail-pad);
-  border-top: 1px solid var(--border-blue-faint);
+  /* A full-strength hairline now that the list above it can scroll — the faint
+     one read as a gap when rows were sliding underneath it, so there was nothing
+     to say where the scrolling region ended and the account card began. */
+  border-top: 1px solid var(--border-blue);
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -651,12 +823,18 @@
 }
 
 /* --- top header bar ------------------------------------------------------- */
-/* Spans the rail as well as the content, so the brand anchors the product. The
-   accent line along its top edge is the one piece of pure brand colour in the
-   chrome — everything else earns its blue by being active or interactive. */
+/* Sits beside the rail rather than over it: the brand anchors the navigation
+   from the rail's own head, and the band is left to hold the search field and
+   the three session controls. Below 900px the rail goes off-canvas and this
+   spans the screen, which is where `.topbar-brand` comes back. */
 .topbar {
   position: fixed;
-  inset: 0 0 auto 0;
+  top: 0;
+  right: 0;
+  /* Starts where the rail ends and rides the same easing, so collapsing the
+     rail is one movement across the whole chrome. */
+  left: var(--rail-w);
+  transition: left 0.24s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 120;
   /* Border-box, so the accent line and the hairline are drawn inside the band's
      height rather than added to it. The rail hangs from the same number, so a
@@ -669,36 +847,48 @@
   gap: 1rem;
   padding: 0 1.5rem;
   background: var(--bg-card);
-  border-top: 2px solid var(--primary);
   border-bottom: 1px solid var(--header-hairline);
+  /* Optional: keep a faint shadow to lift it off the page */
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 12px rgba(16, 24, 40, 0.04);
+}
+
+/* On a dark plane we use the primary blue border, no need for the hairline override */
+[data-theme="dark"] .topbar {
+  /* box-shadow removed in favor of border-bottom */
+  border-bottom-color: var(--primary);
 }
 
 /* Mark and name on one line, centred on each other. `line-height: 1` is what
    makes that true rather than approximately true: the name's own leading is
    half-leading split above and below the glyphs, and it was pushing the text a
    pixel low against a logo box that has no leading at all. */
+/* Desktop hides this: the brand is in the rail. It comes back below 900px,
+   where the rail is off-canvas and the header is the only chrome on screen. */
 .topbar-brand {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 12px;
   line-height: 1;
-  /* Takes the space the search field used to occupy, which pushes the three
-     controls to the right edge without needing a spacer element. */
-  flex: 1;
   min-width: 0;
 }
 
+/* The Adira mark carries its own colour, so the tile behind it is only a box:
+   a brand gradient under a red-and-blue logo reads as two marks stacked. */
 .topbar-logo {
   width: 34px;
   height: 34px;
-  border-radius: var(--radius-md);
-  background: var(--brand-gradient);
-  color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: var(--shadow-sm);
+}
+
+.topbar-logo img,
+.login-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .topbar-title {
@@ -1005,6 +1195,66 @@
   display: none;
 }
 
+/* --- header search -------------------------------------------------------- */
+/* Centred in the band and capped, so it stays a field rather than stretching
+   into a bar the width of the screen on a wide monitor. */
+.topbar-search {
+  flex: 1;
+  min-width: 0;
+  max-width: 460px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 38px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--tint-2);
+  color: var(--text-light);
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.topbar-search:focus-within {
+  background: var(--bg-card);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.topbar-search svg {
+  flex-shrink: 0;
+}
+
+.topbar-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-main);
+}
+
+.topbar-search input::placeholder {
+  color: var(--text-light);
+}
+
+/* The shortcut hint. A hint, not a control — it is never focusable and it is
+   the first thing dropped when the band gets tight. */
+.topbar-kbd {
+  flex-shrink: 0;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-blue-strong);
+  background: var(--bg-card);
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* --- workspace ------------------------------------------------------------ */
 .app-body {
   display: flex;
@@ -1105,7 +1355,15 @@
   }
 
   .topbar-brand {
+    display: flex;
+    flex: 1;
     width: auto;
+  }
+
+  /* The field is the widest thing in the band and the first to go: the brand,
+     the pulse and the two controls are what a phone header has room for. */
+  .topbar-search {
+    display: none;
   }
 
   .topbar-menu-btn {
@@ -1121,11 +1379,14 @@
     padding: 0 0.7rem;
   }
 
+  /* Full-viewport now, and above the header: the drawer covers the whole left
+     edge including the band, so a scrim that stopped at the header would have
+     left a live strip above a dimmed page. */
   .rail-backdrop.is-open {
     display: block;
     position: fixed;
-    inset: var(--app-header-h) 0 0 0;
-    z-index: 105;
+    inset: 0;
+    z-index: 125;
     background: rgba(15, 23, 42, 0.38);
   }
 
@@ -1187,7 +1448,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
 }
 
 .db-card-head {
@@ -1228,6 +1489,13 @@
 
 .db-card-body {
   padding: 1.25rem;
+}
+
+/* A card body that is an intro line followed by a matrix needs the two held
+   apart; `.db-card-sub` only carries a top margin of its own. */
+.db-card-body > .db-card-sub + .staff-matrix,
+.db-card-body > .staff-matrix + .db-card-sub {
+  margin-top: 0.9rem;
 }
 
 /* The small uppercase header that labels a region inside a card. */
@@ -1583,7 +1851,9 @@
 }
 
 .db-chip.is-mono {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   font-size: 0.74rem;
 }
 
@@ -1617,7 +1887,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
   font-family: inherit;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
@@ -1625,7 +1895,7 @@
 
 .ov-action:hover {
   border-color: var(--border-blue-strong);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-1px);
 }
 
@@ -1692,18 +1962,25 @@
 }
 
 .ov-kpi {
-  padding: 1.15rem 1.25rem;
+  padding: 1.35rem 1.4rem;
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.ov-kpi:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
 }
 
 .ov-kpi-label {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  min-height: 38px;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -1711,19 +1988,62 @@
   color: var(--text-label);
 }
 
+/* The icon is a tinted tile in the card's top-right corner rather than a loose
+   glyph on the label's baseline. `min-height` above holds the label row to the
+   tile, so a KPI whose name wraps to two lines and one whose name does not
+   still start their numbers on the same line across the row. */
+.ov-kpi-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
 .ov-kpi-label svg {
   color: var(--text-light);
 }
 
+.ov-kpi-icon svg {
+  color: inherit;
+}
+
 .ov-kpi-value {
-  margin: 0.55rem 0 0;
+  margin: 0.5rem 0 0;
   font-family: var(--font-outfit), sans-serif;
-  font-size: 2.1rem;
-  font-weight: 700;
-  letter-spacing: -0.035em;
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
   color: var(--text-main);
   line-height: 1.02;
   font-variant-numeric: tabular-nums;
+}
+
+/* The movement badge beside a number. Only ever rendered where a real
+   period-on-period figure exists — see the note in `OverviewScreen`. */
+.ov-kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.55rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  vertical-align: middle;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.ov-kpi-delta.is-down {
+  background: var(--error-fill);
+  color: var(--error-ink);
 }
 
 .ov-kpi-caption {
@@ -1746,13 +2066,13 @@
 .ov-action:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
   transform: none;
 }
 
 .ov-action:disabled:hover {
   border-color: var(--border-blue);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
   transform: none;
 }
 
@@ -1890,9 +2210,9 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-outfit), sans-serif;
   scrollbar-width: thin;
-  scrollbar-color: rgba(11, 30, 66, 0.1) transparent;
+  scrollbar-color: var(--scroll-thumb) transparent;
 }
 
 body {
@@ -1914,12 +2234,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(11, 30, 66, 0.1);
+  background: var(--scroll-thumb);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(11, 30, 66, 0.2);
+  background: var(--scroll-thumb-hover);
 }
 
 
@@ -3895,7 +4215,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--dash-ink-2);
@@ -4663,14 +4985,16 @@ body {
 .dash-log-scroll {
   height: 252px;
   overflow-y: auto;
-  border: 1px solid #1e293b;
+  border: 1px solid #262626;
   border-radius: var(--radius-md);
-  background: #090d16;
+  background: #0a0a0a;
   padding: 0.55rem;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
   /* An inner glow along the top edge, so the panel reads as lit rather than
      as a hole cut in the card. */
@@ -4687,7 +5011,7 @@ body {
 }
 
 .dash-log-scroll .dash-empty {
-  color: #64748b;
+  color: #737373;
 }
 
 .dash-log-row {
@@ -4707,7 +5031,7 @@ body {
 
 .dash-log-time {
   font-size: 0.7rem;
-  color: #64748b;
+  color: #737373;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -4725,8 +5049,8 @@ body {
    Cyan for chatter, green for the thing that worked — the two that carry the
    glow — with amber and red held back for the lines you must not miss. */
 .dash-log-info {
-  background: rgba(34, 211, 238, 0.12);
-  color: #67e8f9;
+  background: rgba(96, 165, 250, 0.14);
+  color: #93c5fd;
 }
 
 .dash-log-success {
@@ -4746,7 +5070,7 @@ body {
 }
 
 .dash-log-message {
-  color: #cbd5e1;
+  color: #d4d4d4;
   word-break: break-word;
 }
 
@@ -4754,7 +5078,7 @@ body {
    panel inside it is dark, so the trace reads as a screen embedded in the page
    rather than as a differently-themed card. */
 .dash-log-card .dash-card-title svg {
-  color: #22d3ee;
+  color: #60a5fa;
 }
 
 /* --- first-paint skeleton ------------------------------------------------ */
@@ -4792,9 +5116,11 @@ body {
   height: 10px;
 }
 
+/* Sized to the real `.ov-kpi-value` it stands in for, so the card does not
+   change height at the moment the numbers land. */
 .dash-skel-value {
-  width: 72px;
-  height: 24px;
+  width: 88px;
+  height: 34px;
   margin-top: 0.25rem;
 }
 
@@ -4835,9 +5161,11 @@ body {
    `slate`. The one place amber survives is the due-date urgency chip, which
    has its own scale in getDueMeta() and is small type, not a border. */
 
+/* Folded into the one blue. Kept as a name only so nothing written against it
+   breaks; it is no longer a distinct colour and should not be reached for. */
 .tone-cyan {
-  --tone: #0e7490;
-  --tone-soft: rgba(8, 145, 178, 0.12);
+  --tone: var(--primary);
+  --tone-soft: rgba(var(--primary-rgb), 0.10);
 }
 
 /* Deep cobalt — the dark end of the same hue family as `blue`, for a figure
@@ -6307,18 +6635,12 @@ body {
 }
 
 .login-logo {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: var(--brand-gradient);
-  color: #ffffff;
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow:
-    0 5px 14px rgba(var(--primary-rgb), 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .login-brandline {
@@ -6602,7 +6924,9 @@ body {
 }
 
 .login-creds-row code {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--dash-ink);
@@ -7334,7 +7658,9 @@ body {
 }
 
 .jod-ref {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   font-size: 0.72rem;
   font-weight: 600;
   padding: 3px 9px;
@@ -7871,14 +8197,55 @@ body {
   }
 }
 
-/* --- candidates: header band above the table ---------------------------- */
+/* --- candidates: the one header bar ------------------------------------- */
+/*
+  Status tabs on the left, everything else hard right. This replaces three
+  stacked rows — a KPI grid, a tabs-plus-toggle row and a search row — so the
+  table now starts about 260px higher up the page.
 
-.cview-toolbar {
-  margin-bottom: 1.25rem;
+  `flex-wrap` with the right-hand cluster kept whole is what makes that safe on
+  a narrow window: the cluster drops below the tabs as one unit instead of the
+  search field and the view toggle breaking to separate lines.
+*/
+.cview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.1rem;
 }
 
-.cview-toolbar .sh-result-count {
+.cview-bar-tabs {
+  flex-wrap: wrap;
+}
+
+.cview-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* The search field is the only elastic thing in the bar, so it takes whatever
+   the tabs and the toggle leave — down to a floor that still shows a word or
+   two of what has been typed. */
+.cview-bar-search {
+  flex: 1 1 16rem;
+  min-width: 11rem;
+}
+
+.cview-bar-count {
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Icon-only, so the buttons are squares rather than the wide pills the labelled
+   tabs are — which is most of what stopped this reading as a second status
+   filter sitting beside the real one. */
+.cview-bar-view .db-tab {
+  padding-inline: 0.6rem;
 }
 
 
@@ -8636,7 +9003,7 @@ body {
 }
 
 .clog-time {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
   font-size: 0.75rem;
   color: var(--dash-muted);
   font-variant-numeric: tabular-nums;
@@ -8812,11 +9179,6 @@ body {
   stop-opacity: 0;
 }
 
-/* The status filter sits above the search row on the candidates directory. */
-.cview-filters {
-  margin-bottom: 0.85rem;
-}
-
 /* ==========================================================================
    CANDIDATE CARDS — the directory's second view
    Same records, same actions, laid out as cards rather than rows. The table is
@@ -8940,15 +9302,6 @@ body {
    behaviours, whichever view you are in. */
 .ccard-foot .ctable-actions {
   justify-content: flex-end;
-}
-
-/* The view switch sits opposite the status filters. */
-.cview-filters {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
 }
 
 /* --------------------------------------------------------------------------
@@ -9460,8 +9813,8 @@ body {
 /* The one surface that must NOT follow the theme. Re-stated here because the
    selectors above are broad enough to reach inside it. */
 [data-theme="dark"] .dash-log-scroll {
-  background: #090d16;
-  border-color: #1e293b;
+  background: #0a0a0a;
+  border-color: #262626;
 }
 
 /* ==========================================================================
@@ -9755,7 +10108,7 @@ body {
 }
 
 .tl-time {
-  font-family: var(--font-fira-code), ui-monospace, monospace;
+  font-family: var(--font-outfit), sans-serif;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -9841,6 +10194,55 @@ body {
    about the team plus the single button that acts on it. The default is the
    primary tone — nothing is broken, there is just work to redistribute — and
    `is-warn` is for the state where profiles are unreachable. */
+/* ==========================================================================
+   STAFF & ALLOCATION — page toolbar
+   One row of ordinary buttons. This replaces three full-width `.ov-action`
+   cards, each of which carried an icon, a title and a subtitle for what is a
+   single click — between them they took a whole band above the fold, so the
+   three numbers that say whether the team is keeping up started below it.
+   ========================================================================== */
+.staff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Refresh is the one action with no consequence, so it keeps the icon and drops
+   the word. Squared to the button height rather than left to the label's
+   padding, which on an icon-only button collapses to a lozenge. */
+.staff-toolbar-refresh {
+  margin-left: auto;
+  padding-inline: 0.6rem;
+}
+
+/* A KPI tile that narrows the directory below it. It is a <button>, so it has
+   to be told to stop looking like one — a button resets font, colour and text
+   alignment, and inherits none of the card's own type. */
+.ov-kpi-card.is-clickable {
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* The affordance is the hover lift the card already has, plus this. A tile
+     that looked pressable at rest would make the two that are not look broken. */
+  transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.ov-kpi-card.is-clickable:hover {
+  border-color: rgba(var(--primary-rgb), 0.45);
+}
+
+.ov-kpi-card.is-clickable:active {
+  transform: translateY(0);
+}
+
+.ov-kpi-card.is-clickable:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
+}
+
 .staff-note {
   display: flex;
   align-items: center;
@@ -9889,9 +10291,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  overflow-x: auto;
+  padding: 1.25rem;
 }
 
 .staff-row {
+  position: relative;
   display: grid;
   /* identity | metrics | progress | actions. Both middle columns are fixed so
      every figure and every bar starts at the same x — the matrix has to read
@@ -9899,15 +10304,49 @@ body {
   grid-template-columns: minmax(190px, 1.4fr) 216px minmax(180px, 1fr) auto;
   gap: 1rem;
   align-items: center;
-  padding: 0.85rem 1rem;
+  padding: 1rem 1.15rem;
+  min-width: 850px;
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  transition: border-color 0.15s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+/* Hover lifts the row a shade and runs an accent down its leading edge — the
+   same bar the rail draws on the current page, so "the one you are pointing
+   at" is stated the same way in both places. */
+.staff-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 60%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
 .staff-row:hover {
   border-color: var(--border-blue-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.staff-row:hover::before {
+  opacity: 1;
+}
+
+/*
+  The job designations row carries one column more than the matrix elsewhere
+  (identity | visibility | cv rule | questions | actions). It is a class rather
+  than an inline style because an inline `grid-template-columns` outranks every
+  media query below, which left the row locked to its desktop track list on a
+  narrow screen while every other matrix reflowed.
+*/
+.staff-row.is-job {
+  grid-template-columns: minmax(190px, 1.4fr) 150px minmax(160px, 1fr) 120px auto;
 }
 
 .staff-row.is-inactive {
@@ -10033,22 +10472,6 @@ body {
   color: var(--text-muted);
 }
 
-/* Queue size drawn against the heaviest queue on the team, so the matrix shows
-   who is carrying it without the reader having to compare numbers. Thinner and
-   quieter than the evaluation bar above it — it is context, not the metric. */
-.staff-load {
-  height: 3px;
-  border-radius: 999px;
-  background: var(--tint-2);
-  overflow: hidden;
-}
-
-.staff-load-fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--border-blue-strong);
-}
 
 .staff-actions {
   display: flex;
@@ -10124,12 +10547,14 @@ body {
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
-  margin-bottom: 0.6rem;
+  padding: 0.75rem 1.25rem 0.25rem;
 }
 
 .alloc-table {
   display: flex;
   flex-direction: column;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .alloc-head,
@@ -10140,10 +10565,11 @@ body {
   grid-template-columns: minmax(200px, 2fr) minmax(130px, 1fr) 120px 228px;
   gap: 0.9rem;
   align-items: center;
+  min-width: 750px;
 }
 
 .alloc-head {
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 1.25rem;
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -10153,7 +10579,7 @@ body {
 }
 
 .alloc-row {
-  padding: 0.55rem 0.6rem;
+  padding: 0.55rem 1.25rem;
   border-bottom: 1px solid var(--border-blue-faint);
 }
 
@@ -10213,8 +10639,10 @@ body {
   color: var(--text-muted);
 }
 
-.alloc-select {
-  width: 100%;
+/* The assign cell holds the shared `Select`, which brings its own box. All the
+   cell has to say is that it may shrink — without `min-width: 0` a long staff
+   name would push the grid column wider than its track. */
+.alloc-assign .ui-select {
   min-width: 0;
 }
 
@@ -10229,6 +10657,32 @@ body {
 .alloc-auto {
   flex: none;
   padding-inline: 0.55rem;
+}
+
+/* The state cell: the verdict pill, and the SLA hours when there are any. */
+.alloc-state {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* The figure the removed SLA card used to carry. Small, tabular and on the row
+   it describes — the whole reason that card could go. */
+.alloc-overdue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--error-edge);
+  border-radius: 999px;
+  background: var(--error-fill);
+  color: var(--error-ink);
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* A row the sweep is currently reporting. A left edge rather than a fill: the
@@ -10611,19 +11065,6 @@ body {
 
 /* ---- Narrow screens ---- */
 @media (max-width: 1100px) {
-
-  /* Identity and metrics keep the top line; the bars and the controls take a
-     full-width row underneath rather than being squeezed to a stub. */
-  .staff-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    row-gap: 0.75rem;
-  }
-
-  .staff-progress,
-  .staff-actions {
-    grid-column: span 2;
-  }
-
   /* Below this the split stops being two readable panes, so the resume goes on
      top and the form under it rather than squeezing both. */
   .eval-split {
@@ -10634,15 +11075,6 @@ body {
   .eval-pdf {
     border-right: 0;
     border-bottom: 1px solid var(--border-blue);
-  }
-
-  .alloc-head {
-    display: none;
-  }
-
-  .alloc-row {
-    grid-template-columns: 1fr 1fr;
-    row-gap: 0.5rem;
   }
 }
 
@@ -10744,7 +11176,9 @@ body {
 
 .login-demo-text code {
   margin-top: 0.15rem;
-  font-family: var(--font-fira-code);
+  font-family: var(--font-outfit);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
   font-size: 0.63rem;
   color: var(--text-light);
   overflow-wrap: anywhere;
@@ -10832,6 +11266,10 @@ body {
   .staff-actions {
     grid-column: auto;
   }
+
+  .staff-row.is-job {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* The imbalance and orphan callouts now share one shape — see `.staff-note` in
@@ -10918,7 +11356,7 @@ body {
    column instead of read row by row. */
 .queue-row {
   display: grid;
-  grid-template-columns: 36px minmax(170px, 1.6fr) minmax(130px, 1.2fr) 104px 112px 78px 30px;
+  grid-template-columns: 36px minmax(170px, 1.6fr) minmax(130px, 1.2fr) 104px 112px 78px 30px 30px;
   gap: 0.85rem;
   align-items: center;
   width: 100%;
@@ -11000,7 +11438,7 @@ body {
   flex-wrap: wrap;
   min-width: 0;
   overflow: hidden;
-  max-height: 44px;
+  max-height: 54px;
 }
 
 .queue-when {
@@ -11071,6 +11509,14 @@ body {
 .queue-eye:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
+}
+
+/* The résumé column on a row that has no résumé. Takes the same space and none
+   of the affordances — no hover border, no cursor, nothing to click. */
+.queue-eye-slot {
+  display: inline-block;
+  width: 26px;
+  height: 26px;
 }
 
 /* ---- verdict form -------------------------------------------------------- */
@@ -11199,7 +11645,7 @@ body {
      reader can recover by opening the profile; identity, status and the way
      into the full profile stay. */
   .queue-row {
-    grid-template-columns: 32px 1fr auto 30px;
+    grid-template-columns: 32px 1fr auto 30px 30px;
   }
 
   .queue-skills,
@@ -11303,1209 +11749,171 @@ body {
   padding-top: 0.75rem;
 }
 
-/*
-  The permission checkboxes.
+/* ==========================================================================
+   USER MANAGEMENT — the create/edit form
+   ========================================================================== */
 
-  Two columns rather than one long list, because the whole point of the screen
-  is seeing what an account reaches at a glance, and a twelve-item column makes
-  that a scroll instead of a look.
+/*
+  The form body. Same insets as `.modal-body`, because the create form is a card
+  on the page and the edit form is the same fields in a dialog — two different
+  containers that have to produce the same layout.
+*/
+.um-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  padding: 1.35rem 1.5rem;
+}
+
+/*
+  Two columns of fields, and the reason this exists rather than `.modal-row-2`:
+  a hint under one field used to push the field beside it out of alignment,
+  because both lived in the same grid row and the row took the height of the
+  taller one. Here every field is its own grid item with its own internal
+  stack, so the labels line up across the row and the inputs line up under
+  them, whatever hangs below either.
+
+  `align-items: start` is the other half of it — without it a short field
+  stretches to its neighbour's height and its input grows with it.
+*/
+.um-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  align-items: start;
+  gap: 1rem 1.25rem;
+}
+
+/*
+  A checkbox standing in for an input. Given the input's own height so the
+  control sits on the same line as the dropdown beside it rather than riding up
+  to the top of the cell.
+*/
+.um-form-control {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+}
+
+/* The one hint that is a correction rather than an explanation. */
+.modal-hint.is-warn {
+  color: var(--warning-ink);
+  font-weight: 500;
+}
+
+/* --- the permission block ------------------------------------------------- */
+/* Set off from the fields above it: it is one question, not four more fields,
+   and at twelve checkboxes it needs a boundary of its own to stop reading as a
+   continuation of the form. */
+.um-pages {
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.um-pages-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.um-pages-head .modal-label {
+  margin-bottom: 0.15rem;
+  font-size: 0.83rem;
+  color: var(--text-main);
+}
+
+.um-pages-head .modal-hint {
+  margin-top: 0;
+  max-width: 52ch;
+}
+
+/* The running count. Tabular so it does not jump width as it climbs. */
+.um-pages-count {
+  flex-shrink: 0;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/*
+  The permission checkboxes, in the rail's own groups.
+
+  Columns rather than one long list, because the whole point of the block is
+  seeing what an account reaches at a glance, and a twelve-item column makes
+  that a scroll instead of a look. `align-items: start` keeps a two-item group
+  from stretching to the height of a five-item one.
 */
 .um-page-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 0.3rem 1rem;
-  margin-top: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: start;
+  gap: 1rem 1.1rem;
 }
 
-.um-page-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.25rem 0;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.um-page-row input[disabled] {
-  cursor: not-allowed;
-}
-
-.um-page-row input[disabled] + * {
-  color: var(--text-muted);
-}
-
-/* ==========================================================================
-   ADIRA — GLASS SHELL
-   ==========================================================================
-   Everything below re-states surfaces the sheet above already defined. It is
-   appended rather than edited in place because the screens were written against
-   those earlier rules and still depend on their box models: this layer changes
-   what a surface is made of — tint, blur, corner, edge — and deliberately
-   touches nothing about where it sits or how big it is.
-   ========================================================================== */
-
-/* --- 1. the plane ---------------------------------------------------------
-   Frosted glass needs something behind it to frost. On a flat fill a blurred
-   panel is indistinguishable from an opaque one, so the page carries two wide,
-   very low-alpha blooms — one at each diagonal — and every surface over them
-   picks up a slightly different wash. They are fixed rather than scrolled: the
-   light source stays put while the content moves past it. */
-.app-shell {
-  background:
-    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
-    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
-    var(--bg-main);
-  background-attachment: fixed;
-}
-
-/* --- 2. the rail owns the brand -------------------------------------------
-   The rail now runs the full height of the window and the header starts to its
-   right, so the mark sits above the navigation instead of over in the header
-   band. `top: 0` is the whole change; the header's own offset follows below. */
-.rail {
-  top: 0;
-  background: var(--glass-bg-strong);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-right: 1px solid var(--glass-border);
-}
-
-/* The brand row is pinned to the header's height so the hairline under it and
-   the one under the header meet across the shell and read as a single line. */
-.rail-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: var(--app-header-h);
-  padding: 0 14px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--header-hairline);
-  overflow: hidden;
-}
-
-/* A white tile under the mark, in both themes. The logo is a full-colour mark
-   with its own navy and crimson: on a dark rail it would either sit in a white
-   box of its own making or lose its edges entirely, and a deliberate tile is
-   the better-looking of those two. */
-.rail-brand-mark {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-sm), var(--glass-sheen);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.rail-brand-mark img {
-  width: 24px;
-  height: auto;
-  object-fit: contain;
-}
-
-.rail-brand-name {
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 1.0625rem;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Collapsed: the word goes, the mark centres and holds the slot alone. */
-.rail.is-collapsed .rail-brand {
-  justify-content: center;
-  padding: 0;
-}
-
-.rail.is-collapsed .rail-brand-name {
-  display: none;
-}
-
-/* --- 3. the header starts beside the rail ---------------------------------
-   It used to span the rail as well, because it held the brand. It no longer
-   does, so it begins where the rail ends and moves with it on collapse. */
-.topbar {
-  left: var(--rail-w);
-  right: 0;
-  inset-inline-start: var(--rail-w);
-  width: auto;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-top: none;
-  border-bottom: 1px solid var(--header-hairline);
-  transition: left 0.24s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Takes the space the brand used to hold, so the status controls stay right. */
-.topbar-spacer {
-  flex: 1;
-  min-width: 0;
-}
-
-/* The staff workspace has no rail, so the header returns to the full width. */
-.app-shell.is-railless .topbar {
-  left: 0;
-  inset-inline-start: 0;
-}
-
-/* --- 4. glass surfaces -----------------------------------------------------
-   The card families across every screen, given one material. They are listed
-   rather than reached with a wildcard because the same screens also use
-   bordered boxes that must stay flat — a table row, a form field, a chip — and
-   frosting those would turn a dense screen into fog.
-
-   `backdrop-filter` is the expensive property here. It is set once per card and
-   never on anything that repeats per row, which is what keeps a 200-row table
-   scrolling at full rate. */
-.dash-card,
-.dash-chart-card,
-.dash-log-card,
-.db-card,
-.sh-card,
-.mc-card,
-.jod-card,
-.job-order-card,
-.candidate-card,
-.ccard,
-.cedit-card,
-.cprof-card,
-.tl-card,
-.flow-card,
-.glass-card,
-.login-card,
-.metric-tile,
-.stat-tile,
-.ov-kpi,
-.ctable-wrap,
-.notif-panel,
-.modal-container,
-.sh-modal,
-.client-modal-dialog,
-.jod-dd-panel,
-.sourcing-dropdown-menu,
-.eval-drawer,
-.sh-toolbar,
-.jo-toolbar,
-.jo-state {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-glass), var(--glass-sheen);
-}
-
-/* What lifts on hover is the card, not its contents: a translate of one pixel
-   plus a wider shadow reads as the surface rising, where a scale reads as the
-   text growing. Only the families that are actually clickable get it. */
-.sh-card,
-.mc-card,
-.jod-card,
-.job-order-card,
-.candidate-card,
-.ccard,
-.tl-card {
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1),
-    box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-.sh-card:hover,
-.mc-card:hover,
-.jod-card:hover,
-.job-order-card:hover,
-.candidate-card:hover,
-.ccard:hover,
-.tl-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-float), var(--glass-sheen);
-  border-color: var(--border-hover);
-}
-
-/* Anything that floats free of the page — a dialog, a popover, the drawer —
-   is frosted harder and lifted further, because it has the whole screen behind
-   it rather than a card's worth of background. */
-.modal-container,
-.sh-modal,
-.client-modal-dialog,
-.notif-panel,
-.jod-dd-panel,
-.sourcing-dropdown-menu,
-.eval-drawer {
-  background: var(--glass-bg-strong);
-  box-shadow: var(--shadow-float), var(--glass-sheen);
-}
-
-/* The scrim behind a dialog blurs the page rather than only darkening it, which
-   is what makes the dialog read as glass in front of the app instead of a box
-   on a grey wash. */
-.modal-overlay {
-  backdrop-filter: blur(8px) saturate(120%);
-  -webkit-backdrop-filter: blur(8px) saturate(120%);
-}
-
-/* --- 5. corner rhythm -----------------------------------------------------
-   Nested corners have to shrink inward or the inner arc cuts the outer one.
-   Cards are --radius-xl above; the controls that sit inside them take the next
-   size down, and anything that reads as a token takes a full round. */
-.db-btn,
-.sh-new-btn,
-.jod-btn,
-.jo-icon-btn,
-.sh-icon-btn,
-.modal-submit-btn,
-.modal-cancel-btn,
-.modal-input,
-.modal-select,
-.modal-textarea,
-.search-input,
-.sh-search-input,
-.login-field,
-.topbar-icon-btn,
-.topbar-sync,
-.cscreen-btn {
-  border-radius: var(--radius-md);
-}
-
-.db-pill,
-.mc-badge,
-.jod-badge,
-.sh-chip,
-.db-chip,
-.tl-badge,
-.job-order-status-chip,
-.ws-pulse {
-  border-radius: var(--radius-pill);
-}
-
-/* --- 6. the rail's own furniture ------------------------------------------ */
-.rail-item {
-  border-radius: var(--radius-md);
-}
-
-/* The active row is a filled tint with the accent carried by the icon and the
-   label, matching the reference: a left-edge bar would be a second marker
-   saying the same thing the fill already says. */
-.rail-item.is-active {
-  background: rgba(var(--primary-rgb), 0.10);
-  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.16);
-}
-
-.rail-account,
-.theme-switch,
-.rail-theme-mini {
-  border-radius: var(--radius-pill);
-}
-
-.rail-account {
-  border-radius: var(--radius-md);
-}
-
-/* --- 7. narrow viewports ---------------------------------------------------
-   Under 900px the rail is off-canvas, so the header has no rail to sit beside
-   and returns to the full width. Without this it would keep a 252px indent
-   against a rail that is not on screen. */
-@media (max-width: 900px) {
-  .topbar {
-    left: 0;
-    inset-inline-start: 0;
-  }
-
-  /* Off-canvas it starts under the header again, so the slide-in does not
-     cover the bar it was opened from. */
-  .rail {
-    top: var(--app-header-h);
-  }
-
-  .rail-brand {
-    display: none;
-  }
-}
-
-/* Respect a reduced-motion preference: the lift and the rail's slide are
-   decoration, and the blur alone carries the look without them. */
-@media (prefers-reduced-motion: reduce) {
-  .rail,
-  .topbar,
-  .sh-card,
-  .mc-card,
-  .jod-card,
-  .job-order-card,
-  .candidate-card,
-  .ccard,
-  .tl-card {
-    transition: none;
-  }
-
-  .sh-card:hover,
-  .mc-card:hover,
-  .jod-card:hover,
-  .job-order-card:hover,
-  .candidate-card:hover,
-  .ccard:hover,
-  .tl-card:hover {
-    transform: none;
-  }
-}
-
-/* --- 8. the login lockup --------------------------------------------------
-   The mark is full-colour — navy and crimson — so it needs a light tile under
-   it in both themes. It used to sit on the brand gradient, which is the one
-   background its own navy cannot survive: the triangle and the tile were the
-   same colour and the mark read as a red shape on blue. Same white tile as the
-   rail's, one size up. */
-.login-logo {
-  width: 46px;
-  height: 46px;
-  border-radius: var(--radius-md);
-  background: #ffffff;
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-md), var(--glass-sheen);
-  overflow: hidden;
-}
-
-.login-logo img {
-  width: 30px;
-  height: auto;
-  object-fit: contain;
-}
-
-/* The sign-in page gets the same two blooms as the shell, so the card has
-   something to frost against instead of a flat white field. */
-.login-page {
-  background:
-    radial-gradient(120% 90% at 10% -10%, var(--page-glow-1) 0%, transparent 55%),
-    radial-gradient(100% 80% at 100% 5%, var(--page-glow-2) 0%, transparent 50%),
-    var(--bg-main);
-}
-
-.login-card {
-  border-radius: var(--radius-2xl);
-  padding: 2.6rem 2.5rem 2.2rem;
-}
-
-/* ==========================================================================
-   ADIRA — FLOATING RAIL, TREE CONNECTORS, BOXED GRID
-   ==========================================================================
-   The reference does three things this shell was not doing: the rail is a panel
-   floating inside the page rather than a column flush to its edge, the nav rows
-   hang off a spine that descends from their heading, and every region of the
-   page is a discrete rounded box with one consistent gutter between boxes.
-   ========================================================================== */
-
-/* --- 1. the rail floats ---------------------------------------------------
-   Inset on all four sides and rounded, so the page plane runs behind it and the
-   panel reads as sitting *on* the app rather than as the app's left wall.
-   `--rail-gap` is the inset, and the header and workspace are laid out from it
-   as well, so all three move together. */
-.app-shell {
-  --rail-gap: 14px;
-}
-
-.rail {
-  top: var(--rail-gap);
-  bottom: var(--rail-gap);
-  left: var(--rail-gap);
-  height: auto;
-  border-radius: var(--radius-2xl);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-glass), var(--glass-sheen);
-  overflow: hidden;
-}
-
-/* The brand row sits inside the panel now, so its hairline stops at the
-   panel's edge instead of running to the window's. */
-.rail-brand {
-  height: 62px;
-  padding: 0 16px;
-}
-
-/* The header and the workspace start clear of the floating panel: the rail's
-   own width plus the gap on each side of it. */
-.topbar {
-  left: calc(var(--rail-w) + var(--rail-gap) * 2);
-  inset-inline-start: calc(var(--rail-w) + var(--rail-gap) * 2);
-  top: var(--rail-gap);
-  right: var(--rail-gap);
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-glass), var(--glass-sheen);
-  height: 60px;
-}
-
-.app-body {
-  padding-top: calc(60px + var(--rail-gap) * 2);
-}
-
-.workspace {
-  margin-left: calc(var(--rail-w) + var(--rail-gap) * 2);
-  padding-right: var(--rail-gap);
-}
-
-.app-shell.is-railless .topbar {
-  left: var(--rail-gap);
-  inset-inline-start: var(--rail-gap);
-}
-
-/* --- 2. the connector spine -----------------------------------------------
-   A single vertical line down the group, with a short arm reaching out to each
-   row — the tree the reference draws under every heading. The spine is one
-   pseudo-element on the wrapper rather than a top border on each row, so it
-   stays continuous through the gaps between rows.
-
-   It is positioned at 19px: the icon column's centre, so the spine descends
-   from directly under the heading's first letter and the arms meet each row
-   just before its glyph. */
-.rail-group-items {
-  position: relative;
-  padding-left: 18px;
-}
-
-.rail-group-items::before {
-  content: "";
-  position: absolute;
-  left: 19px;
-  /* Starts under the heading and stops at the centre of the last row, so the
-     line does not overshoot into empty space below the group. */
-  top: -2px;
-  bottom: 16px;
-  width: 1px;
-  background: var(--border-blue-strong);
-  opacity: 0.55;
-  border-radius: 1px;
-}
-
-/* The arm out to one row. */
-.rail-group-items .rail-item {
-  position: relative;
-}
-
-.rail-group-items .rail-item::before {
-  content: "";
-  position: absolute;
-  left: -11px;
-  top: 50%;
-  width: 10px;
-  height: 1px;
-  background: var(--border-blue-strong);
-  opacity: 0.55;
-  transition: background 0.16s ease, opacity 0.16s ease;
-}
-
-/* The active row lights its own arm, so the eye can follow the spine straight
-   to where it is. */
-.rail-group-items .rail-item.is-active::before,
-.rail-group-items .rail-item:hover::before {
-  background: var(--primary);
-  opacity: 1;
-}
-
-/* --- 3. the heading is a control ------------------------------------------ */
-.rail-group-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  width: 100%;
-  border: none;
-  background: none;
-  font-family: inherit;
-  cursor: pointer;
-  transition: color 0.16s ease;
-}
-
-.rail-group-label:hover:not(:disabled) {
-  color: var(--text-main);
-}
-
-.rail-group-label:disabled {
-  cursor: default;
-}
-
-.rail-group-caret {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* Folded: the caret points right, the way every disclosure in the product
-   does. */
-.rail-group.is-shut .rail-group-caret {
-  transform: rotate(-90deg);
-}
-
-/* --- 4. collapsed: no spine, no carets ------------------------------------
-   At 68px the rows are centred icons with nothing to hang off, and a spine
-   through their middles would read as a strike-through. */
-.rail.is-collapsed .rail-group-items {
-  padding-left: 0;
-}
-
-.rail.is-collapsed .rail-group-items::before,
-.rail.is-collapsed .rail-group-items .rail-item::before,
-.rail.is-collapsed .rail-group-caret {
-  display: none;
-}
-
-/* --- 5. the collapse control rides the rail's edge -------------------------
-   Out of the heading row and onto the border, where the reference puts it: one
-   round button straddling the panel's right edge at brand height. It is the
-   same control in both states — a chevron that points the way the rail will
-   move — so there is nothing to find again after collapsing.
-
-   The rail drops `overflow: hidden` for this: the button is deliberately half
-   outside the panel, and clipping it would leave a half-moon on the border. */
-.rail {
-  overflow: visible;
-}
-
-/* The scroller keeps the clipping the panel gave up, so a long list still stops
-   at the rounded corner instead of running past it. */
-.rail-scroll {
-  border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
-}
-
-.rail-toggle {
-  position: absolute;
-  top: 24px;
-  right: -14px;
-  z-index: 2;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-card);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-md);
-  color: var(--text-muted);
-}
-
-.rail-toggle:hover {
-  background: var(--bg-card);
-  border-color: var(--primary);
-  color: var(--primary);
-  transform: scale(1.06);
-}
-
-/* The heading row is the heading's alone again. */
-.rail-group-head {
-  min-height: 0;
-  margin-bottom: 0.2rem;
-}
-
-/* --- 6. connector geometry -------------------------------------------------
-   Tightened against the first pass: the spine starts directly under the
-   heading's first letter and stops on the last row's centre line, and the arms
-   are short enough to read as ticks rather than as rules. */
-.rail-group-items {
-  padding-left: 14px;
-}
-
-.rail-group-items::before {
-  left: 8px;
-  top: 0;
-  bottom: 18px;
-}
-
-.rail-group-items .rail-item::before {
-  left: -6px;
-  width: 6px;
-}
-
-/* Collapsed, the toggle centres on the panel's edge at the same height. */
-.rail.is-collapsed .rail-toggle {
-  right: -14px;
-}
-
-/* --- 7. narrow viewports, restated ----------------------------------------
-   These have to come after the floating-panel rules above rather than in the
-   900px block further up the sheet: same specificity, and the later rule wins.
-   Without this the header keeps `calc(--rail-w + gap*2)` on a phone, and since
-   `--rail-w` is 0 there it lands 28px from the left against 14px on the right —
-   off-centre by exactly one gap. */
-@media (max-width: 900px) {
-  .topbar,
-  .app-shell.is-railless .topbar {
-    left: var(--rail-gap);
-    inset-inline-start: var(--rail-gap);
-    right: var(--rail-gap);
-  }
-
-  .workspace {
-    margin-left: 0;
-  }
-
-  /* The drawer keeps the brand: slid over the content it is the only place the
-     product is named, and it is full height because there is no header beside
-     it to leave room for. */
-  .rail,
-  .rail.is-collapsed {
-    top: var(--rail-gap);
-    bottom: var(--rail-gap);
-    left: var(--rail-gap);
-  }
-
-  .rail-brand {
-    display: flex;
-  }
-
-  /* The edge toggle is a desktop affordance — the drawer is opened from the
-     header's menu button and closed by tapping the backdrop. */
-  .rail-toggle {
-    display: none;
-  }
-
-  .rail-backdrop.is-open {
-    inset: 0;
-  }
-}
-
-/* --- 8. collapsed group dividers ------------------------------------------
-   The heading became a flex button with a word and a caret inside it, and the
-   old collapsed rule squashed that whole flex row to 1px and hid the overflow —
-   which left the word's ascenders showing through as a dashed line rather than
-   drawing a clean rule. The children are taken out of the flow explicitly now,
-   and the divider is the element's own background again. */
-.rail.is-collapsed .rail-group-label {
-  display: block;
-  height: 1px;
-  padding: 0;
-  margin: 0.65rem 0.5rem;
-  background: var(--border-blue);
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.rail.is-collapsed .rail-group-word {
-  display: none;
-}
-
-/* The first group opens the list, so it needs no rule above it. */
-.rail.is-collapsed .rail-group:first-child .rail-group-label {
-  display: none;
-}
-
-/* ==========================================================================
-   RAIL CONNECTORS — WEIGHT AND FLOW
-   ==========================================================================
-   The spine and its arms, drawn to be seen, with a pulse running down them.
-
-   The line is two layers: a static rule that is always there at readable
-   contrast, and a travelling highlight over it. Keeping them separate is what
-   lets the tree stay legible when the animation is suppressed — the structure
-   is the static layer's job, and the motion only decorates it.
-   ========================================================================== */
-
-/* --- the static rule, stronger -------------------------------------------- */
-.rail-group-items::before {
-  width: 2px;
-  left: 8px;
-  /* Was a hairline at 55% of a faint grey, which on the frosted panel came out
-     close to invisible. A solid two-pixel rule at full strength is the weight
-     the reference draws it at. */
-  background: var(--border-hover);
-  opacity: 1;
-}
-
-.rail-group-items .rail-item::before {
-  height: 2px;
-  left: -6px;
-  width: 8px;
-  border-radius: 1px;
-  background: var(--border-hover);
-  opacity: 1;
-}
-
-/* The active row owns its whole path: a thicker, accent-coloured arm with a
-   node where it meets the row, so the branch you are on is legible at a glance
-   rather than only on close inspection. */
-.rail-group-items .rail-item.is-active::before {
-  background: var(--primary);
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.18),
-    0 0 10px 1px rgba(var(--primary-rgb), 0.55);
-}
-
-.rail-group-items .rail-item:hover::before {
-  background: var(--primary);
-  opacity: 1;
-}
-
-/* --- the pulse ------------------------------------------------------------
-   A repeating gradient the height of one pulse cycle, scrolled down by exactly
-   one cycle per iteration. Because the travel equals the tile, the loop is
-   seamless — there is no jump at the restart, which is what a keyframe that
-   moves a single blob from top to bottom always gives you.
-
-   It rides directly over the static rule at the same width and offset, so the
-   line does not appear to thicken as the pulse passes. */
-.rail-group-items::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 0;
-  bottom: 18px;
-  width: 2px;
-  border-radius: 1px;
-  pointer-events: none;
-  background-image: linear-gradient(
-    to bottom,
-    rgba(var(--primary-rgb), 0) 0px,
-    rgba(var(--primary-rgb), 0.25) 16px,
-    rgba(var(--primary-rgb), 1) 30px,
-    rgba(var(--primary-rgb), 0.25) 44px,
-    rgba(var(--primary-rgb), 0) 60px
-  );
-  background-size: 2px 190px;
-  background-repeat: repeat-y;
-  animation: railFlow 2.8s linear infinite;
-  /* The glow is on the layer that moves, so the rule underneath stays crisp. */
-  filter: drop-shadow(0 0 4px rgba(var(--primary-rgb), 0.85));
-}
-
-@keyframes railFlow {
-  from {
-    background-position: 0 -190px;
-  }
-  to {
-    background-position: 0 0;
-  }
-}
-
-/* Offset per group so the three spines do not pulse in lockstep — in step they
-   read as one bar sweeping the rail, which is a different (and louder) effect
-   than a signal running down each branch. */
-.rail-group:nth-child(2) .rail-group-items::after {
-  animation-delay: -0.9s;
-}
-
-.rail-group:nth-child(3) .rail-group-items::after {
-  animation-delay: -1.8s;
-}
-
-.rail-group:nth-child(4) .rail-group-items::after {
-  animation-delay: -2.4s;
-}
-
-/* Collapsed there is no spine to run down. */
-.rail.is-collapsed .rail-group-items::after {
-  display: none;
-}
-
-/* Motion is the decoration; the rule under it carries the structure. Suppressed
-   here rather than dimmed, so the tree is unchanged and only the pulse stops. */
-@media (prefers-reduced-motion: reduce) {
-  .rail-group-items::after {
-    animation: none;
-    opacity: 0;
-  }
-}
-
-/* ==========================================================================
-   TOP BAR — PILL ROW
-   ==========================================================================
-   One row of rounded controls at a single weight: the sync action, the clock,
-   the search field, the bell and the account. The reference's bar has no bare
-   glyphs in it — every control sits in a pill or a circle with a hairline —
-   and that is what holds the row together as a set rather than a row of
-   mismatched buttons.
-   ========================================================================== */
-
-.topbar-actions {
-  gap: 0.5rem;
-}
-
-/* The shared pill: hairline, transparent fill, full round. Each control below
-   states only what makes it different from this. */
-.topbar-sync,
-.topbar-clock,
-.topbar-search,
-.topbar-avatar,
-.notif-btn {
-  height: 38px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-blue);
-  background: var(--tint-1);
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease,
-    box-shadow 0.16s ease;
-}
-
-/* --- sync ---------------------------------------------------------------- */
-.topbar-sync {
-  gap: 0.45rem;
-  padding: 0 1rem;
-  font-weight: 600;
-  font-size: 0.82rem;
-  /* The one filled control in the row: it is the only thing up here that
-     changes the state of the system rather than reporting it. */
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #ffffff;
-  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
-}
-
-.topbar-sync:hover:not(:disabled) {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
-  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
-}
-
-.topbar-sync:disabled {
-  opacity: 0.65;
-  cursor: progress;
-}
-
-/* --- clock --------------------------------------------------------------- */
-.topbar-clock {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0 0.9rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-  /* Tabular figures, so the minute ticking over does not shift the pill's
-     width and nudge everything to its left. */
-  font-variant-numeric: tabular-nums;
-}
-
-.topbar-clock svg {
-  color: var(--text-light);
-  flex-shrink: 0;
-}
-
-/* --- search -------------------------------------------------------------- */
-.topbar-search {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.95rem;
-  width: 280px;
-  max-width: 32vw;
-}
-
-.topbar-search:focus-within {
-  border-color: var(--primary);
-  background: var(--bg-card);
-  box-shadow: var(--shadow-glow);
-}
-
-.topbar-search-icon {
-  color: var(--text-light);
-  flex-shrink: 0;
-}
-
-.topbar-search-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: none;
-  font-family: inherit;
-  font-size: 0.82rem;
-  color: var(--text-main);
-}
-
-.topbar-search-input::placeholder {
-  color: var(--text-light);
-}
-
-/* The browser's own clear affordance is a grey cross that ignores the theme. */
-.topbar-search-input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-/* --- bell ---------------------------------------------------------------- */
-.notif-btn {
-  width: 38px;
-  padding: 0;
-  color: var(--text-muted);
-}
-
-.notif-btn:hover {
-  border-color: var(--border-hover);
-  color: var(--text-main);
-}
-
-/* --- account ------------------------------------------------------------- */
-.topbar-account {
-  position: relative;
-}
-
-.topbar-avatar {
-  width: 38px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #ffffff;
-  background: var(--brand-gradient);
-  border-color: transparent;
-  box-shadow: var(--shadow-sm);
-}
-
-.topbar-avatar:hover {
-  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.22);
-}
-
-.topbar-menu {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 200;
-  min-width: 232px;
-  padding: 0.4rem;
-  border-radius: var(--radius-xl);
-  background: var(--glass-bg-strong);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-float), var(--glass-sheen);
-  animation: fadeIn 0.14s ease;
-}
-
-.topbar-menu-head {
+.um-page-group {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.6rem 0.7rem 0.7rem;
-  border-bottom: 1px solid var(--border-blue);
-  margin-bottom: 0.35rem;
+  gap: 1px;
+  min-width: 0;
 }
 
-.topbar-menu-name {
-  font-size: 0.85rem;
+/* Indented to the label column, not to the group's edge — so a heading starts
+   where the text under it starts rather than over the tick boxes. The 0.55rem
+   is `.ui-check`'s own horizontal pad plus its box and gap. */
+.um-page-group-label {
+  padding: 0 0.55rem 0.3rem;
+  font-size: 0.63rem;
   font-weight: 700;
-  color: var(--text-main);
-}
-
-.topbar-menu-mail {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-
-.topbar-menu-role {
-  margin-top: 0.3rem;
-  align-self: flex-start;
-  padding: 0.1rem 0.5rem;
-  border-radius: var(--radius-pill);
-  background: rgba(var(--primary-rgb), 0.12);
-  color: var(--primary);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
+  color: var(--text-light);
 }
 
-.topbar-menu-item {
+/*
+  The create form reuses the modal field classes inside a plain card, so the
+  card's own header padding has to match what the form body uses — otherwise
+  the title sits a few pixels left of every field under it.
+*/
+.um-create-card .db-card-head {
+  padding: 1.1rem 1.5rem;
+}
+
+.um-create-head {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.55rem 0.7rem;
-  border: none;
-  border-radius: var(--radius-md);
-  background: none;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  align-items: flex-start;
+  gap: 0.6rem;
 }
 
-.topbar-menu-item:hover {
-  background: var(--error-fill);
-  color: var(--error-ink);
-}
-
-/* --- narrow bars ----------------------------------------------------------
-   The row sheds from the least load-bearing end: the clock first, then the
-   search field, then the sync label. The bell and the account always stay. */
-@media (max-width: 1180px) {
-  .topbar-clock {
-    display: none;
-  }
-
-  .topbar-search {
-    width: 200px;
-  }
-}
-
-@media (max-width: 900px) {
-  .topbar-search {
-    display: none;
-  }
-
-  .topbar-sync span {
-    display: none;
-  }
-
-  .topbar-sync {
-    width: 38px;
-    padding: 0;
-    justify-content: center;
-  }
-}
-
-/* `.topbar-account` carried a left hairline and an inset from the bar's earlier
-   staff-only layout, where it separated a name-and-email block from the
-   controls beside it. That block is gone and this class now wraps the avatar
-   button alone, where the rule drew a stray divider between the bell and the
-   account. The old declarations are left in place above rather than deleted —
-   they are the whole of that former design and are worth having to hand — and
-   only the two that do not apply here are cleared. */
-.topbar-account {
-  padding-left: 0;
-  border-left: none;
-}
-
-/* --- the bar loses its card -----------------------------------------------
-   In the reference there is no panel behind the top controls: they sit
-   straight on the page as a row of floating pills. The bar here was a
-   full-width glass card, and since the controls all group to the right it read
-   as a large empty white slab taking up two thirds of the row.
-
-   The bar keeps its geometry and stays fixed — it is only the surface that
-   goes. Nothing is lost to legibility by that: every control in the row is an
-   opaque pill in its own right, so content scrolling underneath shows only in
-   the gaps between them, which is what makes them read as floating. */
-.topbar {
-  background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: none;
-  box-shadow: none;
-  border-radius: 0;
-  /* Clicks fall through the empty stretch to whatever is under it; the
-     controls take their own back. */
-  pointer-events: none;
-}
-
-.topbar > * {
-  pointer-events: auto;
-}
-
-/* The row hung off the bottom of a 60px band. With the band gone it needs its
-   own vertical rhythm against the workspace below. */
-.app-body {
-  padding-top: calc(58px + var(--rail-gap) * 2);
-}
-
-/* --- what the slab was actually for ---------------------------------------
-   Taking the panel away left the bar transparent over a page that scrolls
-   under it: table rows ran between the pills and collided with the search
-   field. The card was doing real work, and only its *appearance* was the
-   problem.
-
-   So the work is kept and the appearance is not. A layer behind the row
-   diffuses whatever passes under it and is masked to nothing at its lower
-   edge, which is what stops it reading as a band: there is no bottom border to
-   see, just content becoming progressively less legible until it is gone.
-   Blur rather than a fill in `--bg-main`, because the page carries two colour
-   blooms and a flat scrim would stamp a rectangle of the wrong colour over the
-   corner where the first one sits. */
-.topbar::before {
-  content: "";
-  position: absolute;
-  /* Out to the window edges, past the bar's own inset, so nothing shows in the
-     margin beside it. */
-  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -22px;
-  z-index: -1;
-  pointer-events: none;
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 58%, transparent 100%);
-}
-
-/* Masking a `backdrop-filter` does not survive in Chrome — the mask applies to
-   the element's own paint and the filtered backdrop is dropped, so the layer
-   above came out doing nothing at all. Replaced with something that does not
-   depend on that interaction.
-
-   The trick is `background-attachment: fixed`. `.app-shell` paints its two
-   blooms that way, which positions them against the viewport rather than the
-   element; repeating the identical stack here, also fixed, produces a strip
-   that is pixel-for-pixel the page behind it, wherever it happens to sit. So
-   the scrim cannot be seen as a rectangle of not-quite-the-right-colour — it
-   *is* the background — and the mask fades it to nothing at the bottom edge.
-   Content scrolling under simply dissolves into the page. */
-.topbar::before {
-  content: "";
-  position: absolute;
-  inset: calc(var(--rail-gap) * -1) calc(var(--rail-gap) * -1) -26px;
-  z-index: -1;
-  pointer-events: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background:
-    radial-gradient(120% 90% at 8% -10%, var(--page-glow-1) 0%, transparent 55%),
-    radial-gradient(100% 80% at 100% 0%, var(--page-glow-2) 0%, transparent 50%),
-    var(--bg-main);
-  background-attachment: fixed;
-  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
-}
-
-/* --- the rail's toggle was being painted over ------------------------------
-   Two things were burying the right half of the collapse button.
-
-   The scrim behind the top bar was inset -14px on its left, reaching one gap
-   further left than the bar itself — which is precisely the gutter the toggle
-   straddles. It never needed to: the workspace starts at `rail-w + gap*2`, the
-   same place the bar does, so there is no content in that gutter to cover and
-   the overhang was only ever covering the rail.
-
-   And the bar carries `z-index: 120` against the rail's 110, so everything in
-   the bar's stacking context — the scrim included, negative z-index and all —
-   paints above the whole rail. The rail is a panel floating over the page and
-   its own controls belong on top of the chrome beside it, so it goes up. */
-.topbar::before {
-  left: 0;
-}
-
-.rail {
-  z-index: 130;
+/* The icon is on the title's cap-height, not on the middle of a two-line
+   heading block. */
+.um-create-head>svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary);
 }
 
 /* ==========================================================================
-   MY CANDIDATES — THREE BOXES
-   ==========================================================================
-   The screen was four stat tiles in a row, a loose performance banner and a
-   queue card: seven bordered objects reporting on one queue. It is three now —
-   the queue in one number with its breakdown as columns inside, the split as a
-   chart, and the queue itself.
+   SHOPEERS-STYLE OVERVIEW DASHBOARD
    ========================================================================== */
 
-.sq-summary,
-.sq-chart,
-.sq-recent {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-glass), var(--glass-sheen);
-  padding: 1.25rem 1.4rem 1.35rem;
+/* ---- Page shell ---- */
+.ov-shopeers {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-/* --- box 1: summary -------------------------------------------------------- */
-.sq-summary-head {
+/* ---- Page header row ---- */
+.ov-page-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -12513,489 +11921,1250 @@ body {
   flex-wrap: wrap;
 }
 
-.sq-next {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 1rem;
-  height: 40px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: #ffffff;
-  font-family: inherit;
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  max-width: 100%;
-  box-shadow: 0 2px 10px -2px rgba(var(--primary-rgb), 0.5);
-  transition: background 0.16s ease, box-shadow 0.16s ease;
+.ov-page-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--text-main);
+  margin: 0;
+  line-height: 1.15;
 }
 
-.sq-next span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sq-next:hover:not(:disabled) {
-  background: var(--primary-hover);
-  box-shadow: 0 4px 14px -2px rgba(var(--primary-rgb), 0.6);
-}
-
-.sq-next:disabled {
-  background: var(--tint-2);
-  border-color: var(--border-blue);
+.ov-page-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.83rem;
   color: var(--text-muted);
-  box-shadow: none;
-  cursor: default;
 }
 
-.sq-headline {
+.ov-page-actions {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-  margin: 1.1rem 0 0.2rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
-.sq-headline-value {
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 2.9rem;
+.ov-hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.52rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease,
+    box-shadow 0.14s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.ov-hdr-btn:hover {
+  background: var(--tint-1);
+  border-color: var(--border-hover);
+  color: var(--text-main);
+}
+
+.ov-hdr-btn.is-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.35);
+}
+
+.ov-hdr-btn.is-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+/* ---- KPI card row (4 across) ---- */
+.ov-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.ov-kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  padding: 1.1rem 1.25rem 1rem;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  transition: box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.ov-kpi-card:hover {
+  box-shadow: var(--dash-shadow-hover);
+  transform: translateY(-1px);
+}
+
+.ov-kpi-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ov-kpi-card-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.ov-kpi-card-icon {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--primary-glow);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.ov-kpi-card-icon.is-success {
+  background: var(--success-fill);
+  color: var(--success);
+}
+
+.ov-kpi-card-icon.is-warning {
+  background: var(--warning-glow);
+  color: var(--warning);
+}
+
+.ov-kpi-card-icon.is-rose {
+  background: var(--rose-fill);
+  color: var(--rose);
+}
+
+.ov-kpi-card-value {
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  line-height: 1.1;
+  margin: 0.2rem 0 0;
+}
+
+.ov-kpi-card-value.is-rose {
+  color: var(--rose);
+}
+
+.ov-kpi-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.ov-kpi-card-caption {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+/* ---- Delta badge ---- */
+.ov-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
   font-weight: 700;
-  line-height: 1;
+}
+
+.ov-delta.is-up {
+  background: var(--success-fill);
+  color: var(--success-ink);
+  border: 1px solid var(--success-edge);
+}
+
+.ov-delta.is-down {
+  background: var(--rose-fill);
+  color: var(--rose-ink);
+  border: 1px solid var(--rose-edge);
+}
+
+/* ---- 2-column grid ---- */
+.ov-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.ov-grid-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.ov-grid-right {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ---- Main chart card ---- */
+.ov-chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.ov-chart-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.1rem 1.25rem 0.6rem;
+  gap: 1rem;
+}
+
+.ov-chart-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.ov-chart-card-sub {
+  margin: 0.3rem 0 0;
+  font-size: 0.83rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.ov-chart-big {
+  font-size: 1.6rem;
+  font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--text-main);
 }
 
-.sq-headline-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius-pill);
-  background: rgba(var(--primary-rgb), 0.12);
-  color: var(--primary);
-  font-size: 0.72rem;
-  font-weight: 700;
+.ov-chart-card-body {
+  padding: 0.5rem 1rem 1rem;
 }
 
-.sq-headline-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin-left: auto;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-label);
-}
-
-/* The four readings, as columns of one box rather than four boxes. The rule
-   between them is a border on the item, not a separator element, so the row
-   reflows to two-up and then one-up without leaving orphaned rules behind. */
-.sq-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 1.15rem;
-  padding-top: 1.1rem;
-  border-top: 1px solid var(--border-blue);
-}
-
-.sq-metric {
+/* ---- Right-column side cards ---- */
+.ov-side-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  padding: 1.1rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  padding: 0 1.1rem;
-  border-left: 1px solid var(--border-blue);
-  min-width: 0;
+  gap: 0.75rem;
+  transition: box-shadow 0.18s ease;
 }
 
-.sq-metric:first-child {
-  padding-left: 0;
-  border-left: none;
+.ov-side-card:hover {
+  box-shadow: var(--dash-shadow-hover);
 }
 
-.sq-metric-label {
+.ov-side-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.ov-side-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.ov-side-card-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ---- Peak day label ---- */
+.ov-peak-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.ov-peak-label strong {
+  color: var(--primary);
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-right: 0.25rem;
+}
+
+/* ---- Bar chart SVG ---- */
+.bar-track {
+  fill: var(--tint-2);
+}
+
+.bar-fill {
+  fill: var(--tint-3);
+  transition: fill 0.2s ease;
+}
+
+.bar-fill.is-today {
+  fill: var(--primary);
+}
+
+.bar-day-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-outfit), sans-serif;
+}
+
+.bar-day-label.is-today {
+  fill: var(--primary);
+  font-weight: 700;
+}
+
+.bar-label-today {
+  fill: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-outfit), sans-serif;
+}
+
+/* ---- Gauge ---- */
+.gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gauge-pct {
+  fill: var(--text-main);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-family: var(--font-outfit), sans-serif;
+}
+
+.gauge-sublabel {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin: 0;
+}
+
+.ov-gauge-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.55rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.ov-gauge-cta:hover {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+}
+
+/* ---- Quick actions ---- */
+.ov-quick-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ov-quick-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  color: var(--text-main);
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.ov-quick-btn:hover {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ov-quick-icon {
+  width: 30px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  color: var(--primary);
+  flex-shrink: 0;
 }
 
-.sq-metric-label svg {
+.ov-quick-arrow {
+  margin-left: auto;
   color: var(--text-light);
   flex-shrink: 0;
 }
 
-.sq-metric-value {
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 1.45rem;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--text-main);
+.ov-quick-btn:hover .ov-quick-arrow {
+  color: var(--primary);
 }
 
-.sq-metric-value.is-alert {
-  color: var(--error);
-}
-
-.sq-metric-note {
-  font-style: normal;
-  font-size: 0.7rem;
-  line-height: 1.35;
-  color: var(--text-light);
-}
-
-/* --- the two-up row -------------------------------------------------------- */
-.sq-row {
+/* ---- Bottom row (donut + bar chart side by side) ---- */
+.ov-bottom-row {
   display: grid;
-  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-  gap: 1.25rem;
-  align-items: start;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
 }
 
-/* --- box 2: the rings ------------------------------------------------------ */
-.sq-chart-total {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  margin-top: 0.9rem;
-}
-
-.sq-chart-total-label {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.sq-chart-total-value {
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  color: var(--text-main);
-}
-
-.sq-chart-body {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-top: 0.6rem;
-}
-
-.sq-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.ov-bottom-card {
   min-width: 0;
 }
 
-.sq-legend-row {
+/* ---- Pipeline Donut ---- */
+.donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  justify-content: center;
+}
+
+.donut-empty {
+  text-align: center;
+  padding: 2rem 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.donut-legend-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.78rem;
 }
 
-.sq-legend-dot {
-  width: 9px;
-  height: 9px;
+.donut-legend-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.sq-legend-label {
+.donut-legend-label {
+  font-size: 0.78rem;
   color: var(--text-muted);
-  white-space: nowrap;
+  flex: 1;
 }
 
-.sq-legend-value {
+.donut-legend-value {
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--text-main);
 }
 
-.sq-rings {
-  width: 150px;
-  height: 150px;
+.donut-center-value {
+  fill: var(--text-main);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-family: var(--font-outfit), sans-serif;
+}
+
+.donut-center-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-outfit), sans-serif;
+}
+
+/* ---- Confidence bar card ---- */
+.ov-confidence-card {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%);
+  border-color: transparent;
+  color: #fff;
+}
+
+.ov-confidence-card .ov-side-card-title {
+  color: #fff;
+}
+
+.ov-confidence-card .ov-side-card-sub,
+.ov-confidence-card .ov-kpi-card-caption {
+  color: rgba(255,255,255,0.7);
+}
+
+.ov-conf-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ov-conf-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #fff;
+  line-height: 1;
   flex-shrink: 0;
 }
 
-/* Every arc starts at the top and grows clockwise, which is the only reading
-   order a ring has. Rotating the element rather than each arc keeps the four
-   in register. */
-.sq-rings circle {
-  fill: none;
-  stroke-width: 11;
-  transform: rotate(-90deg);
-  transform-origin: 90px 90px;
+.ov-conf-pct {
+  font-size: 1.2rem;
+  font-weight: 700;
+  opacity: 0.8;
 }
 
-.sq-ring-track {
-  stroke: var(--tint-2);
-}
-
-.sq-ring-arc {
-  stroke-linecap: round;
-  transition: stroke-dasharray 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* --- box 3: recent --------------------------------------------------------- */
-.sq-detail {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-blue);
-  background: none;
-  font-family: inherit;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--primary);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.16s ease, border-color 0.16s ease;
-}
-
-.sq-detail:hover {
-  background: rgba(var(--primary-rgb), 0.08);
-  border-color: var(--primary);
-}
-
-.sq-recent-list {
-  list-style: none;
-  margin: 0.9rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.sq-recent-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.7rem 0.55rem;
-  border: none;
-  border-radius: var(--radius-md);
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.14s ease;
-}
-
-.sq-recent-row:hover {
-  background: var(--tint-1);
-}
-
-.sq-recent-list li + li .sq-recent-row {
-  border-top: 1px solid var(--border-blue-faint);
-  border-radius: 0;
-}
-
-.sq-recent-identity {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.ov-conf-bar-wrap {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
-.sq-recent-identity strong {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-main);
-  white-space: nowrap;
+.ov-conf-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 999px;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.sq-recent-identity em {
-  font-style: normal;
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.ov-conf-bar-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 999px;
+  transition: width 1s cubic-bezier(.4,0,.2,1);
 }
 
-.sq-recent-when {
-  font-size: 0.72rem;
-  color: var(--text-light);
-  white-space: nowrap;
-  flex-shrink: 0;
+/* ---- Blue hover accent on KPI cards ---- */
+.ov-kpi-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.3);
 }
 
-/* The four badges the list uses. `reviewed` and `risk` are new names for this
-   screen; the pill's other states are already defined further up. */
-.db-pill.is-reviewed {
-  background: var(--success-fill);
-  color: var(--success-ink);
+/* ---- Responsive bottom row ---- */
+@media (max-width: 860px) {
+  .ov-bottom-row {
+    grid-template-columns: 1fr;
+  }
 }
 
-.db-pill.is-risk {
-  background: var(--error-fill);
-  color: var(--error-ink);
-}
 
-.db-pill.is-unviewed {
-  background: rgba(var(--primary-rgb), 0.12);
-  color: var(--primary);
-}
-
-/* --- reflow ---------------------------------------------------------------- */
-@media (max-width: 1180px) {
-  .sq-row {
-    grid-template-columns: minmax(0, 1fr);
+/* ---- Responsive ---- */
+@media (max-width: 1100px) {
+  .ov-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
 @media (max-width: 900px) {
-  .sq-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    row-gap: 1.1rem;
+  .ov-grid {
+    grid-template-columns: 1fr;
   }
 
-  /* On two columns the third item starts a new row, so it is the one that must
-     lose its rule — not the first. */
-  .sq-metric:nth-child(odd) {
-    padding-left: 0;
-    border-left: none;
+  .ov-grid-right {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 560px) {
-  .sq-metrics {
-    grid-template-columns: minmax(0, 1fr);
+@media (max-width: 600px) {
+  .ov-kpi-row {
+    grid-template-columns: 1fr;
   }
 
-  .sq-metric {
-    padding-left: 0;
-    border-left: none;
-  }
-
-  .sq-chart-body {
-    flex-direction: column-reverse;
-    align-items: flex-start;
+  .ov-grid-right {
+    grid-template-columns: 1fr;
   }
 }
 
-/* --- staff & allocation: what it needs beyond the candidate screen ---------
-   The three boxes are the same objects as My Candidates and reuse its classes
-   outright. Only two things differ: this screen has three actions in the head
-   rather than one, and its roster rows carry a percentage rather than a
-   status badge. */
 
-.sq-actions {
+/* ---- Hourly event bar chart (ActivityLogsScreen) ---- */
+.act-bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 80px;
+  padding: 0 1.25rem 0.25rem;
+}
+
+.act-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+}
+
+.act-bar-fill {
+  width: 100%;
+  background: var(--primary);
+  border-radius: 4px 4px 0 0;
+  min-height: 0;
+  transition: height 0.6s cubic-bezier(.4,0,.2,1);
+  opacity: 0.85;
+}
+
+.act-bar-col:hover .act-bar-fill {
+  opacity: 1;
+  background: var(--accent);
+}
+
+.act-bar-label {
+  position: absolute;
+  bottom: -18px;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Staff perf bar ---- */
+.staff-perf-bar {
+  margin-bottom: 0;
+}
+
+
+/* ==========================================================================
+   FORM PRIMITIVES — checkbox, dropdown, date picker
+   The three controls the product was still taking from the browser. Each of
+   them was drawn by the operating system, which meant three things: they
+   ignored the theme (a white OS menu on a black page), they could not carry a
+   second line of explanation beside an option, and they looked different on
+   every machine the product was opened on.
+
+   Written against the same tokens as everything else, so they follow light,
+   black and any future theme without a second set of rules. In the checkbox's
+   case the native input is still the control — it is moved out of sight and the
+   box beside it is drawn from `:checked`, so the space bar, the label
+   association and the tab order stay the browser's rather than becoming a
+   reimplementation.
+   ========================================================================== */
+
+/* --- the shared popover shell -------------------------------------------- */
+/* One surface for the select's list and for the calendar, so a panel is a panel
+   wherever it opens from. */
+/* Position, offset and min-width come from the hook as an inline style, because
+   the panel is portalled to <body> and has no field to be positioned against —
+   see usePopover. All this rule owns is what the panel looks like. */
+.ui-pop {
+  /* Above every layer a popover can be opened from — the modal overlay sits at
+     1000, the evaluation scrim at 1100 and the notification panel at 1200 — and
+     below the toasts, which must stay readable over anything. Portalled to
+     <body>, the panel no longer inherits its trigger's stacking context, so
+     this number is the only thing keeping it in front. */
+  z-index: 1300;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-lg);
+  padding: 0.3rem;
+  animation: ui-pop-in 0.12s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* Not enough room below the trigger: the hook has anchored the panel by its
+   bottom edge instead, so the entrance animation has to come from the other
+   direction too. */
+.ui-pop.is-up {
+  animation-name: ui-pop-in-up;
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-pop-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- checkbox ------------------------------------------------------------- */
+/* A row, not a box sitting in a line of text. The tick column is fixed and the
+   label column is free, so a two-line label wraps under itself instead of under
+   the box — the one thing that made the old permission list look ragged.
+   `align-items: flex-start` with a top pad on the box is what puts a 17px
+   square on the cap-height of the first line rather than on its middle. */
+.ui-check {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.ui-check:hover {
+  background: var(--tint-1);
+}
+
+.ui-check.is-on {
+  border-color: rgba(var(--primary-rgb), 0.28);
+  background: var(--primary-glow);
+}
+
+.ui-check.is-fixed {
+  cursor: not-allowed;
+}
+
+/* Ticked, and not yours to change. Quieter than an active row but still ticked:
+   the point is that the page IS reachable, not that the control is dead. */
+.ui-check.is-locked {
+  border-color: var(--border-blue);
+  background: var(--tint-1);
+}
+
+/* The real control. `opacity: 0` over the drawn box rather than
+   `display: none`, so it keeps its place in the tab order and the label still
+   points at something focusable. */
+.ui-check-input {
+  position: absolute;
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ui-check-box {
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 1.5px solid var(--border-blue-strong);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+/* The glyph is always in the box and always the right shape; only its opacity
+   moves. Animating opacity rather than mounting the icon is what makes the tick
+   appear instantly instead of one frame late. */
+.ui-check-box svg {
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.12s ease, transform 0.12s cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+
+.ui-check-input:checked+.ui-check-box {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.ui-check-input:checked+.ui-check-box svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.ui-check:hover .ui-check-input:not(:disabled)+.ui-check-box {
+  border-color: var(--primary);
+}
+
+.ui-check-input:focus-visible+.ui-check-box {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.ui-check-input:active:not(:disabled)+.ui-check-box {
+  transform: scale(0.92);
+}
+
+/* Locked keeps the fill but drops to the neutral scale — a padlock on a blue
+   tick reads as "on and editable", which is the opposite of what it says. */
+.ui-check.is-locked .ui-check-box {
+  background: var(--tint-3);
+  border-color: var(--border-blue-strong);
+  color: var(--text-muted);
+}
+
+.ui-check-input:disabled+.ui-check-box {
+  opacity: 0.75;
+}
+
+.ui-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.ui-check-label {
+  font-size: 0.83rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-main);
+}
+
+.ui-check.is-on .ui-check-label {
+  font-weight: 600;
+}
+
+.ui-check.is-fixed .ui-check-label {
+  color: var(--text-muted);
+}
+
+.ui-check-hint {
+  font-size: 0.71rem;
+  line-height: 1.35;
+  color: var(--text-light);
+}
+
+/* --- select --------------------------------------------------------------- */
+.ui-select {
+  position: relative;
+  width: 100%;
+}
+
+/* Deliberately the same box as `.modal-input`: a dropdown and a text field on
+   the same row have to agree on height, radius, fill and border, or the row
+   reads as two different forms. 42px is the input's own min-height. */
+.ui-select-trigger {
+  width: 100%;
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  padding: 0.55rem 0.7rem 0.55rem 0.85rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 10px;
+  background: var(--tint-1);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-/* The two secondary actions beside the primary. Same height and radius as
-   `.sq-next`, hairline instead of fill — they are things you occasionally run,
-   not the thing you came here to do. */
-.sq-action {
+.ui-select-trigger:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+
+.ui-select-trigger.is-open,
+.ui-select-trigger:focus-visible {
+  outline: none;
+  background: var(--bg-card);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.ui-select-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ui-select-trigger.is-empty .ui-select-value {
+  color: var(--text-light);
+  font-weight: 400;
+}
+
+/* The value takes the whole row and truncates; the caret is pinned. A caret
+   that moves with the text length is the tell of a fake dropdown. */
+.ui-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-select-caret {
+  flex-shrink: 0;
+  color: var(--text-light);
+  transition: transform 0.18s ease, color 0.16s ease;
+}
+
+.ui-select-trigger.is-open .ui-select-caret {
+  transform: rotate(180deg);
+  color: var(--primary);
+}
+
+/* The in-table size. Shorter box, same type — shrinking the text as well would
+   make the cell unreadable, and the height is what was actually too tall. */
+.ui-select.is-sm .ui-select-trigger {
+  min-height: 34px;
+  padding: 0.35rem 0.5rem 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.ui-select-panel {
+  max-width: min(24rem, 92vw);
+}
+
+/* Capped and scrolled: a twelve-option list is fine, a hundred-option one must
+   not become a page-length menu. */
+.ui-select-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overscroll-behavior: contain;
+}
+
+.ui-select-option {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.83rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* One highlight, driven by the keyboard cursor — and the pointer moves that
+   cursor rather than painting a second highlight of its own. Two rows lit at
+   once is what makes a custom list feel wrong to use. */
+.ui-select-option.is-active {
+  background: var(--tint-2);
+}
+
+.ui-select-option.is-selected {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.ui-select-option.is-selected.is-active {
+  background: var(--primary-glow);
+}
+
+.ui-select-option:disabled {
+  color: var(--text-light);
+  cursor: not-allowed;
+}
+
+.ui-select-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.ui-select-option-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The reason this control exists rather than a `<select>`: an option can say
+   what choosing it means, on its own line, without being truncated into the
+   label. */
+.ui-select-option-hint {
+  font-size: 0.71rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-light);
+  white-space: normal;
+}
+
+.ui-select-tick {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.ui-select-none {
+  padding: 0.7rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--text-light);
+}
+
+/* --- date picker ---------------------------------------------------------- */
+.ui-date {
+  position: relative;
+  width: 100%;
+}
+
+.ui-date-trigger {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.8rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 10px;
+  background: var(--tint-1);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.ui-date-trigger:hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+
+.ui-date-trigger.is-open,
+.ui-date-trigger:focus-visible {
+  outline: none;
+  background: var(--bg-card);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.ui-date-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ui-date-icon {
+  flex-shrink: 0;
+  color: var(--text-light);
+}
+
+.ui-date-trigger.is-open .ui-date-icon {
+  color: var(--primary);
+}
+
+.ui-date-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-date-trigger.is-empty .ui-date-value {
+  color: var(--text-light);
+  font-weight: 400;
+}
+
+.ui-date-clear {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--text-light);
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  height: 40px;
-  padding: 0 0.95rem;
-  border-radius: var(--radius-pill);
+  justify-content: center;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.ui-date-clear:hover {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* The calendar is a fixed-width panel, not a stretch-to-fit one: a seven-column
+   grid that followed the field's width would give a narrow table cell 20px day
+   buttons. */
+.ui-date-panel {
+  width: 17.5rem;
+  min-width: 17.5rem;
+  padding: 0.6rem;
+}
+
+.ui-date-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.45rem;
+}
+
+.ui-date-month {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.ui-date-nav {
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.ui-date-nav:hover {
+  background: var(--tint-2);
+  border-color: var(--border-blue);
+  color: var(--text-main);
+}
+
+/* Weekday row and day grid share one template, so a column header sits over its
+   own column rather than near it. */
+.ui-date-weekdays,
+.ui-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.ui-date-weekdays {
+  margin-bottom: 2px;
+}
+
+.ui-date-weekdays span {
+  text-align: center;
+  padding: 0.2rem 0;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+.ui-date-day {
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.ui-date-day:hover:not(:disabled) {
+  background: var(--tint-2);
+}
+
+/* The lead-in and lead-out days are shown rather than blanked, so the grid
+   reads as a continuous calendar — but they are dimmed, because clicking one
+   moves the month under you. */
+.ui-date-day.is-outside {
+  color: var(--text-light);
+  opacity: 0.55;
+}
+
+/* Today is a ring; the selection is a fill. Two different statements, so both
+   can be true of one cell without either being lost. */
+.ui-date-day.is-today {
+  border-color: var(--border-blue-strong);
+  font-weight: 700;
+}
+
+.ui-date-day.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #ffffff;
+  font-weight: 700;
+  opacity: 1;
+}
+
+.ui-date-day:disabled {
+  color: var(--text-light);
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.ui-date-day:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.ui-date-foot {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.ui-date-quick {
+  flex: 1;
+  padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-blue);
+  border-radius: var(--radius-sm);
   background: var(--tint-1);
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
 }
 
-.sq-action:hover:not(:disabled) {
+.ui-date-quick:hover:not(:disabled) {
   background: var(--tint-2);
   border-color: var(--border-hover);
   color: var(--text-main);
 }
 
-.sq-action:disabled {
-  opacity: 0.55;
+.ui-date-quick:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* A roster row is a reading, not a link: unlike a candidate row there is
-   nothing behind it to open, so it drops the pointer and the hover fill that
-   would promise one. */
-.sq-recent-row.is-static {
-  cursor: default;
-}
-
-.sq-recent-row.is-static:hover {
-  background: none;
-}
-
-.sq-staff-pct {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--text-main);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-  min-width: 3ch;
-  text-align: right;
-}
-
-/* The orphan warning now sits inside the summary box rather than loose between
-   two cards, so it takes its margin from the metrics above it. */
-.sq-summary .staff-note {
-  margin-top: 1.15rem;
-  margin-bottom: 0;
-}
-
-/* The three sections folded into the roster box keep their own headings and
-   spacing but give up their surface: a card inside a card draws two borders
-   and two shadows around one piece of content, which is the box-in-a-box the
-   three-box layout exists to get rid of. A rule between them carries the
-   separation the borders were carrying. */
-.sq-recent .db-card {
-  background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  border: none;
-  border-radius: 0;
-  box-shadow: none;
-  padding: 1.35rem 0 0;
-  margin-top: 1.35rem;
-  border-top: 1px solid var(--border-blue);
-}
-
-/* The first of them follows the box's own header, which already rules off. */
-.sq-recent .db-card:first-of-type {
-  margin-top: 0.5rem;
-  padding-top: 0;
-  border-top: none;
-}
-
-/* The balance chip turns amber when the roster is uneven — the same slot
-   carrying good news and bad has to look different in each, or a glance reads
-   "Uneven load" as another neutral statistic. */
-.sq-headline-chip.is-warn {
-  background: var(--warning-fill);
-  color: var(--warning-ink);
-}
-
-/* The "+N more" row stands for the reviewers past the four the chart draws, so
-   it is quieter than the named rows above it. */
-.sq-legend-row.is-rest .sq-legend-label,
-.sq-legend-row.is-rest .sq-legend-value {
-  color: var(--text-light);
 }

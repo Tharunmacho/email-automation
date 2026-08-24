@@ -852,37 +852,55 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   return (
     <div className="sh-root">
-      {/* Portfolio figures. White tiles, one coloured edge each — the colour is
-          what the figure means, not decoration. */}
-      <div className="stat-tiles">
-        <StatTile
-          tone="blue"
-          icon={Building2}
-          label="Sourcing clients"
-          value={formatInt(records.length)}
-          note={`${formatInt(agentCount)} agent${agentCount === 1 ? "" : "s"} · ${formatInt(associationCount)} associate${associationCount === 1 ? "" : "s"} · ${formatInt(clientCount)} client${clientCount === 1 ? "" : "s"}`}
-        />
-        <StatTile
-          tone="green"
-          icon={Zap}
-          label="Clients hiring now"
-          value={formatInt(portfolio.engaged)}
-          note={records.length > 0 ? `${portfolio.engagedShare}% of the portfolio engaged` : "No clients yet"}
-        />
-        <StatTile
-          tone="cyan"
-          icon={Layers}
-          label="Open positions"
-          value={formatInt(portfolio.openSeats)}
-          note="Unfilled seats across live orders"
-        />
-        <StatTile
-          tone="green"
-          icon={Target}
-          label="Fill rate"
-          value={`${portfolio.fillRate}%`}
-          note="Seats covered across every order"
-        />
+      {/* ── Shopeers-style KPI cards ── */}
+      <div className="ov-kpi-row">
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Sourcing Clients</span>
+            <span className="ov-kpi-card-icon"><Building2 size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{formatInt(records.length)}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              {agentCount} agent{agentCount === 1 ? "" : "s"} · {associationCount} associate{associationCount === 1 ? "" : "s"} · {clientCount} client{clientCount === 1 ? "" : "s"}
+            </span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Clients Hiring Now</span>
+            <span className="ov-kpi-card-icon is-success"><Zap size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{formatInt(portfolio.engaged)}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              {records.length > 0 ? `${portfolio.engagedShare}% of portfolio engaged` : "No clients yet"}
+            </span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Open Positions</span>
+            <span className="ov-kpi-card-icon is-warning"><Layers size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{formatInt(portfolio.openSeats)}</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">Unfilled seats across live orders</span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Fill Rate</span>
+            <span className="ov-kpi-card-icon is-success"><Target size={17} /></span>
+          </div>
+          <p className="ov-kpi-card-value">{portfolio.fillRate}%</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">Seats filled across all orders</span>
+          </div>
+        </article>
       </div>
 
       {/* Controls */}

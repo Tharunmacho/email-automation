@@ -1,17 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Briefcase, CheckCircle2, Cpu, FileText, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Briefcase,
+  CheckCircle2,
+  Cpu,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  FileSearch,
+} from "lucide-react";
 
 import IngestionChart, { RANGE_OPTIONS, type RangeOption } from "@/components/dashboard/IngestionChart";
-import ActivityLog, { type LogEntry } from "@/components/dashboard/ActivityLog";
 import RecentCandidates from "@/components/dashboard/RecentCandidates";
+import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
+import SlaGauge from "@/components/dashboard/SlaGauge";
+import PipelineDonut from "@/components/dashboard/PipelineDonut";
 import DashboardSkeleton from "@/components/dashboard/DashboardSkeleton";
-import { buildDailyBuckets, isVerified, needsReview } from "@/lib/dashboardMetrics";
+import {
+  buildDailyBuckets,
+  isVerified,
+  needsReview,
+  windowDelta,
+  buildCumulativeTrend,
+} from "@/lib/dashboardMetrics";
 import { compactNumber, formatInt } from "@/lib/format";
 import { useIsMounted } from "@/lib/useIsMounted";
 import type { NavId } from "@/lib/nav";
 import type { CandidateRecord } from "@/lib/api";
+import type { LogEntry } from "@/components/dashboard/ActivityLog";
 
 interface OverviewScreenProps {
   total: number;
@@ -21,30 +40,30 @@ interface OverviewScreenProps {
   onOpenCandidate: (candidate: CandidateRecord) => void;
 }
 
-interface QuickAction {
-  id: string;
-  icon: typeof FileText;
-  title: string;
-  subtitle: string;
-  accent?: boolean;
-  arrow?: boolean;
-  onClick: () => void;
+/** Green ▲ or red ▼ delta badge — only shows when delta data exists */
+function DeltaBadge({ pct }: { pct: number | null }) {
+  if (pct === null) return null;
+  const up = pct >= 0;
+  return (
+    <span className={`ov-delta ${up ? "is-up" : "is-down"}`}>
+      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+      {Math.abs(pct).toFixed(1)}%
+    </span>
+  );
 }
 
-/**
- * The Overview.
- *
- * Four things to do, four numbers that say whether the pipeline is healthy, the
- * live trace, and then the detail: what came in over time and who arrived.
- *
- * The quick-ingestion panel that used to sit beside the chart is gone. Its one
- * working control — run a sync — is in the header on every screen, and its
- * status rows repeated what Settings reports properly. Removing it lets the
- * chart use the full column width, which is what a thirty-day series needs.
- *
- * Every figure is derived from the live candidate collection rather than stored
- * separately, so a KPI cannot drift out of step with the list it summarises.
- */
+/** Count how many candidates arrived on each day of the week (Sun=0…Sat=6) */
+function buildWeeklyActivity(candidates: CandidateRecord[]): number[] {
+  const counts = [0, 0, 0, 0, 0, 0, 0];
+  const cutoff = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+  for (const c of candidates) {
+    if (!c.created_at) continue;
+    const d = new Date(c.created_at);
+    if (!Number.isNaN(d.getTime()) && d >= cutoff) counts[d.getDay()] += 1;
+  }
+  return counts;
+}
+
 export default function OverviewScreen({
   total,
   candidates,
@@ -53,160 +72,271 @@ export default function OverviewScreen({
   onOpenCandidate,
 }: OverviewScreenProps) {
   const [range, setRange] = useState<RangeOption>(30);
-
-  /**
-   * Every day-bucketed series is anchored to "now". The server's clock and
-   * timezone are not the viewer's, so date-derived UI is held back until the
-   * browser has mounted and owns the clock — otherwise the two renders disagree
-   * and React throws a hydration error.
-   */
   const mounted = useIsMounted();
 
-  const verified = candidates.filter(isVerified).length;
-  const review = candidates.filter(needsReview).length;
+  /* ── Derived metrics (all from live candidate data, nothing hardcoded) ── */
+  const verified  = candidates.filter(isVerified).length;
+  const review    = candidates.filter(needsReview).length;
+  const active    = candidates.filter((c) => c.status !== "verified" && !needsReview(c)).length;
+  const scored    = candidates.filter((c) => typeof c.profile?.confidence === "number");
 
-  const scored = candidates.filter((c) => typeof c.profile?.confidence === "number");
   const avgConfidence =
     scored.length > 0
-      ? (scored.reduce((sum, c) => sum + (c.profile.confidence ?? 0), 0) / scored.length) * 100
+      ? (scored.reduce((s, c) => s + (c.profile.confidence ?? 0), 0) / scored.length) * 100
       : 0;
 
-  const verifiedRate = candidates.length > 0 ? Math.round((verified / candidates.length) * 100) : 0;
+  const verifiedRate =
+    candidates.length > 0 ? Math.round((verified / candidates.length) * 100) : 0;
 
-  const buckets = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
-  const windowTotal = buckets.reduce((sum, bucket) => sum + bucket.added, 0);
+  /* ── Chart data ── */
+  const buckets     = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
+  const windowTotal = buckets.reduce((s, b) => s + b.added, 0);
+
+  const trend30       = useMemo(() => buildCumulativeTrend(candidates, 30), [candidates]);
+  const deltaTotal    = windowDelta(trend30, 7);
+  const verifiedTrend = useMemo(() => buildCumulativeTrend(candidates, 30, isVerified), [candidates]);
+  const deltaVerified = windowDelta(verifiedTrend, 7);
+
+  const weeklyData = useMemo(() => buildWeeklyActivity(candidates), [candidates]);
+  const peakDay    = weeklyData.indexOf(Math.max(...weeklyData));
+
+  /* ── Pipeline donut slices (live) ── */
+  const pipelineSlices = [
+    { label: "Verified",       value: verified, color: "var(--success)" },
+    { label: "Active",         value: active,   color: "var(--primary)" },
+    { label: "Pending Review", value: review,   color: "var(--warning)" },
+  ].filter((s) => s.value > 0);
 
   if (!mounted) return <DashboardSkeleton />;
 
-  const actions: QuickAction[] = [
-    {
-      id: "pool",
-      icon: Users,
-      title: "Candidates Pool",
-      subtitle: "Browse, filter and verify every parsed profile.",
-      accent: true,
-      arrow: true,
-      onClick: () => onNavigate("candidates"),
-    },
-    {
-      id: "jobs",
-      icon: Briefcase,
-      title: "Job Orders",
-      subtitle: "Match the candidate pool to active requisitions.",
-      onClick: () => onNavigate("job-orders"),
-    },
-    {
-      id: "engine",
-      icon: Cpu,
-      title: "AI Engine",
-      subtitle: "Resume parser model active & scoring.",
-      onClick: () => onNavigate("settings"),
-    },
-  ];
-
-  const kpis = [
-    {
-      label: "Total candidates",
-      value: compactNumber(total),
-      caption: "Total extracted candidate profiles",
-      icon: Users,
-    },
-    {
-      label: "Verified rate",
-      value: `${verifiedRate}%`,
-      caption: `${formatInt(verified)} signed off without further review`,
-      icon: CheckCircle2,
-    },
-    {
-      label: "Avg confidence",
-      value: `${avgConfidence.toFixed(1)}%`,
-      caption: `Across ${formatInt(scored.length)} scored resume parse${scored.length === 1 ? "" : "s"}`,
-      icon: Cpu,
-    },
-    {
-      label: "Pending review",
-      value: formatInt(review),
-      caption: "Profiles requiring manual recruiter review",
-      icon: Briefcase,
-    },
-  ];
-
   return (
-    <>
-      <section className="ov-actions">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className={`ov-action ${action.accent ? "is-accent" : ""}`}
-              onClick={action.onClick}
-            >
-              <span className="ov-action-icon" aria-hidden="true">
-                <Icon size={19} strokeWidth={2} />
-              </span>
-              <span className="ov-action-text">
-                <span className="ov-action-title">
-                  {action.title}
-                  {action.arrow && <ArrowRight size={14} />}
-                </span>
-                <span className="ov-action-sub">{action.subtitle}</span>
-              </span>
-            </button>
-          );
-        })}
-      </section>
+    <div className="ov-shopeers">
 
-      <section className="ov-kpis">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <article key={kpi.label} className="ov-kpi">
-              <p className="ov-kpi-label">
-                {kpi.label}
-                <Icon size={15} strokeWidth={2} />
-              </p>
-              <p className="ov-kpi-value">{kpi.value}</p>
-              <p className="ov-kpi-caption">{kpi.caption}</p>
-            </article>
-          );
-        })}
-      </section>
-
-      {/* The live trace sits directly under the headline numbers, above the
-          analytics. It is what you watch while a sync runs — burying it below a
-          chart means the one thing that moves in real time is off-screen at the
-          moment it matters. */}
-      <ActivityLog logs={logs} />
-
-      <section className="db-card">
-        <header className="db-card-head">
-          <div>
-            <h3 className="db-card-title">Sourced Candidates</h3>
-            <p className="db-card-sub">
-              {formatInt(windowTotal)} parsed in the last {range} days.
-            </p>
+      {/* ── KPI row (4 cards) ── */}
+      <div className="ov-kpi-row">
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Total Candidates</span>
+            <span className="ov-kpi-card-icon">
+              <Users size={17} />
+            </span>
           </div>
-          <select
-            className="ov-select"
-            value={range}
-            onChange={(event) => setRange(Number(event.target.value) as RangeOption)}
-            aria-label="Chart time range"
-          >
-            {RANGE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                Last {option} days
-              </option>
-            ))}
-          </select>
-        </header>
-        <div className="db-card-body">
-          <IngestionChart buckets={buckets} range={range} />
-        </div>
-      </section>
+          <p className="ov-kpi-card-value">{compactNumber(total)}</p>
+          <div className="ov-kpi-card-foot">
+            <DeltaBadge pct={deltaTotal.percent} />
+            <span className="ov-kpi-card-caption">vs. last 7 days</span>
+          </div>
+        </article>
 
-      <RecentCandidates candidates={candidates} onOpenCandidate={onOpenCandidate} />
-    </>
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Verified</span>
+            <span className="ov-kpi-card-icon is-success">
+              <CheckCircle2 size={17} />
+            </span>
+          </div>
+          <p className="ov-kpi-card-value">{formatInt(verified)}</p>
+          <div className="ov-kpi-card-foot">
+            <DeltaBadge pct={deltaVerified.percent} />
+            <span className="ov-kpi-card-caption">vs. last 7 days</span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Avg AI Confidence</span>
+            <span className="ov-kpi-card-icon is-warning">
+              <Cpu size={17} />
+            </span>
+          </div>
+          <p className="ov-kpi-card-value">{avgConfidence.toFixed(1)}%</p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              {scored.length === 0
+                ? "No scored résumés yet"
+                : `Across ${formatInt(scored.length)} résumé${scored.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+        </article>
+
+        <article className="ov-kpi-card">
+          <div className="ov-kpi-card-top">
+            <span className="ov-kpi-card-label">Pending Review</span>
+            <span className={`ov-kpi-card-icon ${review > 0 ? "is-rose" : "is-success"}`}>
+              <FileSearch size={17} />
+            </span>
+          </div>
+          <p className={`ov-kpi-card-value ${review > 0 ? "is-rose" : ""}`}>
+            {formatInt(review)}
+          </p>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              {review === 0 ? "All profiles cleared" : "Need manual review"}
+            </span>
+          </div>
+        </article>
+      </div>
+
+      {/* ── Main 2-column grid ── */}
+      <div className="ov-grid">
+
+        {/* LEFT column */}
+        <div className="ov-grid-left">
+
+          {/* Sourced Candidates line chart */}
+          <section className="ov-chart-card">
+            <div className="ov-chart-card-head">
+              <div>
+                <h2 className="ov-chart-card-title">Sourced Candidates</h2>
+                <p className="ov-chart-card-sub">
+                  <span className="ov-chart-big">{formatInt(windowTotal)}</span>
+                  <span className="ov-kpi-card-caption"> parsed in the last {range} days</span>
+                </p>
+              </div>
+              <select
+                className="ov-select"
+                value={range}
+                onChange={(e) => setRange(Number(e.target.value) as RangeOption)}
+                aria-label="Chart time range"
+              >
+                {RANGE_OPTIONS.map((o) => (
+                  <option key={o} value={o}>Last {o} days</option>
+                ))}
+              </select>
+            </div>
+            <div className="ov-chart-card-body">
+              <IngestionChart buckets={buckets} range={range} />
+            </div>
+          </section>
+
+          {/* Pipeline breakdown + Most Active Day — side by side */}
+          <div className="ov-bottom-row">
+
+            {/* Donut — Pipeline Breakdown */}
+            <section className="ov-chart-card ov-bottom-card">
+              <div className="ov-chart-card-head">
+                <div>
+                  <h2 className="ov-chart-card-title">Pipeline Breakdown</h2>
+                  <p className="ov-chart-card-sub">
+                    <span className="ov-kpi-card-caption">Status distribution of all {formatInt(total)} candidates</span>
+                  </p>
+                </div>
+              </div>
+              <div className="ov-chart-card-body">
+                <PipelineDonut
+                  slices={pipelineSlices}
+                  total={candidates.length}
+                  centerLabel="total"
+                  centerValue={compactNumber(total)}
+                />
+              </div>
+            </section>
+
+            {/* Bar chart — Most Active Day */}
+            <section className="ov-chart-card ov-bottom-card">
+              <div className="ov-chart-card-head">
+                <div>
+                  <h2 className="ov-chart-card-title">Most Active Day</h2>
+                  <p className="ov-chart-card-sub">
+                    {weeklyData.some((v) => v > 0) ? (
+                      <>
+                        <span className="ov-chart-big" style={{ fontSize: "1.2rem" }}>
+                          {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][peakDay]}
+                        </span>
+                        <span className="ov-kpi-card-caption"> · {weeklyData[peakDay]} candidates (last 4 weeks)</span>
+                      </>
+                    ) : (
+                      <span className="ov-kpi-card-caption">No data yet</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="ov-chart-card-body">
+                <WeeklyBarChart data={weeklyData} />
+              </div>
+            </section>
+          </div>
+
+          {/* Recent Candidates table */}
+          <RecentCandidates candidates={candidates} onOpenCandidate={onOpenCandidate} />
+        </div>
+
+        {/* RIGHT column */}
+        <div className="ov-grid-right">
+
+          {/* Verification Rate gauge */}
+          <section className="ov-side-card">
+            <div className="ov-side-card-head">
+              <h3 className="ov-side-card-title">Verification Rate</h3>
+              <p className="ov-side-card-sub">
+                {verifiedRate === 0
+                  ? "No verified profiles yet"
+                  : `${formatInt(verified)} of ${formatInt(candidates.length)} profiles cleared`}
+              </p>
+            </div>
+            <SlaGauge
+              percent={verifiedRate}
+              label="Verification Rate"
+            />
+            <button
+              type="button"
+              className="ov-gauge-cta"
+              onClick={() => onNavigate("candidates")}
+            >
+              View candidates <ArrowRight size={14} />
+            </button>
+          </section>
+
+          {/* Quick Actions */}
+          <section className="ov-side-card">
+            <div className="ov-side-card-head">
+              <h3 className="ov-side-card-title">Quick Actions</h3>
+            </div>
+            <div className="ov-quick-actions">
+              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("candidates")}>
+                <span className="ov-quick-icon"><Users size={16} /></span>
+                <span>Candidates Pool</span>
+                <ArrowRight size={14} className="ov-quick-arrow" />
+              </button>
+              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("job-orders")}>
+                <span className="ov-quick-icon"><Briefcase size={16} /></span>
+                <span>Job Orders</span>
+                <ArrowRight size={14} className="ov-quick-arrow" />
+              </button>
+              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("sourcing")}>
+                <span className="ov-quick-icon"><RefreshCw size={16} /></span>
+                <span>Sourcing Hub</span>
+                <ArrowRight size={14} className="ov-quick-arrow" />
+              </button>
+              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("settings")}>
+                <span className="ov-quick-icon"><Cpu size={16} /></span>
+                <span>AI Engine</span>
+                <ArrowRight size={14} className="ov-quick-arrow" />
+              </button>
+            </div>
+          </section>
+
+          {/* Live confidence score card */}
+          <section className="ov-side-card ov-confidence-card">
+            <div className="ov-side-card-head">
+              <h3 className="ov-side-card-title">AI Parser Score</h3>
+              <p className="ov-side-card-sub">Average confidence across all scored résumés</p>
+            </div>
+            <div className="ov-conf-row">
+              <span className="ov-conf-value">{avgConfidence.toFixed(0)}<span className="ov-conf-pct">%</span></span>
+              <div className="ov-conf-bar-wrap">
+                <div className="ov-conf-bar-track">
+                  <div
+                    className="ov-conf-bar-fill"
+                    style={{ width: `${Math.min(100, avgConfidence)}%` }}
+                  />
+                </div>
+                <span className="ov-kpi-card-caption">{formatInt(scored.length)} scored</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }

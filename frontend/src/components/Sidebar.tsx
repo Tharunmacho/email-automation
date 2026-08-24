@@ -1,8 +1,8 @@
 "use client";
 
+import { useMemo, useSyncExternalStore } from "react";
 import Image from "next/image";
-import { useMemo, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Moon, Sun } from "lucide-react";
+import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
 
 import { navGroupsFor, type NavId } from "@/lib/nav";
 import {
@@ -56,19 +56,6 @@ export default function Sidebar({
   // refused by the API anyway, and offering them is offering a dead end.
   const groups = useMemo(() => navGroupsFor(user.role, user.pages), [user.role, user.pages]);
 
-  // Which section headings are folded shut. Empty means every group is open,
-  // which is the state the rail should start in: a first-run sidebar that hides
-  // its own destinations is a sidebar nobody finds the rest of the product in.
-  const [shutGroups, setShutGroups] = useState<Set<string>>(new Set());
-
-  const toggleGroup = (label: string) =>
-    setShutGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return next;
-    });
-
   const go = (id: NavId) => {
     onNavigate(id);
     onCloseMobile();
@@ -86,75 +73,57 @@ export default function Sidebar({
         className={`rail ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-open" : ""}`}
         aria-label="Main navigation"
       >
-        {/* The brand owns the head of the rail. Expanded it is the mark and the
-            word; collapsed the word is dropped and the mark alone holds the
-            slot, which is why the mark is a square badge rather than a wordmark
-            with a glyph in it — it has to survive on its own at 68px. */}
-        <button
-          type="button"
-          className="rail-toggle"
-          onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
-        </button>
-
+        {/* The brand, at the top of the navigation it names. It is held to the
+            header bar's own height so the hairline under it continues the one
+            the header draws, and the two read as a single rule across the
+            shell. The collapse control still rides the first group's heading
+            rather than taking a band of its own. */}
         <div className="rail-brand">
-          <span className="rail-brand-mark" aria-hidden="true">
-            <Image src="/adira-logo@4x.png" alt="" width={224} height={200} preload />
+          <span className="rail-logo">
+            <Image src="/adira-logo@4x.png" alt="Adira" width={224} height={200} preload />
           </span>
-          <span className="rail-brand-name">Adira</span>
+          <span className="rail-brandname">Adira</span>
         </div>
 
         <div className="rail-scroll">
-          {groups.map((group, index) => {
-            const isShut = shutGroups.has(group.label);
-            return (
-              <div key={group.label} className={`rail-group ${isShut ? "is-shut" : ""}`}>
+          {groups.map((group, index) => (
+            <div key={group.label} className="rail-group">
+              {index === 0 ? (
                 <div className="rail-group-head">
-                  {/* The heading is the control. Collapsed to icons the label is
-                      gone, so folding a group you cannot read would be folding a
-                      group you cannot name — the caret goes with it. */}
+                  <p className="rail-group-label">{group.label}</p>
                   <button
                     type="button"
-                    className="rail-group-label"
-                    onClick={() => toggleGroup(group.label)}
-                    aria-expanded={!isShut}
-                    disabled={collapsed}
+                    className="rail-toggle"
+                    onClick={onToggleCollapse}
+                    title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-expanded={!collapsed}
                   >
-                    <span className="rail-group-word">{group.label}</span>
-                    <ChevronDown size={13} className="rail-group-caret" />
+                    {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
                   </button>
                 </div>
-
-                {/* The items are wrapped so the connector spine has something to
-                    run the height of. It is drawn on this element, not on each
-                    row, so it is one continuous line rather than a stack of
-                    segments with seams between them. */}
-                <div className="rail-group-items" hidden={isShut && !collapsed}>
-                  {group.items.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeId === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        className={`rail-item ${isActive ? "is-active" : ""}`}
-                        onClick={() => go(item.id)}
-                        aria-current={isActive ? "page" : undefined}
-                        title={collapsed ? item.label : undefined}
-                      >
-                        <Icon size={18} strokeWidth={2} />
-                        <span className="rail-item-label">{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              ) : (
+                <p className="rail-group-label">{group.label}</p>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeId === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`rail-item ${isActive ? "is-active" : ""}`}
+                    onClick={() => go(item.id)}
+                    aria-current={isActive ? "page" : undefined}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <Icon size={18} strokeWidth={2} />
+                    <span className="rail-item-label">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
 
         <div className="rail-foot">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Search,
   UsersRound,
@@ -19,13 +19,10 @@ import {
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
 import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
 
-export type TalentFilter = "all" | "verified" | "pending";
+export type TalentFilter = "all" | "verified" | "pending" | "active";
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
-  /** A term handed down from the top bar's search. Seeds this screen's own
-   *  field, which then owns it — typing here must not be fought by the bar. */
-  seedQuery?: string;
   /** How many activity entries each candidate has, keyed by id. */
   logCounts: Record<string, number>;
   onOpenCandidate: (candidate: CandidateRecord) => void;
@@ -209,13 +206,27 @@ const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
     title: "Nothing waiting for review",
     sub: "Every parsed résumé scored above the confidence threshold.",
   },
+  active: {
+    title: "Nothing waiting to be checked",
+    sub: "Every parsed résumé has either been verified or flagged for review.",
+  },
 };
 
-/** The three slices, in the order a recruiter works through them. */
+/**
+ * The four slices, in the order a recruiter works through them.
+ *
+ * "Active" is new here, and it is why this screen no longer needs a row of KPI
+ * cards above the tabs: the count of parsed-but-unchecked profiles was the one
+ * figure the tabs could not show, so it had a card of its own — and the other
+ * three cards were restating numbers already printed on these tabs, forty
+ * pixels below them. Made a slice instead, the number is both visible and
+ * something you can click.
+ */
 const FILTERS: { id: TalentFilter; label: string }[] = [
   { id: "all", label: "All" },
+  { id: "pending", label: "Needs review" },
+  { id: "active", label: "Unchecked" },
   { id: "verified", label: "Verified" },
-  { id: "pending", label: "Pending review" },
 ];
 
 /** Which DataBlue pill each state wears. */
@@ -266,20 +277,12 @@ const ALIGN: Record<string, string> = Object.fromEntries(
 export default function CandidatesView({
   candidates: allCandidates,
   logCounts,
-  seedQuery = "",
   onOpenCandidate,
   onEditCandidate,
   onOpenLogs,
   onDeleteCandidate,
 }: CandidatesViewProps) {
-  const [query, setQuery] = useState(seedQuery);
-
-  // Adopt a new term from the bar. Keyed on `seedQuery` alone, so a search run
-  // from the bar replaces what is in the field while anything typed into the
-  // field afterwards stands.
-  useEffect(() => {
-    setQuery(seedQuery);
-  }, [seedQuery]);
+  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TalentFilter>("all");
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -292,18 +295,25 @@ export default function CandidatesView({
   const candidates = useMemo(() => {
     if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
     if (filter === "pending") return allCandidates.filter((c) => getStatus(c).key === "review");
+    if (filter === "active") return allCandidates.filter((c) => getStatus(c).key === "active");
     return allCandidates;
   }, [allCandidates, filter]);
 
-  /** Counts sit on the tabs themselves, so the split is visible before you click. */
-  const filterCounts = useMemo(
-    () => ({
-      all: allCandidates.length,
-      verified: allCandidates.filter((c) => getStatus(c).key === "verified").length,
-      pending: allCandidates.filter((c) => getStatus(c).key === "review").length,
-    }),
-    [allCandidates],
-  );
+  /**
+   * Counts sit on the tabs themselves, so the split is visible before you click.
+   * Counted in one pass rather than three filters over the same array — this
+   * runs on every keystroke in the search field.
+   */
+  const filterCounts = useMemo(() => {
+    const counts = { all: allCandidates.length, verified: 0, pending: 0, active: 0 };
+    for (const candidate of allCandidates) {
+      const key = getStatus(candidate).key;
+      if (key === "verified") counts.verified += 1;
+      else if (key === "review") counts.pending += 1;
+      else counts.active += 1;
+    }
+    return counts;
+  }, [allCandidates]);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const filtered = useMemo(() => {
@@ -367,10 +377,16 @@ export default function CandidatesView({
 
   return (
     <div className="tab-content active" style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* No stat tiles here: the tab counts already report the same three
-          figures, and the table is what this screen is for. */}
-      <div className="cview-filters">
-        <div className="db-tabs" role="tablist" aria-label="Candidate status filter">
+      {/* One control row, where there were three.
+          The screen used to open with four KPI cards, then a row of status tabs
+          beside a layout toggle, then a third row holding the search field and
+          the result count — three stacked bands of chrome, roughly 260px of
+          them, before the first candidate. Three of the four cards restated
+          numbers printed on the tabs immediately below; the fourth is now a tab
+          of its own. What is left is one bar: what you are looking at, how it is
+          laid out, and what you are looking for. */}
+      <div className="cview-bar">
+        <div className="db-tabs cview-bar-tabs" role="tablist" aria-label="Candidate status filter">
           {FILTERS.map(({ id, label }) => (
             <button
               key={id}
@@ -386,36 +402,13 @@ export default function CandidatesView({
           ))}
         </div>
 
-        <div className="db-tabs" role="group" aria-label="Directory layout">
-          <button
-            type="button"
-            className={`db-tab ${view === "table" ? "is-on" : ""}`}
-            onClick={() => setView("table")}
-            aria-pressed={view === "table"}
-            title="Table view"
-          >
-            <Rows3 size={14} /> Table
-          </button>
-          <button
-            type="button"
-            className={`db-tab ${view === "cards" ? "is-on" : ""}`}
-            onClick={() => setView("cards")}
-            aria-pressed={view === "cards"}
-            title="Card view"
-          >
-            <LayoutGrid size={14} /> Cards
-          </button>
-        </div>
-      </div>
-
-      <div className="sh-toolbar cview-toolbar">
-        <div className="sh-toolbar-right">
-          <div className="sh-search">
+        <div className="cview-bar-right">
+          <div className="sh-search cview-bar-search">
             <Search size={16} className="sh-search-icon" />
             <input
               type="text"
               className="sh-search-input"
-              placeholder="Search name, role, industry, skills or contact…"
+              placeholder="Search name, role, skills or contact…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               aria-label="Search candidates"
@@ -432,9 +425,39 @@ export default function CandidatesView({
             )}
           </div>
 
-          <span className="sh-result-count">
-            {formatInt(filtered.length)} of {formatInt(candidates.length)} shown
-          </span>
+          {/* The count only when a search has narrowed something. Printing
+              "412 of 412 shown" beside an untouched table is a line of text
+              that never says anything. */}
+          {query && (
+            <span className="sh-result-count cview-bar-count">
+              {formatInt(filtered.length)} of {formatInt(candidates.length)}
+            </span>
+          )}
+
+          {/* Icons only. The words "Table" and "Cards" beside the glyphs made
+              this read as a second set of status tabs next to the real ones. */}
+          <div className="db-tabs cview-bar-view" role="group" aria-label="Directory layout">
+            <button
+              type="button"
+              className={`db-tab ${view === "table" ? "is-on" : ""}`}
+              onClick={() => setView("table")}
+              aria-pressed={view === "table"}
+              title="Table view"
+              aria-label="Table view"
+            >
+              <Rows3 size={15} />
+            </button>
+            <button
+              type="button"
+              className={`db-tab ${view === "cards" ? "is-on" : ""}`}
+              onClick={() => setView("cards")}
+              aria-pressed={view === "cards"}
+              title="Card view"
+              aria-label="Card view"
+            >
+              <LayoutGrid size={15} />
+            </button>
+          </div>
         </div>
       </div>
 
