@@ -522,6 +522,76 @@ def test_aadhaar_and_pan_cannot_be_sent(client):
     assert "pan_number" not in dumped
 
 
+def test_the_job_application_block_is_stored(client):
+    """What they applied for, as the profile screen reads it back.
+
+    The bot asks these directly, and every one of them was dropped at the door
+    until the input schema named them — `extra="ignore"` is an allow-list, so a
+    field the bot sends and the model does not declare is silently discarded.
+    """
+    res = post_candidate(
+        client,
+        job_id="electrician",
+        job_title="Electrician",
+        course_or_trade="ITI Electrician",
+        state_preference="Bihar",
+        available_from="after 2 months",
+        job_answers=[
+            {"question_id": "q1", "question": "Years on site?", "answer": "6", "kind": "text"},
+            {"question_id": "q2", "question": "Hold a valid licence?", "answer": "Yes", "kind": "choice"},
+        ],
+    )
+    assert res.status_code == 201
+
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+    assert profile.job_id == "electrician"
+    assert profile.job_title == "Electrician"
+    assert profile.course_or_trade == "ITI Electrician"
+    assert profile.state_preference == "Bihar"
+    assert profile.available_from == "after 2 months"
+
+    # The wording travels with the answer rather than being resolved from the
+    # job's question list at read time. An admin rewording a question must not
+    # rewrite what this candidate was asked.
+    assert [(a.question, a.answer) for a in profile.job_answers] == [
+        ("Years on site?", "6"),
+        ("Hold a valid licence?", "Yes"),
+    ]
+
+
+def test_the_state_preference_never_stands_in_for_the_destination(client):
+    """Two fields, one rule: the CV policy reads the country and nothing else.
+
+    A state is below a country, not an alternative to one — a record carrying
+    "Bihar" and no destination would resolve the CV requirement against nothing.
+    """
+    res = post_candidate(client, destination_country="Singapore", state_preference="Johor")
+    assert res.status_code == 201
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+    assert profile.destination_country == "Singapore"
+    assert profile.state_preference == "Johor"
+
+
+def test_the_job_block_is_refreshable_on_re_registration():
+    """Someone who changes their mind about the job is telling us about themselves.
+
+    So these fields sit in the refresh allow-list — unlike anything the agency
+    concluded, which `test_the_refresh_allow_list_excludes_every_recruiter_field`
+    holds shut.
+    """
+    from app.db.repository import CandidateRepository
+
+    refreshable = set(CandidateRepository.WHATSAPP_REFRESHABLE_FIELDS)
+    assert {
+        "job_id",
+        "job_title",
+        "course_or_trade",
+        "state_preference",
+        "available_from",
+        "job_answers",
+    } <= refreshable
+
+
 def test_passport_details_are_stored(client):
     res = post_candidate(
         client, passport_number="Z1234567", passport_expiry="03/2031"

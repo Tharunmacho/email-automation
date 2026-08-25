@@ -1217,6 +1217,23 @@ class WhatsAppResumeIn(BaseModel):
     content_base64: str
 
 
+class JobAnswerIn(BaseModel):
+    """One screening answer as the bot submits it.
+
+    The question text travels with the answer instead of being resolved from
+    `job_questions` at read time — an admin rewording a question must not
+    rewrite what a candidate was asked six weeks ago.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    question_id: str | None = None
+    question: str | None = Field(default=None, max_length=300)
+    answer: str | None = Field(default=None, max_length=1000)
+    kind: str | None = None
+    asked_at: str | None = None
+
+
 class WhatsAppProfileIn(BaseModel):
     """What the bot may say about a candidate. An allow-list, not a passthrough.
 
@@ -1251,6 +1268,22 @@ class WhatsAppProfileIn(BaseModel):
     # their own words for a person to read.
     job_category: str | None = None
     job_preference: str | None = None
+
+    # The job they picked, from `job_designations`. The id is the join key; the
+    # title is stored beside it so a job retired later still reads as the job
+    # this person applied for.
+    job_id: str | None = None
+    job_title: str | None = None
+    #: The trade qualification behind the application — "ITI Electrician".
+    course_or_trade: str | None = None
+    #: A state, emirate or city inside the destination. Never a substitute for
+    #: `destination_country`, which is what the CV policy reads.
+    state_preference: str | None = None
+    #: When they can start, in their own words. Free text — "immediately",
+    #: "after 2 months" — because that is how the question gets answered.
+    available_from: str | None = None
+    #: Their answers to the screening questions attached to that job.
+    job_answers: list[JobAnswerIn] = Field(default_factory=list)
 
     skills: list[str] = Field(default_factory=list)
     trade_skills: list[str] = Field(default_factory=list)

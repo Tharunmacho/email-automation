@@ -8635,6 +8635,162 @@ body {
   font-weight: 600;
 }
 
+/* --- job, screening answers and scanned documents -------------------------- */
+
+/* A heading inside a card, for a block that is part of the same section but is
+   not a label/value pair. Quieter than a card title, which is reserved for the
+   section itself. */
+.cprof-subhead {
+  margin: 1.15rem 0 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dash-muted);
+}
+
+.cprof-subhead:first-child {
+  margin-top: 0;
+}
+
+/* Question above answer rather than in the facts grid: a screening question is
+   a sentence, not a label, and squeezing one into a 210px column wraps it into
+   an unreadable stack. */
+.cprof-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.cprof-qa-row {
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
+
+.cprof-qa-question {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--dash-muted);
+}
+
+.cprof-qa-answer {
+  margin: 0.3rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--dash-ink);
+  white-space: pre-wrap;
+}
+
+.cprof-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.cprof-doc {
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
+
+.cprof-doc-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.cprof-doc-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.cprof-doc-title {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--dash-ink);
+}
+
+/* The OCR's own verdict on the read, and the passport's remaining life. Both
+   are statements about the document rather than fields of it, so they sit in
+   the heading and not in the grid below. */
+.cprof-doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--dash-muted);
+}
+
+.cprof-doc-badge.is-ok {
+  border-color: var(--success-edge);
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.cprof-doc-badge.is-warn {
+  border-color: var(--warning-edge);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.cprof-doc-badge.is-bad {
+  border-color: var(--error-edge);
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.cprof-doc-warnings {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+}
+
+.cprof-doc-warnings li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--warning-ink);
+}
+
+/* Which attachment, off which pages, read when. A misread digit is checked by
+   opening the page it came off, and that is not findable without this line. */
+.cprof-doc-source {
+  margin: 0.85rem 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-blue-faint);
+  font-size: 0.75rem;
+  color: var(--dash-muted);
+  word-break: break-word;
+}
+
+.cprof-doc-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.82rem;
+  color: var(--dash-muted);
+}
+
 /* --- editor --------------------------------------------------------------- */
 .cedit-card-head {
   display: flex;
@@ -13623,3 +13779,1856 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ============================================================================
+   SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES (PERFECT ALIGNMENT)
+   ============================================================================ */
+
+.shopeers-page-container {
+  padding: 1.75rem 2.5rem 3rem 2.5rem;
+  background-color: #f8fafc;
+  min-height: 100vh;
+  font-family: var(--font-outfit), system-ui, -apple-system, sans-serif;
+  color: #0f172a;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Page Header */
+.shopeers-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 1.75rem;
+  width: 100%;
+  gap: 1.25rem;
+}
+
+.shopeers-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shopeers-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.shopeers-subtitle {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.shopeers-header-actions {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.65rem;
+  flex-wrap: nowrap;
+}
+
+/* Pill Buttons (INLINE HORIZONTAL FLEX) */
+.shopeers-pill-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.45rem !important;
+  padding: 0.55rem 1rem !important;
+  height: 38px !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 9999px !important;
+  font-size: 0.825rem !important;
+  font-weight: 600 !important;
+  color: #475569 !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.shopeers-pill-btn:hover {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.shopeers-pill-btn.is-outline {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.shopeers-pill-icon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.shopeers-export-btn {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.45rem !important;
+  padding: 0.55rem 1.25rem !important;
+  height: 38px !important;
+  background: #2563eb !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  font-size: 0.825rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+  white-space: nowrap !important;
+  line-height: 1 !important;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.shopeers-export-btn:hover {
+  background: #1d4ed8 !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+
+/* Metric Cards Row */
+.shopeers-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .shopeers-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .shopeers-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shopeers-metric-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.25rem 1.4rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.shopeers-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.shopeers-metric-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.shopeers-metric-icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shopeers-metric-icon-wrap.is-green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.shopeers-metric-icon-wrap.is-rose {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.shopeers-metric-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.shopeers-metric-val {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.shopeers-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.56rem;
+  border-radius: 9999px;
+  font-size: 0.725rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.shopeers-badge.is-up {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.shopeers-badge.is-down {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.shopeers-metric-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+/* Control Toolbar (Filters + Search + View toggle) */
+.shopeers-toolbar {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 1.125rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.shopeers-filter-pills {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.4rem;
+}
+
+.shopeers-filter-pill {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.45rem !important;
+  padding: 0.45rem 0.95rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.8rem !important;
+  font-weight: 600 !important;
+  color: #64748b !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1 !important;
+}
+
+.shopeers-filter-pill:hover {
+  color: #0f172a !important;
+  background: #f8fafc !important;
+}
+
+.shopeers-filter-pill.is-active {
+  background: #eff6ff !important;
+  color: #2563eb !important;
+  font-weight: 600 !important;
+  border-color: #dbeafe !important;
+}
+
+.shopeers-pill-count {
+  font-size: 0.7rem !important;
+  font-weight: 700 !important;
+  padding: 0.12rem 0.45rem !important;
+  border-radius: 9999px !important;
+  background: #e2e8f0 !important;
+  color: #475569 !important;
+  line-height: 1 !important;
+}
+
+.shopeers-filter-pill.is-active .shopeers-pill-count {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.shopeers-toolbar-right {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.75rem;
+}
+
+.shopeers-search-box {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.45rem 0.95rem;
+  width: 290px;
+}
+
+.shopeers-search-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.shopeers-search-input {
+  border: none !important;
+  background: transparent !important;
+  outline: none !important;
+  width: 100%;
+  font-size: 0.8rem;
+  color: #0f172a;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.shopeers-search-clear {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.1rem;
+}
+
+.shopeers-search-clear:hover {
+  color: #0f172a;
+}
+
+.shopeers-view-toggle {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.2rem;
+}
+
+.shopeers-view-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px;
+  height: 32px;
+  border-radius: 50% !important;
+  border: none !important;
+  background: transparent !important;
+  color: #64748b !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shopeers-view-btn.is-active {
+  background: #ffffff !important;
+  color: #2563eb !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Main Table Container */
+.shopeers-table-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.5rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.shopeers-table-responsive {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.shopeers-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shopeers-table th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  padding: 0.85rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.shopeers-table td {
+  padding: 1rem 0.75rem;
+  border-bottom: 1px solid #f8fafc;
+  font-size: 0.85rem;
+  vertical-align: middle;
+}
+
+.shopeers-table tr.shopeers-tr-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.shopeers-table tr.shopeers-tr-row:hover {
+  background: #f8fafc;
+}
+
+.shopeers-td-sno {
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: center;
+}
+
+.shopeers-cand-cell {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.85rem;
+}
+
+.shopeers-cand-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shopeers-cand-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shopeers-cand-name {
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopeers-cand-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopeers-status-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 0.25rem 0.75rem !important;
+  border-radius: 9999px !important;
+  font-size: 0.725rem !important;
+  font-weight: 700 !important;
+  line-height: 1 !important;
+}
+
+.shopeers-status-pill.is-verified {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+}
+
+.shopeers-status-pill.is-review {
+  background: #fef3c7 !important;
+  color: #b45309 !important;
+}
+
+.shopeers-status-pill.is-active {
+  background: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.shopeers-action-btns {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 0.4rem;
+}
+
+.shopeers-act-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 0.5rem !important;
+  border: 1px solid #e2e8f0 !important;
+  background: #ffffff !important;
+  color: #64748b !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.shopeers-act-btn:hover {
+  background: #f8fafc !important;
+  color: #2563eb !important;
+  border-color: #cbd5e1 !important;
+}
+
+.shopeers-act-btn.is-delete:hover {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+  border-color: #fca5a5 !important;
+}
+
+.shopeers-table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  margin-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* Card View Grid */
+.shopeers-cand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.shopeers-cand-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.25rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shopeers-cand-card:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+}
+
+.shopeers-cand-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.shopeers-cand-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem;
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.shopeers-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.shopeers-meta-lbl {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.shopeers-meta-val {
+  font-size: 0.775rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.shopeers-cand-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Sidebar Styles */
+.shopeers-sidebar {
+  width: 240px;
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  padding: 1.25rem 1rem;
+  box-sizing: border-box;
+}
+
+.shopeers-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.25rem 0.5rem 1.25rem 0.5rem;
+}
+
+.shopeers-logo-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 0.5rem;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shopeers-brand-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.shopeers-nav-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shopeers-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shopeers-nav-item {
+  position: relative;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.shopeers-nav-item:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.shopeers-nav-item.is-active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.shopeers-nav-active-indicator {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 3.5px;
+  background: #2563eb;
+  border-radius: 0 4px 4px 0;
+}
+
+.shopeers-nav-item.is-active .shopeers-nav-active-indicator {
+  display: block;
+}
+
+.shopeers-nav-text {
+  flex: 1;
+}
+
+.shopeers-nav-badge {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+}
+
+.shopeers-nav-group-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+}
+
+.shopeers-group-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shopeers-subnav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 2.25rem;
+}
+
+.shopeers-subnav-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 0.375rem;
+}
+
+.shopeers-subnav-item:hover {
+  color: #0f172a;
+}
+
+.shopeers-upgrade-card {
+  margin-top: auto;
+  background: linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 50%, #0f172a 100%);
+  border-radius: 1rem;
+  padding: 1rem;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.shopeers-upgrade-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.65rem;
+}
+
+.shopeers-upgrade-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem 0;
+}
+
+.shopeers-upgrade-sub {
+  font-size: 0.7rem;
+  color: #93c5fd;
+  margin: 0 0 0.75rem 0;
+  line-height: 1.3;
+}
+
+.shopeers-upgrade-btn {
+  width: 100%;
+  padding: 0.45rem;
+  border-radius: 0.55rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+/* Topbar Header */
+.shopeers-topbar {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0.75rem 2.5rem;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-sizing: border-box;
+}
+
+.shopeers-topbar-search {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.45rem 0.95rem;
+  width: 320px;
+}
+
+.shopeers-topbar-search-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.shopeers-topbar-search-input {
+  border: none !important;
+  background: transparent !important;
+  outline: none !important;
+  width: 100%;
+  font-size: 0.825rem;
+  color: #0f172a;
+}
+
+.shopeers-topbar-kbd {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.shopeers-topbar-right {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.85rem;
+}
+
+.shopeers-topbar-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.shopeers-topbar-icon-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.shopeers-topbar-bell-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  background: #ef4444;
+  border-radius: 50%;
+}
+
+.shopeers-topbar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.shopeers-backdrop {
+  display: none;
+}
+
+/* App Shell Layout */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f8fafc;
+  width: 100%;
+}
+
+.app-shell .shopeers-sidebar {
+  width: 240px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 50;
+}
+
+.app-shell .shopeers-topbar {
+  margin-left: 240px;
+  width: calc(100% - 240px);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.app-shell .app-body {
+  margin-left: 240px;
+  width: calc(100% - 240px);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell.is-railless .shopeers-topbar,
+.app-shell.is-railless .app-body {
+  margin-left: 0;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .app-shell .shopeers-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .app-shell .shopeers-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .app-shell .shopeers-topbar,
+  .app-shell .app-body {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+
+/* ============================================================================
+   SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES
+   ============================================================================ */
+
+.shopeers-page-container {
+  padding: 1.75rem 2rem 3rem 2rem;
+  background-color: #f8fafc;
+  min-height: 100vh;
+  font-family: var(--font-outfit), system-ui, -apple-system, sans-serif;
+  color: #0f172a;
+}
+
+/* Page Header */
+.shopeers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.shopeers-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.shopeers-title {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+
+.shopeers-subtitle {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.shopeers-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+/* Metric Cards Row */
+.shopeers-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .shopeers-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .shopeers-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shopeers-metric-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.25rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.shopeers-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.shopeers-metric-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.shopeers-metric-icon-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #eff6ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shopeers-metric-icon-wrap.is-green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.shopeers-metric-icon-wrap.is-rose {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.shopeers-metric-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.shopeers-metric-val {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.shopeers-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.56rem;
+  border-radius: 9999px;
+  font-size: 0.725rem;
+  font-weight: 600;
+}
+
+.shopeers-badge.is-up {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.shopeers-badge.is-down {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.shopeers-metric-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+/* Control Bar (Filters + Search + View toggle) */
+.shopeers-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #f1f5f9;
+  border-radius: 1.125rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+}
+
+.shopeers-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.shopeers-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #64748b;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shopeers-filter-pill:hover {
+  color: #0f172a;
+  background: #f8fafc;
+}
+
+.shopeers-filter-pill.is-active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+  border-color: #dbeafe;
+}
+
+.shopeers-pill-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.shopeers-filter-pill.is-active .shopeers-pill-count {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.shopeers-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shopeers-search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.45rem 0.85rem;
+  width: 280px;
+}
+
+.shopeers-search-icon {
+  color: #94a3b8;
+}
+
+.shopeers-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 0.8rem;
+  color: #0f172a;
+}
+
+.shopeers-search-clear {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.1rem;
+}
+
+.shopeers-search-clear:hover {
+  color: #0f172a;
+}
+
+.shopeers-view-toggle {
+  display: flex;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.2rem;
+}
+
+.shopeers-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shopeers-view-btn.is-active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Main Table Container */
+.shopeers-table-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.5rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+}
+
+.shopeers-table-responsive {
+  overflow-x: auto;
+}
+
+.shopeers-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shopeers-table th {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 0.65rem;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.shopeers-table td {
+  padding: 0.85rem 0.65rem;
+  border-bottom: 1px solid #f8fafc;
+  font-size: 0.825rem;
+  vertical-align: middle;
+}
+
+.shopeers-table tr.shopeers-tr-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.shopeers-table tr.shopeers-tr-row:hover {
+  background: #f8fafc;
+}
+
+.shopeers-td-sno {
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: center;
+}
+
+.shopeers-cand-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shopeers-cand-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shopeers-cand-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shopeers-cand-name {
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopeers-cand-sub {
+  font-size: 0.75rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopeers-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.725rem;
+  font-weight: 700;
+}
+
+.shopeers-status-pill.is-verified {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.shopeers-status-pill.is-review {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.shopeers-status-pill.is-active {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.shopeers-action-btns {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.shopeers-act-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 0.5rem;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.shopeers-act-btn:hover {
+  background: #f8fafc;
+  color: #2563eb;
+  border-color: #cbd5e1;
+}
+
+.shopeers-act-btn.is-delete:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+.shopeers-table-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* Card View Grid */
+.shopeers-cand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.shopeers-cand-card {
+  background: #ffffff;
+  border-radius: 1.125rem;
+  padding: 1.25rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.shopeers-cand-card:hover {
+  border-color: #cbd5e1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+}
+
+.shopeers-cand-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.shopeers-cand-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.65rem;
+  background: #f8fafc;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+}
+
+.shopeers-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.shopeers-meta-lbl {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.shopeers-meta-val {
+  font-size: 0.775rem;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.shopeers-cand-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Sidebar Styles */
+.shopeers-sidebar {
+  width: 240px;
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  padding: 1.25rem 1rem;
+  box-sizing: border-box;
+}
+
+.shopeers-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.25rem 0.5rem 1.5rem 0.5rem;
+}
+
+.shopeers-logo-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 0.5rem;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shopeers-brand-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.shopeers-nav-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.shopeers-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shopeers-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.shopeers-nav-item:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.shopeers-nav-item.is-active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.shopeers-nav-active-indicator {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 15%;
+  height: 70%;
+  width: 3.5px;
+  background: #2563eb;
+  border-radius: 0 4px 4px 0;
+}
+
+.shopeers-nav-item.is-active .shopeers-nav-active-indicator {
+  display: block;
+}
+
+.shopeers-nav-text {
+  flex: 1;
+}
+
+.shopeers-nav-badge {
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+}
+
+.shopeers-nav-group-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+}
+
+.shopeers-group-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.shopeers-subnav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-left: 2.25rem;
+}
+
+.shopeers-subnav-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 0.375rem;
+}
+
+.shopeers-subnav-item:hover {
+  color: #0f172a;
+}
+
+.shopeers-upgrade-card {
+  margin-top: auto;
+  background: linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 50%, #0f172a 100%);
+  border-radius: 1rem;
+  padding: 1.15rem;
+  color: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.shopeers-upgrade-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.shopeers-upgrade-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0 0 0.35rem 0;
+}
+
+.shopeers-upgrade-sub {
+  font-size: 0.725rem;
+  color: #93c5fd;
+  margin: 0 0 0.85rem 0;
+  line-height: 1.35;
+}
+
+.shopeers-upgrade-btn {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #ffffff;
+  font-size: 0.775rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+}
+
+/* Topbar Header */
+.shopeers-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 2rem;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.shopeers-topbar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  padding: 0.45rem 0.85rem;
+  width: 320px;
+}
+
+.shopeers-topbar-search-icon {
+  color: #94a3b8;
+}
+
+.shopeers-topbar-search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 0.825rem;
+  color: #0f172a;
+}
+
+.shopeers-topbar-kbd {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.35rem;
+}
+
+.shopeers-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.shopeers-topbar-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.shopeers-topbar-icon-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.shopeers-topbar-bell-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  background: #ef4444;
+  border-radius: 50%;
+}
+
+.shopeers-topbar-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.shopeers-backdrop {
+  display: none;
+}
+
+/* App Shell Layout */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background-color: #f8fafc;
+}
+
+.app-shell .shopeers-sidebar {
+  width: 240px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  z-index: 50;
+}
+
+.app-shell .shopeers-topbar {
+  margin-left: 240px;
+  width: calc(100% - 240px);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+.app-shell .app-body {
+  margin-left: 240px;
+  width: calc(100% - 240px);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell.is-railless .shopeers-topbar,
+.app-shell.is-railless .app-body {
+  margin-left: 0;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .app-shell .shopeers-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .app-shell .shopeers-sidebar.is-open {
+    transform: translateX(0);
+  }
+  .app-shell .shopeers-topbar,
+  .app-shell .app-body {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+

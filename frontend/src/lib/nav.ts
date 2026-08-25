@@ -138,7 +138,7 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
  * and that screen is also where the SLA breaches are listed.
  */
 export function defaultNavFor(role: string | undefined): NavId {
-  return role === "staff" ? "my-queue" : "staff";
+  return role === "staff" ? "my-queue" : "candidates";
 }
 
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */

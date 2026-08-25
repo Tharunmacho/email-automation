@@ -27,6 +27,22 @@ export interface Project {
   url?: string | null;
 }
 
+/**
+ * One screening question, as it was asked and as it was answered.
+ *
+ * The wording travels with the answer rather than being resolved from the
+ * job's current question list: an admin rewording a question must not rewrite
+ * what a candidate was asked six weeks ago.
+ */
+export interface JobAnswer {
+  question_id?: string | null;
+  question?: string | null;
+  answer?: string | null;
+  /** "text" or "choice" — what they were offered, not what they said. */
+  kind?: string | null;
+  asked_at?: string | null;
+}
+
 export interface CandidateProfile {
   is_resume?: boolean;
   confidence: number;
@@ -54,6 +70,34 @@ export interface CandidateProfile {
   job_preference?: string | null;
   /** The same, as a controlled value. This is what the CV policy reads. */
   job_category?: string | null;
+
+  /** The `job_designations` row they picked — the join key. */
+  job_id?: string | null;
+  /**
+   * That job's title, stored beside the id rather than looked up.
+   *
+   * A job retired or reworded months later still has to read as the job this
+   * person applied for.
+   */
+  job_title?: string | null;
+  /** The trade qualification behind the application — "ITI Electrician". */
+  course_or_trade?: string | null;
+  /**
+   * A state, emirate or city inside the destination country.
+   *
+   * Sits below `destination_country` and never replaces it — the CV policy
+   * reads the country and would not know what to do with "Kerala".
+   */
+  state_preference?: string | null;
+  /**
+   * When they can start, in their own words: "Immediately", "after 2 months".
+   *
+   * Free text on purpose. A date field would force a made-up date onto every
+   * candidate who answered with a duration.
+   */
+  available_from?: string | null;
+  /** What they said to the screening questions attached to that job. */
+  job_answers?: JobAnswer[];
 
   skills?: string[];
   technical_skills?: string[];
@@ -180,6 +224,97 @@ export interface CandidateRecord {
   evaluation_score?: number | null;
   evaluation_notes?: string | null;
   evaluated_at?: string | null;
+}
+
+/**
+ * Where an identity document came from — which file, off which pages.
+ *
+ * A passport read out of page 54 of a 60-page application bundle is a different
+ * claim from one that arrived as its own scan, and a documentation officer
+ * checking a misread number needs to know which page to open.
+ */
+export interface IdentityDocumentSource {
+  provider?: string;
+  account_id?: string;
+  message_id?: string;
+  attachment_id?: string;
+  filename?: string;
+  sha256?: string;
+  pages?: number[];
+}
+
+/**
+ * One Aadhaar card as the OCR service read it.
+ *
+ * `aadhaar_number` and `vid` are served to administrators only — every other
+ * caller gets `masked_aadhaar_number` and nothing else, so a recruiter's
+ * browser never holds the full number. Treat both as possibly absent.
+ */
+export interface AadhaarRecord {
+  _id?: string;
+  document_type?: string;
+  candidate_id?: string | null;
+  name?: string | null;
+  /** Administrators only. */
+  aadhaar_number?: string | null;
+  /** Always present — "XXXXXXXX9017". */
+  masked_aadhaar_number?: string | null;
+  /** The card's own checksum. False means the OCR misread a digit. */
+  aadhaar_number_valid?: boolean | null;
+  date_of_birth?: string | null;
+  year_of_birth?: string | number | null;
+  gender?: string | null;
+  mobile_number?: string | null;
+  address?: string | null;
+  care_of?: string | null;
+  pincode?: string | null;
+  /** Administrators only. */
+  vid?: string | null;
+  enrollment_id?: string | null;
+  document_side?: string | null;
+  warnings?: string[];
+  source?: IdentityDocumentSource;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** One passport as the OCR service read it, MRZ first. */
+export interface PassportRecord {
+  _id?: string;
+  document_type?: string;
+  candidate_id?: string | null;
+  passport_number?: string | null;
+  surname?: string | null;
+  given_names?: string | null;
+  nationality?: string | null;
+  issuing_country?: string | null;
+  date_of_birth?: string | null;
+  sex?: string | null;
+  expiry_date?: string | null;
+  date_of_issue?: string | null;
+  personal_number?: string | null;
+  /**
+   * The MRZ's own integrity test. False means a character was misread — worth
+   * showing, never worth silently trusting.
+   */
+  check_digits_valid?: boolean | null;
+  mrz_source?: string | null;
+  /** Administrators only. */
+  raw_mrz?: string | null;
+  confidence?: number | null;
+  /** Read off the printed page rather than the MRZ — carries place of issue. */
+  printed_fields?: Record<string, unknown> | null;
+  warnings?: string[];
+  source?: IdentityDocumentSource;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Everything `GET /candidates/{id}/identity` found for one candidate. */
+export interface IdentityDocuments {
+  candidate_id: string;
+  aadhaar: AadhaarRecord[];
+  passport: PassportRecord[];
 }
 
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */

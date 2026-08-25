@@ -18,10 +18,14 @@ import type {
   Education,
   Project,
   CandidateProfile,
+  JobAnswer,
   StoredResume,
   SourceEmail,
   CandidateRecord,
   CandidateListResponse,
+  AadhaarRecord,
+  PassportRecord,
+  IdentityDocuments,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
@@ -45,10 +49,14 @@ export type {
   Education,
   Project,
   CandidateProfile,
+  JobAnswer,
   StoredResume,
   SourceEmail,
   CandidateRecord,
   CandidateListResponse,
+  AadhaarRecord,
+  PassportRecord,
+  IdentityDocuments,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
@@ -211,6 +219,24 @@ export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResp
 /** The complete record for one candidate — every field, OCR payload included. */
 export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
+}
+
+/**
+ * The Aadhaar and passport scans read out of this candidate's application.
+ *
+ * A separate call rather than part of the record, because they are stored in
+ * their own collections precisely so the reads that build the candidate list
+ * cannot serve a government identity number to a browser. The server masks the
+ * Aadhaar number and the MRZ for anyone who is not an administrator, so what
+ * comes back depends on who is asking.
+ *
+ * A candidate with no scans on file is the normal case, not a failure — it
+ * returns two empty lists.
+ */
+export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
+  return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
+    cache: "no-store",
+  });
 }
 
 /** Runs the poll inline; the request is held open for the whole batch. */

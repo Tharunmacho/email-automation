@@ -140,6 +140,28 @@ class TradeLicense(BaseModel):
     expiry_date: Optional[str] = None
 
 
+class JobAnswer(BaseModel):
+    """One screening question, as it was asked and as it was answered.
+
+    The question text is stored alongside the id rather than looked up at read
+    time, and that is deliberate: an admin rewords a question the week after a
+    candidate answered it, and a profile that renders today's wording against
+    last week's answer is a record of a conversation that never happened.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    #: The `job_questions` row this answers, when it came from one. Free-form
+    #: questions the bot asked outside the taxonomy have no id and are still
+    #: worth keeping.
+    question_id: Optional[str] = None
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    #: "text" or "choice" — what the candidate was offered, not what they said.
+    kind: Optional[str] = None
+    asked_at: Optional[str] = None
+
+
 class CandidateProfile(BaseModel):
     """The structured key/value profile the AI extracts from resume text."""
     model_config = ConfigDict(extra="allow")
@@ -184,6 +206,28 @@ class CandidateProfile(BaseModel):
     # the CV policy keys on; `job_preference` is never consulted for a decision
     # because free text cannot be matched reliably.
     job_category: Optional[str] = None
+
+    # ---- the job they actually applied for --------------------------------- #
+    # The `job_designations` row the candidate picked, id and title both. The id
+    # is what the CV rules and any later report join on; the title is what a
+    # recruiter reads, kept here so a job retired or reworded months later still
+    # renders as the job this person applied for.
+    job_id: Optional[str] = None
+    job_title: Optional[str] = None
+    # The trade qualification behind the application — "ITI Electrician",
+    # "Diploma in Mechanical Engineering". Distinct from `education`, which is
+    # the schooling history; this is the one line a client asks for.
+    course_or_trade: Optional[str] = None
+    # Where inside the destination they want to be — a state, an emirate, a
+    # city. Below `destination_country` and never a substitute for it: the CV
+    # policy reads the country and would not know what to do with "Kerala".
+    state_preference: Optional[str] = None
+    # When they can start, in their own words: "Immediately", "after 2 months",
+    # "2026-03-01". Free text on purpose — a date field would force the bot to
+    # invent one for every candidate who answered with a duration.
+    available_from: Optional[str] = None
+    # What they said to the screening questions attached to that job.
+    job_answers: List[JobAnswer] = Field(default_factory=list)
 
     skills: List[str] = Field(default_factory=list)
     technical_skills: List[str] = Field(default_factory=list)

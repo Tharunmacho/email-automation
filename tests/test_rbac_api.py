@@ -140,6 +140,92 @@ def test_staff_cannot_download_someone_elses_resume(api):
 
 
 # --------------------------------------------------------------------------- #
+#  Identity documents
+#
+#  The profile screen tells a recruiter that the Aadhaar number is masked and
+#  that only an administrator is served the full one. That is a promise made in
+#  the browser and kept by the server, so it is checked here rather than taken
+#  on trust.
+# --------------------------------------------------------------------------- #
+def _fake_identity(_candidate_id=None):
+    from datetime import datetime, timezone
+
+    return {
+        "aadhaar": [
+            {
+                "_id": "rec-1",
+                "name": "Mine Candidate",
+                "aadhaar_number": "123412349017",
+                "masked_aadhaar_number": "XXXXXXXX9017",
+                "aadhaar_number_valid": True,
+                "vid": "9876543210987654",
+                "address": "Vill Chaturbuhjwa, West Champaran, Bihar",
+                # The unmasked number lives in here a dozen times over.
+                "raw": {"aadhaar": {"aadhaar_number": "123412349017"}},
+                "updated_at": datetime(2026, 8, 13, 9, 30, tzinfo=timezone.utc),
+                "source": {"filename": "application.pdf", "pages": [54]},
+            }
+        ],
+        "passport": [
+            {
+                "_id": "rec-2",
+                "passport_number": "Z1234567",
+                "surname": "Shah",
+                "given_names": "Nasim",
+                "expiry_date": "2031-03-14",
+                "check_digits_valid": True,
+                "raw_mrz": "P<INDSHAH<<NASIM<<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+                "raw": {"mrz": {"passport_number": "Z1234567"}},
+                "updated_at": datetime(2026, 8, 13, 9, 31, tzinfo=timezone.utc),
+                "source": {"filename": "application.pdf", "pages": [55]},
+            }
+        ],
+    }
+
+
+def test_a_recruiter_is_served_the_masked_aadhaar_only(api):
+    api.sign_in_as("staff", "staff-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        body = api.get("/candidates/cand-mine/identity").json()
+
+    card = body["aadhaar"][0]
+    assert card["masked_aadhaar_number"] == "XXXXXXXX9017"
+    # The three places the full number could otherwise reach a browser.
+    assert "aadhaar_number" not in card
+    assert "vid" not in card
+    assert "raw" not in card
+    assert "raw_mrz" not in body["passport"][0]
+    assert "raw" not in body["passport"][0]
+    # What is left is still enough to recognise the document and find the page
+    # it was read off.
+    assert card["aadhaar_number_valid"] is True
+    assert card["source"]["pages"] == [54]
+
+
+def test_an_administrator_is_served_the_full_number(api):
+    api.sign_in_as("admin", "admin-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        body = api.get("/candidates/cand-mine/identity").json()
+
+    assert body["aadhaar"][0]["aadhaar_number"] == "123412349017"
+    assert body["passport"][0]["passport_number"] == "Z1234567"
+    # Never the whole OCR payload, whoever is asking — it carries the number in
+    # a dozen places nobody is projecting or masking.
+    assert "raw" not in body["aadhaar"][0]
+
+
+def test_an_identity_document_never_confirms_someone_elses_candidate(api):
+    """404, exactly as the candidate endpoints do.
+
+    A 403 here would confirm the id exists, and an identity document must not
+    be the thing that leaks it.
+    """
+    api.sign_in_as("staff", "staff-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        assert api.get("/candidates/cand-theirs/identity").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
 #  Admin-only routes
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(

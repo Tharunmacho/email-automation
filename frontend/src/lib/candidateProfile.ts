@@ -9,7 +9,7 @@
  * editor.
  */
 
-import type { CandidateProfile, CandidateRecord } from "@/lib/api";
+import type { CandidateProfile, CandidateRecord, JobAnswer } from "@/lib/api";
 
 // --------------------------------------------------------------------------- //
 //  Editable shapes
@@ -53,6 +53,20 @@ export interface EditableExtra {
   kind: "text" | "number" | "boolean" | "list";
 }
 
+/**
+ * One screening question and its answer, as the editor holds them.
+ *
+ * The question text is editable too, because it is stored on the candidate
+ * rather than looked up: a recruiter correcting a garbled answer sometimes has
+ * to correct the question that was actually put to them as well.
+ */
+export interface EditableJobAnswer {
+  question_id: string;
+  question: string;
+  answer: string;
+  kind: string;
+}
+
 export interface EditableState {
   full_name: string;
   designation: string;
@@ -65,6 +79,17 @@ export interface EditableState {
   linkedin: string;
   github: string;
   skills: string;
+  /** The job they applied for, and everything asked around it. */
+  job_title: string;
+  job_id: string;
+  course_or_trade: string;
+  destination_country: string;
+  state_preference: string;
+  job_preference: string;
+  job_category: string;
+  available_from: string;
+  trade_skills: string;
+  job_answers: EditableJobAnswer[];
   work_experience: EditableWorkExp[];
   education: EditableEdu[];
   projects: EditableProject[];
@@ -378,6 +403,24 @@ export function toEditableState(profile: CandidateProfile, candidate?: Candidate
     linkedin: profile.linkedin_url ?? "",
     github: profile.github_url ?? "",
     skills: (profile.skills ?? []).join(", "),
+    // The application block. Filled by the WhatsApp bot, which asks these
+    // directly; an email candidate arrives with them empty and a recruiter
+    // fills them in once they have spoken to the person.
+    job_title: profile.job_title ?? "",
+    job_id: profile.job_id ?? "",
+    course_or_trade: profile.course_or_trade ?? "",
+    destination_country: profile.destination_country ?? "",
+    state_preference: profile.state_preference ?? "",
+    job_preference: profile.job_preference ?? "",
+    job_category: profile.job_category ?? "",
+    available_from: profile.available_from ?? "",
+    trade_skills: (profile.trade_skills ?? []).join(", "),
+    job_answers: (profile.job_answers ?? []).map((entry) => ({
+      question_id: entry.question_id ?? "",
+      question: entry.question ?? "",
+      answer: entry.answer ?? "",
+      kind: entry.kind ?? "text",
+    })),
     work_experience: experiences.map((exp) => {
       const companyVal = (exp.company ?? "").trim();
       const cleanCompany =
@@ -430,6 +473,28 @@ export function editableToProfile(base: CandidateProfile, state: EditableState):
     linkedin_url: state.linkedin,
     github_url: state.github,
     skills: state.skills.split(",").map((s) => s.trim()).filter(Boolean),
+    job_title: state.job_title,
+    // Never edited on screen — it is the key the CV rules and the bot's own
+    // records point at, and a recruiter retyping the title must not silently
+    // repoint the record at a different job.
+    job_id: state.job_id || base.job_id || null,
+    course_or_trade: state.course_or_trade,
+    destination_country: state.destination_country,
+    state_preference: state.state_preference,
+    job_preference: state.job_preference,
+    job_category: state.job_category,
+    available_from: state.available_from,
+    trade_skills: state.trade_skills.split(",").map((s) => s.trim()).filter(Boolean),
+    // A question with no answer is a question that was never put; dropping the
+    // row is how an emptied one is deleted.
+    job_answers: state.job_answers
+      .filter((entry) => entry.question.trim() || entry.answer.trim())
+      .map((entry): JobAnswer => ({
+        question_id: entry.question_id || null,
+        question: entry.question.trim(),
+        answer: entry.answer.trim(),
+        kind: entry.kind || "text",
+      })),
     work_experience: state.work_experience.map((w) => ({
       company: w.company,
       designation: w.designation,
@@ -513,6 +578,12 @@ export function summariseProfileChange(
     ["Phone", "phone"],
     ["Location", "location"],
     ["Summary", "resume_summary"],
+    ["Job applied for", "job_title"],
+    ["Course / trade", "course_or_trade"],
+    ["Destination country", "destination_country"],
+    ["State preference", "state_preference"],
+    ["Job preference", "job_preference"],
+    ["Availability", "available_from"],
   ];
   for (const [label, key] of scalars) {
     const from = text(before[key]);
@@ -523,6 +594,7 @@ export function summariseProfileChange(
 
   const lists: [string, keyof CandidateProfile][] = [
     ["Key skills", "skills"],
+    ["Trade skills", "trade_skills"],
     ["Languages", "languages"],
     ["Certifications", "certifications"],
     ["Achievements", "achievements"],
@@ -544,6 +616,7 @@ export function summariseProfileChange(
     ["Experience entries", "work_experience"],
     ["Education entries", "education"],
     ["Projects", "projects"],
+    ["Job answers", "job_answers"],
   ];
   for (const [label, key] of sections) {
     const from = Array.isArray(before[key]) ? (before[key] as unknown[]).length : 0;

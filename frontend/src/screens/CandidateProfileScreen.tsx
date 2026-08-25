@@ -1,34 +1,44 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  BadgeCheck,
   CheckCircle2,
   Download,
   FileText,
   FolderGit2,
+  IdCard,
   Link as LinkIcon,
   Loader2,
   Mail,
   MapPin,
   Phone,
+  Plane,
   Star,
 } from "lucide-react";
 
 import {
   flattenExtras,
+  formatExtraValue,
   highestQualificationOf,
+  humanizeKey,
   industryOf,
   isBlankValue,
   toBullets,
   toEditableState,
 } from "@/lib/candidateProfile";
 import {
+  getCandidateIdentity,
   getToken,
   resumeDownloadUrl,
+  type AadhaarRecord,
   type CandidateRecord,
   type EvaluationStatus,
+  type IdentityDocuments,
+  type PassportRecord,
 } from "@/lib/api";
 import { formatDateFull, initialsOf } from "@/lib/format";
 
@@ -91,6 +101,124 @@ function Fact({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+/**
+ * How long a passport has left, as a recruiter needs to hear it.
+ *
+ * Overseas placement turns on this: a passport that expires inside the
+ * deployment window is a stopped application, and the number on the card does
+ * not say that by itself. Returns null when the date is not one this can read —
+ * MRZ dates arrive in more than one shape, and guessing at an unparseable one
+ * would be worse than saying nothing.
+ */
+function expiryNotice(value?: string | null): { tone: "expired" | "soon"; text: string } | null {
+  const text = (value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const expiry = new Date(`${text}T00:00:00`);
+  if (Number.isNaN(expiry.getTime())) return null;
+
+  const days = Math.round((expiry.getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return { tone: "expired", text: "Expired" };
+  // Six months is the window most destinations require on arrival.
+  if (days <= 180) return { tone: "soon", text: `Expires in ${days} day${days === 1 ? "" : "s"}` };
+  return null;
+}
+
+/**
+ * Printed-page fields the MRZ has already supplied, under the names the OCR
+ * service uses for them. Shown once, from the MRZ, which is the machine-read
+ * half of the page and the half with check digits behind it.
+ */
+const MRZ_FIELDS = new Set([
+  "passport_number",
+  "surname",
+  "given_names",
+  "name",
+  "nationality",
+  "issuing_country",
+  "country",
+  "date_of_birth",
+  "sex",
+  "gender",
+  "expiry_date",
+  "date_of_expiry",
+  "date_of_issue",
+  "personal_number",
+]);
+
+/**
+ * One scanned document, exactly as the OCR read it.
+ *
+ * Read-only with no edit path anywhere near it, and that is the point: this is
+ * evidence about a file somebody sent, not a field of the candidate record. It
+ * carries its own provenance — which attachment, off which pages, read when —
+ * because a documentation officer checking a misread digit needs to know which
+ * page to open, and it carries the service's own integrity verdict rather than
+ * presenting a failed checksum as fact.
+ */
+function DocumentCard({
+  title,
+  icon,
+  badges,
+  warnings,
+  source,
+  readAt,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  badges?: React.ReactNode;
+  warnings?: string[];
+  source?: { filename?: string; pages?: number[] };
+  readAt?: string;
+  children: React.ReactNode;
+}) {
+  const pages = source?.pages ?? [];
+  const provenance = [
+    source?.filename,
+    pages.length > 0 ? `page${pages.length === 1 ? "" : "s"} ${pages.join(", ")}` : null,
+    readAt ? `read ${formatDateFull(new Date(readAt))}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <article className="cprof-doc">
+      <div className="cprof-doc-head">
+        <span className="cprof-doc-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <h4 className="cprof-doc-title">{title}</h4>
+        {badges}
+      </div>
+
+      <div className="cprof-facts">{children}</div>
+
+      {(warnings ?? []).length > 0 && (
+        <ul className="cprof-doc-warnings">
+          {(warnings ?? []).map((warning, index) => (
+            <li key={index}>
+              <AlertTriangle size={13} /> {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {provenance && <p className="cprof-doc-source">{provenance}</p>}
+    </article>
+  );
+}
+
+/** The OCR's own verdict on whether it read the document correctly. */
+function CheckBadge({ valid, label }: { valid?: boolean | null; label: string }) {
+  if (valid === null || valid === undefined) return null;
+  return (
+    <span className={`cprof-doc-badge ${valid ? "is-ok" : "is-bad"}`}>
+      {valid ? <BadgeCheck size={13} /> : <AlertTriangle size={13} />}
+      {valid ? label : `${label} failed`}
+    </span>
+  );
+}
+
 function BulletText({ text }: { text: string }) {
   const lines = toBullets(text);
   if (lines.length === 0) return null;
@@ -123,6 +251,24 @@ export default function CandidateProfileScreen({
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
+  /**
+   * The Aadhaar and passport scans, fetched separately because they are stored
+   * separately — in their own collections, so the reads that build the
+   * candidate list cannot serve a government identity number to a browser.
+   *
+   * The candidate id is held alongside the answer rather than cleared when the
+   * candidate changes: a screen that blanks it on the way in renders one frame
+   * of "no documents" for a candidate who has them, and one that does not
+   * check whose answer this is renders the previous candidate's passport
+   * against this one's name. Comparing ids covers both, and is the only thing
+   * that does.
+   */
+  const [identity, setIdentity] = useState<{
+    candidateId: string;
+    documents: IdentityDocuments | null;
+    error: string | null;
+  } | null>(null);
+
   // The verdict controls, seeded from whatever is already on the record so
   // re-opening an evaluated profile shows the decision that was made rather
   // than an empty form.
@@ -142,6 +288,36 @@ export default function CandidateProfileScreen({
 
   const profile = candidate.profile ?? {};
   const view = useMemo(() => toEditableState(candidate.profile ?? {}, candidate), [candidate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const candidateId = candidate.id;
+
+    getCandidateIdentity(candidateId)
+      .then((documents) => {
+        if (!cancelled) setIdentity({ candidateId, documents, error: null });
+      })
+      .catch((err) => {
+        // A profile is still worth reading when the identity lookup fails, so
+        // this reports rather than throws — the document sections simply say
+        // they could not be loaded.
+        if (!cancelled) {
+          setIdentity({
+            candidateId,
+            documents: null,
+            error: err instanceof Error ? err.message : "Could not load identity documents.",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [candidate.id]);
+
+  /** Only this candidate's answer counts; an older one is still in flight. */
+  const identityFor = identity?.candidateId === candidate.id ? identity : null;
+  const identityError = identityFor?.error ?? null;
 
   const skills = useMemo(
     () =>
@@ -163,6 +339,39 @@ export default function CandidateProfileScreen({
 
   const industry = industryOf(profile);
   const highestQualification = highestQualificationOf(profile);
+
+  // ---- what they applied for ---------------------------------------------- #
+  // The job title as stored, falling back to the controlled category so a
+  // record written before titles were kept still names the job. The category
+  // then only earns its own row when it is saying something the title did not.
+  const jobTitle = view.job_title || (view.job_category ? humanizeKey(view.job_category) : "");
+  const jobCategory = view.job_title && view.job_category ? humanizeKey(view.job_category) : "";
+  const tradeSkills = view.trade_skills
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+  const jobAnswers = view.job_answers.filter((entry) => entry.question.trim() || entry.answer.trim());
+
+  const hasJobDetails = Boolean(
+    jobTitle ||
+      view.course_or_trade ||
+      view.destination_country ||
+      view.state_preference ||
+      view.job_preference ||
+      view.available_from ||
+      tradeSkills.length > 0 ||
+      jobAnswers.length > 0,
+  );
+
+  // ---- the scans ----------------------------------------------------------- #
+  const passports: PassportRecord[] = identityFor?.documents?.passport ?? [];
+  const aadhaars: AadhaarRecord[] = identityFor?.documents?.aadhaar ?? [];
+  // A passport the résumé mentioned but no scan backs. Worth a row of its own —
+  // "we have the number, we have not seen the document" is a different state
+  // from either having the scan or having nothing.
+  const statedPassport = Boolean(profile.passport_number || profile.passport_expiry);
+  const hasPassportSection = passports.length > 0 || statedPassport;
+  const hasAadhaarSection = aadhaars.length > 0;
   const isVerified = candidate.status === "verified";
   const ingestedOn = candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—";
 
@@ -177,6 +386,9 @@ export default function CandidateProfileScreen({
   /** Only sections that actually carry something are offered or drawn. */
   const sections = [
     { id: "details", label: "Details", present: true },
+    { id: "job", label: "Job & preferences", present: hasJobDetails },
+    { id: "passport", label: "Passport", present: hasPassportSection },
+    { id: "aadhaar", label: "Aadhaar", present: hasAadhaarSection },
     { id: "verdict", label: "Verdict & Evaluation", present: hasVerdict },
     { id: "summary", label: "Summary", present: Boolean(view.summary.trim()) },
     { id: "experience", label: "Experience", present: view.work_experience.length > 0 },
@@ -297,6 +509,17 @@ export default function CandidateProfileScreen({
 
       {downloadError && <div className="cscreen-error">Resume download failed — {downloadError}</div>}
 
+      {/* Reported rather than swallowed, and reported once.
+          A failed lookup and a candidate with no scans on file produce the same
+          empty sections, and those are opposite facts: one means there is no
+          passport, the other means nobody knows. Saying so here keeps the
+          sections below driven purely by what was actually read. */}
+      {identityError && (
+        <div className="cscreen-error">
+          Passport and Aadhaar scans could not be loaded — {identityError}
+        </div>
+      )}
+
       <header className="cprof-hero">
         <span className="cprof-monogram" aria-hidden="true">
           {initialsOf(view.full_name)}
@@ -376,6 +599,195 @@ export default function CandidateProfileScreen({
             <Fact label="Address" value={view.location} />
           </div>
         </section>
+
+        {hasJobDetails && (
+          <section className="cprof-card" id={sectionId("job")}>
+            <h3 className="cprof-card-title">Job &amp; preferences</h3>
+            <div className="cprof-facts">
+              <Fact label="Job applied for" value={jobTitle} />
+              <Fact label="Job category" value={jobCategory} />
+              <Fact label="Course / trade" value={view.course_or_trade} />
+              <Fact label="Destination country" value={view.destination_country} />
+              <Fact label="State / district preference" value={view.state_preference} />
+              <Fact label="Job preference" value={view.job_preference} />
+              <Fact label="Available to join" value={view.available_from} />
+            </div>
+
+            {tradeSkills.length > 0 && (
+              <>
+                <p className="cprof-subhead">Trade skills</p>
+                <div className="cprof-skills">
+                  {tradeSkills.map((skill, index) => (
+                    <span key={`${skill}-${index}`} className="cprof-skill">
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Asked when they registered, and answered in their own words.
+                The question is stored with the answer rather than looked up,
+                so a question reworded since is not put in their mouth. */}
+            {jobAnswers.length > 0 && (
+              <>
+                <p className="cprof-subhead">Screening questions</p>
+                <div className="cprof-qa">
+                  {jobAnswers.map((entry, index) => (
+                    <div key={entry.question_id || index} className="cprof-qa-row">
+                      <p className="cprof-qa-question">
+                        {entry.question.trim() || `Question ${index + 1}`}
+                      </p>
+                      <p className="cprof-qa-answer">
+                        {entry.answer.trim() || "No answer recorded"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {hasPassportSection && (
+          <section className="cprof-card" id={sectionId("passport")}>
+            <h3 className="cprof-card-title">Passport</h3>
+
+            {passports.length > 0 && (
+              <div className="cprof-docs">
+                {passports.map((passport, index) => {
+                  const expiry = expiryNotice(passport.expiry_date);
+                  const printed = (passport.printed_fields ?? {}) as Record<string, unknown>;
+                  return (
+                    <DocumentCard
+                      key={passport._id || index}
+                      title={
+                        [passport.given_names, passport.surname].filter(Boolean).join(" ") ||
+                        `Passport ${index + 1}`
+                      }
+                      icon={<Plane size={15} />}
+                      badges={
+                        <>
+                          <CheckBadge valid={passport.check_digits_valid} label="MRZ check digits" />
+                          {expiry && (
+                            <span
+                              className={`cprof-doc-badge ${
+                                expiry.tone === "expired" ? "is-bad" : "is-warn"
+                              }`}
+                            >
+                              <AlertTriangle size={13} /> {expiry.text}
+                            </span>
+                          )}
+                        </>
+                      }
+                      warnings={passport.warnings}
+                      source={passport.source}
+                      readAt={passport.updated_at}
+                    >
+                      <Fact label="Passport number" value={passport.passport_number} />
+                      <Fact label="Surname" value={passport.surname} />
+                      <Fact label="Given names" value={passport.given_names} />
+                      <Fact label="Nationality" value={passport.nationality} />
+                      <Fact label="Issuing country" value={passport.issuing_country} />
+                      <Fact label="Date of birth" value={passport.date_of_birth} />
+                      <Fact label="Sex" value={passport.sex} />
+                      <Fact label="Date of issue" value={passport.date_of_issue} />
+                      <Fact label="Date of expiry" value={passport.expiry_date} />
+                      <Fact label="Personal number" value={passport.personal_number} />
+                      {/* Read off the printed data page rather than the MRZ,
+                          which is where the place of issue lives and nowhere
+                          else. Anything the MRZ already gave is dropped: the
+                          two agree on most of the page, and a second "Passport
+                          number" row reads as a second passport. */}
+                      {Object.entries(printed)
+                        .filter(([key]) => !MRZ_FIELDS.has(key))
+                        .map(([key, value]) => (
+                          <Fact key={key} label={humanizeKey(key)} value={formatExtraValue(value)} />
+                        ))}
+                    </DocumentCard>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* What the application claimed, when no scan backs it. */}
+            {statedPassport && (
+              <>
+                {passports.length > 0 && (
+                  <p className="cprof-subhead">As stated on the application</p>
+                )}
+                <div className="cprof-facts">
+                  <Fact label="Passport number" value={profile.passport_number} />
+                  <Fact label="Passport expiry" value={profile.passport_expiry} />
+                </div>
+              </>
+            )}
+
+            {passports.length === 0 && (
+              <p className="cprof-doc-note">
+                No passport scan has been read — the number above is what the application stated.
+              </p>
+            )}
+          </section>
+        )}
+
+        {hasAadhaarSection && (
+          <section className="cprof-card" id={sectionId("aadhaar")}>
+            <h3 className="cprof-card-title">Aadhaar</h3>
+            <div className="cprof-docs">
+              {aadhaars.map((aadhaar, index) => (
+                <DocumentCard
+                  key={aadhaar._id || index}
+                  title={aadhaar.name || `Aadhaar card ${index + 1}`}
+                  icon={<IdCard size={15} />}
+                  badges={
+                    <>
+                      <CheckBadge valid={aadhaar.aadhaar_number_valid} label="Checksum" />
+                      {aadhaar.document_side && (
+                        <span className="cprof-doc-badge">
+                          {humanizeKey(aadhaar.document_side)}
+                        </span>
+                      )}
+                    </>
+                  }
+                  warnings={aadhaar.warnings}
+                  source={aadhaar.source}
+                  readAt={aadhaar.updated_at}
+                >
+                  <Fact label="Name" value={aadhaar.name} />
+                  {/* The full number reaches the browser for administrators
+                      only; everyone else is served the masked one, and the
+                      server is what decides which. */}
+                  <Fact
+                    label="Aadhaar number"
+                    value={aadhaar.aadhaar_number || aadhaar.masked_aadhaar_number}
+                  />
+                  <Fact label="Date of birth" value={aadhaar.date_of_birth} />
+                  <Fact
+                    label="Year of birth"
+                    value={aadhaar.year_of_birth ? String(aadhaar.year_of_birth) : ""}
+                  />
+                  <Fact label="Gender" value={aadhaar.gender} />
+                  <Fact label="Mobile number" value={aadhaar.mobile_number} />
+                  <Fact label="Care of" value={aadhaar.care_of} />
+                  <Fact label="Address" value={aadhaar.address} />
+                  <Fact label="Pincode" value={aadhaar.pincode} />
+                  <Fact label="VID" value={aadhaar.vid} />
+                  <Fact label="Enrolment ID" value={aadhaar.enrollment_id} />
+                </DocumentCard>
+              ))}
+            </div>
+
+            {/* Only when a number was actually read and withheld. A card the
+                OCR could not read a number off is a different story, and
+                telling that reader about masking explains nothing. */}
+            {aadhaars.some((card) => !card.aadhaar_number && card.masked_aadhaar_number) && (
+              <p className="cprof-doc-note">
+                Aadhaar numbers are masked. Only an administrator is served the full number.
+              </p>
+            )}
+          </section>
+        )}
 
         {hasVerdict && (
           <section className="cprof-card" id={sectionId("verdict")}>

@@ -8,6 +8,7 @@ import {
   renameExtra,
   toEditableState,
   type EditableEdu,
+  type EditableJobAnswer,
   type EditableProject,
   type EditableState,
   type EditableWorkExp,
@@ -129,6 +130,9 @@ export default function CandidateEditScreen({
   const updateProj = (index: number, patch: Partial<EditableProject>) =>
     set("projects", updateAt(state.projects, index, patch));
 
+  const updateAnswer = (index: number, patch: Partial<EditableJobAnswer>) =>
+    set("job_answers", updateAt(state.job_answers, index, patch));
+
   const handleBack = () => {
     if (dirty && !confirm("Discard the unsaved changes on this profile?")) return;
     onBack();
@@ -222,6 +226,142 @@ export default function CandidateEditScreen({
               <input className="cedit-input" type="text" value={state.github} onChange={text("github")} />
             </Field>
           </div>
+        </SectionCard>
+
+        {/* What they applied for, kept apart from who they are.
+
+            The WhatsApp bot fills this in by asking; an email candidate arrives
+            with it empty, and it is filled in here once a recruiter has spoken
+            to them. `job_id` is deliberately absent from this form: it is the
+            key the CV rules and the bot's own records point at, and retyping a
+            title must not silently repoint the record at a different job. */}
+        <SectionCard title="Job and preferences">
+          <div className="cedit-grid">
+            <Field label="Job applied for">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.job_title}
+                placeholder="Electrician"
+                onChange={text("job_title")}
+              />
+            </Field>
+            <Field label="Course / trade" hint="qualification">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.course_or_trade}
+                placeholder="ITI Electrician"
+                onChange={text("course_or_trade")}
+              />
+            </Field>
+            <Field label="Destination country" hint="where they want to work">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.destination_country}
+                placeholder="Singapore"
+                onChange={text("destination_country")}
+              />
+            </Field>
+            <Field label="State / district preference">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.state_preference}
+                onChange={text("state_preference")}
+              />
+            </Field>
+            <Field label="Job preference" hint="in their own words">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.job_preference}
+                onChange={text("job_preference")}
+              />
+            </Field>
+            <Field label="Available to join" hint="free text">
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.available_from}
+                placeholder="Immediately / after 2 months"
+                onChange={text("available_from")}
+              />
+            </Field>
+          </div>
+
+          <Field label="Trade skills" hint="comma separated">
+            <input
+              className="cedit-input"
+              type="text"
+              value={state.trade_skills}
+              placeholder="EOT Crane, TIG Welding"
+              onChange={text("trade_skills")}
+            />
+          </Field>
+
+          <p className="cedit-note">
+            The destination country is what the CV policy reads. Keep it to one country &mdash;
+            &ldquo;Singapore&rdquo;, never &ldquo;GCC&rdquo; or a pair.
+          </p>
+        </SectionCard>
+
+        <SectionCard
+          title="Screening questions"
+          addLabel="Add question"
+          onAdd={() =>
+            set("job_answers", [
+              ...state.job_answers,
+              { question_id: "", question: "", answer: "", kind: "text" },
+            ])
+          }
+        >
+          {state.job_answers.length === 0 ? (
+            <p className="cedit-note">
+              No screening answers recorded. These arrive with a WhatsApp registration; add one
+              here to record an answer given over the phone.
+            </p>
+          ) : (
+            <div className="cedit-rows">
+              {state.job_answers.map((entry, index) => (
+                <div key={entry.question_id || index} className="cedit-row">
+                  <div className="cedit-row-head">
+                    <span className="cedit-row-title">Question #{index + 1}</span>
+                    <button
+                      type="button"
+                      className="cedit-remove"
+                      aria-label={`Remove question ${index + 1}`}
+                      onClick={() => set("job_answers", removeAt(state.job_answers, index))}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <Field label="Question">
+                    <input
+                      className="cedit-input"
+                      type="text"
+                      value={entry.question}
+                      onChange={(e) => updateAnswer(index, { question: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Answer">
+                    <textarea
+                      className="cedit-input cedit-textarea"
+                      rows={2}
+                      value={entry.answer}
+                      onChange={(e) => updateAnswer(index, { answer: e.target.value })}
+                    />
+                  </Field>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="cedit-note">
+            The wording is stored with the answer, not looked up. Editing a question here changes
+            what this candidate is recorded as having been asked &mdash; it does not change the
+            question the bot puts to anyone else.
+          </p>
         </SectionCard>
 
         <SectionCard title="Summary">
