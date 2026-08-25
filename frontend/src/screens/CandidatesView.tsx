@@ -17,11 +17,24 @@ import {
   FileText,
   Plus,
   ExternalLink,
+  Users,
+  FileSearch,
+  Briefcase,
+  CheckCircle2,
+  type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
 import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
 
 export type TalentFilter = "all" | "verified" | "pending" | "active";
+
+/** One outlined mark per reading, in the same order the cards are laid out. */
+const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
+  all: Users,
+  pending: FileSearch,
+  active: Briefcase,
+  verified: CheckCircle2,
+};
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
@@ -280,6 +293,43 @@ export default function CandidatesView({
     });
   }, [filtered, sort]);
 
+  /**
+   * This month against last, per slice.
+   *
+   * Measured on `created_at`, so it answers "how many of these arrived
+   * recently" rather than "how many exist" — the figure above it already
+   * answers that. Null where last month was empty: a rise from nothing has no
+   * percentage, and printing one would invent a baseline.
+   */
+  const filterTrends = useMemo(() => {
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+
+    const countIn = (rows: CandidateRecord[], from: number, to: number) =>
+      rows.filter((row) => {
+        const at = row.created_at ? new Date(row.created_at).getTime() : NaN;
+        return !Number.isNaN(at) && at >= from && at < to;
+      }).length;
+
+    const out = {} as Record<TalentFilter, number | null>;
+    for (const { id } of FILTERS) {
+      const rows =
+        id === "all"
+          ? candidates
+          : candidates.filter((row) => {
+              const key = getStatus(row).key;
+              if (id === "verified") return key === "verified";
+              if (id === "pending") return key === "review";
+              return key !== "verified" && key !== "review";
+            });
+      const current = countIn(rows, thisMonth, now.getTime());
+      const previous = countIn(rows, lastMonth, thisMonth);
+      out[id] = previous > 0 ? ((current - previous) / previous) * 100 : null;
+    }
+    return out;
+  }, [candidates]);
+
   const toggleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 
@@ -303,26 +353,55 @@ export default function CandidatesView({
         </div>
       </header>
 
-      {/* One panel. The pills, the search and the view switch all act on the
-          table below them, so they live in its head rather than in a box of
-          their own — and the pills carry the counts that four metric cards
-          used to repeat. */}
+      {/* The readings and the filter are the same control. Four cards above a
+          row of four tabs would be the same four numbers twice, a click
+          apart. */}
+      <div className="ds-stats" role="tablist" aria-label="Filter candidates">
+        {FILTERS.map(({ id, label }) => {
+          const Icon = FILTER_ICONS[id];
+          const trend = filterTrends[id];
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={filter === id}
+              className={`ds-stat ${filter === id ? "is-on" : ""}`}
+              onClick={() => setFilter(id)}
+            >
+              <span className="ds-stat-top">
+                <span className="ds-stat-label">{label}</span>
+                <span className="ds-stat-icon" aria-hidden="true">
+                  <Icon size={16} strokeWidth={2} />
+                </span>
+              </span>
+              <span className="ds-stat-value">{formatInt(filterCounts[id])}</span>
+              <span className="ds-stat-foot">
+                {trend === null ? (
+                  <em className="ds-stat-quiet">No arrivals this month</em>
+                ) : (
+                  <>
+                    <em className={trend >= 0 ? "is-up" : "is-down"}>
+                      {trend >= 0 ? "↑" : "↓"} {Math.abs(trend).toFixed(1)}%
+                    </em>
+                    since last month
+                  </>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <section className="ds-panel">
         <div className="ds-panel-head is-split">
-          <div className="ds-tabs" role="tablist">
-            {FILTERS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={filter === id}
-                className={`ds-tab ${filter === id ? "is-on" : ""}`}
-                onClick={() => setFilter(id)}
-              >
-                {label}
-                <span className="ds-tab-count">{formatInt(filterCounts[id])}</span>
-              </button>
-            ))}
+          <div>
+            <h2 className="ds-panel-title">
+              {FILTERS.find((f) => f.id === filter)?.label ?? "All candidates"}
+            </h2>
+            <p className="ds-panel-sub">
+              {formatInt(sorted.length)} shown of {formatInt(candidates.length)} on file
+            </p>
           </div>
 
           <div className="ds-panel-tools">
@@ -419,7 +498,7 @@ export default function CandidatesView({
                 </div>
 
                 <div className="shopeers-cand-card-foot" onClick={(e) => e.stopPropagation()}>
-                  <span style={{ fontSize: "0.75rem", color: "#64748B" }}>{getEmail(candidate)}</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{getEmail(candidate)}</span>
                   <div className="shopeers-action-btns">
                     {candidate.resume?.storage_key && (
                       <a
@@ -517,7 +596,12 @@ export default function CandidatesView({
                   return (
                     <tr
                       key={candidate.id}
-                      className="shopeers-tr-row"
+                      // The row carries its own state as a wash, so the column
+                      // of pills is a confirmation rather than the only place
+                      // the status lives.
+                      className={`shopeers-tr-row tone-${
+                        status.key === "verified" ? "ok" : status.key === "review" ? "warn" : "info"
+                      }`}
                       onClick={() => onOpenCandidate(candidate)}
                     >
                       <td className="shopeers-td-sno">{index + 1}</td>
@@ -535,18 +619,18 @@ export default function CandidatesView({
                       </td>
 
                       <td title={designation || undefined}>
-                        <span style={{ fontWeight: 600, color: "#0F172A" }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-main)" }}>
                           {designation || "—"}
                         </span>
                       </td>
 
                       <td title={industry}>{industry}</td>
 
-                      <td style={{ textAlign: "center", fontWeight: 600, color: "#0F172A" }}>
+                      <td style={{ textAlign: "center", fontWeight: 600, color: "var(--text-main)" }}>
                         {formatExperience(years)}
                       </td>
 
-                      <td style={{ fontWeight: 500, color: "#334155" }} title={contact || undefined}>
+                      <td style={{ fontWeight: 500, color: "var(--dash-ink-2)" }} title={contact || undefined}>
                         {contact || "—"}
                       </td>
 
@@ -557,13 +641,13 @@ export default function CandidatesView({
                       <td onClick={(e) => e.stopPropagation()}>
                         {isConfirmingDelete ? (
                           <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                            <span style={{ fontSize: "0.725rem", color: "#DC2626", fontWeight: 700 }}>
+                            <span style={{ fontSize: "0.725rem", color: "var(--error)", fontWeight: 700 }}>
                               Delete?
                             </span>
                             <button
                               type="button"
                               className="shopeers-act-btn"
-                              style={{ background: "#DC2626", color: "#FFFFFF", borderColor: "#DC2626" }}
+                              style={{ background: "var(--error)", color: "#FFFFFF", borderColor: "var(--error)" }}
                               onClick={() => {
                                 onDeleteCandidate(candidate.id);
                                 setDeleteConfirm(null);

@@ -806,7 +806,7 @@ export default function CandidateProfileScreen({
                   <div className="cprof-fact-label">Rating</div>
                   <div
                     className="cprof-fact-value"
-                    style={{ display: "flex", alignItems: "center", gap: "4px", color: "#f59e0b" }}
+                    style={{ display: "flex", alignItems: "center", gap: "4px", color: "var(--warning)" }}
                   >
                     {Array.from({ length: candidate.evaluation_score }).map((_, i) => (
                       <Star key={i} size={16} fill="currentColor" />

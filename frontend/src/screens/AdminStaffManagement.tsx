@@ -37,6 +37,7 @@ import {
 
 import Select from "@/components/ui/Select";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
+import SplitDonut from "@/components/dashboard/SplitDonut";
 import {
   assignCandidate,
   autoAssignCandidate,
@@ -492,6 +493,9 @@ export default function AdminStaffManagement({
   }
 
   /** Three numbers: the pile, the throughput, the risk. */
+  /** Allocated but never opened — the outer slice of the ring. */
+  const unopenedTotal = staff.reduce((sum, member) => sum + member.unviewed, 0);
+
   const kpis = [
     {
       label: "Candidate pool",
@@ -586,42 +590,57 @@ export default function AdminStaffManagement({
         </div>
       </header>
 
-      <div className="ds-cards is-three">
-        {kpis.map((kpi) => {
+      <div className="ds-stats is-three">
+        {/* The evaluated share is the ring's job — it says the same percentage
+            with the breakdown behind it, so the flat card for it comes off. */}
+        {kpis
+          .filter((kpi) => kpi.label !== "Evaluated")
+          .map((kpi) => {
           const Icon = kpi.icon;
-          const content = (
-            <>
-              <div className="ds-card-top">
-                <span className={`ds-card-icon ${kpi.alert ? "is-alert" : ""}`}>
-                  <Icon size={18} strokeWidth={2.1} />
-                </span>
-                <div>
-                  <h2 className="ds-card-title">{kpi.label}</h2>
-                  <p className="ds-card-sub">{kpi.caption}</p>
-                </div>
-              </div>
-              <div className={`ds-card-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</div>
-            </>
-          );
-          // A tile that narrows the directory is a button; one that does not is
-          // an article. Making them all buttons would promise a click that two
-          // of the three cannot honour.
-          return kpi.filter ? (
+          return (
             <button
               key={kpi.label}
               type="button"
-              className="ov-kpi-card is-clickable"
-              onClick={() => showInDirectory(kpi.filter as AllocFilter)}
-              title="Show these in the directory below"
+              className="ds-stat"
+              onClick={() => kpi.filter && showInDirectory(kpi.filter)}
+              disabled={!kpi.filter}
             >
-              {content}
+              <span className="ds-stat-top">
+                <span className="ds-stat-label">{kpi.label}</span>
+                <span className={`ds-stat-icon ${kpi.alert ? "is-alert" : ""}`} aria-hidden="true">
+                  <Icon size={16} strokeWidth={2} />
+                </span>
+              </span>
+              <span className={`ds-stat-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</span>
+              <span className="ds-stat-foot">{kpi.caption}</span>
             </button>
-          ) : (
-            <article key={kpi.label} className="ov-kpi-card">
-              {content}
-            </article>
           );
-        })}
+          })}
+
+        {/* The ring says what the percentage beside it is a percentage of —
+            "8% evaluated" reads very differently against thirteen profiles
+            than against nine hundred. */}
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Review progress</span>
+          </span>
+          <SplitDonut
+            size={104}
+            centre={`${evaluatedPct}%`}
+            slices={[
+              { label: "Evaluated", value: totals?.evaluated ?? 0, color: "var(--success)" },
+              {
+                label: "Opened, not judged",
+                value: Math.max(
+                  0,
+                  (totals?.assigned ?? 0) - (totals?.evaluated ?? 0) - unopenedTotal,
+                ),
+                color: "rgb(var(--primary-rgb))",
+              },
+              { label: "Unopened", value: unopenedTotal, color: "var(--warning)" },
+            ]}
+          />
+        </section>
       </div>
 
       {/* One advisory at a time, worst first.
@@ -727,7 +746,12 @@ export default function AdminStaffManagement({
                 {staff.map((member) => {
                   const overdue = breachesByStaff[member.id] ?? 0;
                   return (
-                    <tr key={member.id} className={member.active ? "" : "is-inactive"}>
+                    <tr
+                      key={member.id}
+                      className={`${member.active ? "" : "is-inactive"} ${
+                        overdue > 0 ? "tone-warn" : ""
+                      }`}
+                    >
                       <td>
                         <span className="ds-who">
                           <span className="ds-avatar" aria-hidden="true">

@@ -13821,7 +13821,7 @@ body {
 .shopeers-title {
   font-size: 1.75rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.025em;
   margin: 0;
   line-height: 1.2;
@@ -13829,7 +13829,7 @@ body {
 
 .shopeers-subtitle {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -13850,12 +13850,12 @@ body {
   gap: 0.45rem !important;
   padding: 0.55rem 1rem !important;
   height: 38px !important;
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-main) !important;
   border-radius: 9999px !important;
   font-size: 0.825rem !important;
   font-weight: 600 !important;
-  color: #475569 !important;
+  color: var(--text-muted) !important;
   white-space: nowrap !important;
   line-height: 1 !important;
   cursor: pointer;
@@ -13865,18 +13865,18 @@ body {
 }
 
 .shopeers-pill-btn:hover {
-  background: #f8fafc !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
+  background: var(--tint-1) !important;
+  border-color: var(--border-hover) !important;
+  color: var(--text-main) !important;
 }
 
 .shopeers-pill-btn.is-outline {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border-main) !important;
 }
 
 .shopeers-pill-icon {
-  color: #64748b;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -13930,10 +13930,10 @@ body {
 }
 
 .shopeers-metric-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.25rem 1.4rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
   display: flex;
   flex-direction: column;
@@ -13950,7 +13950,7 @@ body {
 .shopeers-metric-label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-main);
 }
 
 .shopeers-metric-icon-wrap {
@@ -13985,7 +13985,7 @@ body {
 .shopeers-metric-val {
   font-size: 1.625rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.02em;
 }
 
@@ -14012,7 +14012,7 @@ body {
 
 .shopeers-metric-sub {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* Control Toolbar (Filters + Search + View toggle) */
@@ -14021,8 +14021,8 @@ body {
   flex-direction: row !important;
   align-items: center !important;
   justify-content: space-between !important;
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border: 1px solid var(--tint-2);
   border-radius: 1.125rem;
   padding: 0.75rem 1.25rem;
   margin-bottom: 1.5rem;
@@ -14048,7 +14048,7 @@ body {
   border-radius: 9999px !important;
   font-size: 0.8rem !important;
   font-weight: 600 !important;
-  color: #64748b !important;
+  color: var(--text-muted) !important;
   background: transparent !important;
   border: 1px solid transparent !important;
   cursor: pointer;
@@ -14057,8 +14057,8 @@ body {
 }
 
 .shopeers-filter-pill:hover {
-  color: #0f172a !important;
-  background: #f8fafc !important;
+  color: var(--text-main) !important;
+  background: var(--tint-1) !important;
 }
 
 .shopeers-filter-pill.is-active {
@@ -14073,8 +14073,8 @@ body {
   font-weight: 700 !important;
   padding: 0.12rem 0.45rem !important;
   border-radius: 9999px !important;
-  background: #e2e8f0 !important;
-  color: #475569 !important;
+  background: var(--border-main) !important;
+  color: var(--text-muted) !important;
   line-height: 1 !important;
 }
 
@@ -14095,15 +14095,15 @@ body {
   flex-direction: row !important;
   align-items: center !important;
   gap: 0.5rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.45rem 0.95rem;
   width: 290px;
 }
 
 .shopeers-search-icon {
-  color: #94a3b8;
+  color: var(--text-light);
   flex-shrink: 0;
 }
 
@@ -14113,7 +14113,7 @@ body {
   outline: none !important;
   width: 100%;
   font-size: 0.8rem;
-  color: #0f172a;
+  color: var(--text-main);
   padding: 0 !important;
   margin: 0 !important;
 }
@@ -14121,7 +14121,7 @@ body {
 .shopeers-search-clear {
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--text-light);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -14129,15 +14129,15 @@ body {
 }
 
 .shopeers-search-clear:hover {
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-view-toggle {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.2rem;
 }
@@ -14151,23 +14151,23 @@ body {
   border-radius: 50% !important;
   border: none !important;
   background: transparent !important;
-  color: #64748b !important;
+  color: var(--text-muted) !important;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .shopeers-view-btn.is-active {
-  background: #ffffff !important;
+  background: var(--bg-card) !important;
   color: #1a3cff !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
 /* Main Table Container */
 .shopeers-table-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.5rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
   width: 100%;
   box-sizing: border-box;
@@ -14186,16 +14186,16 @@ body {
 .shopeers-table th {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-light);
   letter-spacing: 0.05em;
   padding: 0.85rem 0.75rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--tint-2);
   text-align: left;
 }
 
 .shopeers-table td {
   padding: 1rem 0.75rem;
-  border-bottom: 1px solid #f8fafc;
+  border-bottom: 1px solid var(--tint-1);
   font-size: 0.85rem;
   vertical-align: middle;
 }
@@ -14206,11 +14206,11 @@ body {
 }
 
 .shopeers-table tr.shopeers-tr-row:hover {
-  background: #f8fafc;
+  background: var(--tint-1);
 }
 
 .shopeers-td-sno {
-  color: #94a3b8;
+  color: var(--text-light);
   font-weight: 600;
   text-align: center;
 }
@@ -14244,7 +14244,7 @@ body {
 
 .shopeers-cand-name {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -14252,7 +14252,7 @@ body {
 
 .shopeers-cand-sub {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -14295,9 +14295,9 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 0.5rem !important;
-  border: 1px solid #e2e8f0 !important;
-  background: #ffffff !important;
-  color: #64748b !important;
+  border: 1px solid var(--border-main) !important;
+  background: var(--bg-card) !important;
+  color: var(--text-muted) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -14307,9 +14307,9 @@ body {
 }
 
 .shopeers-act-btn:hover {
-  background: #f8fafc !important;
+  background: var(--tint-1) !important;
   color: #1a3cff !important;
-  border-color: #cbd5e1 !important;
+  border-color: var(--border-hover) !important;
 }
 
 .shopeers-act-btn.is-delete:hover {
@@ -14324,9 +14324,9 @@ body {
   justify-content: space-between;
   padding-top: 1rem;
   margin-top: 0.75rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--tint-2);
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 /* Card View Grid */
@@ -14338,10 +14338,10 @@ body {
 }
 
 .shopeers-cand-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.25rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
   display: flex;
   flex-direction: column;
@@ -14352,7 +14352,7 @@ body {
 }
 
 .shopeers-cand-card:hover {
-  border-color: #cbd5e1;
+  border-color: var(--border-hover);
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
 }
@@ -14368,7 +14368,7 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.65rem;
-  background: #f8fafc;
+  background: var(--tint-1);
   border-radius: 0.75rem;
   padding: 0.75rem;
 }
@@ -14381,14 +14381,14 @@ body {
 
 .shopeers-meta-lbl {
   font-size: 0.68rem;
-  color: #94a3b8;
+  color: var(--text-light);
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .shopeers-meta-val {
   font-size: 0.775rem;
-  color: #0f172a;
+  color: var(--text-main);
   font-weight: 600;
 }
 
@@ -14397,14 +14397,14 @@ body {
   align-items: center;
   justify-content: space-between;
   padding-top: 0.5rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--tint-2);
 }
 
 /* Sidebar Styles */
 .shopeers-sidebar {
   width: 240px;
-  background: #ffffff;
-  border-right: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border-right: 1px solid var(--tint-2);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -14436,7 +14436,7 @@ body {
 .shopeers-brand-title {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.02em;
 }
 
@@ -14464,7 +14464,7 @@ body {
   border-radius: 0.75rem;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -14474,8 +14474,8 @@ body {
 }
 
 .shopeers-nav-item:hover {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--tint-1);
+  color: var(--text-main);
 }
 
 .shopeers-nav-item.is-active {
@@ -14519,7 +14519,7 @@ body {
   padding: 0.65rem 0.85rem;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -14545,18 +14545,18 @@ body {
   text-align: left;
   padding: 0.4rem 0.5rem;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 0.375rem;
 }
 
 .shopeers-subnav-item:hover {
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-upgrade-card {
   margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, var(--text-main) 100%);
   border-radius: 1rem;
   padding: 1rem;
   color: #ffffff;
@@ -14609,8 +14609,8 @@ body {
   align-items: center !important;
   justify-content: space-between !important;
   padding: 0.75rem 2.5rem;
-  background: #ffffff;
-  border-bottom: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--tint-2);
   position: sticky;
   top: 0;
   z-index: 40;
@@ -14622,15 +14622,15 @@ body {
   flex-direction: row !important;
   align-items: center !important;
   gap: 0.5rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.45rem 0.95rem;
   width: 320px;
 }
 
 .shopeers-topbar-search-icon {
-  color: #94a3b8;
+  color: var(--text-light);
   flex-shrink: 0;
 }
 
@@ -14640,15 +14640,15 @@ body {
   outline: none !important;
   width: 100%;
   font-size: 0.825rem;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-topbar-kbd {
   font-size: 0.65rem;
   font-weight: 600;
-  color: #94a3b8;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  color: var(--text-light);
+  background: var(--bg-card);
+  border: 1px solid var(--border-hover);
   border-radius: 0.25rem;
   padding: 0.1rem 0.35rem;
 }
@@ -14664,9 +14664,9 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  color: #475569;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -14676,8 +14676,8 @@ body {
 }
 
 .shopeers-topbar-icon-btn:hover {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--tint-1);
+  color: var(--text-main);
 }
 
 .shopeers-topbar-bell-dot {
@@ -14734,14 +14734,14 @@ body {
 .shopeers-title {
   font-size: 1.75rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.025em;
   margin: 0;
 }
 
 .shopeers-subtitle {
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--text-muted);
   margin: 0;
 }
 
@@ -14773,10 +14773,10 @@ body {
 }
 
 .shopeers-metric-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.25rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
   display: flex;
   flex-direction: column;
@@ -14793,7 +14793,7 @@ body {
 .shopeers-metric-label {
   font-size: 0.875rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-main);
 }
 
 .shopeers-metric-icon-wrap {
@@ -14827,7 +14827,7 @@ body {
 .shopeers-metric-val {
   font-size: 1.625rem;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.02em;
 }
 
@@ -14853,7 +14853,7 @@ body {
 
 .shopeers-metric-sub {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 /* Control Bar (Filters + Search + View toggle) */
@@ -14861,8 +14861,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border: 1px solid var(--tint-2);
   border-radius: 1.125rem;
   padding: 0.75rem 1rem;
   margin-bottom: 1.25rem;
@@ -14885,7 +14885,7 @@ body {
   border-radius: 9999px;
   font-size: 0.8rem;
   font-weight: 500;
-  color: #64748b;
+  color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
   cursor: pointer;
@@ -14893,8 +14893,8 @@ body {
 }
 
 .shopeers-filter-pill:hover {
-  color: #0f172a;
-  background: #f8fafc;
+  color: var(--text-main);
+  background: var(--tint-1);
 }
 
 .shopeers-filter-pill.is-active {
@@ -14909,8 +14909,8 @@ body {
   font-weight: 700;
   padding: 0.1rem 0.4rem;
   border-radius: 9999px;
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border-main);
+  color: var(--text-muted);
 }
 
 .shopeers-filter-pill.is-active .shopeers-pill-count {
@@ -14928,15 +14928,15 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.45rem 0.85rem;
   width: 280px;
 }
 
 .shopeers-search-icon {
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 .shopeers-search-input {
@@ -14945,13 +14945,13 @@ body {
   outline: none;
   width: 100%;
   font-size: 0.8rem;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-search-clear {
   background: none;
   border: none;
-  color: #94a3b8;
+  color: var(--text-light);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -14959,14 +14959,14 @@ body {
 }
 
 .shopeers-search-clear:hover {
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-view-toggle {
   display: flex;
   align-items: center;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.2rem;
 }
@@ -14980,23 +14980,23 @@ body {
   border-radius: 50%;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .shopeers-view-btn.is-active {
-  background: #ffffff;
+  background: var(--bg-card);
   color: #1a3cff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 /* Main Table Container */
 .shopeers-table-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.5rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
 }
 
@@ -15012,16 +15012,16 @@ body {
 .shopeers-table th {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--text-light);
   letter-spacing: 0.05em;
   padding: 0.75rem 0.65rem;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--tint-2);
   text-align: left;
 }
 
 .shopeers-table td {
   padding: 0.85rem 0.65rem;
-  border-bottom: 1px solid #f8fafc;
+  border-bottom: 1px solid var(--tint-1);
   font-size: 0.825rem;
   vertical-align: middle;
 }
@@ -15032,11 +15032,11 @@ body {
 }
 
 .shopeers-table tr.shopeers-tr-row:hover {
-  background: #f8fafc;
+  background: var(--tint-1);
 }
 
 .shopeers-td-sno {
-  color: #94a3b8;
+  color: var(--text-light);
   font-weight: 600;
   text-align: center;
 }
@@ -15069,7 +15069,7 @@ body {
 
 .shopeers-cand-name {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -15077,7 +15077,7 @@ body {
 
 .shopeers-cand-sub {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -15118,9 +15118,9 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 0.5rem;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  color: #64748b;
+  border: 1px solid var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15130,9 +15130,9 @@ body {
 }
 
 .shopeers-act-btn:hover {
-  background: #f8fafc;
+  background: var(--tint-1);
   color: #1a3cff;
-  border-color: #cbd5e1;
+  border-color: var(--border-hover);
 }
 
 .shopeers-act-btn.is-delete:hover {
@@ -15147,9 +15147,9 @@ body {
   justify-content: space-between;
   padding-top: 1rem;
   margin-top: 0.5rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--tint-2);
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 /* Card View Grid */
@@ -15160,10 +15160,10 @@ body {
 }
 
 .shopeers-cand-card {
-  background: #ffffff;
+  background: var(--bg-card);
   border-radius: 1.125rem;
   padding: 1.25rem;
-  border: 1px solid #f1f5f9;
+  border: 1px solid var(--tint-2);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
   display: flex;
   flex-direction: column;
@@ -15174,7 +15174,7 @@ body {
 }
 
 .shopeers-cand-card:hover {
-  border-color: #cbd5e1;
+  border-color: var(--border-hover);
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
 }
@@ -15190,7 +15190,7 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.65rem;
-  background: #f8fafc;
+  background: var(--tint-1);
   border-radius: 0.75rem;
   padding: 0.75rem;
 }
@@ -15203,14 +15203,14 @@ body {
 
 .shopeers-meta-lbl {
   font-size: 0.68rem;
-  color: #94a3b8;
+  color: var(--text-light);
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .shopeers-meta-val {
   font-size: 0.775rem;
-  color: #0f172a;
+  color: var(--text-main);
   font-weight: 600;
 }
 
@@ -15219,14 +15219,14 @@ body {
   align-items: center;
   justify-content: space-between;
   padding-top: 0.5rem;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--tint-2);
 }
 
 /* Sidebar Styles */
 .shopeers-sidebar {
   width: 240px;
-  background: #ffffff;
-  border-right: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border-right: 1px solid var(--tint-2);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -15258,7 +15258,7 @@ body {
 .shopeers-brand-title {
   font-size: 1.15rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--text-main);
   letter-spacing: -0.02em;
 }
 
@@ -15285,7 +15285,7 @@ body {
   border-radius: 0.75rem;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -15295,8 +15295,8 @@ body {
 }
 
 .shopeers-nav-item:hover {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--tint-1);
+  color: var(--text-main);
 }
 
 .shopeers-nav-item.is-active {
@@ -15340,7 +15340,7 @@ body {
   padding: 0.65rem 0.85rem;
   border: none;
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -15366,18 +15366,18 @@ body {
   text-align: left;
   padding: 0.4rem 0.5rem;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 0.375rem;
 }
 
 .shopeers-subnav-item:hover {
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-upgrade-card {
   margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, var(--text-main) 100%);
   border-radius: 1rem;
   padding: 1.15rem;
   color: #ffffff;
@@ -15429,8 +15429,8 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 2rem;
-  background: #ffffff;
-  border-bottom: 1px solid #f1f5f9;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--tint-2);
   position: sticky;
   top: 0;
   z-index: 40;
@@ -15440,15 +15440,15 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--tint-1);
+  border: 1px solid var(--border-main);
   border-radius: 9999px;
   padding: 0.45rem 0.85rem;
   width: 320px;
 }
 
 .shopeers-topbar-search-icon {
-  color: #94a3b8;
+  color: var(--text-light);
 }
 
 .shopeers-topbar-search-input {
@@ -15457,15 +15457,15 @@ body {
   outline: none;
   width: 100%;
   font-size: 0.825rem;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .shopeers-topbar-kbd {
   font-size: 0.65rem;
   font-weight: 600;
-  color: #94a3b8;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  color: var(--text-light);
+  background: var(--bg-card);
+  border: 1px solid var(--border-hover);
   border-radius: 0.25rem;
   padding: 0.1rem 0.35rem;
 }
@@ -15480,9 +15480,9 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  color: #475569;
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15492,8 +15492,8 @@ body {
 }
 
 .shopeers-topbar-icon-btn:hover {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--tint-1);
+  color: var(--text-main);
 }
 
 .shopeers-topbar-bell-dot {
@@ -15953,7 +15953,7 @@ body {
   transform: translateX(-50%);
   padding: 0.5rem 0.7rem;
   border-radius: 10px;
-  background: #0f172a;
+  background: var(--text-main);
   color: #fff;
   font-size: 0.74rem;
   line-height: 1.5;
@@ -16492,4 +16492,312 @@ body {
 
 .ds-head.is-compact .ds-head-sub {
   margin: 0;
+}
+
+
+/* ==========================================================================
+   THE CARD REGISTER
+   White cards on a light plane, held apart by space and a soft shadow rather
+   than by a drawn edge. A 1px border around every panel is a line the eye has
+   to read before it reaches the data inside; at four panels a screen that is
+   four lines of nothing.
+   ========================================================================== */
+.ds-panel,
+.ds-card,
+.ds-stat {
+  border-color: transparent;
+  border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.10);
+}
+
+/* Dark mode has no light plane to lift a card off, so there the edge does the
+   separating and the shadow does nothing. */
+:root[data-theme="dark"] .ds-panel,
+:root[data-theme="dark"] .ds-card,
+:root[data-theme="dark"] .ds-stat {
+  border-color: var(--border-main);
+  box-shadow: none;
+}
+
+/* --- the reading ---------------------------------------------------------- */
+.ds-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.ds-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid transparent;
+  background: var(--bg-card);
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.ds-stat:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05), 0 14px 28px -14px rgba(15, 23, 42, 0.16);
+}
+
+/* Selected state carried by a ring rather than a fill: these are readings
+   first, and a solid block of accent stops the figure on it being readable. */
+.ds-stat.is-on {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.ds-stat-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ds-stat-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Outlined, not filled. The icon is a marker for the row, not a second status
+   light competing with the delta underneath it. */
+.ds-stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
+  border: 1.5px solid var(--border-hover);
+  color: var(--text-muted);
+}
+
+.ds-stat.is-on .ds-stat-icon {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.ds-stat-value {
+  font-size: 2.1rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-stat-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--text-light);
+}
+
+.ds-stat-foot em {
+  font-style: normal;
+  font-weight: 700;
+}
+
+.ds-stat-foot em.is-up {
+  color: var(--success-ink);
+}
+
+.ds-stat-foot em.is-down {
+  color: var(--error-ink);
+}
+
+.ds-stat-quiet {
+  color: var(--text-light);
+  font-weight: 600;
+}
+
+/* --- the ring and the list that names it ---------------------------------- */
+.ds-donut {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+}
+
+.ds-donut-track {
+  stroke: var(--tint-2);
+}
+
+.ds-donut-centre {
+  fill: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ds-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ds-donut-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.ds-donut-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.ds-donut-legend strong {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- the table, in the same register -------------------------------------- */
+
+/* Rows separated by their own tint rather than by rules: a status you can see
+   without reading down to the Status column, and one less line per row. */
+.ds-table tbody tr {
+  background: var(--tint-1);
+}
+
+.ds-table tbody tr td:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.ds-table tbody tr td:last-child {
+  border-radius: 0 10px 10px 0;
+}
+
+.ds-table td,
+.ds-table th {
+  border-bottom: 4px solid var(--bg-card);
+}
+
+.ds-table tbody tr:hover {
+  background: var(--primary-glow);
+}
+
+.ds-table tbody tr.tone-ok {
+  background: var(--success-fill);
+}
+
+.ds-table tbody tr.tone-warn {
+  background: var(--warning-fill);
+}
+
+.ds-table tbody tr.tone-bad {
+  background: var(--error-fill);
+}
+
+.ds-panel-sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 1100px) {
+  .ds-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .ds-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+
+/* The candidates table predates the shared one; inside a `.ds-panel` it takes
+   the same register — rows as tinted bands with space between them rather than
+   as cells divided by rules. */
+.ds-panel .shopeers-table {
+  border-collapse: separate;
+  border-spacing: 0 6px;
+}
+
+.ds-panel .shopeers-table thead th {
+  border: none;
+  background: none;
+}
+
+.ds-panel .shopeers-table tbody tr {
+  background: var(--tint-1);
+  box-shadow: none;
+}
+
+.ds-panel .shopeers-table tbody td {
+  border: none;
+}
+
+.ds-panel .shopeers-table tbody td:first-child {
+  border-radius: 10px 0 0 10px;
+}
+
+.ds-panel .shopeers-table tbody td:last-child {
+  border-radius: 0 10px 10px 0;
+}
+
+.ds-panel .shopeers-table tbody tr.tone-ok {
+  background: var(--success-fill);
+}
+
+.ds-panel .shopeers-table tbody tr.tone-warn {
+  background: var(--warning-fill);
+}
+
+.ds-panel .shopeers-table tbody tr.tone-info {
+  background: var(--tint-1);
+}
+
+.ds-panel .shopeers-table tbody tr:hover {
+  background: var(--primary-glow);
+}
+
+
+/* Two readings and the ring. The ring takes the wider track because it carries
+   a legend beside it rather than a single figure. */
+.ds-stats.is-three {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 1.35fr;
+}
+
+/* A reading with no filter behind it: the ring card. It keeps the card shape
+   without claiming to be a control. */
+.ds-stat.is-static,
+.ds-stat:disabled {
+  cursor: default;
+  transform: none;
+}
+
+.ds-stat.is-static:hover,
+.ds-stat:disabled:hover {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.10);
+}
+
+.ds-stat-icon.is-alert {
+  border-color: var(--error-edge);
+  color: var(--error-ink);
+}
+
+.ds-stat-value.is-alert {
+  color: var(--error-ink);
+}
+
+@media (max-width: 1100px) {
+  .ds-stats.is-three {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

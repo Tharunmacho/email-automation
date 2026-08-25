@@ -139,11 +139,11 @@ function getDueMeta(dueDate?: string): DueMeta {
   parsed.setHours(0, 0, 0, 0);
   const days = Math.round((parsed.getTime() - today.getTime()) / 86400000);
 
-  const urgent = { color: "#be123c", bg: "#fff1f2", border: "#fecdd3" };
+  const urgent = { color: "var(--rose-ink)", bg: "var(--rose-fill)", border: "var(--rose-edge)" };
   if (days < 0) return { label: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`, ...urgent, overdue: true, days };
   if (days === 0) return { label: "Due today", ...urgent, overdue: true, days };
-  if (days <= 7) return { label: `${days} day${days === 1 ? "" : "s"} left`, color: "#b45309", bg: "#fffbeb", border: "#fde68a", overdue: false, days };
-  return { label: `${days} days left`, color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0", overdue: false, days };
+  if (days <= 7) return { label: `${days} day${days === 1 ? "" : "s"} left`, color: "var(--warning-ink)", bg: "var(--warning-fill)", border: "var(--warning-edge)", overdue: false, days };
+  return { label: `${days} days left`, color: "#15803d", bg: "var(--success-fill)", border: "var(--success-edge)", overdue: false, days };
 }
 
 function formatDueDate(dueDate?: string): string {
