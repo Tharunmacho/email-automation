@@ -5,6 +5,7 @@
    at without clicking through the app. Query parameters:
 
      ?screen=candidates   which screen to mount (default: overview)
+     ?screen=profile      one candidate, with the job and document sections
      ?theme=dark          stamps the theme the rail's pill would
      ?token=…             seeds the API session, so the screens that fetch
                           their own data get real rows back
@@ -24,6 +25,7 @@ import UserManagementScreen from "@/screens/UserManagementScreen";
 import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
+import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import { NAV_META, type NavId } from "@/lib/nav";
 import { setTheme } from "@/lib/theme";
 import { setToken, type AuthUser, type CandidateRecord } from "@/lib/api";
@@ -92,6 +94,57 @@ function buildCandidates(count: number): CandidateRecord[] {
   return out;
 }
 
+/** One fully-populated record — every section the profile screen can draw. */
+const PROFILE_CANDIDATE = {
+  id: "preview-candidate",
+  source: "whatsapp",
+  status: "parsed",
+  cv_required: false,
+  created_at: "2026-08-13T09:30:00.000Z",
+  updated_at: "2026-08-13T09:30:00.000Z",
+  profile: {
+    confidence: 0.92,
+    full_name: "NASIM SHAH",
+    current_designation: "Electrician",
+    email: "nasimshah096@example.com",
+    phone: "+91-6205611280",
+    location: "Vill – Chaturbuhjwa, Po-Roari, Ps - Shikarpur, Dist- West Champaran, Bihar –845453, India",
+    country: "India",
+    destination_country: "Singapore",
+    job_title: "Electrician",
+    job_category: "electrician",
+    job_preference: "Site electrician on a commercial project",
+    course_or_trade: "ITI Electrician (NCVT), 2019",
+    state_preference: "Jurong / Tuas",
+    available_from: "After 2 months — serving notice",
+    passport_number: "Z1234567",
+    passport_expiry: "2031-03-14",
+    trade_skills: ["Panel wiring", "Cable tray erection", "Motor termination", "Megger testing"],
+    skills: ["Electrical maintenance", "Wiring", "Troubleshooting", "Safety compliance"],
+    languages: ["Hindi", "Bhojpuri", "English"],
+    total_experience_years: 6,
+    resume_summary: "Six years as a site electrician across residential and light-industrial projects.",
+    job_answers: [
+      { question_id: "q1", question: "How many years have you worked as an electrician?", answer: "6 years", kind: "text" },
+      { question_id: "q2", question: "Do you hold a valid wireman licence?", answer: "Yes — Bihar state licence, valid to 2028", kind: "choice" },
+      { question_id: "q3", question: "Have you worked overseas before?", answer: "No, this would be my first placement abroad", kind: "choice" },
+    ],
+    work_experience: [
+      {
+        company: "Shree Constructions",
+        designation: "Site Electrician",
+        start_date: "Mar 2021",
+        end_date: "Present",
+        location: "Patna, Bihar",
+        description: "Panel wiring and terminations for a 9-tower residential site.\nMegger testing and handover documentation for each block.",
+      },
+    ],
+    education: [{ degree: "ITI — Electrician", institution: "Govt. ITI West Champaran", end_date: "2019", grade: "First class" }],
+    certifications: ["Wireman licence (Bihar)", "Basic fire safety"],
+    additional_info: { industry: "Construction", highest_qualification: "ITI Electrician" },
+  },
+} as unknown as CandidateRecord;
+
 const noop = () => {};
 
 export default function PreviewPage() {
@@ -112,7 +165,10 @@ export default function PreviewPage() {
   }, [params]);
 
   const candidates = useMemo(() => buildCandidates(240), []);
-  const screen = (params?.get("screen") ?? "overview") as NavId;
+  // The raw parameter, because the harness offers one view that is not a nav
+  // destination: a single candidate's profile.
+  const screenParam = params?.get("screen") ?? "overview";
+  const screen = screenParam as NavId;
   const meta = NAV_META[screen] ?? NAV_META.overview;
 
   // The screens that fetch for themselves must not mount before the token is in
@@ -150,7 +206,7 @@ export default function PreviewPage() {
 
         <main className="workspace">
           <div className="db-page">
-            {screen !== "overview" && (
+            {screen !== "overview" && screen !== "candidates" && screenParam !== "profile" && (
               <header className="db-page-head">
                 <div>
                   <span className="db-eyebrow">{meta.eyebrow}</span>
@@ -179,6 +235,10 @@ export default function PreviewPage() {
                 onOpenLogs={noop}
                 onDeleteCandidate={noop}
               />
+            )}
+
+            {screenParam === "profile" && (
+              <CandidateProfileScreen candidate={PROFILE_CANDIDATE} onBack={noop} onVerify={noop} />
             )}
 
             {screen === "job-orders" && <JobOrders candidates={candidates} />}

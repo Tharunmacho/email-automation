@@ -830,10 +830,12 @@ export default function Home() {
   const isStaffReview = user?.role === "staff" && screen?.mode === "profile";
 
   // Screens that draw their own title row. The dashboard's header carries the
-  // window it is showing and the controls that change it, so the generic
-  // eyebrow/title/subtitle block above it would be a second heading for the
-  // same page — and the one without the controls.
-  const ownsItsHeader = !screen && currentTab === "overview";
+  // window it is showing and the controls that change it, and the candidates
+  // pool carries its own title, subtitle and the date range, add and export
+  // controls — so for both, the generic eyebrow/title/subtitle block above
+  // would be a second heading for the same page, and the one without the
+  // controls.
+  const ownsItsHeader = !screen && (currentTab === "overview" || currentTab === "candidates");
 
   if (checking) {
     return (

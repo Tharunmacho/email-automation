@@ -41,8 +41,8 @@
 
   /* Accent channel. Stated as raw RGB so every tint, ring and shadow can be
      mixed from it with an alpha instead of being hand-picked per rule. */
-  --primary-rgb: 37, 99, 235;
-  /* Royal blue 600 — 4.8:1 on white, so it is safe as text, not just as fill.
+  --primary-rgb: 26, 60, 255;
+  /* Electric blue — 6.7:1 on white, so it is safe as text, not just as fill.
      There is exactly one blue in the product now. `--accent` used to be a
      second, lighter one (blue 500), which is why a chip, a connector and a card
      wash could each be a different blue on the same screen — the eye read that
@@ -51,15 +51,15 @@
   --accent-rgb: var(--primary-rgb);
 
   --primary: rgb(var(--primary-rgb));
-  --primary-hover: #1d4ed8;
+  --primary-hover: #0022e6;
   /* Pressed / hover — same hue, luminance only */
-  --primary-deep: #1e3a8a;
+  --primary-deep: #00189f;
   --primary-glow: rgba(var(--primary-rgb), 0.08);
   --accent: rgb(var(--accent-rgb));
 
   /* The brand mark. One hue across a short diagonal — the old cyan→cobalt
      sweep read as a gradient first and a logo second. */
-  --brand-gradient: linear-gradient(140deg, #3b82f6 0%, var(--primary) 55%, var(--primary-deep) 100%);
+  --brand-gradient: linear-gradient(140deg, #3452ff 0%, var(--primary) 55%, var(--primary-deep) 100%);
 
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
@@ -187,9 +187,9 @@
      everywhere and left the one real blue — the accent — with nothing to
      contrast against. These greys have no hue at all, so the accent is the only
      colour in the theme and it reads as loudly on black as it does on white. */
-  --primary-rgb: 59, 130, 246;
-  --primary-hover: #60a5fa;
-  --primary-deep: #1d4ed8;
+  --primary-rgb: 87, 112, 255;
+  --primary-hover: #8c9bff;
+  --primary-deep: #0022e6;
   /* An 8% wash is invisible on black. The active nav pill, the selected chip
      and the focus ring all mix from this, so it doubles here rather than being
      re-picked per rule. */
@@ -4990,7 +4990,7 @@ body {
    glow — with amber and red held back for the lines you must not miss. */
 .dash-log-info {
   background: rgba(96, 165, 250, 0.14);
-  color: #93c5fd;
+  color: #93a3ff;
 }
 
 .dash-log-success {
@@ -5018,7 +5018,7 @@ body {
    panel inside it is dark, so the trace reads as a screen embedded in the page
    rather than as a differently-themed card. */
 .dash-log-card .dash-card-title svg {
-  color: #60a5fa;
+  color: #5d75ff;
 }
 
 /* --- first-paint skeleton ------------------------------------------------ */
@@ -11306,6 +11306,13 @@ body {
   width: 100%;
 }
 
+/* The header hangs off the rail's width, and there is no rail here. Without
+   this the band began 252px in while the content below it started at the
+   window edge — the two columns of the same page, out of register. */
+.app-shell.is-railless .topbar {
+  left: 0;
+}
+
 /* Identity and sign-out move into the bar when there is no rail to hold them. */
 .topbar-account {
   display: flex;
@@ -12897,7 +12904,7 @@ body {
   background:
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0) 34%),
     radial-gradient(circle at 68% 78%, rgba(var(--primary-rgb), 0.55) 0%, rgba(var(--primary-rgb), 0) 55%),
-    radial-gradient(circle at 50% 40%, #60a5fa 0%, rgb(var(--primary-rgb)) 48%, var(--primary-deep) 100%);
+    radial-gradient(circle at 50% 40%, #5d75ff 0%, rgb(var(--primary-rgb)) 48%, var(--primary-deep) 100%);
   box-shadow:
     0 18px 34px -14px rgba(var(--primary-rgb), 0.65),
     inset 0 -10px 22px -8px rgba(0, 0, 0, 0.35);
@@ -13784,12 +13791,12 @@ body {
    SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES (PERFECT ALIGNMENT)
    ============================================================================ */
 
+/* The workspace already supplies the gutter, the plane and the family. All
+   this adds is the space under the screen — anything else here is the shell
+   restated one level in, which is what pushed this screen 32px right of its
+   own page header and put a light plane behind it in dark mode. */
 .shopeers-page-container {
-  padding: 1.75rem 2.5rem 3rem 2.5rem;
-  background-color: #f8fafc;
-  min-height: 100vh;
-  font-family: var(--font-outfit), system-ui, -apple-system, sans-serif;
-  color: #0f172a;
+  padding-bottom: 1rem;
   box-sizing: border-box;
   width: 100%;
 }
@@ -13881,7 +13888,7 @@ body {
   gap: 0.45rem !important;
   padding: 0.55rem 1.25rem !important;
   height: 38px !important;
-  background: #2563eb !important;
+  background: #1a3cff !important;
   border: none !important;
   border-radius: 9999px !important;
   font-size: 0.825rem !important;
@@ -13890,14 +13897,14 @@ body {
   white-space: nowrap !important;
   line-height: 1 !important;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 2px 8px rgba(26, 60, 255, 0.25);
   transition: all 0.15s ease;
   box-sizing: border-box;
 }
 
 .shopeers-export-btn:hover {
-  background: #1d4ed8 !important;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+  background: #0022e6 !important;
+  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.35);
   transform: translateY(-1px);
 }
 
@@ -13950,8 +13957,8 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -14055,10 +14062,10 @@ body {
 }
 
 .shopeers-filter-pill.is-active {
-  background: #eff6ff !important;
-  color: #2563eb !important;
+  background: #eff2ff !important;
+  color: #1a3cff !important;
   font-weight: 600 !important;
-  border-color: #dbeafe !important;
+  border-color: #d8deff !important;
 }
 
 .shopeers-pill-count {
@@ -14072,7 +14079,7 @@ body {
 }
 
 .shopeers-filter-pill.is-active .shopeers-pill-count {
-  background: #2563eb !important;
+  background: #1a3cff !important;
   color: #ffffff !important;
 }
 
@@ -14151,7 +14158,7 @@ body {
 
 .shopeers-view-btn.is-active {
   background: #ffffff !important;
-  color: #2563eb !important;
+  color: #1a3cff !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
 }
 
@@ -14219,8 +14226,8 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  color: #2563eb;
+  background: linear-gradient(135deg, #eff2ff 0%, #d8deff 100%);
+  color: #1a3cff;
   font-weight: 700;
   font-size: 0.85rem;
   display: flex;
@@ -14272,8 +14279,8 @@ body {
 }
 
 .shopeers-status-pill.is-active {
-  background: #eff6ff !important;
-  color: #2563eb !important;
+  background: #eff2ff !important;
+  color: #1a3cff !important;
 }
 
 .shopeers-action-btns {
@@ -14301,7 +14308,7 @@ body {
 
 .shopeers-act-btn:hover {
   background: #f8fafc !important;
-  color: #2563eb !important;
+  color: #1a3cff !important;
   border-color: #cbd5e1 !important;
 }
 
@@ -14420,7 +14427,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 0.5rem;
-  background: #eff6ff;
+  background: #eff2ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -14472,8 +14479,8 @@ body {
 }
 
 .shopeers-nav-item.is-active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
   font-weight: 600;
 }
 
@@ -14484,7 +14491,7 @@ body {
   top: 15%;
   height: 70%;
   width: 3.5px;
-  background: #2563eb;
+  background: #1a3cff;
   border-radius: 0 4px 4px 0;
 }
 
@@ -14549,7 +14556,7 @@ body {
 
 .shopeers-upgrade-card {
   margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, #0f172a 100%);
   border-radius: 1rem;
   padding: 1rem;
   color: #ffffff;
@@ -14577,7 +14584,7 @@ body {
 
 .shopeers-upgrade-sub {
   font-size: 0.7rem;
-  color: #93c5fd;
+  color: #93a3ff;
   margin: 0 0 0.75rem 0;
   line-height: 1.3;
 }
@@ -14586,13 +14593,13 @@ body {
   width: 100%;
   padding: 0.45rem;
   border-radius: 0.55rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, #3452ff 0%, #1a3cff 100%);
   color: #ffffff;
   font-size: 0.75rem;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.4);
 }
 
 /* Topbar Header */
@@ -14687,87 +14694,26 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #3452ff 0%, #0022e6 100%);
   color: #ffffff;
   font-weight: 700;
   font-size: 0.875rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 2px 6px rgba(26, 60, 255, 0.25);
 }
 
 .shopeers-backdrop {
   display: none;
 }
 
-/* App Shell Layout */
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background-color: #f8fafc;
-  width: 100%;
-}
-
-.app-shell .shopeers-sidebar {
-  width: 240px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 100vh;
-  z-index: 50;
-}
-
-.app-shell .shopeers-topbar {
-  margin-left: 240px;
-  width: calc(100% - 240px);
-  position: sticky;
-  top: 0;
-  z-index: 40;
-}
-
-.app-shell .app-body {
-  margin-left: 240px;
-  width: calc(100% - 240px);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-shell.is-railless .shopeers-topbar,
-.app-shell.is-railless .app-body {
-  margin-left: 0;
-  width: 100%;
-}
-
-@media (max-width: 900px) {
-  .app-shell .shopeers-sidebar {
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-  }
-  .app-shell .shopeers-sidebar.is-open {
-    transform: translateX(0);
-  }
-  .app-shell .shopeers-topbar,
-  .app-shell .app-body {
-    margin-left: 0;
-    width: 100%;
-  }
-}
 
 
 /* ============================================================================
    SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES
    ============================================================================ */
 
-.shopeers-page-container {
-  padding: 1.75rem 2rem 3rem 2rem;
-  background-color: #f8fafc;
-  min-height: 100vh;
-  font-family: var(--font-outfit), system-ui, -apple-system, sans-serif;
-  color: #0f172a;
-}
 
 /* Page Header */
 .shopeers-header {
@@ -14854,8 +14800,8 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -14952,10 +14898,10 @@ body {
 }
 
 .shopeers-filter-pill.is-active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
   font-weight: 600;
-  border-color: #dbeafe;
+  border-color: #d8deff;
 }
 
 .shopeers-pill-count {
@@ -14968,7 +14914,7 @@ body {
 }
 
 .shopeers-filter-pill.is-active .shopeers-pill-count {
-  background: #2563eb;
+  background: #1a3cff;
   color: #ffffff;
 }
 
@@ -15041,7 +14987,7 @@ body {
 
 .shopeers-view-btn.is-active {
   background: #ffffff;
-  color: #2563eb;
+  color: #1a3cff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
@@ -15105,8 +15051,8 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-  color: #2563eb;
+  background: linear-gradient(135deg, #eff2ff 0%, #d8deff 100%);
+  color: #1a3cff;
   font-weight: 700;
   font-size: 0.85rem;
   display: flex;
@@ -15157,8 +15103,8 @@ body {
 }
 
 .shopeers-status-pill.is-active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
 }
 
 .shopeers-action-btns {
@@ -15185,7 +15131,7 @@ body {
 
 .shopeers-act-btn:hover {
   background: #f8fafc;
-  color: #2563eb;
+  color: #1a3cff;
   border-color: #cbd5e1;
 }
 
@@ -15303,7 +15249,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 0.5rem;
-  background: #eff6ff;
+  background: #eff2ff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15354,8 +15300,8 @@ body {
 }
 
 .shopeers-nav-item.is-active {
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eff2ff;
+  color: #1a3cff;
   font-weight: 600;
 }
 
@@ -15366,7 +15312,7 @@ body {
   top: 15%;
   height: 70%;
   width: 3.5px;
-  background: #2563eb;
+  background: #1a3cff;
   border-radius: 0 4px 4px 0;
 }
 
@@ -15431,7 +15377,7 @@ body {
 
 .shopeers-upgrade-card {
   margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #1e3a8a 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, #0f172a 100%);
   border-radius: 1rem;
   padding: 1.15rem;
   color: #ffffff;
@@ -15459,7 +15405,7 @@ body {
 
 .shopeers-upgrade-sub {
   font-size: 0.725rem;
-  color: #93c5fd;
+  color: #93a3ff;
   margin: 0 0 0.85rem 0;
   line-height: 1.35;
 }
@@ -15468,13 +15414,13 @@ body {
   width: 100%;
   padding: 0.5rem;
   border-radius: 0.65rem;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, #3452ff 0%, #1a3cff 100%);
   color: #ffffff;
   font-size: 0.775rem;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.4);
 }
 
 /* Topbar Header */
@@ -15564,71 +15510,18 @@ body {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #3452ff 0%, #0022e6 100%);
   color: #ffffff;
   font-weight: 700;
   font-size: 0.875rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 2px 6px rgba(26, 60, 255, 0.25);
 }
 
 .shopeers-backdrop {
   display: none;
 }
 
-/* App Shell Layout */
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background-color: #f8fafc;
-}
-
-.app-shell .shopeers-sidebar {
-  width: 240px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 100vh;
-  z-index: 50;
-}
-
-.app-shell .shopeers-topbar {
-  margin-left: 240px;
-  width: calc(100% - 240px);
-  position: sticky;
-  top: 0;
-  z-index: 40;
-}
-
-.app-shell .app-body {
-  margin-left: 240px;
-  width: calc(100% - 240px);
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.app-shell.is-railless .shopeers-topbar,
-.app-shell.is-railless .app-body {
-  margin-left: 0;
-  width: 100%;
-}
-
-@media (max-width: 900px) {
-  .app-shell .shopeers-sidebar {
-    transform: translateX(-100%);
-    transition: transform 0.25s ease;
-  }
-  .app-shell .shopeers-sidebar.is-open {
-    transform: translateX(0);
-  }
-  .app-shell .shopeers-topbar,
-  .app-shell .app-body {
-    margin-left: 0;
-    width: 100%;
-  }
-}
 
