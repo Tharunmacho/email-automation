@@ -544,19 +544,25 @@ export default function AdminStaffManagement({
   };
 
   return (
-    <div className="staff-admin">
-      {/* One row of ordinary buttons where three full-width cards used to be.
-          Those cards carried a title, a subtitle and an icon each for what are
-          one-click actions, and they pushed the numbers — the reason to open
-          this screen — below the fold. */}
-      <div className="staff-toolbar">
-        <button type="button" className="db-btn is-primary" onClick={() => setCreating(true)}>
+    <div className="staff-admin ds-page">
+      {/* The screen's actions live in its own head, beside the title they act
+          on, rather than in a band of buttons floating under a generic one. */}
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Staff &amp; allocation</h1>
+          <p className="ds-head-sub">
+            Accounts, expertise keywords, workload balance, and the review SLA.
+          </p>
+        </div>
+
+        <div className="ds-head-actions">
+        <button type="button" className="ds-primary-btn" onClick={() => setCreating(true)}>
           <UserPlus size={15} />
           Add staff
         </button>
         <button
           type="button"
-          className="db-btn"
+          className="ds-ghost-btn"
           onClick={() => void handleRebalance()}
           disabled={rebalancing || activeStaff.length === 0}
           title="Level untouched profiles across the active roster. Reviewed work stays put."
@@ -566,7 +572,7 @@ export default function AdminStaffManagement({
         </button>
         <button
           type="button"
-          className="db-btn"
+          className="ds-ghost-btn"
           onClick={() => void handleScan()}
           disabled={scanning}
           title={`Re-check every allocation against the ${thresholdHours}-hour window`}
@@ -574,26 +580,27 @@ export default function AdminStaffManagement({
           {scanning ? <Loader2 size={15} className="icon-spin" /> : <ShieldCheck size={15} />}
           {scanning ? "Sweeping…" : "Run SLA sweep"}
         </button>
-        <button type="button" className="db-btn staff-toolbar-refresh" onClick={reload} title="Refresh">
+        <button type="button" className="ds-ghost-btn" onClick={reload} title="Refresh">
           <RefreshCw size={15} />
         </button>
-      </div>
+        </div>
+      </header>
 
-      <div className="ov-kpi-row">
+      <div className="ds-cards is-three">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           const content = (
             <>
-              <div className="ov-kpi-card-top">
-                <span className="ov-kpi-card-label">{kpi.label}</span>
-                <span className={`ov-kpi-card-icon ${kpi.alert ? "is-rose" : "is-success"}`}>
-                  <Icon size={17} />
+              <div className="ds-card-top">
+                <span className={`ds-card-icon ${kpi.alert ? "is-alert" : ""}`}>
+                  <Icon size={18} strokeWidth={2.1} />
                 </span>
+                <div>
+                  <h2 className="ds-card-title">{kpi.label}</h2>
+                  <p className="ds-card-sub">{kpi.caption}</p>
+                </div>
               </div>
-              <p className={`ov-kpi-card-value ${kpi.alert ? "is-rose" : ""}`}>{kpi.value}</p>
-              <div className="ov-kpi-card-foot">
-                <span className="ov-kpi-card-caption">{kpi.caption}</span>
-              </div>
+              <div className={`ds-card-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</div>
             </>
           );
           // A tile that narrows the directory is a button; one that does not is
@@ -704,90 +711,90 @@ export default function AdminStaffManagement({
             </button>
           </div>
         ) : (
-          <div className="staff-matrix">
-            {staff.map((member) => {
-              const overdue = breachesByStaff[member.id] ?? 0;
-              return (
-                <article
-                  key={member.id}
-                  className={`staff-row ${member.active ? "" : "is-inactive"}`}
-                >
-                  <div className="staff-identity">
-                    <span className="staff-avatar">{initialsOf(member.name || member.email)}</span>
-                    <div className="staff-identity-text">
-                      <span className="staff-name">
-                        {member.name}
-                        {!member.active && <em className="staff-flag">deactivated</em>}
-                        {overdue > 0 && (
-                          <em className="staff-flag is-overdue" title={`${overdue} past the SLA`}>
-                            {overdue} overdue
-                          </em>
-                        )}
-                      </span>
-                      <span className="staff-mail">{member.email}</span>
-                    </div>
-                  </div>
-
-                  {/* Three figures in the same order on every row, so the
-                      column reads down as well as across. */}
-                  <div className="staff-metrics">
-                    <span className="staff-metric">
-                      <em>{formatInt(member.assigned)}</em>Allocated
-                    </span>
-                    <span className="staff-metric">
-                      <em>{formatInt(member.unviewed)}</em>Unviewed
-                    </span>
-                    <span className="staff-metric">
-                      <em>{formatInt(member.pending)}</em>Pending
-                    </span>
-                  </div>
-
-                  {/* One bar per row, not two. The second was a load bar drawn
-                      against the heaviest queue — but "who is carrying the
-                      team" is already the Allocated figure two columns left,
-                      and two unlabelled tracks stacked 4px apart read as one
-                      broken control rather than as two measurements. */}
-                  <div className="staff-progress">
-                    <div className="db-bar-row">
-                      <span className="db-bar-label">
-                        {formatInt(member.evaluated)} / {formatInt(member.assigned)} evaluated
-                      </span>
-                      <span className="db-bar-value">{member.progress}%</span>
-                    </div>
-                    <div className="db-bar-track">
-                      <span
-                        className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
-                        style={{ width: `${member.progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="staff-actions">
-                    <button
-                      type="button"
-                      className="db-btn"
-                      onClick={() => void handleToggleActive(member)}
-                      title={
-                        member.active
-                          ? "Stop routing new profiles here; keeps their existing work"
-                          : "Start routing new profiles here again"
-                      }
-                    >
-                      <KeyRound size={14} />
-                      {member.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                    <button
-                      type="button"
-                      className="db-btn is-danger"
-                      onClick={() => void handleDelete(member)}
-                      title="Delete the account and redistribute its profiles"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
+          <div className="ds-table-wrap">
+            <table className="ds-table staff-table">
+              <thead>
+                <tr>
+                  <th>Staff</th>
+                  <th>Allocated</th>
+                  <th>Unviewed</th>
+                  <th>Pending</th>
+                  <th>Evaluated</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((member) => {
+                  const overdue = breachesByStaff[member.id] ?? 0;
+                  return (
+                    <tr key={member.id} className={member.active ? "" : "is-inactive"}>
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(member.name || member.email)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong>
+                              {member.name}
+                              {!member.active && <em className="staff-flag">deactivated</em>}
+                              {overdue > 0 && (
+                                <em className="staff-flag is-overdue" title={`${overdue} past the SLA`}>
+                                  {overdue} overdue
+                                </em>
+                              )}
+                            </strong>
+                            <small>{member.email}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td className="is-num">{formatInt(member.assigned)}</td>
+                      <td className="is-num">{formatInt(member.unviewed)}</td>
+                      <td className="is-num">{formatInt(member.pending)}</td>
+                      {/* The figure and the bar in one cell: the percentage on
+                          its own says nothing about how much work it is a
+                          percentage of. */}
+                      <td className="staff-progress-cell">
+                        <span className="staff-progress-line">
+                          {formatInt(member.evaluated)} / {formatInt(member.assigned)}
+                          <em>{member.progress}%</em>
+                        </span>
+                        <span className="db-bar-track">
+                          <span
+                            className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
+                            style={{ width: `${member.progress}%` }}
+                          />
+                        </span>
+                      </td>
+                      <td>
+                        <div className="staff-actions">
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm"
+                            onClick={() => void handleToggleActive(member)}
+                            title={
+                              member.active
+                                ? "Stop routing new profiles here; keeps their existing work"
+                                : "Start routing new profiles here again"
+                            }
+                          >
+                            <KeyRound size={14} />
+                            {member.active ? "Deactivate" : "Reactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm is-danger"
+                            onClick={() => void handleDelete(member)}
+                            title="Delete the account and redistribute its profiles"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

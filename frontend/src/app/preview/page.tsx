@@ -206,7 +206,8 @@ export default function PreviewPage() {
 
         <main className="workspace">
           <div className="db-page">
-            {screen !== "overview" && screen !== "candidates" && screenParam !== "profile" && (
+            {!["overview", "candidates", "staff", "users", "data-management"].includes(screen) &&
+              screenParam !== "profile" && (
               <header className="db-page-head">
                 <div>
                   <span className="db-eyebrow">{meta.eyebrow}</span>

@@ -20,14 +20,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   Check,
   ChevronDown,
   Database,
   FileQuestion,
   Globe2,
   Loader2,
-  MessageSquareText,
   Pencil,
   Plus,
   RefreshCw,
@@ -258,91 +256,40 @@ export default function DataManagementScreen({ onActivity }: Props) {
         </section>
       )}
 
-      <section className="ov-actions is-three">
-        <button
-          type="button"
-          className="ov-action is-accent"
-          onClick={() => setSection("jobs")}
-        >
-          <span className="ov-action-icon" aria-hidden="true">
-            <Database size={19} strokeWidth={2} />
-          </span>
-          <span className="ov-action-text">
-            <span className="ov-action-title">
-              Manage Jobs
-              {section === "jobs" && <ArrowRight size={14} />}
-            </span>
-            <span className="ov-action-sub">Designations and rules.</span>
-          </span>
-        </button>
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Data management</h1>
+          <p className="ds-head-sub">
+            Job designations, destination countries, and the CV rule that applies to each pairing.
+          </p>
+        </div>
 
-        <button
-          type="button"
-          className="ov-action is-accent"
-          onClick={() => setSection("questions")}
-        >
-          <span className="ov-action-icon" aria-hidden="true">
-            <MessageSquareText size={19} strokeWidth={2} />
-          </span>
-          <span className="ov-action-text">
-            <span className="ov-action-title">
-              Manage Questions
-              {section === "questions" && <ArrowRight size={14} />}
-            </span>
-            <span className="ov-action-sub">Bot screening questions.</span>
-          </span>
-        </button>
+        <div className="ds-head-actions">
+          {/* The two views this screen has, as the two states of one control.
+              They used to be full-width cards, which read as destinations
+              rather than as a switch between two halves of one page. */}
+          <div className="ds-seg" role="group" aria-label="Section">
+            <button
+              type="button"
+              className={`ds-seg-btn ${section === "jobs" ? "is-on" : ""}`}
+              onClick={() => setSection("jobs")}
+            >
+              Jobs &amp; countries
+            </button>
+            <button
+              type="button"
+              className={`ds-seg-btn ${section === "questions" ? "is-on" : ""}`}
+              onClick={() => setSection("questions")}
+            >
+              Questions
+            </button>
+          </div>
 
-        <button
-          type="button"
-          className="ov-action"
-          onClick={() => void load()}
-        >
-          <span className="ov-action-icon" aria-hidden="true">
-            <RefreshCw size={19} strokeWidth={2} />
-          </span>
-          <span className="ov-action-text">
-            <span className="ov-action-title">Refresh Data</span>
-            <span className="ov-action-sub">Fetch latest configuration.</span>
-          </span>
-        </button>
-      </section>
-
-      {/* ── Shopeers-style KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Active Jobs</span>
-            <span className="ov-kpi-card-icon"><Database size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{orderedJobs.length}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Job designations configured</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Country Rules</span>
-            <span className="ov-kpi-card-icon is-success"><Globe2 size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{activeCountries.length}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Mapped destinations</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Questions</span>
-            <span className="ov-kpi-card-icon is-warning"><FileQuestion size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{questions.length}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Total screening questions</span>
-          </div>
-        </article>
-      </div>
+          <button type="button" className="ds-ghost-btn" onClick={() => void load()} title="Refresh">
+            <RefreshCw size={15} /> Refresh
+          </button>
+        </div>
+      </header>
 
       {section === "jobs" && (
         <>

@@ -15537,14 +15537,14 @@ body {
    hovered column, a wash behind an icon tile, and a hairline on a resting
    edge. Nothing on this screen introduces a second hue.
    ========================================================================== */
-.ovf {
+.ds-page {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
 /* --- page head ------------------------------------------------------------ */
-.ovf-head {
+.ds-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -15552,7 +15552,7 @@ body {
   flex-wrap: wrap;
 }
 
-.ovf-head-title {
+.ds-head-title {
   margin: 0;
   font-size: 1.6rem;
   font-weight: 700;
@@ -15560,13 +15560,13 @@ body {
   color: var(--text-main);
 }
 
-.ovf-head-sub {
+.ds-head-sub {
   margin: 0.15rem 0 0;
   font-size: 0.88rem;
   color: var(--text-muted);
 }
 
-.ovf-head-actions {
+.ds-head-actions {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -15575,7 +15575,7 @@ body {
 
 /* A pair of states in one track, so the choice reads as one control rather
    than two buttons that happen to sit together. */
-.ovf-seg {
+.ds-seg {
   display: inline-flex;
   padding: 3px;
   border-radius: 999px;
@@ -15583,12 +15583,12 @@ body {
   background: var(--bg-card);
 }
 
-.ovf-seg.is-quiet {
+.ds-seg.is-quiet {
   background: var(--tint-2);
   border-color: transparent;
 }
 
-.ovf-seg-btn {
+.ds-seg-btn {
   padding: 0.4rem 0.9rem;
   border: none;
   border-radius: 999px;
@@ -15600,16 +15600,16 @@ body {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.ovf-seg-btn:hover {
+.ds-seg-btn:hover {
   color: var(--text-main);
 }
 
-.ovf-seg-btn.is-on {
+.ds-seg-btn.is-on {
   background: var(--primary);
   color: #fff;
 }
 
-.ovf-ghost-btn {
+.ds-ghost-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -15624,19 +15624,19 @@ body {
   transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-.ovf-ghost-btn:hover {
+.ds-ghost-btn:hover {
   border-color: var(--primary);
   color: var(--primary);
 }
 
 /* --- the three readings --------------------------------------------------- */
-.ovf-cards {
+.ds-cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
 }
 
-.ovf-card {
+.ds-card {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -15650,19 +15650,19 @@ body {
 /* The headline reading, and the only filled surface on the screen. It is the
    one figure a recruiter opens this page for; everything else is context for
    it, so it is the one thing that does not have to be looked for. */
-.ovf-card.is-feature {
+.ds-card.is-feature {
   border-color: transparent;
   background: linear-gradient(150deg, var(--primary) 0%, var(--primary-hover) 100%);
   color: #fff;
 }
 
-.ovf-card-top {
+.ds-card-top {
   display: flex;
   align-items: flex-start;
   gap: 0.7rem;
 }
 
-.ovf-card-icon {
+.ds-card-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -15674,34 +15674,34 @@ body {
   color: var(--primary);
 }
 
-.ovf-card.is-feature .ovf-card-icon {
+.ds-card.is-feature .ds-card-icon {
   background: rgba(255, 255, 255, 0.18);
   color: #fff;
 }
 
-.ovf-card-title {
+.ds-card-title {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
   color: var(--text-main);
 }
 
-.ovf-card-sub {
+.ds-card-sub {
   margin: 0.1rem 0 0;
   font-size: 0.78rem;
   color: var(--text-muted);
 }
 
-.ovf-card.is-feature .ovf-card-title,
-.ovf-card.is-feature .ovf-card-value {
+.ds-card.is-feature .ds-card-title,
+.ds-card.is-feature .ds-card-value {
   color: #fff;
 }
 
-.ovf-card.is-feature .ovf-card-sub {
+.ds-card.is-feature .ds-card-sub {
   color: rgba(255, 255, 255, 0.82);
 }
 
-.ovf-card-value {
+.ds-card-value {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -15712,7 +15712,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.ovf-delta {
+.ds-delta {
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
@@ -15724,22 +15724,22 @@ body {
   color: var(--success-ink);
 }
 
-.ovf-delta.is-down {
+.ds-delta.is-down {
   background: var(--error-fill);
   color: var(--error-ink);
 }
 
 /* On the filled card the semantic fills have nothing to sit on, so the badge
    borrows the card's own white at a low alpha instead. */
-.ovf-card.is-feature .ovf-delta,
-.ovf-card.is-feature .ovf-delta.is-down {
+.ds-card.is-feature .ds-delta,
+.ds-card.is-feature .ds-delta.is-down {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
 }
 
 /* The footer is a link, so it is separated by a rule rather than by space —
    the card ends at the rule and the action sits below it. */
-.ovf-card-foot {
+.ds-card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -15757,24 +15757,24 @@ body {
   transition: color 0.15s ease;
 }
 
-.ovf-card-foot:hover {
+.ds-card-foot:hover {
   color: var(--primary);
 }
 
-.ovf-card.is-feature .ovf-card-foot {
+.ds-card.is-feature .ds-card-foot {
   border-top-color: rgba(255, 255, 255, 0.24);
   color: #fff;
 }
 
 /* --- pipeline beside intake ----------------------------------------------- */
-.ovf-split {
+.ds-split {
   display: grid;
   grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
   gap: 1rem;
   align-items: stretch;
 }
 
-.ovf-panel {
+.ds-panel {
   display: flex;
   flex-direction: column;
   padding: 1.15rem 1.25rem 1.25rem;
@@ -15784,7 +15784,7 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-.ovf-panel-head {
+.ds-panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -15793,27 +15793,27 @@ body {
   margin-bottom: 1rem;
 }
 
-.ovf-panel-title {
+.ds-panel-title {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-main);
 }
 
-.ovf-panel-sub {
+.ds-panel-sub {
   margin: 0.15rem 0 0;
   font-size: 0.78rem;
   color: var(--text-muted);
 }
 
-.ovf-panel-eyebrow {
+.ds-panel-eyebrow {
   margin: 0;
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-muted);
 }
 
-.ovf-pill-btn {
+.ds-pill-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -15827,19 +15827,19 @@ body {
   cursor: pointer;
 }
 
-.ovf-pill-btn:hover {
+.ds-pill-btn:hover {
   border-color: var(--primary);
   color: var(--primary);
 }
 
-.ovf-tiles {
+.ds-tiles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
   flex: 1;
 }
 
-.ovf-tile {
+.ds-tile {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
@@ -15852,12 +15852,12 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.ovf-tile:hover {
+.ds-tile:hover {
   border-color: var(--primary);
   box-shadow: 0 2px 10px rgba(var(--primary-rgb), 0.12);
 }
 
-.ovf-tile-head {
+.ds-tile-head {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -15866,18 +15866,18 @@ body {
   color: var(--text-muted);
 }
 
-.ovf-tile-dot {
+.ds-tile-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--primary);
 }
 
-.ovf-tile-dot.is-warn {
+.ds-tile-dot.is-warn {
   background: var(--warning);
 }
 
-.ovf-tile-value {
+.ds-tile-value {
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -15885,23 +15885,23 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.ovf-tile-note {
+.ds-tile-note {
   font-size: 0.72rem;
   color: var(--text-light);
 }
 
-.ovf-tile-state {
+.ds-tile-state {
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--success-ink);
 }
 
-.ovf-tile-state.is-warn {
+.ds-tile-state.is-warn {
   color: var(--warning-ink);
 }
 
 /* --- the intake chart ----------------------------------------------------- */
-.ovf-flow-total {
+.ds-flow-total {
   margin: 0.1rem 0 0;
   font-size: 1.85rem;
   font-weight: 700;
@@ -15910,37 +15910,37 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.ovf-flow {
+.ds-flow {
   position: relative;
   width: 100%;
   margin-top: auto;
 }
 
-.ovf-flow-grid {
+.ds-flow-grid {
   stroke: var(--border-main);
   stroke-width: 1;
   stroke-dasharray: 3 5;
 }
 
-.ovf-flow-tick,
-.ovf-flow-label {
+.ds-flow-tick,
+.ds-flow-label {
   fill: var(--text-light);
   font-size: 11px;
   font-weight: 600;
 }
 
-.ovf-flow-label.is-on {
+.ds-flow-label.is-on {
   fill: var(--primary);
 }
 
-.ovf-flow-cursor {
+.ds-flow-cursor {
   stroke: rgb(var(--primary-rgb));
   stroke-width: 1;
   stroke-dasharray: 3 4;
   opacity: 0.5;
 }
 
-.ovf-flow-knob {
+.ds-flow-knob {
   fill: var(--bg-card);
   stroke: rgb(var(--primary-rgb));
   stroke-width: 3;
@@ -15948,7 +15948,7 @@ body {
 
 /* Positioned from the bar's geometry, so it sits over the column it describes
    rather than trailing the cursor across it. */
-.ovf-flow-tip {
+.ds-flow-tip {
   position: absolute;
   transform: translateX(-50%);
   padding: 0.5rem 0.7rem;
@@ -15962,13 +15962,13 @@ body {
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.28);
 }
 
-.ovf-flow-tip-when {
+.ds-flow-tip-when {
   display: block;
   color: rgba(255, 255, 255, 0.66);
   font-weight: 600;
 }
 
-.ovf-flow-tip-row {
+.ds-flow-tip-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -15977,14 +15977,14 @@ body {
 }
 
 /* --- recent activity ------------------------------------------------------ */
-.ovf-panel-tools {
+.ds-panel-tools {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   flex-wrap: wrap;
 }
 
-.ovf-search {
+.ds-search {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -15995,11 +15995,11 @@ body {
   color: var(--text-light);
 }
 
-.ovf-search:focus-within {
+.ds-search:focus-within {
   border-color: var(--primary);
 }
 
-.ovf-search input {
+.ds-search input {
   border: none;
   outline: none;
   background: transparent;
@@ -16008,17 +16008,17 @@ body {
   width: 150px;
 }
 
-.ovf-table-wrap {
+.ds-table-wrap {
   overflow-x: auto;
 }
 
-.ovf-table {
+.ds-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
 
-.ovf-table th {
+.ds-table th {
   padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--border-main);
   text-align: left;
@@ -16028,7 +16028,7 @@ body {
   white-space: nowrap;
 }
 
-.ovf-table td {
+.ds-table td {
   padding: 0.7rem 0.75rem;
   border-bottom: 1px solid var(--border-blue-faint);
   color: var(--text-main);
@@ -16036,26 +16036,26 @@ body {
   white-space: nowrap;
 }
 
-.ovf-table tbody tr {
+.ds-table tbody tr {
   cursor: pointer;
   transition: background 0.15s ease;
 }
 
-.ovf-table tbody tr:hover {
+.ds-table tbody tr:hover {
   background: var(--tint-1);
 }
 
-.ovf-table tbody tr:last-child td {
+.ds-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.ovf-who {
+.ds-who {
   display: flex;
   align-items: center;
   gap: 0.6rem;
 }
 
-.ovf-avatar {
+.ds-avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -16069,24 +16069,24 @@ body {
   font-weight: 700;
 }
 
-.ovf-who-text {
+.ds-who-text {
   display: flex;
   flex-direction: column;
   line-height: 1.35;
 }
 
-.ovf-who-text strong {
+.ds-who-text strong {
   font-weight: 600;
 }
 
-.ovf-who-text small {
+.ds-who-text small {
   color: var(--text-light);
   font-size: 0.74rem;
 }
 
 /* A dot and a word. The dot carries the state at a glance down the column;
    the word is what makes it readable to someone who has not learned the dots. */
-.ovf-status {
+.ds-status {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -16095,31 +16095,31 @@ body {
   color: var(--text-main);
 }
 
-.ovf-status i {
+.ds-status i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--success);
 }
 
-.ovf-status.is-warn i {
+.ds-status.is-warn i {
   background: var(--warning);
 }
 
-.ovf-status.is-info i {
+.ds-status.is-info i {
   background: var(--primary);
 }
 
-.ovf-open {
+.ds-open {
   display: inline-flex;
   color: var(--text-light);
 }
 
-.ovf-table tbody tr:hover .ovf-open {
+.ds-table tbody tr:hover .ds-open {
   color: var(--primary);
 }
 
-.ovf-empty {
+.ds-empty {
   margin: 0;
   padding: 1.5rem 0;
   text-align: center;
@@ -16127,7 +16127,7 @@ body {
   color: var(--text-muted);
 }
 
-.ovf-see-all {
+.ds-see-all {
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
@@ -16143,14 +16143,353 @@ body {
 }
 
 @media (max-width: 1100px) {
-  .ovf-cards,
-  .ovf-split {
+  .ds-cards,
+  .ds-split {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 @media (max-width: 640px) {
-  .ovf-tiles {
+  .ds-tiles {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+
+/* --- shared: head actions, tabs, panels used across the screens ----------- */
+
+/* The head's own primary. One per screen, and it is the thing the screen is
+   for — everything else in the row is a ghost so the eye is not asked to pick
+   between four equally loud buttons. */
+.ds-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ds-primary-btn:hover {
+  background: var(--primary-hover);
+}
+
+.ds-primary-btn:disabled,
+.ds-ghost-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* A panel head that carries controls on both sides rather than a title. */
+.ds-panel-head.is-split {
+  align-items: center;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--border-main);
+}
+
+/* The filter tabs, which are also the readings: each carries the count for the
+   slice it selects, which is why this screen no longer has metric cards
+   repeating the same four numbers above them. */
+.ds-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.ds-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ds-tab:hover {
+  background: var(--tint-1);
+  color: var(--text-main);
+}
+
+.ds-tab.is-on {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.ds-tab-count {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-tab.is-on .ds-tab-count {
+  background: var(--primary);
+  color: #fff;
+}
+
+.ds-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 3rem 1.5rem;
+  color: var(--text-light);
+  text-align: center;
+}
+
+.ds-empty-state h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.ds-empty-state p {
+  margin: 0 0 0.5rem;
+  font-size: 0.86rem;
+  color: var(--text-muted);
+}
+
+/* --- old screen chrome, un-nested ----------------------------------------- */
+
+/* These blocks now sit inside a `.ds-panel`, which draws the frame. Left as
+   they were, each drew a second one inside the first — the boxes-within-boxes
+   that made these screens read as busier than the data on them. */
+.ds-panel .shopeers-table-card,
+.ds-panel .shopeers-cand-card,
+.ds-panel .shopeers-toolbar {
+  border: none;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.ds-panel .shopeers-table-responsive {
+  margin: 0 -0.35rem;
+}
+
+.ds-panel .shopeers-cand-grid {
+  padding-top: 1rem;
+}
+
+.ds-panel .shopeers-cand-card {
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.ds-panel .shopeers-table-foot {
+  margin-top: 0.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-main);
+}
+
+
+/* --- shared: card variants, table and roster ------------------------------ */
+.ds-cards.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* A reading with no action under it: the same card without the footer rule. */
+.ds-card:not(:has(.ds-card-foot)) {
+  padding-bottom: 1.15rem;
+}
+
+.ds-card-icon.is-alert {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.ds-card-value.is-alert {
+  color: var(--error-ink);
+}
+
+.ds-ghost-btn.is-sm {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+}
+
+.ds-ghost-btn.is-danger:hover {
+  border-color: var(--error);
+  color: var(--error-ink);
+}
+
+.ds-table td.is-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.staff-table tr.is-inactive {
+  opacity: 0.55;
+}
+
+.staff-progress-cell {
+  min-width: 170px;
+}
+
+/* The track is a span inside a cell, so it has to be told to be a block —
+   inline, it collapsed to nothing and the column showed a percentage with no
+   bar under it. */
+.staff-progress-cell .db-bar-track {
+  display: block;
+  width: 100%;
+}
+
+.staff-progress-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.staff-progress-line em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.staff-table .staff-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+/* The search sits in a panel head beside tabs that can wrap, so it takes the
+   room it needs rather than a fixed 150px that truncated the placeholder. */
+.ds-search input {
+  width: 210px;
+  max-width: 40vw;
+}
+
+
+/* --- job orders, un-nested ------------------------------------------------ */
+
+/* The three facts were a filled, bordered panel inside the card — a box for
+   three words. Hairlines above and below hold the same grouping without adding
+   a second surface. */
+.jo-meta {
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-main);
+  border-bottom: 1px solid var(--border-main);
+  border-radius: 0;
+  padding: 0.8rem 0;
+}
+
+.job-order-card.tone-slate .jo-meta,
+.job-order-card .jo-meta {
+  background: none;
+}
+
+/* The status was said three times over: a coloured left edge, a wash behind
+   the whole card, and the badge that says it in words. The badge is the one
+   that survives translation to a screenshot or a colour-blind reader. */
+.job-order-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-main);
+  border-left: 1px solid var(--border-main);
+  padding: 1.35rem 1.4rem 1.2rem;
+}
+
+.job-order-card:hover {
+  border-color: var(--primary);
+}
+
+/* The toolbar sits directly above the grid it filters, so it does not need a
+   surface of its own to say they belong together. */
+.jo-toolbar {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0 0 0.25rem;
+}
+
+
+/* One column per table may wrap; the rest hold their line so the columns stay
+   readable down the page. */
+.ds-table td.is-wrap {
+  white-space: normal;
+  max-width: 320px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.staff-flag {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.staff-flag.is-overdue {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+
+/* --- the remaining matrix rows, un-boxed ---------------------------------- */
+
+/* Staff and user management read as tables now; what still uses these classes
+   is the data-management screen's three lists. A bordered card per row, each
+   holding two filled mini-boxes for two words, made a list of twelve jobs look
+   like thirty-six containers. Hairlines do the same separating work. */
+.staff-row {
+  border: none;
+  border-bottom: 1px solid var(--border-blue-faint);
+  border-radius: 0;
+  padding: 0.85rem 0.35rem;
+  background: none;
+}
+
+.staff-row:last-child {
+  border-bottom: none;
+}
+
+.staff-row:hover {
+  background: var(--tint-1);
+}
+
+.staff-metric {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+}
+
+
+/* A head that is a control strip rather than a page title: no big type, and it
+   sits close to the panel it governs. */
+.ds-head.is-compact {
+  align-items: center;
+  margin-bottom: -0.25rem;
+}
+
+.ds-head.is-compact .ds-head-sub {
+  margin: 0;
 }

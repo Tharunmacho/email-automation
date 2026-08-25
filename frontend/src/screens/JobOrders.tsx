@@ -814,17 +814,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setActiveMenuId(null);
   };
 
-  const activeOrdersCount = orders.filter((o) => {
-    const live = deriveStatus(o);
-    return live === "OPEN" || live === "IN PROGRESS";
-  }).length;
-  const totalHeadcount = orders.reduce((sum, o) => sum + (o.headcount || 1), 0);
-  const totalShortlisted = orders.reduce((sum, o) => sum + (o.shortlistedCandidateIds?.length || o.fulfilledCount || 0), 0);
-  const openPositions = Math.max(0, totalHeadcount - totalShortlisted);
-  const fillRate = totalHeadcount > 0 ? Math.round((totalShortlisted / totalHeadcount) * 100) : 0;
-  const overdueCount = orders.filter(
-    (o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue,
-  ).length;
 
   const matchSummaryByOrder = useMemo(() => {
     const summary = new Map<string, { strong: number; best: number }>();
@@ -1736,57 +1725,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   // -------------------------------------------------------------
   return (
     <div className="job-orders-wrapper">
-      {/* ── Shopeers-style KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Positions to Fill</span>
-            <span className="ov-kpi-card-icon"><Target size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(openPositions)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {totalHeadcount} seat{totalHeadcount === 1 ? "" : "s"} across {activeOrdersCount} active order{activeOrdersCount === 1 ? "" : "s"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Shortlisted</span>
-            <span className="ov-kpi-card-icon is-success"><UserCheck size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(totalShortlisted)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">{fillRate}% of all seats filled</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Active Orders</span>
-            <span className="ov-kpi-card-icon is-warning"><Briefcase size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(activeOrdersCount)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">{orders.length} order{orders.length === 1 ? "" : "s"} total</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Overdue Orders</span>
-            <span className={`ov-kpi-card-icon ${overdueCount > 0 ? "is-rose" : "is-success"}`}>
-              <AlertTriangle size={17} />
-            </span>
-          </div>
-          <p className={`ov-kpi-card-value ${overdueCount > 0 ? "is-rose" : ""}`}>{formatInt(overdueCount)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">{overdueCount > 0 ? "Past their due date" : "Nothing past due"}</span>
-          </div>
-        </article>
-      </div>
-
       <section className="jo-toolbar">
         <div className="jo-toolbar-top">
           <div className="search-input-wrapper">

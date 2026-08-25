@@ -835,7 +835,8 @@ export default function Home() {
   // controls — so for both, the generic eyebrow/title/subtitle block above
   // would be a second heading for the same page, and the one without the
   // controls.
-  const ownsItsHeader = !screen && (currentTab === "overview" || currentTab === "candidates");
+  const ownsItsHeader =
+    !screen && ["overview", "candidates", "staff", "users", "data-management"].includes(currentTab);
 
   if (checking) {
     return (

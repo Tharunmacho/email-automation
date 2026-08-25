@@ -19,14 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   Check,
   KeyRound,
   Lock,
   Pencil,
-  Plus,
   RefreshCw,
-  ShieldCheck,
   UserPlus,
   Users,
   X,
@@ -193,7 +190,6 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
     );
   }
 
-  const staffCount = users.filter((u) => u.role === "staff").length;
 
   return (
     <div className="staff-admin">
@@ -207,74 +203,23 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
         </section>
       )}
 
-      <section className="ov-actions is-three">
-        <button
-          type="button"
-          className="ov-action is-accent"
-          onClick={() => setSection("create")}
-        >
-          <span className="ov-action-icon" aria-hidden="true">
-            <UserPlus size={19} strokeWidth={2} />
-          </span>
-          <span className="ov-action-text">
-            <span className="ov-action-title">
-              Create User
-              <ArrowRight size={14} />
-            </span>
-            <span className="ov-action-sub">Provision a new admin or staff account.</span>
-          </span>
-        </button>
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">User management</h1>
+          <p className="ds-head-sub">
+            Accounts, roles, and which pages each person can reach.
+          </p>
+        </div>
 
-        <button
-          type="button"
-          className="ov-action"
-          onClick={() => void load()}
-        >
-          <span className="ov-action-icon" aria-hidden="true">
-            <RefreshCw size={19} strokeWidth={2} />
-          </span>
-          <span className="ov-action-text">
-            <span className="ov-action-title">Refresh List</span>
-            <span className="ov-action-sub">Fetch the latest accounts from the server.</span>
-          </span>
-        </button>
-      </section>
-
-      {/* ── Shopeers-style KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Total Accounts</span>
-            <span className="ov-kpi-card-icon"><Users size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{users.length}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Managed users in the system</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Active Admins</span>
-            <span className="ov-kpi-card-icon is-success"><ShieldCheck size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{activeAdmins}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Super Admins with full access</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Staff Roles</span>
-            <span className="ov-kpi-card-icon is-warning"><Users size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{staffCount}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Reviewers and coordinators</span>
-          </div>
-        </article>
-      </div>
+        <div className="ds-head-actions">
+          <button type="button" className="ds-ghost-btn" onClick={() => void load()} title="Refresh">
+            <RefreshCw size={15} /> Refresh
+          </button>
+          <button type="button" className="ds-primary-btn" onClick={() => setSection("create")}>
+            <UserPlus size={15} /> Create user
+          </button>
+        </div>
+      </header>
 
       {section === "create" && (
         <CreateUserForm pages={pages} onCancel={() => setSection("manage")} onCreate={create} />
@@ -288,12 +233,6 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
               {users.length} total accounts. A grant puts a page on someone's rail. It does not widen the data behind it.
             </p>
           </div>
-          <div className="staff-head-actions">
-            <button type="button" className="db-btn is-primary" onClick={() => setSection("create")}>
-              <Plus size={15} />
-              Create User
-            </button>
-          </div>
         </header>
 
         {users.length === 0 ? (
@@ -302,58 +241,65 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
             <p className="db-empty-title">No accounts found</p>
           </div>
         ) : (
-          <div className="staff-matrix">
-            {users.map((user) => (
-              <article
-                key={user.id}
-                className={`staff-row ${user.active ? "" : "is-inactive"}`}
-              >
-                <div className="staff-identity">
-                  <span className="staff-avatar">{initialsOf(user.name || user.email)}</span>
-                  <div className="staff-identity-text">
-                    <span className="staff-name">
-                      {user.name || user.email}
-                      {!user.active && <em className="staff-flag">deactivated</em>}
-                    </span>
-                    <span className="staff-mail">{user.email}</span>
-                  </div>
-                </div>
-
-                <div className="staff-metrics">
-                  <span className="staff-metric">
-                    <em>Role</em>
-                    {user.role === "admin" ? "Super Admin" : "Staff"}
-                  </span>
-                  <span className="staff-metric">
-                    <em>Added</em>
-                    {user.created_at ? timeAgo(user.created_at) : "—"}
-                  </span>
-                </div>
-
-                <div className="staff-progress">
-                  <div className="db-bar-row">
-                    <span className="db-bar-label">
-                      <strong>Pages:</strong>{" "}
+          <div className="ds-table-wrap">
+            <table className="ds-table staff-table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Role</th>
+                  <th>Added</th>
+                  <th>Pages</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id} className={user.active ? "" : "is-inactive"}>
+                    <td>
+                      <span className="ds-who">
+                        <span className="ds-avatar" aria-hidden="true">
+                          {initialsOf(user.name || user.email)}
+                        </span>
+                        <span className="ds-who-text">
+                          <strong>
+                            {user.name || user.email}
+                            {!user.active && <em className="staff-flag">deactivated</em>}
+                          </strong>
+                          <small>{user.email}</small>
+                        </span>
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`ds-status ${user.role === "admin" ? "is-info" : "is-ok"}`}>
+                        <i aria-hidden="true" />
+                        {user.role === "admin" ? "Super Admin" : "Staff"}
+                      </span>
+                    </td>
+                    <td>{user.created_at ? timeAgo(user.created_at) : "—"}</td>
+                    {/* The one column that can run long, so it is the one
+                        allowed to wrap rather than widen the table. */}
+                    <td className="is-wrap">
                       {user.role === "admin"
                         ? "Everything"
-                        : user.pages.map((p) => PAGE_LABELS[p] ?? p).join(", ")}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="staff-actions">
-                  <button
-                    type="button"
-                    className="db-btn"
-                    onClick={() => setEditing(user)}
-                    title="Edit account details and permissions"
-                  >
-                    <Pencil size={14} />
-                    Edit
-                  </button>
-                </div>
-              </article>
-            ))}
+                        : user.pages.map((p) => PAGE_LABELS[p] ?? p).join(", ") || "—"}
+                    </td>
+                    <td>
+                      <div className="staff-actions">
+                        <button
+                          type="button"
+                          className="ds-ghost-btn is-sm"
+                          onClick={() => setEditing(user)}
+                          title="Edit account details and permissions"
+                        >
+                          <Pencil size={14} />
+                          Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 

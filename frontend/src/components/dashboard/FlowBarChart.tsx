@@ -76,14 +76,14 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
   const active = hovered !== null ? buckets[hovered] : null;
 
   return (
-    <div className="ovf-flow" ref={containerRef}>
+    <div className="ds-flow" ref={containerRef}>
       <svg width={width} height={totalH} role="img" aria-label="Candidates parsed per period">
         <defs>
-          <linearGradient id="ovf-bar" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="ds-bar" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.32" />
             <stop offset="100%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.04" />
           </linearGradient>
-          <linearGradient id="ovf-bar-on" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="ds-bar-on" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="rgb(var(--primary-rgb))" stopOpacity="1" />
             <stop offset="100%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.72" />
           </linearGradient>
@@ -94,8 +94,8 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
           const y = TOP_BAND + HEIGHT - (tick / ceiling) * HEIGHT;
           return (
             <g key={tick}>
-              <line x1={AXIS_W} y1={y} x2={width} y2={y} className="ovf-flow-grid" />
-              <text x={AXIS_W - 8} y={y + 4} textAnchor="end" className="ovf-flow-tick">
+              <line x1={AXIS_W} y1={y} x2={width} y2={y} className="ds-flow-grid" />
+              <text x={AXIS_W - 8} y={y + 4} textAnchor="end" className="ds-flow-tick">
                 {tick}
               </text>
             </g>
@@ -116,7 +116,7 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
                 width={barW}
                 height={barH}
                 rx={radius}
-                fill={on ? "url(#ovf-bar-on)" : "url(#ovf-bar)"}
+                fill={on ? "url(#ds-bar-on)" : "url(#ds-bar)"}
               />
               {on && (
                 <>
@@ -125,9 +125,9 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
                     y1={TOP_BAND}
                     x2={x + barW / 2}
                     y2={TOP_BAND + HEIGHT}
-                    className="ovf-flow-cursor"
+                    className="ds-flow-cursor"
                   />
-                  <circle cx={x + barW / 2} cy={y} r={5} className="ovf-flow-knob" />
+                  <circle cx={x + barW / 2} cy={y} r={5} className="ds-flow-knob" />
                 </>
               )}
               {/* One hit area per column, the full height of the plot, so a
@@ -145,7 +145,7 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
                 x={x + barW / 2}
                 y={TOP_BAND + HEIGHT + 18}
                 textAnchor="middle"
-                className={`ovf-flow-label ${on ? "is-on" : ""}`}
+                className={`ds-flow-label ${on ? "is-on" : ""}`}
               >
                 {bucket.label}
               </text>
@@ -156,7 +156,7 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
 
       {active && (
         <div
-          className="ovf-flow-tip"
+          className="ds-flow-tip"
           style={{
             left: `${Math.min(
               Math.max(xOf(hovered as number) + barW / 2, 82),
@@ -165,8 +165,8 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
             top: `${Math.max(TOP_BAND, TOP_BAND + HEIGHT - heightOf(active.value) - 78)}px`,
           }}
         >
-          <span className="ovf-flow-tip-when">{active.full}</span>
-          <span className="ovf-flow-tip-row">
+          <span className="ds-flow-tip-when">{active.full}</span>
+          <span className="ds-flow-tip-row">
             <span>{caption ?? "Parsed"}</span>
             <strong>{active.value}</strong>
           </span>

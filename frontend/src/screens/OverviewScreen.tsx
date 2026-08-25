@@ -51,7 +51,7 @@ function Delta({ pct, against }: { pct: number | null; against: string }) {
   const up = pct >= 0;
   return (
     <span
-      className={`ovf-delta ${up ? "is-up" : "is-down"}`}
+      className={`ds-delta ${up ? "is-up" : "is-down"}`}
       title={`${up ? "Up" : "Down"} ${Math.abs(pct).toFixed(1)}% on the ${against} before this one`}
     >
       {Math.abs(pct).toFixed(1)}%
@@ -213,119 +213,119 @@ export default function OverviewScreen({
   if (!mounted) return <DashboardSkeleton />;
 
   return (
-    <div className="ovf">
+    <div className="ds-page">
       {/* ── Page head ─────────────────────────────────────────────────── */}
-      <header className="ovf-head">
+      <header className="ds-head">
         <div>
-          <h1 className="ovf-head-title">Overview</h1>
-          <p className="ovf-head-sub">Here is the summary of overall data</p>
+          <h1 className="ds-head-title">Overview</h1>
+          <p className="ds-head-sub">Here is the summary of overall data</p>
         </div>
 
-        <div className="ovf-head-actions">
-          <div className="ovf-seg" role="group" aria-label="Reporting period">
+        <div className="ds-head-actions">
+          <div className="ds-seg" role="group" aria-label="Reporting period">
             <button
               type="button"
-              className={`ovf-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+              className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
               onClick={() => setGrain("weekly")}
             >
               This week
             </button>
             <button
               type="button"
-              className={`ovf-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+              className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
               onClick={() => setGrain("monthly")}
             >
               This month
             </button>
           </div>
 
-          <button type="button" className="ovf-ghost-btn" onClick={() => onNavigate("sourcing")}>
+          <button type="button" className="ds-ghost-btn" onClick={() => onNavigate("sourcing")}>
             <RefreshCw size={14} /> Sourcing
           </button>
         </div>
       </header>
 
       {/* ── Three readings, the headline one filled ───────────────────── */}
-      <div className="ovf-cards">
-        <article className="ovf-card is-feature">
-          <div className="ovf-card-top">
-            <span className="ovf-card-icon">
+      <div className="ds-cards">
+        <article className="ds-card is-feature">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
               <Users size={18} strokeWidth={2.1} />
             </span>
             <div>
-              <h2 className="ovf-card-title">Total candidates</h2>
-              <p className="ovf-card-sub">Every profile the pipeline has parsed</p>
+              <h2 className="ds-card-title">Total candidates</h2>
+              <p className="ds-card-sub">Every profile the pipeline has parsed</p>
             </div>
           </div>
 
-          <div className="ovf-card-value">
+          <div className="ds-card-value">
             {formatInt(total)}
             <Delta pct={deltaTotal.percent} against={against} />
           </div>
 
-          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("candidates")}>
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("candidates")}>
             See details <ArrowRight size={16} />
           </button>
         </article>
 
-        <article className="ovf-card">
-          <div className="ovf-card-top">
-            <span className="ovf-card-icon">
+        <article className="ds-card">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
               <UserCheck size={18} strokeWidth={2.1} />
             </span>
             <div>
-              <h2 className="ovf-card-title">Verified profiles</h2>
-              <p className="ovf-card-sub">Read and signed off by a person</p>
+              <h2 className="ds-card-title">Verified profiles</h2>
+              <p className="ds-card-sub">Read and signed off by a person</p>
             </div>
           </div>
 
-          <div className="ovf-card-value">
+          <div className="ds-card-value">
             {formatInt(verified)}
             <Delta pct={deltaVerified.percent} against={against} />
           </div>
 
-          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("candidates")}>
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("candidates")}>
             View summary <ArrowRight size={16} />
           </button>
         </article>
 
-        <article className="ovf-card">
-          <div className="ovf-card-top">
-            <span className="ovf-card-icon">
+        <article className="ds-card">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
               <FileSearch size={18} strokeWidth={2.1} />
             </span>
             <div>
-              <h2 className="ovf-card-title">Needs review</h2>
-              <p className="ovf-card-sub">Parsed below the confidence line</p>
+              <h2 className="ds-card-title">Needs review</h2>
+              <p className="ds-card-sub">Parsed below the confidence line</p>
             </div>
           </div>
 
-          <div className="ovf-card-value">{formatInt(review)}</div>
+          <div className="ds-card-value">{formatInt(review)}</div>
 
-          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("staff")}>
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("staff")}>
             Open the queue <ArrowRight size={16} />
           </button>
         </article>
       </div>
 
       {/* ── Pipeline beside intake ────────────────────────────────────── */}
-      <div className="ovf-split">
-        <section className="ovf-panel ovf-pipeline">
-          <div className="ovf-panel-head">
+      <div className="ds-split">
+        <section className="ds-panel ds-pipeline">
+          <div className="ds-panel-head">
             <div>
-              <h2 className="ovf-panel-title">Pipeline</h2>
-              <p className="ovf-panel-sub">
+              <h2 className="ds-panel-title">Pipeline</h2>
+              <p className="ds-panel-sub">
                 {candidates.length > 0
                   ? `${formatInt(candidates.length)} profiles on file today`
                   : "Nothing on file yet"}
               </p>
             </div>
-            <button type="button" className="ovf-pill-btn" onClick={() => onNavigate("staff")}>
+            <button type="button" className="ds-pill-btn" onClick={() => onNavigate("staff")}>
               <UserPlus size={14} /> Allocate
             </button>
           </div>
 
-          <div className="ovf-tiles">
+          <div className="ds-tiles">
             {[
               {
                 key: "verified",
@@ -367,39 +367,39 @@ export default function OverviewScreen({
               <button
                 key={tile.key}
                 type="button"
-                className="ovf-tile"
+                className="ds-tile"
                 onClick={() => onNavigate(tile.to)}
               >
-                <span className="ovf-tile-head">
-                  <i className={`ovf-tile-dot is-${tile.tone}`} aria-hidden="true" />
+                <span className="ds-tile-head">
+                  <i className={`ds-tile-dot is-${tile.tone}`} aria-hidden="true" />
                   {tile.label}
                 </span>
-                <span className="ovf-tile-value">{formatInt(tile.value)}</span>
-                <span className="ovf-tile-note">{tile.note}</span>
-                <span className={`ovf-tile-state is-${tile.tone}`}>{tile.state}</span>
+                <span className="ds-tile-value">{formatInt(tile.value)}</span>
+                <span className="ds-tile-note">{tile.note}</span>
+                <span className={`ds-tile-state is-${tile.tone}`}>{tile.state}</span>
               </button>
             ))}
           </div>
         </section>
 
-        <section className="ovf-panel ovf-flow-panel">
-          <div className="ovf-panel-head">
+        <section className="ds-panel ds-flow-panel">
+          <div className="ds-panel-head">
             <div>
-              <p className="ovf-panel-eyebrow">Candidates parsed</p>
-              <p className="ovf-flow-total">{formatInt(flowTotal)}</p>
+              <p className="ds-panel-eyebrow">Candidates parsed</p>
+              <p className="ds-flow-total">{formatInt(flowTotal)}</p>
             </div>
 
-            <div className="ovf-seg is-quiet" role="group" aria-label="Chart grain">
+            <div className="ds-seg is-quiet" role="group" aria-label="Chart grain">
               <button
                 type="button"
-                className={`ovf-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+                className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
                 onClick={() => setGrain("weekly")}
               >
                 Weekly
               </button>
               <button
                 type="button"
-                className={`ovf-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+                className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
                 onClick={() => setGrain("monthly")}
               >
                 Monthly
@@ -412,12 +412,12 @@ export default function OverviewScreen({
       </div>
 
       {/* ── The profiles themselves ───────────────────────────────────── */}
-      <section className="ovf-panel">
-        <div className="ovf-panel-head">
-          <h2 className="ovf-panel-title">Recent activity</h2>
+      <section className="ds-panel">
+        <div className="ds-panel-head">
+          <h2 className="ds-panel-title">Recent activity</h2>
 
-          <div className="ovf-panel-tools">
-            <label className="ovf-search">
+          <div className="ds-panel-tools">
+            <label className="ds-search">
               <Search size={15} />
               <input
                 type="search"
@@ -427,21 +427,21 @@ export default function OverviewScreen({
                 aria-label="Search recent candidates"
               />
             </label>
-            <button type="button" className="ovf-ghost-btn" onClick={() => onNavigate("candidates")}>
+            <button type="button" className="ds-ghost-btn" onClick={() => onNavigate("candidates")}>
               <SlidersHorizontal size={14} /> Filter
             </button>
           </div>
         </div>
 
         {recent.length === 0 ? (
-          <p className="ovf-empty">
+          <p className="ds-empty">
             {candidates.length === 0
               ? "Nothing has been parsed yet. Run a sync to bring résumés in."
               : "No profile matches that search."}
           </p>
         ) : (
-          <div className="ovf-table-wrap">
-            <table className="ovf-table">
+          <div className="ds-table-wrap">
+            <table className="ds-table">
               <thead>
                 <tr>
                   <th>Candidate</th>
@@ -466,11 +466,11 @@ export default function OverviewScreen({
                   return (
                     <tr key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
                       <td>
-                        <span className="ovf-who">
-                          <span className="ovf-avatar" aria-hidden="true">
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
                             {initialsOf(name)}
                           </span>
-                          <span className="ovf-who-text">
+                          <span className="ds-who-text">
                             <strong>{name}</strong>
                             <small>{candidate.profile?.email ?? "No email on file"}</small>
                           </span>
@@ -485,13 +485,13 @@ export default function OverviewScreen({
                         {typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "—"}
                       </td>
                       <td>
-                        <span className={`ovf-status is-${state.tone}`}>
+                        <span className={`ds-status is-${state.tone}`}>
                           <i aria-hidden="true" />
                           {state.label}
                         </span>
                       </td>
                       <td>
-                        <span className="ovf-open">
+                        <span className="ds-open">
                           <ArrowRight size={15} />
                         </span>
                       </td>
@@ -503,7 +503,7 @@ export default function OverviewScreen({
           </div>
         )}
 
-        <button type="button" className="ovf-see-all" onClick={() => onNavigate("candidates")}>
+        <button type="button" className="ds-see-all" onClick={() => onNavigate("candidates")}>
           See every candidate <ArrowRight size={15} />
         </button>
       </section>

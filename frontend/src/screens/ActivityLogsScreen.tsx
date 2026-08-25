@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, History, Info, Radio, Users, XCircle } from "lucide-react";
+import { History, Radio, Users } from "lucide-react";
 
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { type CandidateLog } from "@/lib/candidateLog";
@@ -86,60 +86,10 @@ export default function ActivityLogsScreen({
   /* ── KPI counts from live logs ── */
   const errorCount   = systemLogs.filter((l) => l.type === "error").length;
   const warnCount    = systemLogs.filter((l) => l.type === "warn").length;
-  const successCount = systemLogs.filter((l) => l.type === "success").length;
   const hourlyBuckets = useMemo(() => buildHourlyBuckets(systemLogs), [systemLogs]);
 
   return (
     <>
-      {/* ── KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Total Events</span>
-            <span className="ov-kpi-card-icon"><Activity size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(systemLogs.length)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">This session's pipeline trace</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Successes</span>
-            <span className="ov-kpi-card-icon is-success"><CheckCircle2 size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(successCount)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {systemLogs.length > 0 ? `${Math.round((successCount / systemLogs.length) * 100)}% success rate` : "No events yet"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Warnings</span>
-            <span className="ov-kpi-card-icon is-warning"><AlertTriangle size={17} /></span>
-          </div>
-          <p className={`ov-kpi-card-value ${warnCount > 0 ? "is-rose" : ""}`}>{formatInt(warnCount)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">{warnCount > 0 ? "Review pipeline config" : "None this session"}</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Errors</span>
-            <span className={`ov-kpi-card-icon ${errorCount > 0 ? "is-rose" : "is-success"}`}><XCircle size={17} /></span>
-          </div>
-          <p className={`ov-kpi-card-value ${errorCount > 0 ? "is-rose" : ""}`}>{formatInt(errorCount)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">{errorCount > 0 ? "Check pipeline errors" : "No errors"}</span>
-          </div>
-        </article>
-      </div>
-
       {/* ── Hourly event bar chart ── */}
       {systemLogs.length > 0 && (
         <section className="db-card">
@@ -158,23 +108,41 @@ export default function ActivityLogsScreen({
       )}
 
       {/* ── Tab switcher ── */}
-      <div className="db-card" style={{ padding: "0.35rem", display: "inline-flex", gap: "0.2rem", width: "fit-content" }}>
-        <button
-          type="button"
-          className={`theme-switch-btn ${tab === "system" ? "is-on" : ""}`}
-          style={{ padding: "0.45rem 0.9rem", borderRadius: "var(--radius-sm)" }}
-          onClick={() => setTab("system")}
-        >
-          <Radio size={13} /> Pipeline trace
-        </button>
-        <button
-          type="button"
-          className={`theme-switch-btn ${tab === "records" ? "is-on" : ""}`}
-          style={{ padding: "0.45rem 0.9rem", borderRadius: "var(--radius-sm)" }}
-          onClick={() => setTab("records")}
-        >
-          <Users size={13} /> Record history
-        </button>
+      <div className="ds-head is-compact">
+        <div className="ds-seg" role="tablist" aria-label="Log source">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "system"}
+            className={`ds-seg-btn ${tab === "system" ? "is-on" : ""}`}
+            onClick={() => setTab("system")}
+          >
+            <Radio size={13} /> Pipeline trace
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "records"}
+            className={`ds-seg-btn ${tab === "records" ? "is-on" : ""}`}
+            onClick={() => setTab("records")}
+          >
+            <Users size={13} /> Record history
+          </button>
+        </div>
+
+        {/* Only the states that have something in them. A row of zeros is four
+            findings the reader has to check to learn nothing happened. */}
+        <p className="ds-head-sub">
+          {systemLogs.length === 0
+            ? "No pipeline events this session."
+            : [
+                `${formatInt(systemLogs.length)} event${systemLogs.length === 1 ? "" : "s"}`,
+                warnCount > 0 ? `${formatInt(warnCount)} warning${warnCount === 1 ? "" : "s"}` : null,
+                errorCount > 0 ? `${formatInt(errorCount)} error${errorCount === 1 ? "" : "s"}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+        </p>
       </div>
 
       {tab === "system" ? (

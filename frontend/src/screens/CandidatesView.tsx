@@ -15,14 +15,8 @@ import {
   LayoutGrid,
   Rows3,
   FileText,
-  Users,
-  CheckCircle2,
-  FileSearch,
-  Briefcase,
   Plus,
   ExternalLink,
-  Calendar,
-  TrendingUp,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
 import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
@@ -290,184 +284,88 @@ export default function CandidatesView({
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 
   return (
-    <div className="shopeers-page-container">
-      {/* Top Header */}
-      <header className="shopeers-header">
-        <div className="shopeers-header-left">
-          <h1 className="shopeers-title">Candidates Pool</h1>
-          <p className="shopeers-subtitle">
-            Every parsed candidate profile in the database with designation, experience & status.
+    <div className="ds-page">
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Candidates</h1>
+          <p className="ds-head-sub">
+            Every parsed profile in the database — designation, experience and status.
           </p>
         </div>
 
-        <div className="shopeers-header-actions">
-          <button type="button" className="shopeers-pill-btn">
-            <Calendar size={15} className="shopeers-pill-icon" />
-            <span>Jan 1, 2025 - Feb 1, 2025</span>
+        <div className="ds-head-actions">
+          <button type="button" className="ds-ghost-btn">
+            <Plus size={15} /> Add candidate
           </button>
-
-          <button type="button" className="shopeers-pill-btn is-outline">
-            <Plus size={15} />
-            <span>Add Candidate</span>
-          </button>
-
-          <button type="button" className="shopeers-export-btn">
-            <ExternalLink size={15} />
-            <span>Export CSV</span>
+          <button type="button" className="ds-primary-btn">
+            <ExternalLink size={15} /> Export CSV
           </button>
         </div>
       </header>
 
-      {/* Row 1: Shopeers Stat / Metric Cards */}
-      <div className="shopeers-metrics-grid">
-        {/* Card 1: Total Candidates */}
-        <div className="shopeers-metric-card">
-          <div className="shopeers-metric-top">
-            <span className="shopeers-metric-label">Total Candidates</span>
-            <span className="shopeers-metric-icon-wrap">
-              <Users size={17} />
-            </span>
+      {/* One panel. The pills, the search and the view switch all act on the
+          table below them, so they live in its head rather than in a box of
+          their own — and the pills carry the counts that four metric cards
+          used to repeat. */}
+      <section className="ds-panel">
+        <div className="ds-panel-head is-split">
+          <div className="ds-tabs" role="tablist">
+            {FILTERS.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={filter === id}
+                className={`ds-tab ${filter === id ? "is-on" : ""}`}
+                onClick={() => setFilter(id)}
+              >
+                {label}
+                <span className="ds-tab-count">{formatInt(filterCounts[id])}</span>
+              </button>
+            ))}
           </div>
-          <div className="shopeers-metric-val-row">
-            <span className="shopeers-metric-val">{formatInt(filterCounts.all)}</span>
-            <span className="shopeers-badge is-up">
-              <TrendingUp size={11} /> 100%
-            </span>
-          </div>
-          <div className="shopeers-metric-sub">Total parsed in database</div>
-        </div>
 
-        {/* Card 2: Verified Profiles */}
-        <div className="shopeers-metric-card">
-          <div className="shopeers-metric-top">
-            <span className="shopeers-metric-label">Verified Profiles</span>
-            <span className="shopeers-metric-icon-wrap is-green">
-              <CheckCircle2 size={17} />
-            </span>
-          </div>
-          <div className="shopeers-metric-val-row">
-            <span className="shopeers-metric-val">{formatInt(filterCounts.verified)}</span>
-            <span className="shopeers-badge is-up">
-              <TrendingUp size={11} />{" "}
-              {filterCounts.all > 0
-                ? Math.round((filterCounts.verified / filterCounts.all) * 100)
-                : 0}
-              %
-            </span>
-          </div>
-          <div className="shopeers-metric-sub">Cleared & verified</div>
-        </div>
+          <div className="ds-panel-tools">
+            <label className="ds-search">
+              <Search size={15} />
+              <input
+                type="search"
+                value={query}
+                placeholder="Search name, role, skills or email"
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search candidates"
+              />
+            </label>
 
-        {/* Card 3: Needs Review */}
-        <div className="shopeers-metric-card">
-          <div className="shopeers-metric-top">
-            <span className="shopeers-metric-label">Needs Review</span>
-            <span className="shopeers-metric-icon-wrap is-rose">
-              <FileSearch size={17} />
-            </span>
-          </div>
-          <div className="shopeers-metric-val-row">
-            <span className="shopeers-metric-val">{formatInt(filterCounts.pending)}</span>
-            {filterCounts.pending > 0 ? (
-              <span className="shopeers-badge is-down">Action req.</span>
-            ) : (
-              <span className="shopeers-badge is-up">All clear</span>
-            )}
-          </div>
-          <div className="shopeers-metric-sub">Below confidence threshold</div>
-        </div>
-
-        {/* Card 4: Unchecked / Active */}
-        <div className="shopeers-metric-card">
-          <div className="shopeers-metric-top">
-            <span className="shopeers-metric-label">Unchecked Pool</span>
-            <span className="shopeers-metric-icon-wrap">
-              <Briefcase size={17} />
-            </span>
-          </div>
-          <div className="shopeers-metric-val-row">
-            <span className="shopeers-metric-val">{formatInt(filterCounts.active)}</span>
-            <span className="shopeers-badge is-up">Ready</span>
-          </div>
-          <div className="shopeers-metric-sub">Parsed & awaiting evaluation</div>
-        </div>
-      </div>
-
-      {/* Control Toolbar (Filter Pills + Search + View mode toggle) */}
-      <div className="shopeers-toolbar">
-        {/* Filter Pills */}
-        <div className="shopeers-filter-pills" role="tablist">
-          {FILTERS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              className={`shopeers-filter-pill ${filter === id ? "is-active" : ""}`}
-              onClick={() => setFilter(id)}
-            >
-              <span>{label}</span>
-              <span className="shopeers-pill-count">{formatInt(filterCounts[id])}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Toolbar Right */}
-        <div className="shopeers-toolbar-right">
-          {/* Search Box */}
-          <div className="shopeers-search-box">
-            <Search size={15} className="shopeers-search-icon" />
-            <input
-              type="text"
-              className="shopeers-search-input"
-              placeholder="Search name, role, skills or email..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {query && (
+            <div className="ds-seg is-quiet" role="group" aria-label="View">
               <button
                 type="button"
-                className="shopeers-search-clear"
-                onClick={() => setQuery("")}
-                title="Clear search"
+                className={`ds-seg-btn ${view === "table" ? "is-on" : ""}`}
+                onClick={() => setView("table")}
+                title="Table view"
               >
-                <X size={14} />
+                <Rows3 size={15} />
               </button>
-            )}
-          </div>
-
-          {/* View Toggle */}
-          <div className="shopeers-view-toggle">
-            <button
-              type="button"
-              className={`shopeers-view-btn ${view === "table" ? "is-active" : ""}`}
-              onClick={() => setView("table")}
-              title="Table view"
-            >
-              <Rows3 size={15} />
-            </button>
-            <button
-              type="button"
-              className={`shopeers-view-btn ${view === "cards" ? "is-active" : ""}`}
-              onClick={() => setView("cards")}
-              title="Card view"
-            >
-              <LayoutGrid size={15} />
-            </button>
+              <button
+                type="button"
+                className={`ds-seg-btn ${view === "cards" ? "is-on" : ""}`}
+                onClick={() => setView("cards")}
+                title="Card view"
+              >
+                <LayoutGrid size={15} />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
       {/* Main Content Area */}
       {filtered.length === 0 ? (
-        <div className="shopeers-table-card" style={{ textAlign: "center", padding: "3rem 1.5rem" }}>
-          <UsersRound size={32} color="#94A3B8" style={{ margin: "0 auto 0.75rem auto" }} />
-          <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0F172A", margin: "0 0 0.35rem 0" }}>
-            {EMPTY_COPY[filter].title}
-          </h3>
-          <p style={{ fontSize: "0.85rem", color: "#64748B", margin: "0 0 1rem 0" }}>
-            {query ? "Nothing here matches that search query." : EMPTY_COPY[filter].sub}
-          </p>
+        <div className="ds-empty-state">
+          <UsersRound size={30} />
+          <h3>{EMPTY_COPY[filter].title}</h3>
+          <p>{query ? "Nothing here matches that search." : EMPTY_COPY[filter].sub}</p>
           {query && (
-            <button type="button" className="shopeers-gauge-btn" onClick={() => setQuery("")}>
+            <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
               Clear search
             </button>
           )}
@@ -742,21 +640,14 @@ export default function CandidatesView({
               Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
               <strong>{formatInt(candidates.length)}</strong> candidates
             </span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", fontWeight: 600 }}>
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  background: "#10B981",
-                  display: "inline-block",
-                }}
-              />
-              Live DB Sync
+            <span className="ds-status is-ok">
+              <i aria-hidden="true" />
+              Live DB sync
             </span>
           </div>
         </div>
       )}
+      </section>
     </div>
   );
 }

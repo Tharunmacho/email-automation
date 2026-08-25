@@ -22,14 +22,13 @@ import {
   Copy,
   Check,
   Zap,
-  Layers,
   Target,
   Inbox,
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 
-import StatTile, { type StatTone } from "@/components/ui/StatTile";
+import { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
@@ -371,38 +370,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     [engagementByClient],
   );
 
-  const agentCount = records.filter((r) => r.type === "agent").length;
-  const clientCount = records.filter((r) => r.type === "client").length;
-  const associationCount = records.filter((r) => r.type === "association").length;
-
   const countFor = (key: TypeFilter) =>
     key === "all" ? records.length : records.filter((r) => r.type === key).length;
-
-  /** Portfolio roll-up that feeds the four tiles. */
-  const portfolio = useMemo(() => {
-    let engaged = 0;
-    let openSeats = 0;
-    let seats = 0;
-    let filled = 0;
-
-    for (const rec of records) {
-      const e = engagementOf(rec.name);
-      if (!e) continue;
-      if (e.live > 0) {
-        engaged += 1;
-        openSeats += Math.max(0, e.seats - e.filled);
-      }
-      seats += e.seats;
-      filled += e.filled;
-    }
-
-    return {
-      engaged,
-      openSeats,
-      fillRate: seats > 0 ? Math.round((filled / seats) * 100) : 0,
-      engagedShare: records.length > 0 ? Math.round((engaged / records.length) * 100) : 0,
-    };
-  }, [records, engagementOf]);
 
   const visibleRecords = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -852,57 +821,6 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   return (
     <div className="sh-root">
-      {/* ── Shopeers-style KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Sourcing Clients</span>
-            <span className="ov-kpi-card-icon"><Building2 size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(records.length)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {agentCount} agent{agentCount === 1 ? "" : "s"} · {associationCount} associate{associationCount === 1 ? "" : "s"} · {clientCount} client{clientCount === 1 ? "" : "s"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Clients Hiring Now</span>
-            <span className="ov-kpi-card-icon is-success"><Zap size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(portfolio.engaged)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {records.length > 0 ? `${portfolio.engagedShare}% of portfolio engaged` : "No clients yet"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Open Positions</span>
-            <span className="ov-kpi-card-icon is-warning"><Layers size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{formatInt(portfolio.openSeats)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Unfilled seats across live orders</span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Fill Rate</span>
-            <span className="ov-kpi-card-icon is-success"><Target size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{portfolio.fillRate}%</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">Seats filled across all orders</span>
-          </div>
-        </article>
-      </div>
-
       {/* Controls */}
       <div className="sh-toolbar">
         <div className="sh-segment" role="tablist" aria-label="Client type">
