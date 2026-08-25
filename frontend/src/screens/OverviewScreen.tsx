@@ -3,32 +3,26 @@
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
-  Briefcase,
-  Calendar,
-  CheckCircle2,
-  Cpu,
-  Eye,
   FileSearch,
   RefreshCw,
+  Search,
+  SlidersHorizontal,
   TrendingDown,
   TrendingUp,
+  UserCheck,
+  UserPlus,
   Users,
 } from "lucide-react";
 
-import IngestionChart, { RANGE_OPTIONS, type RangeOption } from "@/components/dashboard/IngestionChart";
-import RecentCandidates from "@/components/dashboard/RecentCandidates";
-import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
-import SlaGauge from "@/components/dashboard/SlaGauge";
-import PipelineSplit from "@/components/dashboard/PipelineSplit";
+import FlowBarChart, { type FlowBucket } from "@/components/dashboard/FlowBarChart";
 import DashboardSkeleton from "@/components/dashboard/DashboardSkeleton";
+import { isVerified, needsReview, windowDelta, buildCumulativeTrend } from "@/lib/dashboardMetrics";
 import {
-  buildDailyBuckets,
-  isVerified,
-  needsReview,
-  windowDelta,
-  buildCumulativeTrend,
-} from "@/lib/dashboardMetrics";
-import { compactNumber, formatDateFull, formatInt } from "@/lib/format";
+  candidateNameOf,
+  formatDateFull,
+  formatInt,
+  initialsOf,
+} from "@/lib/format";
 import { useIsMounted } from "@/lib/useIsMounted";
 import type { NavId } from "@/lib/nav";
 import type { CandidateRecord } from "@/lib/api";
@@ -43,396 +37,476 @@ interface OverviewScreenProps {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 
-/** Green ▲ or red ▼ delta badge — only shows when delta data exists */
-function DeltaBadge({ pct }: { pct: number | null }) {
+type Grain = "weekly" | "monthly";
+
+/** Up or down against the period before, or nothing when there is no before. */
+function Delta({ pct, against }: { pct: number | null; against: string }) {
   if (pct === null) return null;
   const up = pct >= 0;
   return (
-    <span className={`ov-delta ${up ? "is-up" : "is-down"}`}>
-      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+    <span
+      className={`ovf-delta ${up ? "is-up" : "is-down"}`}
+      title={`${up ? "Up" : "Down"} ${Math.abs(pct).toFixed(1)}% on the ${against} before this one`}
+    >
       {Math.abs(pct).toFixed(1)}%
+      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
     </span>
   );
 }
 
 /**
- * `Date.now()` read from module scope rather than from the render body.
+ * `Date.now()` read through one door rather than from the render body.
  *
- * The screen is a pure function of the candidate collection everywhere else,
- * and the clock is the one input that is not — reading it inline makes two
- * renders of the same props produce two different pages. These are the only
- * doors it comes through, and each is called from a `useMemo` or from behind
- * the mount gate, so the value is taken once per window rather than per paint.
+ * Everything else on this screen is a pure function of the candidate
+ * collection; the clock is the one input that is not, and reading it inline
+ * makes two renders of the same props produce two different pages. Every call
+ * below sits inside a `useMemo` or behind the mount gate.
  */
-function daysAgo(days: number): Date {
-  return new Date(Date.now() - days * DAY_MS);
-}
-
-function rightNow(): Date {
+function now(): Date {
   return new Date();
 }
 
-/** Count how many candidates arrived on each day of the week (Sun=0…Sat=6) */
-function buildWeeklyActivity(candidates: CandidateRecord[]): number[] {
-  const counts = [0, 0, 0, 0, 0, 0, 0];
-  const cutoff = new Date(Date.now() - 28 * DAY_MS);
-  for (const c of candidates) {
-    if (!c.created_at) continue;
-    const d = new Date(c.created_at);
-    if (!Number.isNaN(d.getTime()) && d >= cutoff) counts[d.getDay()] += 1;
+/** One bucket per month for the last `count` months, oldest first. */
+function monthlyBuckets(candidates: CandidateRecord[], count: number): FlowBucket[] {
+  const today = now();
+  const buckets: FlowBucket[] = [];
+  const index = new Map<string, number>();
+
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - back, 1);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    index.set(key, buckets.length);
+    buckets.push({
+      label: MONTHS[date.getMonth()],
+      full: `${MONTHS_LONG[date.getMonth()]} ${date.getFullYear()}`,
+      value: 0,
+    });
   }
-  return counts;
+
+  for (const candidate of candidates) {
+    if (!candidate.created_at) continue;
+    const date = new Date(candidate.created_at);
+    if (Number.isNaN(date.getTime())) continue;
+    const slot = index.get(`${date.getFullYear()}-${date.getMonth()}`);
+    if (slot !== undefined) buckets[slot].value += 1;
+  }
+
+  return buckets;
+}
+
+/** One bucket per week for the last `count` weeks, oldest first. */
+function weeklyBuckets(candidates: CandidateRecord[], count: number): FlowBucket[] {
+  const today = now();
+  // Anchored to the start of today, so a candidate parsed an hour ago lands in
+  // this week rather than in a window that ends before they arrived.
+  const anchor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() + DAY_MS;
+  const buckets: FlowBucket[] = [];
+
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const end = anchor - back * 7 * DAY_MS;
+    const start = end - 7 * DAY_MS;
+    const startDate = new Date(start);
+    buckets.push({
+      label: `${startDate.getDate()} ${MONTHS[startDate.getMonth()]}`,
+      full: `Week of ${formatDateFull(startDate)}`,
+      value: candidates.filter((candidate) => {
+        if (!candidate.created_at) return false;
+        const at = new Date(candidate.created_at).getTime();
+        return !Number.isNaN(at) && at >= start && at < end;
+      }).length,
+    });
+  }
+
+  return buckets;
+}
+
+/** hh:mm for the activity table's own column, matching its date column. */
+function clockOf(value: string | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
- * Everything the whole product is doing, on one screen.
+ * Everything the product is doing, on one screen.
  *
- * The layout is four readings across the top, then a wide column carrying the
- * two things that change over time — what has been ingested, and who arrived —
- * beside a narrow column carrying the three that describe the current state.
- * Nothing here is a decoration: every card is drawn from the candidate
- * collection the page already holds, so an empty workspace shows an empty
- * dashboard rather than a demo one.
+ * Three readings across the top with the headline one filled, then the state of
+ * the pipeline beside the shape of the intake, then the profiles themselves.
+ * Nothing here is decoration: every figure is derived from the candidate
+ * collection this page already holds, so an empty workspace shows an empty
+ * dashboard rather than a demonstration one.
  */
 export default function OverviewScreen({
   total,
   candidates,
-  logs,
   onNavigate,
   onOpenCandidate,
 }: OverviewScreenProps) {
-  const [range, setRange] = useState<RangeOption>(30);
+  // Weekly by default. The pool is young — a monthly chart of a database that
+  // started filling this month is one bar and five empty months, which reads as
+  // a broken chart rather than as a new one.
+  const [grain, setGrain] = useState<Grain>("weekly");
+  const [query, setQuery] = useState("");
   const mounted = useIsMounted();
 
-  /* ── Derived metrics (all from live candidate data, nothing hardcoded) ── */
-  const verified  = candidates.filter(isVerified).length;
-  const review    = candidates.filter(needsReview).length;
-  const active    = candidates.filter((c) => c.status !== "verified" && !needsReview(c)).length;
-  const scored    = candidates.filter((c) => typeof c.profile?.confidence === "number");
+  const verified = candidates.filter(isVerified).length;
+  const review = candidates.filter(needsReview).length;
+  const active = candidates.filter((c) => c.status !== "verified" && !needsReview(c)).length;
+  const unassigned = candidates.filter((c) => !c.assigned_staff_id).length;
 
-  const avgConfidence =
-    scored.length > 0
-      ? (scored.reduce((s, c) => s + (c.profile.confidence ?? 0), 0) / scored.length) * 100
-      : 0;
+  // The period control at the top is the page's, not just the chart's: the
+  // deltas on the cards are measured over the same window the chart is drawn
+  // at. A "This week" that moved only the plot would be claiming the figures
+  // beside it had been re-measured when they had not.
+  const windowDays = grain === "weekly" ? 7 : 30;
+  const against = grain === "weekly" ? "week" : "month";
 
-  const verifiedRate =
-    candidates.length > 0 ? Math.round((verified / candidates.length) * 100) : 0;
-
-  /* ── Chart data ── */
-  const buckets = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
-  // The same window, one period back. Drawn behind the live series as the
-  // dashed ghost line, which is what turns a curve into a comparison.
-  const previous = useMemo(
-    () => buildDailyBuckets(candidates, range, daysAgo(range)),
-    [candidates, range],
+  // Twice the window, because the delta needs the period before this one to
+  // compare against — a 30-day trend has no 30-days-ago to subtract.
+  const totalTrend = useMemo(
+    () => buildCumulativeTrend(candidates, windowDays * 2),
+    [candidates, windowDays],
   );
+  const verifiedTrend = useMemo(
+    () => buildCumulativeTrend(candidates, windowDays * 2, isVerified),
+    [candidates, windowDays],
+  );
+  const deltaTotal = windowDelta(totalTrend, windowDays);
+  const deltaVerified = windowDelta(verifiedTrend, windowDays);
 
-  const windowTotal   = buckets.reduce((s, b) => s + b.added, 0);
-  const previousTotal = previous.reduce((s, b) => s + b.added, 0);
-  const windowPct     = previousTotal > 0
-    ? ((windowTotal - previousTotal) / previousTotal) * 100
-    : null;
+  const flow = useMemo(
+    () => (grain === "monthly" ? monthlyBuckets(candidates, 7) : weeklyBuckets(candidates, 8)),
+    [candidates, grain],
+  );
+  const flowTotal = flow.reduce((sum, bucket) => sum + bucket.value, 0);
 
-  const trend30       = useMemo(() => buildCumulativeTrend(candidates, 30), [candidates]);
-  const deltaTotal    = windowDelta(trend30, 7);
-  const verifiedTrend = useMemo(() => buildCumulativeTrend(candidates, 30, isVerified), [candidates]);
-  const deltaVerified = windowDelta(verifiedTrend, 7);
+  /** The newest arrivals, filtered by whatever is typed in the panel's search. */
+  const recent = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return [...candidates]
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+      .filter((candidate) => {
+        if (!term) return true;
+        const haystack = [
+          candidateNameOf(candidate),
+          candidate.profile?.current_designation,
+          candidate.profile?.email,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(term);
+      })
+      .slice(0, 6);
+  }, [candidates, query]);
 
-  const weeklyData = useMemo(() => buildWeeklyActivity(candidates), [candidates]);
-  const weeklyPeak = Math.max(...weeklyData, 0);
-  const peakDay    = weeklyData.indexOf(weeklyPeak);
-
-  // The label under the title, stated the way the reference states its range:
-  // the two dates the window actually spans, not the number of days in it.
-  const windowLabel = mounted
-    ? `${formatDateFull(daysAgo(range - 1))} – ${formatDateFull(rightNow())}`
-    : "";
+  const share = (value: number) =>
+    candidates.length > 0 ? `${Math.round((value / candidates.length) * 100)}% of the pool` : "—";
 
   if (!mounted) return <DashboardSkeleton />;
 
   return (
-    <div className="ov-shopeers">
-
-      {/* ── Page header ── */}
-      <header className="ov-page-head">
+    <div className="ovf">
+      {/* ── Page head ─────────────────────────────────────────────────── */}
+      <header className="ovf-head">
         <div>
-          <h1 className="ov-page-title">Dashboard</h1>
-          <p className="ov-page-sub">
-            Every résumé the pipeline has parsed, and what still needs a person.
-          </p>
+          <h1 className="ovf-head-title">Overview</h1>
+          <p className="ovf-head-sub">Here is the summary of overall data</p>
         </div>
 
-        <div className="ov-page-actions">
-          <span className="ov-hdr-chip">
-            <Calendar size={14} />
-            {windowLabel}
-          </span>
-
-          <label className="ov-hdr-select">
-            <select
-              value={range}
-              onChange={(e) => setRange(Number(e.target.value) as RangeOption)}
-              aria-label="Dashboard time range"
+        <div className="ovf-head-actions">
+          <div className="ovf-seg" role="group" aria-label="Reporting period">
+            <button
+              type="button"
+              className={`ovf-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+              onClick={() => setGrain("weekly")}
             >
-              {RANGE_OPTIONS.map((o) => (
-                <option key={o} value={o}>Last {o} days</option>
-              ))}
-            </select>
-          </label>
+              This week
+            </button>
+            <button
+              type="button"
+              className={`ovf-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+              onClick={() => setGrain("monthly")}
+            >
+              This month
+            </button>
+          </div>
 
-          <button type="button" className="ov-hdr-btn" onClick={() => onNavigate("sourcing")}>
-            <RefreshCw size={14} />
-            Sourcing
+          <button type="button" className="ovf-ghost-btn" onClick={() => onNavigate("sourcing")}>
+            <RefreshCw size={14} /> Sourcing
           </button>
-
-
         </div>
       </header>
 
-      {/* ── KPI row (4 cards) ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Total Candidates</span>
-            <span className="ov-kpi-card-icon">
-              <Users size={17} strokeWidth={2.1} />
+      {/* ── Three readings, the headline one filled ───────────────────── */}
+      <div className="ovf-cards">
+        <article className="ovf-card is-feature">
+          <div className="ovf-card-top">
+            <span className="ovf-card-icon">
+              <Users size={18} strokeWidth={2.1} />
             </span>
+            <div>
+              <h2 className="ovf-card-title">Total candidates</h2>
+              <p className="ovf-card-sub">Every profile the pipeline has parsed</p>
+            </div>
           </div>
-          <div className="ov-kpi-card-mid">
-            <p className="ov-kpi-card-value">{compactNumber(total)}</p>
-            <DeltaBadge pct={deltaTotal.percent} />
+
+          <div className="ovf-card-value">
+            {formatInt(total)}
+            <Delta pct={deltaTotal.percent} against={against} />
           </div>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              vs. {formatInt(Math.max(0, total - deltaTotal.change))} last week
-            </span>
-          </div>
+
+          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("candidates")}>
+            See details <ArrowRight size={16} />
+          </button>
         </article>
 
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Verified</span>
-            <span className="ov-kpi-card-icon is-success">
-              <CheckCircle2 size={17} strokeWidth={2.1} />
+        <article className="ovf-card">
+          <div className="ovf-card-top">
+            <span className="ovf-card-icon">
+              <UserCheck size={18} strokeWidth={2.1} />
             </span>
+            <div>
+              <h2 className="ovf-card-title">Verified profiles</h2>
+              <p className="ovf-card-sub">Read and signed off by a person</p>
+            </div>
           </div>
-          <div className="ov-kpi-card-mid">
-            <p className="ov-kpi-card-value">{compactNumber(verified)}</p>
-            <DeltaBadge pct={deltaVerified.percent} />
+
+          <div className="ovf-card-value">
+            {formatInt(verified)}
+            <Delta pct={deltaVerified.percent} against={against} />
           </div>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              vs. {formatInt(Math.max(0, verified - deltaVerified.change))} last week
-            </span>
-          </div>
+
+          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("candidates")}>
+            View summary <ArrowRight size={16} />
+          </button>
         </article>
 
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Avg AI Confidence</span>
-            <span className="ov-kpi-card-icon is-warning">
-              <Cpu size={17} strokeWidth={2.1} />
+        <article className="ovf-card">
+          <div className="ovf-card-top">
+            <span className="ovf-card-icon">
+              <FileSearch size={18} strokeWidth={2.1} />
             </span>
+            <div>
+              <h2 className="ovf-card-title">Needs review</h2>
+              <p className="ovf-card-sub">Parsed below the confidence line</p>
+            </div>
           </div>
-          <div className="ov-kpi-card-mid">
-            <p className="ov-kpi-card-value">{avgConfidence.toFixed(1)}%</p>
-          </div>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {scored.length === 0
-                ? "No scored résumés yet"
-                : `Across ${formatInt(scored.length)} scored résumé${scored.length === 1 ? "" : "s"}`}
-            </span>
-          </div>
-        </article>
 
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Pending Review</span>
-            <span className={`ov-kpi-card-icon ${review > 0 ? "is-rose" : "is-success"}`}>
-              <FileSearch size={17} strokeWidth={2.1} />
-            </span>
-          </div>
-          <div className="ov-kpi-card-mid">
-            <p className={`ov-kpi-card-value ${review > 0 ? "is-rose" : ""}`}>
-              {compactNumber(review)}
-            </p>
-          </div>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {review === 0 ? "All profiles cleared" : "Waiting on a human verdict"}
-            </span>
-          </div>
+          <div className="ovf-card-value">{formatInt(review)}</div>
+
+          <button type="button" className="ovf-card-foot" onClick={() => onNavigate("staff")}>
+            Open the queue <ArrowRight size={16} />
+          </button>
         </article>
       </div>
 
-      {/* ── Main 2-column grid ── */}
-      <div className="ov-grid">
-
-        {/* LEFT column */}
-        <div className="ov-grid-left">
-
-          {/* Sourced Candidates — figure on the left, plot on the right, and
-              the pipeline split nested underneath both. */}
-          <section className="ov-chart-card">
-            <div className="ov-chart-card-head">
-              <h2 className="ov-chart-card-title">Sourced Candidates</h2>
-              <span className="ov-legend">
-                <span className="ov-legend-item">
-                  <i className="ov-legend-swatch is-line" />
-                  This period
-                </span>
-                <span className="ov-legend-item">
-                  <i className="ov-legend-swatch is-ghost" />
-                  Previous
-                </span>
-              </span>
-            </div>
-
-            <div className="ov-hero">
-              <div className="ov-hero-figure">
-                <p className="ov-hero-value">{formatInt(windowTotal)}</p>
-                <div className="ov-hero-delta">
-                  <DeltaBadge pct={windowPct} />
-                  <span className="ov-kpi-card-caption">vs. last period</span>
-                </div>
-                <p className="ov-hero-note">
-                  {formatInt(previousTotal)} parsed in the {range} days before this one
-                </p>
-              </div>
-
-              <div className="ov-hero-plot">
-                <IngestionChart buckets={buckets} compare={previous} range={range} />
-              </div>
-            </div>
-
-            <div className="ov-chart-card-foot">
-              <PipelineSplit
-                title="Pipeline"
-                segments={[
-                  {
-                    label: "Verified",
-                    value: verified,
-                    icon: CheckCircle2,
-                    tone: "success",
-                    onSelect: () => onNavigate("candidates"),
-                  },
-                  {
-                    label: "In progress",
-                    value: active,
-                    icon: Users,
-                    tone: "info",
-                    onSelect: () => onNavigate("candidates"),
-                  },
-                  {
-                    label: "Pending review",
-                    value: review,
-                    icon: FileSearch,
-                    tone: "warning",
-                    onSelect: () => onNavigate("candidates"),
-                  },
-                ]}
-              />
-            </div>
-          </section>
-
-          {/* Recent Candidates table */}
-          <RecentCandidates
-            candidates={candidates}
-            onOpenCandidate={onOpenCandidate}
-            onViewAll={() => onNavigate("candidates")}
-          />
-        </div>
-
-        {/* RIGHT column */}
-        <div className="ov-grid-right">
-
-          {/* Most Active Day */}
-          <section className="ov-side-card">
-            <div className="ov-side-card-head">
-              <h3 className="ov-side-card-title">Most Active Day</h3>
-              <p className="ov-side-card-sub">
-                {weeklyPeak > 0
-                  ? `${DAY_NAMES[peakDay]} is the busiest — last 4 weeks`
-                  : "Nothing has arrived in the last 4 weeks"}
+      {/* ── Pipeline beside intake ────────────────────────────────────── */}
+      <div className="ovf-split">
+        <section className="ovf-panel ovf-pipeline">
+          <div className="ovf-panel-head">
+            <div>
+              <h2 className="ovf-panel-title">Pipeline</h2>
+              <p className="ovf-panel-sub">
+                {candidates.length > 0
+                  ? `${formatInt(candidates.length)} profiles on file today`
+                  : "Nothing on file yet"}
               </p>
             </div>
-            <WeeklyBarChart data={weeklyData} />
-          </section>
-
-          {/* Verification Rate gauge */}
-          <section className="ov-side-card">
-            <div className="ov-side-card-head">
-              <h3 className="ov-side-card-title">Verification Rate</h3>
-            </div>
-            <SlaGauge
-              percent={verifiedRate}
-              label="Verification Rate"
-              caption={
-                candidates.length === 0
-                  ? "Nothing to verify yet"
-                  : `${formatInt(verified)} of ${formatInt(candidates.length)} cleared`
-              }
-            />
-            <button
-              type="button"
-              className="ov-gauge-cta"
-              onClick={() => onNavigate("candidates")}
-            >
-              Show details <ArrowRight size={14} />
+            <button type="button" className="ovf-pill-btn" onClick={() => onNavigate("staff")}>
+              <UserPlus size={14} /> Allocate
             </button>
-          </section>
+          </div>
 
-          {/* AI parser score — the product's own confidence in itself */}
-          <section className="ov-side-card ov-ai-card">
-            <div className="ov-side-card-head">
-              <h3 className="ov-side-card-title">AI Parser</h3>
-              <p className="ov-side-card-sub">Mean confidence across every scored résumé</p>
+          <div className="ovf-tiles">
+            {[
+              {
+                key: "verified",
+                label: "Verified",
+                value: verified,
+                note: share(verified),
+                state: "Cleared",
+                tone: "ok" as const,
+                to: "candidates" as NavId,
+              },
+              {
+                key: "progress",
+                label: "In progress",
+                value: active,
+                note: share(active),
+                state: "Active",
+                tone: "ok" as const,
+                to: "candidates" as NavId,
+              },
+              {
+                key: "review",
+                label: "Needs review",
+                value: review,
+                note: share(review),
+                state: review > 0 ? "Action req." : "Clear",
+                tone: review > 0 ? ("warn" as const) : ("ok" as const),
+                to: "candidates" as NavId,
+              },
+              {
+                key: "unassigned",
+                label: "Unassigned",
+                value: unassigned,
+                note: share(unassigned),
+                state: unassigned > 0 ? "Waiting" : "All allocated",
+                tone: unassigned > 0 ? ("warn" as const) : ("ok" as const),
+                to: "staff" as NavId,
+              },
+            ].map((tile) => (
+              <button
+                key={tile.key}
+                type="button"
+                className="ovf-tile"
+                onClick={() => onNavigate(tile.to)}
+              >
+                <span className="ovf-tile-head">
+                  <i className={`ovf-tile-dot is-${tile.tone}`} aria-hidden="true" />
+                  {tile.label}
+                </span>
+                <span className="ovf-tile-value">{formatInt(tile.value)}</span>
+                <span className="ovf-tile-note">{tile.note}</span>
+                <span className={`ovf-tile-state is-${tile.tone}`}>{tile.state}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="ovf-panel ovf-flow-panel">
+          <div className="ovf-panel-head">
+            <div>
+              <p className="ovf-panel-eyebrow">Candidates parsed</p>
+              <p className="ovf-flow-total">{formatInt(flowTotal)}</p>
             </div>
 
-            <div className="ov-ai-orb-wrap">
-              <span className="ov-ai-orb" aria-hidden="true" />
-              <span className="ov-ai-score">
-                {avgConfidence.toFixed(0)}
-                <span className="ov-ai-pct">%</span>
-              </span>
-            </div>
-
-            <div className="ov-ai-foot">
-              <span className="ov-kpi-card-caption">{formatInt(scored.length)} scored</span>
-              <button type="button" className="ov-ai-link" onClick={() => onNavigate("settings")}>
-                Tune engine <ArrowRight size={13} />
+            <div className="ovf-seg is-quiet" role="group" aria-label="Chart grain">
+              <button
+                type="button"
+                className={`ovf-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+                onClick={() => setGrain("weekly")}
+              >
+                Weekly
+              </button>
+              <button
+                type="button"
+                className={`ovf-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+                onClick={() => setGrain("monthly")}
+              >
+                Monthly
               </button>
             </div>
-          </section>
+          </div>
 
-          {/* Quick Actions */}
-          <section className="ov-side-card">
-            <div className="ov-side-card-head">
-              <h3 className="ov-side-card-title">Quick Actions</h3>
-            </div>
-            <div className="ov-quick-actions">
-              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("candidates")}>
-                <span className="ov-quick-icon"><Users size={15} /></span>
-                <span>Candidates Pool</span>
-                <ArrowRight size={14} className="ov-quick-arrow" />
-              </button>
-              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("job-orders")}>
-                <span className="ov-quick-icon"><Briefcase size={15} /></span>
-                <span>Job Orders</span>
-                <ArrowRight size={14} className="ov-quick-arrow" />
-              </button>
-              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("activity")}>
-                <span className="ov-quick-icon"><Eye size={15} /></span>
-                <span>Activity Logs</span>
-                <ArrowRight size={14} className="ov-quick-arrow" />
-              </button>
-            </div>
-          </section>
-        </div>
+          <FlowBarChart buckets={flow} caption="Parsed" />
+        </section>
       </div>
+
+      {/* ── The profiles themselves ───────────────────────────────────── */}
+      <section className="ovf-panel">
+        <div className="ovf-panel-head">
+          <h2 className="ovf-panel-title">Recent activity</h2>
+
+          <div className="ovf-panel-tools">
+            <label className="ovf-search">
+              <Search size={15} />
+              <input
+                type="search"
+                value={query}
+                placeholder="Search"
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label="Search recent candidates"
+              />
+            </label>
+            <button type="button" className="ovf-ghost-btn" onClick={() => onNavigate("candidates")}>
+              <SlidersHorizontal size={14} /> Filter
+            </button>
+          </div>
+        </div>
+
+        {recent.length === 0 ? (
+          <p className="ovf-empty">
+            {candidates.length === 0
+              ? "Nothing has been parsed yet. Run a sync to bring résumés in."
+              : "No profile matches that search."}
+          </p>
+        ) : (
+          <div className="ovf-table-wrap">
+            <table className="ovf-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Designation</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th aria-label="Open" />
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((candidate) => {
+                  const name = candidateNameOf(candidate);
+                  const confidence = candidate.profile?.confidence;
+                  const state = isVerified(candidate)
+                    ? { label: "Verified", tone: "ok" }
+                    : needsReview(candidate)
+                      ? { label: "Needs review", tone: "warn" }
+                      : { label: "In progress", tone: "info" };
+
+                  return (
+                    <tr key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
+                      <td>
+                        <span className="ovf-who">
+                          <span className="ovf-avatar" aria-hidden="true">
+                            {initialsOf(name)}
+                          </span>
+                          <span className="ovf-who-text">
+                            <strong>{name}</strong>
+                            <small>{candidate.profile?.email ?? "No email on file"}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td>{candidate.profile?.current_designation || "—"}</td>
+                      <td>
+                        {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
+                      </td>
+                      <td>{clockOf(candidate.created_at)}</td>
+                      <td>
+                        {typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "—"}
+                      </td>
+                      <td>
+                        <span className={`ovf-status is-${state.tone}`}>
+                          <i aria-hidden="true" />
+                          {state.label}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="ovf-open">
+                          <ArrowRight size={15} />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <button type="button" className="ovf-see-all" onClick={() => onNavigate("candidates")}>
+          See every candidate <ArrowRight size={15} />
+        </button>
+      </section>
     </div>
   );
 }

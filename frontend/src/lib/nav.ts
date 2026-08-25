@@ -74,15 +74,20 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Workspace",
-    items: [{ id: "my-queue", label: "My Candidates", icon: Inbox, roles: ["staff"] }],
+    items: [
+      // What each role opens onto: the admin's summary of the whole pipeline,
+      // and the staff member's own allocated queue. One group, because they
+      // are the same thing seen from the two seats.
+      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
+      { id: "my-queue", label: "My Candidates", icon: Inbox, roles: ["staff"] },
+    ],
   },
   {
     label: "General",
     items: [
+      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
-      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
-      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin"] },
     ],
   },
   {
@@ -144,7 +149,7 @@ export function defaultNavFor(role: string | undefined): NavId {
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */
 export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle: string }> = {
   overview: {
-    eyebrow: "Dashboard",
+    eyebrow: "Workspace",
     title: "Overview",
     subtitle: "Candidate sourcing, email extraction, and processing pipeline in one view.",
   },
