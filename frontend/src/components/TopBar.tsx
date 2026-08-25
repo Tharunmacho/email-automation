@@ -63,9 +63,8 @@ export default function TopBar({
           here the rail is off-canvas, so the band carries the name instead. */}
       <div className="topbar-brand">
         <span className="topbar-logo">
-          <Image src="/adira-logo@4x.png" alt="Adira" width={224} height={200} preload />
+          <Image src="/adira-logo.png" alt="Adira" width={600} height={200} preload />
         </span>
-        <span className="topbar-title">Adira</span>
       </div>
 
       {/* NOT WIRED YET. The field is presentational — typing in it filters

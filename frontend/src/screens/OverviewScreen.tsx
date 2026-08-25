@@ -4,20 +4,22 @@ import { useMemo, useState } from "react";
 import {
   ArrowRight,
   Briefcase,
+  Calendar,
   CheckCircle2,
   Cpu,
+  Eye,
+  FileSearch,
   RefreshCw,
   TrendingDown,
   TrendingUp,
   Users,
-  FileSearch,
 } from "lucide-react";
 
 import IngestionChart, { RANGE_OPTIONS, type RangeOption } from "@/components/dashboard/IngestionChart";
 import RecentCandidates from "@/components/dashboard/RecentCandidates";
 import WeeklyBarChart from "@/components/dashboard/WeeklyBarChart";
 import SlaGauge from "@/components/dashboard/SlaGauge";
-import PipelineDonut from "@/components/dashboard/PipelineDonut";
+import PipelineSplit from "@/components/dashboard/PipelineSplit";
 import DashboardSkeleton from "@/components/dashboard/DashboardSkeleton";
 import {
   buildDailyBuckets,
@@ -26,7 +28,7 @@ import {
   windowDelta,
   buildCumulativeTrend,
 } from "@/lib/dashboardMetrics";
-import { compactNumber, formatInt } from "@/lib/format";
+import { compactNumber, formatDateFull, formatInt } from "@/lib/format";
 import { useIsMounted } from "@/lib/useIsMounted";
 import type { NavId } from "@/lib/nav";
 import type { CandidateRecord } from "@/lib/api";
@@ -40,6 +42,9 @@ interface OverviewScreenProps {
   onOpenCandidate: (candidate: CandidateRecord) => void;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 /** Green ▲ or red ▼ delta badge — only shows when delta data exists */
 function DeltaBadge({ pct }: { pct: number | null }) {
   if (pct === null) return null;
@@ -52,10 +57,27 @@ function DeltaBadge({ pct }: { pct: number | null }) {
   );
 }
 
+/**
+ * `Date.now()` read from module scope rather than from the render body.
+ *
+ * The screen is a pure function of the candidate collection everywhere else,
+ * and the clock is the one input that is not — reading it inline makes two
+ * renders of the same props produce two different pages. These are the only
+ * doors it comes through, and each is called from a `useMemo` or from behind
+ * the mount gate, so the value is taken once per window rather than per paint.
+ */
+function daysAgo(days: number): Date {
+  return new Date(Date.now() - days * DAY_MS);
+}
+
+function rightNow(): Date {
+  return new Date();
+}
+
 /** Count how many candidates arrived on each day of the week (Sun=0…Sat=6) */
 function buildWeeklyActivity(candidates: CandidateRecord[]): number[] {
   const counts = [0, 0, 0, 0, 0, 0, 0];
-  const cutoff = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - 28 * DAY_MS);
   for (const c of candidates) {
     if (!c.created_at) continue;
     const d = new Date(c.created_at);
@@ -64,6 +86,16 @@ function buildWeeklyActivity(candidates: CandidateRecord[]): number[] {
   return counts;
 }
 
+/**
+ * Everything the whole product is doing, on one screen.
+ *
+ * The layout is four readings across the top, then a wide column carrying the
+ * two things that change over time — what has been ingested, and who arrived —
+ * beside a narrow column carrying the three that describe the current state.
+ * Nothing here is a decoration: every card is drawn from the candidate
+ * collection the page already holds, so an empty workspace shows an empty
+ * dashboard rather than a demo one.
+ */
 export default function OverviewScreen({
   total,
   candidates,
@@ -89,8 +121,19 @@ export default function OverviewScreen({
     candidates.length > 0 ? Math.round((verified / candidates.length) * 100) : 0;
 
   /* ── Chart data ── */
-  const buckets     = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
-  const windowTotal = buckets.reduce((s, b) => s + b.added, 0);
+  const buckets = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
+  // The same window, one period back. Drawn behind the live series as the
+  // dashed ghost line, which is what turns a curve into a comparison.
+  const previous = useMemo(
+    () => buildDailyBuckets(candidates, range, daysAgo(range)),
+    [candidates, range],
+  );
+
+  const windowTotal   = buckets.reduce((s, b) => s + b.added, 0);
+  const previousTotal = previous.reduce((s, b) => s + b.added, 0);
+  const windowPct     = previousTotal > 0
+    ? ((windowTotal - previousTotal) / previousTotal) * 100
+    : null;
 
   const trend30       = useMemo(() => buildCumulativeTrend(candidates, 30), [candidates]);
   const deltaTotal    = windowDelta(trend30, 7);
@@ -98,19 +141,55 @@ export default function OverviewScreen({
   const deltaVerified = windowDelta(verifiedTrend, 7);
 
   const weeklyData = useMemo(() => buildWeeklyActivity(candidates), [candidates]);
-  const peakDay    = weeklyData.indexOf(Math.max(...weeklyData));
+  const weeklyPeak = Math.max(...weeklyData, 0);
+  const peakDay    = weeklyData.indexOf(weeklyPeak);
 
-  /* ── Pipeline donut slices (live) ── */
-  const pipelineSlices = [
-    { label: "Verified",       value: verified, color: "var(--success)" },
-    { label: "Active",         value: active,   color: "var(--primary)" },
-    { label: "Pending Review", value: review,   color: "var(--warning)" },
-  ].filter((s) => s.value > 0);
+  // The label under the title, stated the way the reference states its range:
+  // the two dates the window actually spans, not the number of days in it.
+  const windowLabel = mounted
+    ? `${formatDateFull(daysAgo(range - 1))} – ${formatDateFull(rightNow())}`
+    : "";
 
   if (!mounted) return <DashboardSkeleton />;
 
   return (
     <div className="ov-shopeers">
+
+      {/* ── Page header ── */}
+      <header className="ov-page-head">
+        <div>
+          <h1 className="ov-page-title">Dashboard</h1>
+          <p className="ov-page-sub">
+            Every résumé the pipeline has parsed, and what still needs a person.
+          </p>
+        </div>
+
+        <div className="ov-page-actions">
+          <span className="ov-hdr-chip">
+            <Calendar size={14} />
+            {windowLabel}
+          </span>
+
+          <label className="ov-hdr-select">
+            <select
+              value={range}
+              onChange={(e) => setRange(Number(e.target.value) as RangeOption)}
+              aria-label="Dashboard time range"
+            >
+              {RANGE_OPTIONS.map((o) => (
+                <option key={o} value={o}>Last {o} days</option>
+              ))}
+            </select>
+          </label>
+
+          <button type="button" className="ov-hdr-btn" onClick={() => onNavigate("sourcing")}>
+            <RefreshCw size={14} />
+            Sourcing
+          </button>
+
+
+        </div>
+      </header>
 
       {/* ── KPI row (4 cards) ── */}
       <div className="ov-kpi-row">
@@ -118,13 +197,17 @@ export default function OverviewScreen({
           <div className="ov-kpi-card-top">
             <span className="ov-kpi-card-label">Total Candidates</span>
             <span className="ov-kpi-card-icon">
-              <Users size={17} />
+              <Users size={17} strokeWidth={2.1} />
             </span>
           </div>
-          <p className="ov-kpi-card-value">{compactNumber(total)}</p>
-          <div className="ov-kpi-card-foot">
+          <div className="ov-kpi-card-mid">
+            <p className="ov-kpi-card-value">{compactNumber(total)}</p>
             <DeltaBadge pct={deltaTotal.percent} />
-            <span className="ov-kpi-card-caption">vs. last 7 days</span>
+          </div>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              vs. {formatInt(Math.max(0, total - deltaTotal.change))} last week
+            </span>
           </div>
         </article>
 
@@ -132,13 +215,17 @@ export default function OverviewScreen({
           <div className="ov-kpi-card-top">
             <span className="ov-kpi-card-label">Verified</span>
             <span className="ov-kpi-card-icon is-success">
-              <CheckCircle2 size={17} />
+              <CheckCircle2 size={17} strokeWidth={2.1} />
             </span>
           </div>
-          <p className="ov-kpi-card-value">{formatInt(verified)}</p>
-          <div className="ov-kpi-card-foot">
+          <div className="ov-kpi-card-mid">
+            <p className="ov-kpi-card-value">{compactNumber(verified)}</p>
             <DeltaBadge pct={deltaVerified.percent} />
-            <span className="ov-kpi-card-caption">vs. last 7 days</span>
+          </div>
+          <div className="ov-kpi-card-foot">
+            <span className="ov-kpi-card-caption">
+              vs. {formatInt(Math.max(0, verified - deltaVerified.change))} last week
+            </span>
           </div>
         </article>
 
@@ -146,15 +233,17 @@ export default function OverviewScreen({
           <div className="ov-kpi-card-top">
             <span className="ov-kpi-card-label">Avg AI Confidence</span>
             <span className="ov-kpi-card-icon is-warning">
-              <Cpu size={17} />
+              <Cpu size={17} strokeWidth={2.1} />
             </span>
           </div>
-          <p className="ov-kpi-card-value">{avgConfidence.toFixed(1)}%</p>
+          <div className="ov-kpi-card-mid">
+            <p className="ov-kpi-card-value">{avgConfidence.toFixed(1)}%</p>
+          </div>
           <div className="ov-kpi-card-foot">
             <span className="ov-kpi-card-caption">
               {scored.length === 0
                 ? "No scored résumés yet"
-                : `Across ${formatInt(scored.length)} résumé${scored.length === 1 ? "" : "s"}`}
+                : `Across ${formatInt(scored.length)} scored résumé${scored.length === 1 ? "" : "s"}`}
             </span>
           </div>
         </article>
@@ -163,15 +252,17 @@ export default function OverviewScreen({
           <div className="ov-kpi-card-top">
             <span className="ov-kpi-card-label">Pending Review</span>
             <span className={`ov-kpi-card-icon ${review > 0 ? "is-rose" : "is-success"}`}>
-              <FileSearch size={17} />
+              <FileSearch size={17} strokeWidth={2.1} />
             </span>
           </div>
-          <p className={`ov-kpi-card-value ${review > 0 ? "is-rose" : ""}`}>
-            {formatInt(review)}
-          </p>
+          <div className="ov-kpi-card-mid">
+            <p className={`ov-kpi-card-value ${review > 0 ? "is-rose" : ""}`}>
+              {compactNumber(review)}
+            </p>
+          </div>
           <div className="ov-kpi-card-foot">
             <span className="ov-kpi-card-caption">
-              {review === 0 ? "All profiles cleared" : "Need manual review"}
+              {review === 0 ? "All profiles cleared" : "Waiting on a human verdict"}
             </span>
           </div>
         </article>
@@ -183,108 +274,138 @@ export default function OverviewScreen({
         {/* LEFT column */}
         <div className="ov-grid-left">
 
-          {/* Sourced Candidates line chart */}
+          {/* Sourced Candidates — figure on the left, plot on the right, and
+              the pipeline split nested underneath both. */}
           <section className="ov-chart-card">
             <div className="ov-chart-card-head">
-              <div>
-                <h2 className="ov-chart-card-title">Sourced Candidates</h2>
-                <p className="ov-chart-card-sub">
-                  <span className="ov-chart-big">{formatInt(windowTotal)}</span>
-                  <span className="ov-kpi-card-caption"> parsed in the last {range} days</span>
+              <h2 className="ov-chart-card-title">Sourced Candidates</h2>
+              <span className="ov-legend">
+                <span className="ov-legend-item">
+                  <i className="ov-legend-swatch is-line" />
+                  This period
+                </span>
+                <span className="ov-legend-item">
+                  <i className="ov-legend-swatch is-ghost" />
+                  Previous
+                </span>
+              </span>
+            </div>
+
+            <div className="ov-hero">
+              <div className="ov-hero-figure">
+                <p className="ov-hero-value">{formatInt(windowTotal)}</p>
+                <div className="ov-hero-delta">
+                  <DeltaBadge pct={windowPct} />
+                  <span className="ov-kpi-card-caption">vs. last period</span>
+                </div>
+                <p className="ov-hero-note">
+                  {formatInt(previousTotal)} parsed in the {range} days before this one
                 </p>
               </div>
-              <select
-                className="ov-select"
-                value={range}
-                onChange={(e) => setRange(Number(e.target.value) as RangeOption)}
-                aria-label="Chart time range"
-              >
-                {RANGE_OPTIONS.map((o) => (
-                  <option key={o} value={o}>Last {o} days</option>
-                ))}
-              </select>
+
+              <div className="ov-hero-plot">
+                <IngestionChart buckets={buckets} compare={previous} range={range} />
+              </div>
             </div>
-            <div className="ov-chart-card-body">
-              <IngestionChart buckets={buckets} range={range} />
+
+            <div className="ov-chart-card-foot">
+              <PipelineSplit
+                title="Pipeline"
+                segments={[
+                  {
+                    label: "Verified",
+                    value: verified,
+                    icon: CheckCircle2,
+                    tone: "success",
+                    onSelect: () => onNavigate("candidates"),
+                  },
+                  {
+                    label: "In progress",
+                    value: active,
+                    icon: Users,
+                    tone: "info",
+                    onSelect: () => onNavigate("candidates"),
+                  },
+                  {
+                    label: "Pending review",
+                    value: review,
+                    icon: FileSearch,
+                    tone: "warning",
+                    onSelect: () => onNavigate("candidates"),
+                  },
+                ]}
+              />
             </div>
           </section>
 
-          {/* Pipeline breakdown + Most Active Day — side by side */}
-          <div className="ov-bottom-row">
-
-            {/* Donut — Pipeline Breakdown */}
-            <section className="ov-chart-card ov-bottom-card">
-              <div className="ov-chart-card-head">
-                <div>
-                  <h2 className="ov-chart-card-title">Pipeline Breakdown</h2>
-                  <p className="ov-chart-card-sub">
-                    <span className="ov-kpi-card-caption">Status distribution of all {formatInt(total)} candidates</span>
-                  </p>
-                </div>
-              </div>
-              <div className="ov-chart-card-body">
-                <PipelineDonut
-                  slices={pipelineSlices}
-                  total={candidates.length}
-                  centerLabel="total"
-                  centerValue={compactNumber(total)}
-                />
-              </div>
-            </section>
-
-            {/* Bar chart — Most Active Day */}
-            <section className="ov-chart-card ov-bottom-card">
-              <div className="ov-chart-card-head">
-                <div>
-                  <h2 className="ov-chart-card-title">Most Active Day</h2>
-                  <p className="ov-chart-card-sub">
-                    {weeklyData.some((v) => v > 0) ? (
-                      <>
-                        <span className="ov-chart-big" style={{ fontSize: "1.2rem" }}>
-                          {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][peakDay]}
-                        </span>
-                        <span className="ov-kpi-card-caption"> · {weeklyData[peakDay]} candidates (last 4 weeks)</span>
-                      </>
-                    ) : (
-                      <span className="ov-kpi-card-caption">No data yet</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-              <div className="ov-chart-card-body">
-                <WeeklyBarChart data={weeklyData} />
-              </div>
-            </section>
-          </div>
-
           {/* Recent Candidates table */}
-          <RecentCandidates candidates={candidates} onOpenCandidate={onOpenCandidate} />
+          <RecentCandidates
+            candidates={candidates}
+            onOpenCandidate={onOpenCandidate}
+            onViewAll={() => onNavigate("candidates")}
+          />
         </div>
 
         {/* RIGHT column */}
         <div className="ov-grid-right">
 
+          {/* Most Active Day */}
+          <section className="ov-side-card">
+            <div className="ov-side-card-head">
+              <h3 className="ov-side-card-title">Most Active Day</h3>
+              <p className="ov-side-card-sub">
+                {weeklyPeak > 0
+                  ? `${DAY_NAMES[peakDay]} is the busiest — last 4 weeks`
+                  : "Nothing has arrived in the last 4 weeks"}
+              </p>
+            </div>
+            <WeeklyBarChart data={weeklyData} />
+          </section>
+
           {/* Verification Rate gauge */}
           <section className="ov-side-card">
             <div className="ov-side-card-head">
               <h3 className="ov-side-card-title">Verification Rate</h3>
-              <p className="ov-side-card-sub">
-                {verifiedRate === 0
-                  ? "No verified profiles yet"
-                  : `${formatInt(verified)} of ${formatInt(candidates.length)} profiles cleared`}
-              </p>
             </div>
             <SlaGauge
               percent={verifiedRate}
               label="Verification Rate"
+              caption={
+                candidates.length === 0
+                  ? "Nothing to verify yet"
+                  : `${formatInt(verified)} of ${formatInt(candidates.length)} cleared`
+              }
             />
             <button
               type="button"
               className="ov-gauge-cta"
               onClick={() => onNavigate("candidates")}
             >
-              View candidates <ArrowRight size={14} />
+              Show details <ArrowRight size={14} />
             </button>
+          </section>
+
+          {/* AI parser score — the product's own confidence in itself */}
+          <section className="ov-side-card ov-ai-card">
+            <div className="ov-side-card-head">
+              <h3 className="ov-side-card-title">AI Parser</h3>
+              <p className="ov-side-card-sub">Mean confidence across every scored résumé</p>
+            </div>
+
+            <div className="ov-ai-orb-wrap">
+              <span className="ov-ai-orb" aria-hidden="true" />
+              <span className="ov-ai-score">
+                {avgConfidence.toFixed(0)}
+                <span className="ov-ai-pct">%</span>
+              </span>
+            </div>
+
+            <div className="ov-ai-foot">
+              <span className="ov-kpi-card-caption">{formatInt(scored.length)} scored</span>
+              <button type="button" className="ov-ai-link" onClick={() => onNavigate("settings")}>
+                Tune engine <ArrowRight size={13} />
+              </button>
+            </div>
           </section>
 
           {/* Quick Actions */}
@@ -294,45 +415,20 @@ export default function OverviewScreen({
             </div>
             <div className="ov-quick-actions">
               <button type="button" className="ov-quick-btn" onClick={() => onNavigate("candidates")}>
-                <span className="ov-quick-icon"><Users size={16} /></span>
+                <span className="ov-quick-icon"><Users size={15} /></span>
                 <span>Candidates Pool</span>
                 <ArrowRight size={14} className="ov-quick-arrow" />
               </button>
               <button type="button" className="ov-quick-btn" onClick={() => onNavigate("job-orders")}>
-                <span className="ov-quick-icon"><Briefcase size={16} /></span>
+                <span className="ov-quick-icon"><Briefcase size={15} /></span>
                 <span>Job Orders</span>
                 <ArrowRight size={14} className="ov-quick-arrow" />
               </button>
-              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("sourcing")}>
-                <span className="ov-quick-icon"><RefreshCw size={16} /></span>
-                <span>Sourcing Hub</span>
+              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("activity")}>
+                <span className="ov-quick-icon"><Eye size={15} /></span>
+                <span>Activity Logs</span>
                 <ArrowRight size={14} className="ov-quick-arrow" />
               </button>
-              <button type="button" className="ov-quick-btn" onClick={() => onNavigate("settings")}>
-                <span className="ov-quick-icon"><Cpu size={16} /></span>
-                <span>AI Engine</span>
-                <ArrowRight size={14} className="ov-quick-arrow" />
-              </button>
-            </div>
-          </section>
-
-          {/* Live confidence score card */}
-          <section className="ov-side-card ov-confidence-card">
-            <div className="ov-side-card-head">
-              <h3 className="ov-side-card-title">AI Parser Score</h3>
-              <p className="ov-side-card-sub">Average confidence across all scored résumés</p>
-            </div>
-            <div className="ov-conf-row">
-              <span className="ov-conf-value">{avgConfidence.toFixed(0)}<span className="ov-conf-pct">%</span></span>
-              <div className="ov-conf-bar-wrap">
-                <div className="ov-conf-bar-track">
-                  <div
-                    className="ov-conf-bar-fill"
-                    style={{ width: `${Math.min(100, avgConfidence)}%` }}
-                  />
-                </div>
-                <span className="ov-kpi-card-caption">{formatInt(scored.length)} scored</span>
-              </div>
             </div>
           </section>
         </div>

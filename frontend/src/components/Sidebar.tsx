@@ -80,9 +80,12 @@ export default function Sidebar({
             rather than taking a band of its own. */}
         <div className="rail-brand">
           <span className="rail-logo">
-            <Image src="/adira-logo@4x.png" alt="Adira" width={224} height={200} preload />
+            {collapsed ? (
+              <Image src="/adira-logo-small.png" alt="Adira" width={50} height={80} preload />
+            ) : (
+              <Image src="/adira-logo.png" alt="Adira" width={600} height={200} preload />
+            )}
           </span>
-          <span className="rail-brandname">Adira</span>
         </div>
 
         <div className="rail-scroll">

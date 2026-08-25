@@ -7,7 +7,11 @@
      places that used to reach for one (the log console, timestamps, the
      confidence figures) now hold their columns with `tabular-nums` and a wider
      letter-spacing instead. */
-  --font-outfit: 'Outfit', system-ui, sans-serif;
+  /* The loaded face arrives on --font-display (see app/layout.tsx). This is
+     the alias every other rule in the sheet is written against, so the family
+     is swapped in exactly one place. The stack after it is only what paints
+     before the webfont lands. */
+  --font-outfit: var(--font-display), 'Plus Jakarta Sans', system-ui, sans-serif;
   /* Kept as a name because rules across the sheet still ask for it, and code
      and clocks want even digits wherever they appear. */
   --font-numeric: var(--font-outfit);
@@ -328,23 +332,35 @@
 
 
 .rail-logo {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
+  width: 180px;
+  height: 48px;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   flex-shrink: 0;
-  background: #ffffff;
-  border-radius: 6px;
-  padding: 4px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .rail-logo img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: left center;
   display: block;
+}
+
+.rail.is-collapsed .rail-brand {
+  justify-content: center;
+}
+
+.rail.is-collapsed .rail-logo {
+  width: 48px;
+  height: 60px;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.rail.is-collapsed .rail-logo img {
+  object-position: center;
 }
 
 .rail-brandname {
@@ -868,19 +884,27 @@
 /* The Adira mark carries its own colour, so the tile behind it is only a box:
    a brand gradient under a red-and-blue logo reads as two marks stacked. */
 .topbar-logo {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
+  width: 160px;
+  height: 44px;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   flex-shrink: 0;
 }
 
-.topbar-logo img,
+.topbar-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: left center;
+  display: block;
+}
+
 .login-logo img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center;
   display: block;
 }
 
@@ -1194,8 +1218,8 @@
 .topbar-search {
   flex: 1;
   min-width: 0;
-  max-width: 460px;
-  margin: 0 auto;
+  max-width: 420px;
+  margin: 0 auto 0 0;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -1700,83 +1724,6 @@
 .db-tab.is-on .db-tab-count {
   background: rgba(var(--primary-rgb), 0.12);
   color: var(--primary-hover);
-}
-
-/* --- recent candidates list ------------------------------------------------ */
-.rc-row {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 0.8fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.6rem 0.5rem;
-  border: none;
-  border-radius: var(--radius-md);
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.14s ease;
-}
-
-.rc-row:hover {
-  background: var(--tint-1);
-}
-
-.rc-row+.rc-row {
-  border-top: 1px solid var(--border-blue-faint);
-  border-radius: 0;
-}
-
-.rc-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-sm);
-  background: var(--brand-gradient);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.rc-name {
-  display: block;
-  font-size: 0.86rem;
-  font-weight: 600;
-  color: var(--text-main);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rc-sub {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rc-role {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 560px) {
-  .rc-row {
-    grid-template-columns: 34px minmax(0, 1fr) auto;
-  }
-
-  .rc-role {
-    display: none;
-  }
 }
 
 /* --- empty state ---------------------------------------------------------- */
@@ -6628,9 +6575,9 @@ body {
 }
 
 .login-logo {
-  width: 44px;
-  height: 44px;
-  display: inline-flex;
+  width: 260px;
+  height: 70px;
+  display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -11895,36 +11842,53 @@ body {
 }
 
 /* ==========================================================================
-   SHOPEERS-STYLE OVERVIEW DASHBOARD
+   OVERVIEW DASHBOARD
+   Four readings across the top, a wide column of things that change over time,
+   a narrow column of things that describe the present. Every surface here is a
+   white card with a 16px corner on a grey plane, and the only colour on the
+   screen is the one the data puts there.
    ========================================================================== */
 
 /* ---- Page shell ---- */
 .ov-shopeers {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  /* The dial's ramp. Named here rather than inside the gauge so the one place
+     that decides "cleared is green" is the palette, not an SVG. */
+  --gauge-from: #34d399;
+  --gauge-mid: #22c55e;
+  --gauge-to: #15803d;
+  --gauge-off: var(--tint-3);
+}
+
+[data-theme="dark"] .ov-shopeers {
+  --gauge-from: #34d399;
+  --gauge-mid: #4ade80;
+  --gauge-to: #86efac;
+  --gauge-off: rgba(255, 255, 255, 0.10);
 }
 
 /* ---- Page header row ---- */
 .ov-page-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
 }
 
 .ov-page-title {
-  font-size: 1.75rem;
+  font-size: 1.6rem;
   font-weight: 800;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.03em;
   color: var(--text-main);
   margin: 0;
   line-height: 1.15;
 }
 
 .ov-page-sub {
-  margin: 0.2rem 0 0;
+  margin: 0.25rem 0 0;
   font-size: 0.83rem;
   color: var(--text-muted);
 }
@@ -11934,37 +11898,109 @@ body {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* The window this page is reading. It is a statement, not a control — the
+   control beside it is what changes the window — so it is drawn flat, without
+   the border and lift a button carries. */
+.ov-hdr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  height: 36px;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-hdr-chip svg {
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+/* A native select, styled to sit in the same row as the buttons. The arrow is
+   drawn as a background image rather than by a wrapper element, so the whole
+   control stays one hit target and keeps the platform's own menu. */
+.ov-hdr-select {
+  position: relative;
+  display: inline-flex;
+}
+
+.ov-hdr-select select {
+  appearance: none;
+  height: 36px;
+  padding: 0 2rem 0 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background-color: var(--bg-card);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 16px, calc(100% - 12px) 16px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.ov-hdr-select select:hover {
+  border-color: var(--border-hover);
+}
+
+.ov-hdr-select select:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: var(--shadow-glow);
 }
 
 .ov-hdr-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.52rem 1rem;
+  height: 36px;
+  padding: 0 0.9rem;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-main);
+  border: 1px solid var(--border-blue);
   background: var(--bg-card);
-  color: var(--text-muted);
-  font-size: 0.84rem;
+  color: var(--text-main);
+  font-size: 0.8rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease,
     box-shadow 0.14s ease;
-  box-shadow: var(--shadow-sm);
+}
+
+.ov-hdr-btn svg {
+  color: var(--text-light);
+  flex-shrink: 0;
 }
 
 .ov-hdr-btn:hover {
   background: var(--tint-1);
   border-color: var(--border-hover);
-  color: var(--text-main);
 }
 
 .ov-hdr-btn.is-primary {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.35);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.30);
+}
+
+.ov-hdr-btn.is-primary svg {
+  color: currentColor;
 }
 
 .ov-hdr-btn.is-primary:hover {
@@ -11975,7 +12011,7 @@ body {
 /* ---- KPI card row (4 across) ---- */
 .ov-kpi-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -11983,16 +12019,15 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  padding: 1.1rem 1.25rem 1rem;
-  box-shadow: var(--shadow-sm);
+  padding: 1.05rem 1.15rem 0;
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
   transition: box-shadow 0.18s ease, transform 0.18s ease;
 }
 
 .ov-kpi-card:hover {
-  box-shadow: var(--dash-shadow-hover);
+  box-shadow: var(--shadow-card-hover);
   transform: translateY(-1px);
 }
 
@@ -12000,118 +12035,128 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
 }
 
+/* Sentence case, not caps. A row of four uppercase labels is four blocks of
+   texture across the top of the page; at this size they are read as shapes
+   before they are read as words. */
 .ov-kpi-card-label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
 }
 
+/* A bare glyph, not a tile. The four icons are captions for the labels beside
+   them — the moment each gets a filled chip they start competing with the
+   figures underneath, which are the only thing on this row worth looking at
+   twice. */
 .ov-kpi-card-icon {
-  width: 32px;
-  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  background: var(--primary-glow);
   color: var(--primary);
   flex-shrink: 0;
 }
 
 .ov-kpi-card-icon.is-success {
-  background: var(--success-fill);
   color: var(--success);
 }
 
 .ov-kpi-card-icon.is-warning {
-  background: var(--warning-glow);
   color: var(--warning);
 }
 
 .ov-kpi-card-icon.is-rose {
-  background: var(--rose-fill);
   color: var(--rose);
 }
 
+.ov-kpi-card-mid {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.7rem 0 0.9rem;
+  flex-wrap: wrap;
+}
+
 .ov-kpi-card-value {
-  font-size: 2.1rem;
+  font-size: 2rem;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--text-main);
-  line-height: 1.1;
-  margin: 0.2rem 0 0;
+  line-height: 1;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .ov-kpi-card-value.is-rose {
   color: var(--rose);
 }
 
+/* The caption is fenced off by the card's own edge rather than by a margin:
+   what it says ("vs. last week") is a different claim from the figure above it,
+   and the rule is what stops the two being read as one line. */
 .ov-kpi-card-foot {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.15rem;
+  margin-top: auto;
+  padding: 0.6rem 0 0.75rem;
+  border-top: 1px solid var(--border-blue-faint);
 }
 
 .ov-kpi-card-caption {
   font-size: 0.74rem;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Delta badge ---- */
 .ov-delta {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
+  gap: 0.15rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 6px;
   font-size: 0.72rem;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
 .ov-delta.is-up {
   background: var(--success-fill);
   color: var(--success-ink);
-  border: 1px solid var(--success-edge);
 }
 
 .ov-delta.is-down {
   background: var(--rose-fill);
   color: var(--rose-ink);
-  border: 1px solid var(--rose-edge);
 }
 
 /* ---- 2-column grid ---- */
 .ov-grid {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: minmax(0, 1.62fr) minmax(268px, 1fr);
   gap: 1rem;
   align-items: start;
 }
 
-.ov-grid-left {
+.ov-grid-left,
+.ov-grid-right {
   display: flex;
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
 }
 
-.ov-grid-right {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* ---- Main chart card ---- */
+/* ---- Chart cards ---- */
 .ov-chart-card {
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
@@ -12119,36 +12164,413 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 1.1rem 1.25rem 0.6rem;
+  padding: 1.05rem 1.25rem 0;
   gap: 1rem;
 }
 
 .ov-chart-card-title {
-  font-size: 1rem;
+  font-size: 0.98rem;
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .ov-chart-card-sub {
-  margin: 0.3rem 0 0;
+  margin: 0.25rem 0 0;
   font-size: 0.83rem;
   color: var(--text-muted);
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
 }
 
-.ov-chart-big {
-  font-size: 1.6rem;
+.ov-card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  margin: -0.3rem -0.35rem 0 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.14s ease;
+}
+
+.ov-card-link:hover {
+  background: var(--primary-glow);
+}
+
+/* The plot's key. Two marks, named — without it the dashed line is a second
+   series with no stated identity, which is worse than no second series. */
+.ov-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+}
+
+.ov-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ov-legend-swatch {
+  width: 14px;
+  height: 0;
+  border-top: 2.5px solid var(--primary);
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ov-legend-swatch.is-ghost {
+  border-top-style: dashed;
+  border-top-width: 2px;
+  border-top-color: var(--text-light);
+}
+
+/* ---- The hero block: figure left, plot right ---- */
+.ov-hero {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.25rem 0.25rem;
+}
+
+.ov-hero-figure {
+  min-width: 0;
+}
+
+.ov-hero-value {
+  margin: 0;
+  font-size: 2.6rem;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-hero-delta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.ov-hero-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--text-light);
+  max-width: 22ch;
+}
+
+.ov-hero-plot {
+  min-width: 0;
+}
+
+.plot-line-ghost {
+  stroke: var(--text-light);
+  stroke-opacity: 0.55;
+}
+
+/* ---- The pipeline strip nested in the chart card's foot ---- */
+.ov-chart-card-foot {
+  padding: 0.5rem 1rem 1rem;
+}
+
+.pl-split {
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  padding: 0.85rem 0.95rem 0.9rem;
+}
+
+[data-theme="dark"] .pl-split {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pl-split-head {
+  margin-bottom: 0.7rem;
+}
+
+.pl-split-title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-main);
 }
 
-.ov-chart-card-body {
-  padding: 0.5rem 1rem 1rem;
+.pl-split-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.pl-split-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+}
+
+.pl-split-cell.is-clickable {
+  cursor: pointer;
+}
+
+.pl-split-top {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.pl-split-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.pl-split-icon.is-info {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.pl-split-icon.is-success {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.pl-split-icon.is-warning {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.pl-split-icon.is-rose {
+  background: var(--rose-fill);
+  color: var(--rose-ink);
+}
+
+.pl-split-value {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.pl-split-label {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-split-track {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--tint-3);
+  overflow: hidden;
+  margin-top: 0.35rem;
+}
+
+.pl-split-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pl-split-fill.is-info {
+  background: var(--primary);
+}
+
+.pl-split-fill.is-success {
+  background: var(--success);
+}
+
+.pl-split-fill.is-warning {
+  background: var(--warning);
+}
+
+.pl-split-fill.is-rose {
+  background: var(--rose);
+}
+
+.pl-split-cell.is-clickable:hover .pl-split-value {
+  color: var(--primary);
+}
+
+.pl-split-cell:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Recent candidates table ---- */
+.rc-table-wrap {
+  padding: 0.75rem 0.5rem 0.4rem;
+  overflow-x: auto;
+}
+
+.rc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.rc-table thead th {
+  padding: 0.35rem 0.75rem 0.6rem;
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.rc-table tbody td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.rc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.rc-table tbody tr.is-clickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.rc-table tbody tr.is-clickable:hover {
+  background: var(--tint-1);
+}
+
+.rc-table tbody tr:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.rc-col-id {
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  width: 1%;
+}
+
+.rc-col-num,
+.rc-table thead th.rc-col-num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-col-status,
+.rc-table thead th.rc-col-status {
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+
+.rc-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.rc-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-glow);
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.rc-name-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rc-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rc-sub {
+  font-size: 0.72rem;
+  color: var(--text-light);
+}
+
+.rc-role {
+  max-width: 190px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The confidence column carries its own verdict. Green where the parser was
+   sure enough to skip a human, rose where it was not — the same threshold the
+   status pill uses, stated once more in the column that caused it. */
+.rc-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-score.is-up {
+  color: var(--success-ink);
+}
+
+.rc-score.is-down {
+  color: var(--rose-ink);
+}
+
+.rc-score.is-none {
+  color: var(--text-light);
+  font-weight: 600;
 }
 
 /* ---- Right-column side cards ---- */
@@ -12156,22 +12578,22 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
-  padding: 1.1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+  padding: 1.05rem 1.15rem 1.15rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
   transition: box-shadow 0.18s ease;
 }
 
 .ov-side-card:hover {
-  box-shadow: var(--dash-shadow-hover);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .ov-side-card-head {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.18rem;
 }
 
 .ov-side-card-title {
@@ -12179,82 +12601,95 @@ body {
   font-weight: 700;
   color: var(--text-main);
   margin: 0;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
 }
 
 .ov-side-card-sub {
-  font-size: 0.76rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
   color: var(--text-muted);
   margin: 0;
 }
 
-/* ---- Peak day label ---- */
-.ov-peak-label {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin: 0;
+/* ---- Weekly bar chart ---- */
+.wk-chart {
+  width: 100%;
+  position: relative;
+  margin-top: -0.35rem;
 }
 
-.ov-peak-label strong {
-  color: var(--primary);
-  font-size: 1.5rem;
-  font-weight: 800;
-  margin-right: 0.25rem;
-}
-
-/* ---- Bar chart SVG ---- */
-.bar-track {
-  fill: var(--tint-2);
+.wk-chart svg {
+  display: block;
 }
 
 .bar-fill {
   fill: var(--tint-3);
-  transition: fill 0.2s ease;
+  fill-opacity: 0.6;
+  transition: fill 0.2s ease, fill-opacity 0.2s ease;
 }
 
-.bar-fill.is-today {
+.bar-fill.is-peak {
   fill: var(--primary);
+  fill-opacity: 1;
 }
 
 .bar-day-label {
-  fill: var(--text-muted);
+  fill: var(--text-light);
   font-size: 11px;
+  font-weight: 600;
   font-family: var(--font-outfit), sans-serif;
 }
 
-.bar-day-label.is-today {
-  fill: var(--primary);
+.bar-day-label.is-peak {
+  fill: var(--text-main);
   font-weight: 700;
 }
 
-.bar-label-today {
-  fill: var(--primary);
-  font-size: 11px;
-  font-weight: 700;
+.bar-label-peak {
+  fill: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   font-family: var(--font-outfit), sans-serif;
 }
 
-/* ---- Gauge ---- */
+/* ---- Verification dial ---- */
 .gauge-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  margin: -0.35rem 0 -0.25rem;
+}
+
+.gauge-wrap svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.gauge-tick {
+  stroke: var(--gauge-off);
+  transition: stroke 0.35s ease;
+}
+
+.gauge-tick.is-on {
+  stroke: url(#gauge-comb);
 }
 
 .gauge-pct {
   fill: var(--text-main);
-  font-size: 26px;
+  font-size: 34px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   font-family: var(--font-outfit), sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
-.gauge-sublabel {
-  font-size: 0.76rem;
-  color: var(--text-muted);
-  text-align: center;
-  margin: 0;
+.gauge-caption {
+  fill: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: var(--font-outfit), sans-serif;
 }
 
 .ov-gauge-cta {
@@ -12267,17 +12702,135 @@ body {
   border: 1px solid var(--border-blue);
   border-radius: var(--radius-md);
   background: var(--tint-1);
-  color: var(--primary);
-  font-size: 0.82rem;
-  font-weight: 600;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.14s ease, border-color 0.14s ease;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
 }
 
 .ov-gauge-cta:hover {
   background: var(--primary-glow);
-  border-color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.35);
+  color: var(--primary);
+}
+
+/* ---- AI parser card ---- */
+.ov-ai-card {
+  gap: 0.6rem;
+}
+
+/* The orb is the one ornament on the page, and it earns its place by being the
+   only thing here that is not a number: it says "a machine did this" in a
+   glance, which is what the card is about. It is drawn, not loaded — three
+   radial gradients, so it costs nothing and follows the accent. */
+.ov-ai-orb-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 132px;
+}
+
+.ov-ai-orb {
+  position: absolute;
+  width: 118px;
+  height: 118px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0) 34%),
+    radial-gradient(circle at 68% 78%, rgba(var(--primary-rgb), 0.55) 0%, rgba(var(--primary-rgb), 0) 55%),
+    radial-gradient(circle at 50% 40%, #60a5fa 0%, rgb(var(--primary-rgb)) 48%, var(--primary-deep) 100%);
+  box-shadow:
+    0 18px 34px -14px rgba(var(--primary-rgb), 0.65),
+    inset 0 -10px 22px -8px rgba(0, 0, 0, 0.35);
+  animation: ov-orb-float 6s ease-in-out infinite;
+}
+
+@keyframes ov-orb-float {
+  0%, 100% { transform: translateY(-3px); }
+  50%      { transform: translateY(3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-ai-orb {
+    animation: none;
+  }
+}
+
+.ov-ai-score {
+  position: relative;
+  z-index: 1;
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 1px 12px rgba(15, 23, 42, 0.35);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-ai-pct {
+  font-size: 1.05rem;
+  font-weight: 700;
+  opacity: 0.85;
+  margin-left: 0.06em;
+}
+
+.ov-ai-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.ov-ai-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ov-ai-link:hover {
+  text-decoration: underline;
+}
+
+/* ---- Inline figure + progress bar ----
+   The staff dashboard states its own headline the way the ingestion card does,
+   and shows a completion bar under it. Both live here rather than in that
+   screen: they are the dashboard's vocabulary, borrowed. */
+.ov-chart-big {
+  font-size: 1.6rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-conf-bar-track {
+  width: 100%;
+  height: 8px;
+  background: var(--tint-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ov-conf-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 999px;
+  transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ---- Quick actions ---- */
@@ -12290,14 +12843,14 @@ body {
 .ov-quick-btn {
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.6rem;
   width: 100%;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-blue);
+  padding: 0.52rem 0.6rem;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: var(--tint-1);
   color: var(--text-main);
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
@@ -12307,13 +12860,13 @@ body {
 
 .ov-quick-btn:hover {
   background: var(--primary-glow);
-  border-color: var(--primary);
+  border-color: rgba(var(--primary-rgb), 0.28);
   color: var(--primary);
 }
 
 .ov-quick-icon {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -12322,6 +12875,10 @@ body {
   border: 1px solid var(--border-blue);
   color: var(--primary);
   flex-shrink: 0;
+}
+
+[data-theme="dark"] .ov-quick-icon {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .ov-quick-arrow {
@@ -12334,174 +12891,79 @@ body {
   color: var(--primary);
 }
 
-/* ---- Bottom row (donut + bar chart side by side) ---- */
-.ov-bottom-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+/* ---- Dark: surfaces that are a tint of the page cannot be a tint of the card ----
+   In light, `--tint-1` is a step *down* from white, so a control filled with it
+   reads as inset on a white card. In dark the same token IS the card colour, so
+   every one of those controls vanished into the surface it sits on. They take a
+   step *up* here instead — the same relationship, in the direction the theme
+   has room for. */
+[data-theme="dark"] .ov-gauge-cta,
+[data-theme="dark"] .ov-quick-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.07);
 }
 
-.ov-bottom-card {
-  min-width: 0;
+[data-theme="dark"] .ov-gauge-cta:hover,
+[data-theme="dark"] .ov-quick-btn:hover {
+  background: var(--primary-glow);
+  border-color: rgba(var(--primary-rgb), 0.45);
 }
 
-/* ---- Pipeline Donut ---- */
-.donut-wrap {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  justify-content: center;
+[data-theme="dark"] .rc-table tbody tr.is-clickable:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-.donut-empty {
-  text-align: center;
-  padding: 2rem 0;
-  color: var(--text-muted);
-  font-size: 0.85rem;
+[data-theme="dark"] .rc-table thead th,
+[data-theme="dark"] .rc-table tbody td {
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
-.donut-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+[data-theme="dark"] .ov-kpi-card-foot,
+[data-theme="dark"] .ov-ai-foot {
+  border-color: rgba(255, 255, 255, 0.07);
 }
-
-.donut-legend-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.donut-legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.donut-legend-label {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  flex: 1;
-}
-
-.donut-legend-value {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-main);
-}
-
-.donut-center-value {
-  fill: var(--text-main);
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  font-family: var(--font-outfit), sans-serif;
-}
-
-.donut-center-label {
-  fill: var(--text-muted);
-  font-size: 11px;
-  font-family: var(--font-outfit), sans-serif;
-}
-
-/* ---- Confidence bar card ---- */
-.ov-confidence-card {
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-deep) 100%);
-  border-color: transparent;
-  color: #fff;
-}
-
-.ov-confidence-card .ov-side-card-title {
-  color: #fff;
-}
-
-.ov-confidence-card .ov-side-card-sub,
-.ov-confidence-card .ov-kpi-card-caption {
-  color: rgba(255,255,255,0.7);
-}
-
-.ov-conf-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.ov-conf-value {
-  font-size: 2.5rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
-  color: #fff;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.ov-conf-pct {
-  font-size: 1.2rem;
-  font-weight: 700;
-  opacity: 0.8;
-}
-
-.ov-conf-bar-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.ov-conf-bar-track {
-  width: 100%;
-  height: 8px;
-  background: rgba(255,255,255,0.25);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.ov-conf-bar-fill {
-  height: 100%;
-  background: #fff;
-  border-radius: 999px;
-  transition: width 1s cubic-bezier(.4,0,.2,1);
-}
-
-/* ---- Blue hover accent on KPI cards ---- */
-.ov-kpi-card:hover {
-  border-color: rgba(var(--primary-rgb), 0.3);
-}
-
-/* ---- Responsive bottom row ---- */
-@media (max-width: 860px) {
-  .ov-bottom-row {
-    grid-template-columns: 1fr;
-  }
-}
-
 
 /* ---- Responsive ---- */
-@media (max-width: 1100px) {
-  .ov-kpi-row {
-    grid-template-columns: repeat(2, 1fr);
+@media (max-width: 1240px) {
+  .ov-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+
+  .ov-hero-note {
+    max-width: none;
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+  .ov-kpi-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
   .ov-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .ov-grid-right {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 600px) {
-  .ov-kpi-row {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .ov-kpi-row,
+  .ov-grid-right {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .ov-grid-right {
-    grid-template-columns: 1fr;
+  .ov-page-head {
+    align-items: flex-start;
+  }
+
+  .pl-split-row {
+    gap: 0.6rem;
   }
 }
 

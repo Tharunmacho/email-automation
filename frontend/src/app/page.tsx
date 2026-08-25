@@ -829,6 +829,12 @@ export default function Home() {
   /** A staff member reading a candidate: the one screen that gets no page head. */
   const isStaffReview = user?.role === "staff" && screen?.mode === "profile";
 
+  // Screens that draw their own title row. The dashboard's header carries the
+  // window it is showing and the controls that change it, so the generic
+  // eyebrow/title/subtitle block above it would be a second heading for the
+  // same page — and the one without the controls.
+  const ownsItsHeader = !screen && currentTab === "overview";
+
   if (checking) {
     return (
       <div className="app-boot">
@@ -894,7 +900,7 @@ export default function Home() {
                 Profile" was a second heading competing with the one that
                 matters. The chrome there is the bar's pulse and bell, and
                 nothing else. */}
-            {!isStaffReview && (
+            {!isStaffReview && !ownsItsHeader && (
               <header className="db-page-head">
                 <div>
                   <span className="db-eyebrow">{meta.eyebrow}</span>

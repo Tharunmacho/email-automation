@@ -5,14 +5,27 @@ import { useEffect, useRef, useState } from "react";
 interface BarChartProps {
   /** Seven values, index 0 = Sunday */
   data: number[];
-  todayIndex?: number;
+  /** Which column is called out in the accent. Defaults to the busiest. */
+  highlightIndex?: number;
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const HEIGHT = 120;
-const BAR_WIDTH = 24;
+const HEIGHT = 150;
+const LABEL_BAND = 26;
+/** Headroom for the value label that floats over the highlighted column. */
+const TOP_BAND = 22;
+const MAX_BAR_WIDTH = 26;
 
-export default function WeeklyBarChart({ data, todayIndex }: BarChartProps) {
+/**
+ * Seven columns, one week, one of them called out.
+ *
+ * There is no grey track behind the bars any more. A full-height track turns
+ * every column into a pair of readings — the bar and the socket it sits in —
+ * and at this size the socket is the louder of the two. What is left is the
+ * data: light columns for the ordinary days, the accent for the busiest, and
+ * its count set directly above it so the peak can be read without a hover.
+ */
+export default function WeeklyBarChart({ data, highlightIndex }: BarChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(280);
 
@@ -27,56 +40,53 @@ export default function WeeklyBarChart({ data, todayIndex }: BarChartProps) {
     return () => ro.disconnect();
   }, []);
 
-  const peak = Math.max(...data, 1);
-  const today = todayIndex ?? new Date().getDay();
+  const peak = Math.max(...data, 0);
+  const scale = peak > 0 ? peak : 1;
+  const highlight = highlightIndex ?? (peak > 0 ? data.indexOf(peak) : -1);
   const slotW = containerWidth / 7;
+  const barW = Math.min(MAX_BAR_WIDTH, Math.max(12, slotW - 14));
+  const radius = barW / 2;
 
   return (
-    <div ref={containerRef} style={{ width: "100%", position: "relative" }}>
-      <svg width={containerWidth} height={HEIGHT + 28} aria-label="Candidates per day of week">
+    <div ref={containerRef} className="wk-chart">
+      <svg
+        width={containerWidth}
+        height={HEIGHT + LABEL_BAND + TOP_BAND}
+        aria-label="Candidates per day of week"
+      >
         {data.map((val, i) => {
-          const barH = Math.round((val / peak) * HEIGHT);
-          const x = i * slotW + (slotW - BAR_WIDTH) / 2;
-          const y = HEIGHT - barH;
-          const isToday = i === today;
+          // A zero day still gets a stub, so the axis reads as seven days with
+          // nothing on one of them rather than as a week with a day missing.
+          const barH = val > 0 ? Math.max(radius * 2, Math.round((val / scale) * HEIGHT)) : 6;
+          const x = i * slotW + (slotW - barW) / 2;
+          const y = TOP_BAND + HEIGHT - barH;
+          const isPeak = i === highlight && val > 0;
 
           return (
             <g key={i}>
-              {/* Background bar track */}
-              <rect
-                x={x}
-                y={0}
-                width={BAR_WIDTH}
-                height={HEIGHT}
-                rx={8}
-                className="bar-track"
-              />
-              {/* Value bar */}
               <rect
                 x={x}
                 y={y}
-                width={BAR_WIDTH}
+                width={barW}
                 height={barH}
-                rx={8}
-                className={`bar-fill ${isToday ? "is-today" : ""}`}
+                rx={radius}
+                className={`bar-fill ${isPeak ? "is-peak" : ""}`}
               />
-              {/* Value label on today */}
-              {isToday && val > 0 && (
+              {isPeak && (
                 <text
-                  x={x + BAR_WIDTH / 2}
-                  y={y - 6}
+                  x={x + barW / 2}
+                  y={y - 9}
                   textAnchor="middle"
-                  className="bar-label-today"
+                  className="bar-label-peak"
                 >
                   {val}
                 </text>
               )}
-              {/* Day label */}
               <text
-                x={x + BAR_WIDTH / 2}
-                y={HEIGHT + 20}
+                x={x + barW / 2}
+                y={TOP_BAND + HEIGHT + 18}
                 textAnchor="middle"
-                className={`bar-day-label ${isToday ? "is-today" : ""}`}
+                className={`bar-day-label ${isPeak ? "is-peak" : ""}`}
               >
                 {DAYS[i]}
               </text>

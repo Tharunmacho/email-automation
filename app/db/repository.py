@@ -127,7 +127,7 @@ def _minimal_row(doc: dict) -> dict:
     """Flatten a minimally-projected document into the listing contract."""
     profile = doc.get("profile") or {}
     return {
-        "id": doc["_id"],
+        "id": str(doc["_id"]),
         "full_name": profile.get("full_name"),
         "email": profile.get("email"),
         "phone": profile.get("phone"),
@@ -429,7 +429,7 @@ class CandidateRepository:
 
         rows = []
         for doc in cursor:
-            doc["id"] = doc.pop("_id")
+            doc["id"] = str(doc.pop("_id"))
             rows.append(doc)
         return rows
 
