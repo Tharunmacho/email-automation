@@ -144,6 +144,25 @@ class Settings(BaseSettings):
     # endpoint to the internet.
     whatsapp_service_key: str = ""
 
+    # ---- Telling the bot about an allocation ----
+    # Where the recruitment bot listens, and the credential it expects on its
+    # `/api/*` routes.
+    #
+    # A staff member is told on WhatsApp that they have been given somebody by
+    # asking the bot to send it, rather than by sending it from here. The bot
+    # owns the Meta credentials, the number the agency sends from, the send
+    # budget and the rate limiter; a second service holding a copy of all four
+    # is a second thing to rotate, a second thing to leak, and a second place
+    # for the daily send count to be wrong.
+    #
+    # Empty disables the relay completely — the in-app notification is still
+    # written and pushed, and nothing goes out over WhatsApp. That is the right
+    # default for a deployment that has not been given a bot to talk to, and it
+    # is why nothing here raises when it is unset.
+    wa_bot_url: str = ""
+    wa_bot_api_key: str = ""
+    wa_bot_timeout_seconds: float = 5.0
+
     # Path to the CV policy table (JSON). Empty uses the built-in rules in
     # `app/policy/cv_policy.py`, which are a starting point rather than the
     # agency's real ones — pointing this at a file is how the table changes

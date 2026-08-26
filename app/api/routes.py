@@ -2244,6 +2244,108 @@ def bot_job_questions(job_id: str, _service: None = Depends(require_service_key)
 
 
 # --------------------------------------------------------------------------- #
+#  What the bot needs to announce an allocation
+#
+#  Two reads, both on the service key. When a candidate is allocated the CRM
+#  asks the bot to message the staff member on WhatsApp (see
+#  `app.staff_whatsapp`), and that request carries two ids and nothing else.
+#  These are what the bot reads back to compose the message.
+#
+#  Narrow on purpose. The bot is not handed the roster or the candidate record;
+#  it is handed one staff member's contact details and the handful of facts that
+#  appear in the message. A notification path that ships everything is a second
+#  copy of the database on the other side of the wire, kept in step by nobody.
+# --------------------------------------------------------------------------- #
+@app.get("/staff/{staff_id}/contact")
+def bot_staff_contact(staff_id: str, _service: None = Depends(require_service_key)) -> dict:
+    """Where to reach one staff member, and whether they should be reached.
+
+    `active` travels rather than being enforced here. A deactivated account can
+    still own work — deleting an account is what redistributes its queue,
+    deactivating one is not — so the bot is told the state and decides, keeping
+    that decision beside the rest of the sending rules instead of splitting it
+    across two services.
+    """
+    member = users.get(staff_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff account not found")
+
+    return {
+        "id": member.id,
+        "name": member.name,
+        "phone": member.phone,
+        "role": member.role,
+        "active": member.active,
+    }
+
+
+@app.get("/candidates/{candidate_id}/assignment-summary")
+def bot_assignment_summary(
+    candidate_id: str, _service: None = Depends(require_service_key)
+) -> dict:
+    """The facts the assignment message is built from, and nothing else.
+
+    Deliberately not `GET /candidates/{id}`: that one answers a recruiter's
+    screen and carries the whole profile, the stored OCR and the evaluation. The
+    bot is composing a few lines of a WhatsApp message and has no use for the
+    rest — and the less of a candidate that crosses this hop, the less there is
+    to leak on the other side of it.
+
+    `documents` is what is actually **on file**, not what the conversation set
+    out to collect: "Documents: Passport, CV" is a claim about this record, and
+    a bot that reported its own intentions would be announcing documents nobody
+    can open.
+    """
+    record = repo().get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    profile = record.profile
+
+    documents: list[str] = []
+    if record.resume:
+        documents.append("CV")
+
+    try:
+        from app.db.identity_records import find_for_candidate
+
+        found = find_for_candidate(candidate_id)
+    except Exception as exc:  # noqa: BLE001
+        # The identity collections being unreachable is not a reason to send no
+        # message at all: everything else is already in hand, and a message
+        # listing one document fewer beats silence about a new allocation.
+        log.warning("Identity documents unavailable for candidate %s: %s", candidate_id, exc)
+        found = {}
+
+    if found.get("passport"):
+        documents.append("Passport")
+    if found.get("aadhaar"):
+        documents.append("Aadhaar")
+
+    return {
+        "candidate_id": record.id,
+        "source": record.source,
+        "full_name": profile.full_name,
+        # Where they want to work, never where they live. The message is read by
+        # a recruiter deciding what to do with this person, and "Country: Tamil
+        # Nadu" answers a question nobody asked — `country` and
+        # `destination_country` exist as two fields precisely so that this
+        # cannot be got wrong by accident.
+        "destination_country": profile.destination_country,
+        # Through the three in this order on purpose: the title they applied for
+        # is what a person reads, their own words are better than a controlled
+        # value, and the controlled value is better than a blank line.
+        "job": profile.job_title or profile.job_preference or profile.job_category,
+        "phone": profile.phone_e164 or profile.phone,
+        "documents": documents,
+        # So the bot can check it is announcing the allocation that actually
+        # stands. A relay that arrives after a rebalance has moved the candidate
+        # on would otherwise tell the wrong person they own them.
+        "assigned_staff_id": record.assigned_staff_id,
+    }
+
+
+# --------------------------------------------------------------------------- #
 #  User Management
 #
 #  Accounts and what each of them may reach. Two things an admin does here:

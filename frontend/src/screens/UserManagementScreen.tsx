@@ -124,10 +124,26 @@ interface Props {
   onActivity?: (message: string, type?: "info" | "success" | "error") => void;
   /** The signed-in admin, so the screen can refuse to let them lock themselves out. */
   currentUserId?: string;
+  /**
+   * Open straight onto the create form.
+   *
+   * Set when the admin arrived by asking for a new account somewhere else —
+   * "Add staff" on the staff console — so the click that expressed the intent
+   * lands on the form rather than on the roster with the form one click away.
+   *
+   * Read once, at mount: the shell unmounts this screen whenever the rail moves
+   * elsewhere, so a later, ordinary visit to User Management mounts it afresh
+   * with the flag already cleared and opens on the roster.
+   */
+  openCreate?: boolean;
 }
 
-export default function UserManagementScreen({ onActivity, currentUserId }: Props) {
-  const [section, setSection] = useState<Section>("manage");
+export default function UserManagementScreen({
+  onActivity,
+  currentUserId,
+  openCreate = false,
+}: Props) {
+  const [section, setSection] = useState<Section>(openCreate ? "create" : "manage");
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);

@@ -131,6 +131,9 @@ export default function Home() {
   const [arrivedIds, setArrivedIds] = useState<Set<string>>(() => new Set());
   // A profile the bell asked the staff workspace to open.
   const [queueFocusId, setQueueFocusId] = useState<string | null>(null);
+  // Set when "Add staff" sends the admin to User Management, so that screen
+  // opens on its create form rather than on the accounts matrix.
+  const [usersOpenCreate, setUsersOpenCreate] = useState(false);
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -343,13 +346,22 @@ export default function Home() {
    * on the first pass, where writing it back would render the wrong one first
    * and then correct itself a frame later.
    */
+  const reachableTabs = useMemo(
+    () =>
+      user
+        ? new Set(
+            navGroupsFor(user.role, user.pages).flatMap((group) =>
+              group.items.map((item) => item.id),
+            ),
+          )
+        : null,
+    [user],
+  );
+
   const currentTab = useMemo(() => {
-    if (!user) return activeTab;
-    const reachable = new Set(
-      navGroupsFor(user.role, user.pages).flatMap((group) => group.items.map((item) => item.id)),
-    );
-    return reachable.has(activeTab) ? activeTab : defaultNavFor(user.role);
-  }, [user, activeTab]);
+    if (!user || !reachableTabs) return activeTab;
+    return reachableTabs.has(activeTab) ? activeTab : defaultNavFor(user.role);
+  }, [user, reachableTabs, activeTab]);
 
   /**
    * Whether this session gets a navigation rail.
@@ -450,10 +462,25 @@ export default function Home() {
       // Leaving for another destination closes whichever candidate screen was
       // open, so coming back lands on the list rather than mid-edit.
       setScreen(null);
+      // Any ordinary navigation clears the create-user request below, so only
+      // the click that made it opens User Management on its form.
+      setUsersOpenCreate(false);
       if (next === "candidates") void refreshCandidates();
     },
     [refreshCandidates],
   );
+
+  /**
+   * "Add staff" on the staff console.
+   *
+   * Creating a person is account work, so it happens where accounts live: this
+   * carries the intent over to User Management and opens its create form there,
+   * rather than duplicating a second, thinner create path on the staff screen.
+   */
+  const handleCreateStaff = useCallback(() => {
+    handleNavigate("users");
+    setUsersOpenCreate(true);
+  }, [handleNavigate]);
 
   // ---- pipeline run ----------------------------------------------------- //
   const runPipeline = useCallback(async () => {
@@ -1005,7 +1032,11 @@ export default function Home() {
                 {currentTab === "data-management" && <DataManagementScreen onActivity={log} />}
 
                 {currentTab === "users" && (
-                  <UserManagementScreen onActivity={log} currentUserId={user?.id} />
+                  <UserManagementScreen
+                    onActivity={log}
+                    currentUserId={user?.id}
+                    openCreate={usersOpenCreate}
+                  />
                 )}
 
                 {currentTab === "candidates" && (
@@ -1037,6 +1068,9 @@ export default function Home() {
                     onToast={showToast}
                     onCandidatesChanged={() => void refreshCandidates()}
                     onOpenCandidate={handleOpenCandidate}
+                    onCreateStaff={
+                      reachableTabs?.has("users") ? handleCreateStaff : undefined
+                    }
                   />
                 )}
 

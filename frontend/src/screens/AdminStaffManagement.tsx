@@ -64,6 +64,16 @@ interface AdminStaffManagementProps {
   onToast: (message: string, type?: "info" | "success" | "error") => void;
   onCandidatesChanged: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
+  /**
+   * Where "Add staff" goes.
+   *
+   * An account is an account: the one place that creates them, with the role
+   * and the page grants that come with them, is User Management. When the shell
+   * passes this, the button hands the intent over to that screen instead of
+   * opening the cut-down form below — which stays only for an admin whose
+   * grants do not include the User Management page.
+   */
+  onCreateStaff?: () => void;
 }
 
 const EMPTY_FORM = { email: "", password: "", name: "", phone: "" };
@@ -97,6 +107,7 @@ export default function AdminStaffManagement({
   onToast,
   onCandidatesChanged,
   onOpenCandidate,
+  onCreateStaff,
 }: AdminStaffManagementProps) {
   const [workload, setWorkload] = useState<StaffWorkloadResponse | null>(null);
   const [breaches, setBreaches] = useState<SlaAlert[]>([]);
@@ -615,6 +626,9 @@ export default function AdminStaffManagement({
   /** The most urgent thing wrong with the roster, or nothing. See below. */
   const advisory = totals && totals.orphaned > 0 ? "orphans" : imbalance ? "imbalance" : null;
 
+  /** Hand the request to User Management when it is reachable, else open the local form. */
+  const startCreate = () => (onCreateStaff ? onCreateStaff() : setCreating(true));
+
   /**
    * Take the eye to the roster from a KPI tile.
    *
@@ -639,7 +653,7 @@ export default function AdminStaffManagement({
         </div>
 
         <div className="ds-head-actions">
-        <button type="button" className="ds-primary-btn" onClick={() => setCreating(true)}>
+        <button type="button" className="ds-primary-btn" onClick={startCreate}>
           <UserPlus size={15} />
           Add staff
         </button>
@@ -808,7 +822,7 @@ export default function AdminStaffManagement({
             <p className="db-empty-sub">
               Ingested résumés stay unallocated until there is someone to allocate them to.
             </p>
-            <button type="button" className="db-btn is-primary" onClick={() => setCreating(true)}>
+            <button type="button" className="db-btn is-primary" onClick={startCreate}>
               <UserPlus size={15} />
               Create the first account
             </button>
