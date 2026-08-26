@@ -8,13 +8,37 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
 
 from app.core.models import CandidateProfile, CandidateRecord, StoredResume
+from app.db import whatsapp_compat
 from app.db.mongo import get_candidates_collection
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _id_filter(candidate_id: str) -> dict:
+    """Match one candidate by id, whichever way its `_id` was written.
+
+    Every record this repository creates keys `_id` on a hex uuid *string*. The
+    WhatsApp bot, writing its own document straight into the collection, keys it
+    on an ObjectId — and `{"_id": "6a8c..."}` does not match `ObjectId("6a8c...")`,
+    so the candidate simply was not there. Not "was not readable": every by-id
+    operation returned nothing, which the API turns into a 404, which is why one
+    of these rows could be listed but never opened, edited, allocated, or even
+    deleted.
+
+    An id that is 24 hex characters is therefore looked up both ways. Anything
+    else cannot be an ObjectId and is matched as the string it is, so the common
+    path costs one comparison and no extra index work.
+    """
+    try:
+        return {"_id": {"$in": [candidate_id, ObjectId(candidate_id)]}}
+    except (InvalidId, TypeError):
+        return {"_id": candidate_id}
 
 
 # --------------------------------------------------------------------------- #
@@ -74,6 +98,12 @@ LIST_PROJECTION = {
     # show how long it has been waiting.
     "ingested_at": 1,
     "processed_at": 1,
+    # The same row, for a candidate the bot wrote straight into the collection
+    # under its own field names. Without these the projection would strip the
+    # only copy of the name, the number and the registration date before
+    # `whatsapp_compat.normalize` ever saw the document, and the row would
+    # render as the empty placeholder it used to.
+    **whatsapp_compat.LIST_PROJECTION,
 }
 
 # The narrowest useful row: identity, state, and when it arrived. For callers
@@ -87,6 +117,8 @@ MINIMAL_PROJECTION = {
     "profile.email": 1,
     "profile.phone": 1,
     "profile.confidence": 1,
+    # As above, for bot-written records.
+    **whatsapp_compat.MINIMAL_PROJECTION,
 }
 
 # What the balancer needs to level the collection: who holds each profile and
@@ -125,6 +157,7 @@ SLA_CLOCK_EXPR = {"$ifNull": ["$assigned_at", {"$ifNull": ["$ingested_at", "$cre
 
 def _minimal_row(doc: dict) -> dict:
     """Flatten a minimally-projected document into the listing contract."""
+    doc = whatsapp_compat.normalize(doc)
     profile = doc.get("profile") or {}
     return {
         "id": str(doc["_id"]),
@@ -221,7 +254,7 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {"status": status, "duplicate_of": duplicate_of, "updated_at": utcnow()}},
         )
 
@@ -249,7 +282,7 @@ class CandidateRepository:
         # doll of itself and the Raw JSON tab no longer showed what Veris
         # returned. The stored payload is now immutable: an edit changes
         # `profile`, never `raw_ocr`.
-        existing_doc = self._coll.find_one({"_id": candidate_id})
+        existing_doc = self._coll.find_one(_id_filter(candidate_id))
         stored_raw = existing_doc.get("raw_ocr") if existing_doc else None
         if not isinstance(stored_raw, dict) or not stored_raw:
             stored_raw = getattr(profile, "raw_ocr", None)
@@ -269,7 +302,7 @@ class CandidateRepository:
             update_dict["raw_ocr"] = stored_raw
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": update_dict},
         )
 
@@ -347,7 +380,7 @@ class CandidateRepository:
             updates["email_key"] = normalize_email(profile.email)
 
         updates["updated_at"] = utcnow()
-        self._coll.update_one({"_id": candidate_id}, {"$set": updates})
+        self._coll.update_one(_id_filter(candidate_id), {"$set": updates})
         log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
 
     def attach_resume(self, candidate_id: str, resume: "StoredResume") -> bool:
@@ -370,7 +403,7 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         result = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {
                 "$set": {
                     "resume": resume.model_dump(mode="python"),
@@ -387,7 +420,7 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {"auto_reply_sent": True, "updated_at": utcnow()}},
         )
 
@@ -435,16 +468,22 @@ class CandidateRepository:
 
         rows = []
         for doc in cursor:
+            doc = whatsapp_compat.normalize(doc)
             doc["id"] = str(doc.pop("_id"))
             rows.append(doc)
         return rows
 
     def get(self, candidate_id: str) -> Optional[CandidateRecord]:
-        doc = self._coll.find_one({"_id": candidate_id})
-        return CandidateRecord.from_mongo(doc) if doc else None
+        doc = self._coll.find_one(_id_filter(candidate_id))
+        if not doc:
+            return None
+        # A bot-written document is mapped into the CRM's shape before it is
+        # validated — unmapped it has no `profile` at all, which is a required
+        # field, so the read would raise rather than return the candidate.
+        return CandidateRecord.from_mongo(whatsapp_compat.normalize(doc))
 
     def delete(self, candidate_id: str) -> bool:
-        res = self._coll.delete_one({"_id": candidate_id})
+        res = self._coll.delete_one(_id_filter(candidate_id))
         return res.deleted_count > 0
 
     def count(self, query: Optional[dict] = None, staff_id: Optional[str] = None) -> int:
@@ -464,7 +503,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {
                 "assigned_staff_id": staff_id,
                 "assigned_staff_name": staff_name,
@@ -498,7 +537,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {
                 "assigned_staff_id": staff_id,
                 "assigned_staff_name": staff_name,
@@ -626,7 +665,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            _scoped({"_id": candidate_id, "viewed_at": None}, staff_id),
+            _scoped({**_id_filter(candidate_id), "viewed_at": None}, staff_id),
             {"$set": {"viewed_at": now, "updated_at": now}},
         )
         return res.modified_count > 0
@@ -656,14 +695,14 @@ class CandidateRepository:
             "evaluated_by": staff_id,
             "updated_at": now,
         }
-        res = self._coll.update_one(_scoped({"_id": candidate_id}, staff_id), {"$set": updates})
+        res = self._coll.update_one(_scoped(_id_filter(candidate_id), staff_id), {"$set": updates})
         if res.matched_count == 0:
             return None
 
         # Judging a profile is looking at it; without this the SLA sweep would
         # keep reporting an evaluated profile as never opened.
         self._coll.update_one(
-            {"_id": candidate_id, "viewed_at": None}, {"$set": {"viewed_at": now}}
+            {**_id_filter(candidate_id), "viewed_at": None}, {"$set": {"viewed_at": now}}
         )
         return self.get(candidate_id)
 

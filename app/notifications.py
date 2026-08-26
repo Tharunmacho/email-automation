@@ -29,7 +29,7 @@ from app.db import notifications as store
 from app.db.notifications import NotificationRepository
 from app.db.users import UserRepository
 from app.logging_config import get_logger
-from app.staff_whatsapp import relay_assignment
+from app.staff_whatsapp import relay_assignment, relay_sla_breach
 
 log = get_logger(__name__)
 
@@ -175,5 +175,14 @@ def notify_sla_breaches(
         ws.publish_event(ws.sla_alert_event(alerts, threshold_hours))
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not push the SLA event: %s", exc)
+
+    # ---- and the admins' phones ------------------------------------------ #
+    # One call for the whole sweep, not one per profile. `alerts` is already
+    # only what newly breached, so this does not re-announce anything.
+    #
+    # Outside `notified` for the same reason as the allocation relay: that
+    # counts feed rows written, and an admin who was messaged as well was not
+    # notified twice.
+    relay_sla_breach(alerts, threshold_hours)
 
     return notified

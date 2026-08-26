@@ -22,11 +22,11 @@ celery_app = Celery(
     "resume_ingest",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.tasks.jobs", "app.tasks.reconciler"],
+    include=["app.tasks.jobs", "app.tasks.reconciler", "app.tasks.sla_checker"],
 )
 
 celery_app.conf.update(
-    imports=["app.tasks.jobs", "app.tasks.reconciler"],
+    imports=["app.tasks.jobs", "app.tasks.reconciler", "app.tasks.sla_checker"],
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
@@ -45,6 +45,19 @@ celery_app.conf.update(
         "reconcile-ocr-jobs": {
             "task": "app.tasks.reconciler.reconcile_ocr_jobs",
             "schedule": float(settings.reconciler_interval_seconds),
+        },
+        # The SLA sweep. It had a task wrapper and no schedule, which meant a
+        # profile nobody had touched was only ever found when an admin went
+        # looking for profiles nobody had touched — the one case the alert was
+        # supposed to cover on its own.
+        #
+        # `scan` is idempotent by construction: a breach already recorded as
+        # active is not re-recorded and not re-announced, and one that has been
+        # dealt with closes itself. So a tick landing on top of a slow sweep
+        # costs a duplicate query and nothing else.
+        "scan-sla-breaches": {
+            "task": "app.tasks.sla_checker.scan_sla_breaches",
+            "schedule": float(settings.sla_scan_interval_seconds),
         },
     },
 )

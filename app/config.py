@@ -122,10 +122,14 @@ class Settings(BaseSettings):
     demo_staff_password: str = "staff@123"
     # How long a profile may sit allocated-but-unresolved before the sweep calls
     # it a breach, measured from `assigned_at` (falling back to `ingested_at`)
-    # until it is opened or judged. One working day: a résumé that arrives on
-    # Tuesday afternoon should be looked at by Wednesday afternoon, and a
-    # tighter window turns the alert channel into noise nobody reads.
-    sla_threshold_hours: int = 24
+    # until it is opened or judged.
+    #
+    # Two days. Long enough that a profile landing on Friday afternoon is not
+    # escalated over the weekend for nobody's benefit, and short enough that a
+    # candidate nobody has opened is chased while they are still deciding
+    # whether to answer somebody else. A tighter window turns the alert channel
+    # into noise, and a muted channel reports nothing at all.
+    sla_threshold_hours: int = 48
     auto_assign_enabled: bool = True
 
     # ---- WhatsApp bot integration ----
@@ -264,6 +268,19 @@ class Settings(BaseSettings):
     # `reconciler_stuck_after_seconds`, so a row that goes quiet is picked up on
     # the first tick after it qualifies rather than a whole interval later.
     reconciler_interval_seconds: int = 120
+
+    # How often celery beat runs the SLA sweep.
+    #
+    # It used to run on nothing at all: the task existed and the beat schedule
+    # did not list it, so a breach was only ever found when an admin pressed
+    # Scan. An alert channel that reports overdue work only to somebody already
+    # looking for overdue work is not one, hence the schedule.
+    #
+    # Hourly, against a window measured in days. Finer would cost a sweep of the
+    # collection for no earlier warning — a profile that breaches at 14:05 is
+    # not more overdue at 14:10 than it is at 15:00, and the alert says how many
+    # hours it has been waiting either way.
+    sla_scan_interval_seconds: int = 3600
     # How long the reconciler waits on any single job it re-drives. Short: its
     # job is to move rows along, not to sit on one.
     reconciler_job_wait_seconds: float = 30.0

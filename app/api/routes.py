@@ -2279,6 +2279,29 @@ def bot_staff_contact(staff_id: str, _service: None = Depends(require_service_ke
     }
 
 
+@app.get("/staff/admin-contacts")
+def bot_admin_contacts(_service: None = Depends(require_service_key)) -> dict:
+    """Everyone who should hear that work has gone unattended.
+
+    Every admin, because that is who the SLA feed already goes to — an alert
+    that reached one of three would be a rota nobody agreed to keep. Accounts
+    with no number on file come back all the same: the bot skips them, and it
+    logs which, which is how an admin finds out their own account is the one
+    that has been silently excluded.
+
+    Deactivated accounts do not appear — `list_admins` already excludes them,
+    and that is the right rule here too: unlike a staff member, an admin holds
+    no queue that outlives their account, so there is nothing a deactivated one
+    still needs to be told about.
+    """
+    return {
+        "contacts": [
+            {"id": member.id, "name": member.name, "phone": member.phone}
+            for member in users.list_admins()
+        ]
+    }
+
+
 @app.get("/candidates/{candidate_id}/assignment-summary")
 def bot_assignment_summary(
     candidate_id: str, _service: None = Depends(require_service_key)
