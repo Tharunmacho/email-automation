@@ -13552,6 +13552,12 @@ body {
   flex-wrap: wrap;
 }
 
+/* A head whose title lives in the shell above it, leaving only the action —
+   which then belongs on the right, where it sits on every other page. */
+.ds-head--actions-only {
+  justify-content: flex-end;
+}
+
 /* A pair of states in one track, so the choice reads as one control rather
    than two buttons that happen to sit together. */
 .ds-seg {

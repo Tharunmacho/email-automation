@@ -372,14 +372,9 @@ export default function StaffDashboard({
   return (
     <div className="ds-page">
       {/* ── Page head ─────────────────────────────────────────────────── */}
-      <header className="ds-head">
-        <div>
-          <h1 className="ds-head-title">My candidates</h1>
-          <p className="ds-head-sub">
-            The profiles allocated to you — read the résumé, record your evaluation.
-          </p>
-        </div>
-
+      {/* The title and subtitle come from the shell's page head (lib/nav.ts),
+          so this strip carries only the action. */}
+      <header className="ds-head ds-head--actions-only">
         {/* The one shortcut that was not a filter, and so the one that is left:
             it opens the unopened profile closest to its deadline. */}
         <div className="ds-head-actions">
