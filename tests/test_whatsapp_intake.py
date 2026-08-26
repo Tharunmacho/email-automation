@@ -110,6 +110,17 @@ class FakeRepo:
                 continue
             setattr(record.profile, field, value)
 
+    def adopt_idempotency_key(self, candidate_id: str, key) -> bool:
+        """Fills a blank only, and refuses a key another record already holds —
+        the two properties of the sparse unique index the service leans on."""
+        record = self.candidates.get(candidate_id)
+        if not record or not key or record.idempotency_key:
+            return False
+        if self.find_by_idempotency_key(key):
+            return False
+        record.idempotency_key = key
+        return True
+
     def attach_resume(self, candidate_id: str, resume: StoredResume) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:

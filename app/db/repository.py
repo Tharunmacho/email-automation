@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from bson import ObjectId
 from bson.errors import InvalidId
+from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError
 
 from app.core.models import CandidateProfile, CandidateRecord, StoredResume
@@ -217,6 +218,19 @@ class CandidateRepository:
     def find_by_email_or_phone(
         self, email_key: Optional[str], phone_key: Optional[str]
     ) -> Optional[CandidateRecord]:
+        """The person behind this address or number, oldest first.
+
+        The sort is not decoration. One phone number can reach more than one
+        document — a candidate the mailbox pipeline ingested from a CV and the
+        same candidate registering on WhatsApp, or two records from before this
+        check existed — and `find_one` with no sort returns whichever the
+        storage engine happens to reach first, which is not stable between
+        calls. That made "the same person" resolve to a different record on two
+        consecutive submissions, so half a registration landed on each.
+
+        Oldest wins because the oldest is the one with the history hanging off
+        it: the allocation, the evaluation, the documents already filed.
+        """
         ors = []
         if email_key:
             ors.append({"email_key": email_key})
@@ -224,8 +238,41 @@ class CandidateRepository:
             ors.append({"phone_key": phone_key})
         if not ors:
             return None
-        doc = self._coll.find_one({"$or": ors})
+        doc = self._coll.find_one({"$or": ors}, sort=[("created_at", ASCENDING)])
         return CandidateRecord.from_mongo(doc) if doc else None
+
+    def adopt_idempotency_key(self, candidate_id: str, key: Optional[str]) -> bool:
+        """Record which conversation this candidate came from, if none is on file.
+
+        Called when the *phone* matched rather than the key: the record exists,
+        this submission belongs to it, and nothing yet links the two. Writing
+        the key down means the next submission from the same conversation takes
+        the direct lookup instead of the phone one.
+
+        Fills a blank only. A record that already carries a key keeps it — that
+        key names the conversation which created the record, and this one did
+        not. The filter, rather than a read-then-write, is what makes that true
+        when two submissions arrive together.
+
+        A `DuplicateKeyError` means another record claimed this key in between.
+        That is the sparse unique index doing its job, and it is swallowed: the
+        profile refresh this accompanies has already happened and is the half
+        that mattered.
+        """
+        if not key:
+            return False
+        try:
+            result = self._coll.update_one(
+                {**_id_filter(candidate_id), "idempotency_key": {"$in": [None, ""]}},
+                {"$set": {"idempotency_key": key}},
+            )
+        except DuplicateKeyError:
+            log.info(
+                "Idempotency key %s is already held by another candidate; leaving %s as it is",
+                key, candidate_id,
+            )
+            return False
+        return bool(result.modified_count)
 
     # ---- writes ----------------------------------------------------------- #
     def insert(self, record: CandidateRecord) -> str:

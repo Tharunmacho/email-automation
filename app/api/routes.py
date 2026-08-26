@@ -1237,6 +1237,20 @@ def assign_candidate_route(
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    # Assigning somebody the candidate they already hold is not an assignment.
+    # Two things follow from letting it through, and both are destructive:
+    # `assign` clears `viewed_at` and the verdict, so a double-click on the
+    # button throws away the evaluation that person just wrote; and the
+    # notification goes out a second time for work they were told about the
+    # first time. Ownership did not change, so nothing happens.
+    if record.assigned_staff_id == member.id:
+        return {
+            "status": "unchanged",
+            "candidate_id": candidate_id,
+            "assigned_staff_id": member.id,
+            "assigned_staff_name": member.name,
+        }
+
     repository.assign(candidate_id, member.id, member.name)
     notify_candidate_assigned(
         member.id,
@@ -2365,6 +2379,13 @@ def bot_assignment_summary(
         # stands. A relay that arrives after a rebalance has moved the candidate
         # on would otherwise tell the wrong person they own them.
         "assigned_staff_id": record.assigned_staff_id,
+        # *When* that allocation happened, which is what tells one assignment
+        # apart from a retry of the same one. The bot messages once per moment:
+        # a duplicate relay reads this same timestamp and is refused, while a
+        # candidate genuinely moved back to a previous owner carries a new one
+        # and is announced. Without it the bot could only dedupe on the pair of
+        # ids, and A -> B -> A would go unsaid.
+        "assigned_at": record.assigned_at.isoformat() if record.assigned_at else None,
     }
 
 

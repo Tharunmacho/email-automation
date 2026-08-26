@@ -6,15 +6,23 @@ down once instead of being re-derived by every future caller.
 
 What it guarantees, in the order it establishes them:
 
-1. **The same submission twice is the same candidate.** Enforced by a unique
-   index, not by a lookup, because a lookup loses the race it exists to win.
-2. **The CRM decides whether a CV is required.** The bot's claim is recorded
+1. **One phone number is one candidate.** The normalised WhatsApp number is the
+   identity. The idempotency key names a conversation and is checked first
+   because it is the more specific claim, but it is not what makes somebody
+   themselves — the agency's five or six company numbers are five or six
+   sending identities, not five or six people.
+2. **Everything a submission carries lands on that one record.** Including the
+   twentieth submission of the same conversation. This is the guarantee that
+   was missing: the key matched, the function returned, and every answer after
+   the first was dropped on the floor.
+3. **The CRM decides whether a CV is required.** The bot's claim is recorded
    and compared; it is never the thing that is checked.
-3. **A returning candidate cannot cost a recruiter their work.** Re-registering
+4. **A returning candidate cannot cost a recruiter their work.** Re-registering
    refreshes what the candidate said about themselves and touches nothing the
-   agency decided about them.
-4. **Allocation is the existing allocation.** `assign_candidate` is called
-   exactly as the email pipeline calls it; there is no second balancer.
+   agency decided about them — including who owns them.
+5. **Allocation is the existing allocation, and happens once.** `assign_candidate`
+   is called exactly as the email pipeline calls it, on creation only; there is
+   no second balancer and no second notification.
 
 The email pipeline is not routed through here and does not change.
 """
@@ -84,18 +92,31 @@ def intake_whatsapp_candidate(
         raise IntakeError("idempotency_key is required", 400, "missing_idempotency_key")
     idempotency_key = idempotency_key.strip()
 
-    # ---- 1. Has this exact submission already been accepted? --------------- #
+    # ---- 1. Who is this? --------------------------------------------------- #
     #
-    # Before anything else, and before any policy work: a retry must be cheap
-    # and must not re-run decisions that were already made and recorded.
-    existing = repo.find_by_idempotency_key(idempotency_key)
+    # Before anything else, and before any policy work. Two signals answer the
+    # same question and they are asked together, because whichever one hits, the
+    # outcome is identical: this submission belongs to somebody who already
+    # exists, and everything it carries has to land on *that* record.
+    #
+    # This was two steps with a `return` between them, and that return was the
+    # defect. The bot sends every answer under one key — that is what makes a
+    # retry safe — so the first partial created the record and every partial
+    # after it matched the key, returned here, and wrote nothing. A candidate
+    # who gave a name, then a country, then a trade, then their documents
+    # reached the CRM as a name and a phone number and stopped there.
+    phone_key = normalize_phone(profile.phone)
+    existing, matched_on = _resolve_identity(repo, profile, phone_key, idempotency_key)
+
     if existing:
-        log.info("Idempotent replay of %s -> candidate %s", idempotency_key, existing.id)
-        return IntakeResult(
-            candidate_id=existing.id,
-            created=False,
-            cv_required=existing.cv_required,
-            cv_policy_version=existing.cv_policy_version or "",
+        return _refresh_existing(
+            repo,
+            existing=existing,
+            profile=profile,
+            resume=resume,
+            idempotency_key=idempotency_key,
+            matched_on=matched_on,
+            cv_required_claim=cv_required_claim,
         )
 
     # ---- 2. What does the CRM say about a CV? ------------------------------ #
@@ -119,47 +140,7 @@ def intake_whatsapp_candidate(
             cv_required,
         )
 
-    # ---- 3. Is the same person already on file? ---------------------------- #
-    #
-    # A different question from step 1. That one asked "have I seen this
-    # submission?"; this asks "have I seen this person?" — someone who
-    # registered months ago and has come back has a new idempotency key and the
-    # same phone number.
-    phone_key = normalize_phone(profile.phone)
-    duplicate = _find_existing_person(repo, profile, phone_key)
-
-    if duplicate:
-        # Refresh what they told us; leave every recruiter-owned field alone.
-        # See `refresh_whatsapp_profile` — the allow-list there is what stops a
-        # re-registration reopening a closed assessment.
-        repo.refresh_whatsapp_profile(duplicate.id, profile)
-
-        # A CV sent by someone we already know, who had none, is new information
-        # and is kept. One who already has a résumé keeps the one on file: a
-        # recruiter may have read it and formed a view, and quietly swapping the
-        # document underneath that view is not a refresh, it is a substitution.
-        if resume is not None and duplicate.resume is None:
-            repo.attach_resume(duplicate.id, resume)
-        elif resume is not None:
-            log.info(
-                "Candidate %s re-registered with a resume and already has one; keeping the original",
-                duplicate.id,
-            )
-
-        log.info(
-            "WhatsApp submission %s matched existing candidate %s; profile refreshed",
-            idempotency_key,
-            duplicate.id,
-        )
-        return IntakeResult(
-            candidate_id=duplicate.id,
-            created=False,
-            cv_required=cv_required,
-            cv_policy_version=policy.version,
-            policy_overrode_claim=overrode,
-        )
-
-    # ---- 4. Is the résumé the policy asked for actually here? -------------- #
+    # ---- 3. Is the résumé the policy asked for actually here? -------------- #
     #
     # Raised as a typed failure rather than left to the model validator, because
     # this is the one rejection the bot can do something about and it has to be
@@ -177,7 +158,7 @@ def intake_whatsapp_candidate(
             "CV_REQUIRED",
         )
 
-    # ---- 5. Build and validate ------------------------------------------- #
+    # ---- 4. Build and validate ------------------------------------------- #
     #
     # The record is constructed with the *derived* `cv_required`, so the model
     # validator checks the résumé against the CRM's answer. A caller that said
@@ -206,7 +187,7 @@ def intake_whatsapp_candidate(
         processed_at=now,
     )
 
-    # ---- 6. Insert ---------------------------------------------------------- #
+    # ---- 5. Insert ---------------------------------------------------------- #
     #
     # `insert` resolves a unique-index collision by returning the candidate the
     # winning writer created, so two concurrent retries of the same key end up
@@ -214,17 +195,29 @@ def intake_whatsapp_candidate(
     candidate_id = repo.insert(record)
     created = candidate_id == record.id
 
-    # ---- 7. Allocate, through the existing balancer ------------------------ #
+    # ---- 6. Allocate, through the existing balancer ------------------------ #
     #
     # The same call the email pipeline makes. Failing to place someone must not
     # undo an intake that has already succeeded — `assign_candidate` returns a
     # `no_staff` result rather than raising, and anything unexpected is logged
     # and swallowed for the same reason.
+    # Allocation happens once, on creation, and never again. A candidate who
+    # comes back to finish registering is refreshed above and never reaches
+    # here — which is what keeps their existing owner theirs, and what stops a
+    # second "new candidate" message going out for work somebody already has.
     if created:
         try:
-            assign_candidate(candidate_id, profile, repo=repo)
+            result = assign_candidate(candidate_id, profile, repo=repo)
         except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
             log.error("Allocation failed for candidate %s: %s", candidate_id, exc)
+        else:
+            # And tell the person it landed on. This was missing: allocation
+            # happened, and the staff member it happened to was told by nothing
+            # — no bell, no toast, no WhatsApp — while the same allocation made
+            # from the email pipeline or from an admin's screen announced
+            # itself. One event, one notification, whichever door it came in by.
+            if getattr(result, "assigned", False):
+                _announce_assignment(candidate_id, profile, result)
 
     return IntakeResult(
         candidate_id=candidate_id,
@@ -232,6 +225,139 @@ def intake_whatsapp_candidate(
         cv_required=cv_required,
         cv_policy_version=policy.version,
         policy_overrode_claim=overrode,
+    )
+
+
+def _announce_assignment(candidate_id: str, profile: CandidateProfile, result) -> None:
+    """Tell the staff member a candidate is theirs: bell, toast, and phone.
+
+    Imported here rather than at module scope because `app.notifications` pulls
+    in the WebSocket module, which imports the routes, which import this — a
+    cycle at import time that the email pipeline avoids the same way.
+
+    Never raises. The candidate is created and allocated by the time this runs,
+    and losing that to a failed pop-up would be exactly the wrong trade.
+    """
+    try:
+        from app.notifications import notify_candidate_assigned
+
+        notify_candidate_assigned(
+            getattr(result, "staff_id", "") or "",
+            {"id": candidate_id, "full_name": profile.full_name, "email": profile.email},
+            staff_name=getattr(result, "staff_name", None),
+        )
+    except Exception as exc:  # noqa: BLE001 — notification must not fail intake
+        log.warning("Could not announce the allocation of candidate %s: %s", candidate_id, exc)
+
+
+def _resolve_identity(
+    repo: CandidateRepository,
+    profile: CandidateProfile,
+    phone_key: Optional[str],
+    idempotency_key: str,
+) -> tuple[Optional[CandidateRecord], str]:
+    """The candidate this submission belongs to, and which signal found them.
+
+    Two signals, and the order between them is the whole design:
+
+    **The idempotency key** identifies this exact submission. It is the more
+    specific claim — it says "this is the conversation that produced record X" —
+    so it is consulted first and it wins outright.
+
+    **The normalised phone** identifies the *person*. It is what makes the five
+    or six company numbers one identity rather than five: the key carries the
+    line the deployment sends from, the phone carries who is holding the handset,
+    and somebody who wrote to number A last month and number B this morning is
+    one candidate on both. It is also what recognises somebody who registered
+    long enough ago that their conversation, and its key, are gone.
+
+    Name is not a signal and deliberately never will be. Two Ravi Kumars in a
+    labour-supply database is a Tuesday, and merging them costs one of them their
+    documents.
+
+    Returns `(None, "none")` when neither matches, which is the create path.
+    """
+    by_key = repo.find_by_idempotency_key(idempotency_key)
+    if by_key:
+        return by_key, "idempotency_key"
+
+    by_phone = _find_existing_person(repo, profile, phone_key)
+    if by_phone:
+        return by_phone, "phone"
+
+    return None, "none"
+
+
+def _refresh_existing(
+    repo: CandidateRepository,
+    *,
+    existing: CandidateRecord,
+    profile: CandidateProfile,
+    resume: Optional[StoredResume],
+    idempotency_key: str,
+    matched_on: str,
+    cv_required_claim: Optional[bool],
+) -> IntakeResult:
+    """Land this submission on the candidate who already exists.
+
+    One path for both signals, because the difference between "the same
+    conversation sent more" and "the same person came back" is a difference in
+    how we found them, not in what we owe them. Either way what they have just
+    told us about themselves is written down, and everything the agency decided
+    about them is left exactly as it stands.
+
+    Three things this does **not** do, and each of them is a way the feature
+    would break in production rather than in a test:
+
+    * **It does not allocate.** The candidate has an owner, and running the
+      balancer again would move live work off somebody's desk.
+    * **It does not notify.** No ownership changed, so there is no event. A
+      message per answered question would be forty messages for one registration.
+    * **It does not re-derive the CV decision.** §13: the rule that applied is
+      the rule that applied on the day, and the record carries it.
+    """
+    # What they told us; nothing the agency concluded. The allow-list in
+    # `refresh_whatsapp_profile` is what enforces that, and it is the single
+    # most important property on this path.
+    repo.refresh_whatsapp_profile(existing.id, profile)
+
+    # A CV from somebody we already know, who had none, is new information and
+    # is kept. One who already has a résumé keeps the one on file: a recruiter
+    # may have read it and formed a view, and quietly swapping the document
+    # underneath that view is not a refresh, it is a substitution.
+    if resume is not None and existing.resume is None:
+        repo.attach_resume(existing.id, resume)
+    elif resume is not None:
+        log.info(
+            "Candidate %s re-registered with a resume and already has one; keeping the original",
+            existing.id,
+        )
+
+    # Record the key on a record the phone found, so the next submission from
+    # this conversation takes the direct route and so the link between the two
+    # is written down rather than re-derived. Only ever fills a blank — a record
+    # that already carries a key keeps it, because that key names the
+    # conversation that created it and this one did not.
+    if matched_on == "phone":
+        repo.adopt_idempotency_key(existing.id, idempotency_key)
+
+    log.info(
+        "WhatsApp submission %s matched candidate %s on %s; profile refreshed",
+        idempotency_key,
+        existing.id,
+        matched_on,
+    )
+
+    return IntakeResult(
+        candidate_id=existing.id,
+        created=False,
+        # The record's own decision, not today's. A policy that changed since
+        # they registered does not retroactively require a CV of them.
+        cv_required=existing.cv_required,
+        cv_policy_version=existing.cv_policy_version or "",
+        policy_overrode_claim=(
+            cv_required_claim is not None and cv_required_claim != existing.cv_required
+        ),
     )
 
 
