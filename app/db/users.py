@@ -84,6 +84,11 @@ class User:
     keywords: list[str] = None
     active: bool = True
     created_at: Optional[datetime] = None
+    #: How to reach this person off the console. Free text on purpose: the
+    #: roster is Indian, Gulf and occasionally European, and a format that
+    #: rejects "+971 50 123 4567" or an extension is a format that gets worked
+    #: around by typing the number into the name field.
+    phone: str = "" 
     #: Extra pages this account may reach, beyond what its role already gives.
     #: Never a restriction — see `ROLE_DEFAULT_PAGES`.
     page_grants: list[str] = None
@@ -96,6 +101,7 @@ class User:
             "name": self.name,
             "role": self.role,
             "keywords": self.keywords or [],
+            "phone": self.phone or "",
             "active": self.active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "page_grants": self.page_grants or [],
@@ -128,6 +134,7 @@ class UserRepository:
             name=doc.get("name") or doc.get("email", "").split("@")[0].title(),
             role=doc.get("role", "admin"),
             keywords=doc.get("keywords", []),
+            phone=doc.get("phone") or "",
             active=doc.get("active", True),
             created_at=doc.get("created_at"),
             page_grants=doc.get("page_grants", []),
@@ -152,6 +159,7 @@ class UserRepository:
         name: str = "",
         role: str = "admin",
         page_grants: "list[str] | None" = None,
+        phone: str = "",
     ) -> User:
         email = _normalize(email)
         if self.find_by_email(email):
@@ -162,6 +170,7 @@ class UserRepository:
             "name": name or email.split("@")[0].title(),
             "role": role,
             "page_grants": [p for p in (page_grants or []) if p in PAGES],
+            "phone": (phone or "").strip(),
             # Stored explicitly: an account without the field would be filtered
             # out of every `active: True` query, and a staff member allocation
             # cannot see is a staff member who never receives work.
@@ -215,6 +224,7 @@ class UserRepository:
         password: str,
         name: str = "",
         keywords: list[str] = None,
+        phone: str = "",
     ) -> User:
         email = _normalize(email)
         if self.find_by_email(email):
@@ -225,6 +235,7 @@ class UserRepository:
             "name": name or email.split("@")[0].title(),
             "role": STAFF_ROLE,
             "keywords": keywords or [],
+            "phone": (phone or "").strip(),
             "active": True,
             "password_hash": hash_password(password),
             "created_at": utcnow(),
@@ -258,6 +269,7 @@ class UserRepository:
         password: str | None = None,
         page_grants: list[str] | None = None,
         keywords: list[str] | None = None,
+        phone: str | None = None,
     ) -> User | None:
         """Edit any account, whatever its role.
 
@@ -280,6 +292,10 @@ class UserRepository:
             updates["password_hash"] = hash_password(password)
         if keywords is not None:
             updates["keywords"] = keywords
+        # An empty string is a real edit here — it is how a number gets removed —
+        # so the test is `is not None`, not truthiness.
+        if phone is not None:
+            updates["phone"] = phone.strip()
         if page_grants is not None:
             # Unknown ids are dropped rather than stored: a grant for a page
             # that does not exist is a permission nobody can use and a puzzle
@@ -305,6 +321,7 @@ class UserRepository:
         keywords: list[str] | None = None,
         active: bool | None = None,
         password: str | None = None,
+        phone: str | None = None,
     ) -> User | None:
         doc = self._coll.find_one({"_id": staff_id, "role": STAFF_ROLE})
         if not doc:
@@ -314,6 +331,8 @@ class UserRepository:
             updates["name"] = name
         if keywords is not None:
             updates["keywords"] = keywords
+        if phone is not None:
+            updates["phone"] = phone.strip()
         if active is not None:
             updates["active"] = active
         if password:

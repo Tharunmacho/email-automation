@@ -351,6 +351,9 @@ export interface StaffMember {
   role: string;
   /** Expertise terms the balancer matches against a candidate's skills. */
   keywords: string[];
+  /** Free text, and optional — an account created before the field existed
+      has none, and no format is imposed on the ones that do. */
+  phone?: string;
   active: boolean;
 }
 

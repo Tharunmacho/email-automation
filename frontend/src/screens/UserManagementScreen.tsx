@@ -168,6 +168,7 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
         email: draft.email.trim(),
         password: draft.password,
         name: draft.name.trim(),
+        phone: draft.phone.trim(),
         role: draft.role,
         page_grants: draft.grants,
       });
@@ -254,6 +255,7 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
               <thead>
                 <tr>
                   <th>Account</th>
+                  <th>Mobile</th>
                   <th>Role</th>
                   <th>Added</th>
                   <th>Pages</th>
@@ -276,6 +278,18 @@ export default function UserManagementScreen({ onActivity, currentUserId }: Prop
                           <small>{user.email}</small>
                         </span>
                       </span>
+                    </td>
+                    {/* Dialable where the browser can, plain text where it
+                        cannot — an admin reading this column is usually about
+                        to ring the person in it. */}
+                    <td>
+                      {user.phone ? (
+                        <a className="um-phone" href={`tel:${user.phone.replace(/\s+/g, "")}`}>
+                          {user.phone}
+                        </a>
+                      ) : (
+                        <span className="um-phone is-empty">—</span>
+                      )}
                     </td>
                     <td>
                       <span className={`ds-status ${user.role === "admin" ? "is-info" : "is-ok"}`}>
@@ -339,6 +353,8 @@ interface CreateDraft {
   email: string;
   password: string;
   name: string;
+  /** Free text. Optional, and no format is imposed — see the field's hint. */
+  phone: string;
   role: string;
   grants: string[];
 }
@@ -354,6 +370,7 @@ function CreateUserForm({
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("staff");
   const [grants, setGrants] = useState<string[]>([]);
@@ -409,6 +426,22 @@ function CreateUserForm({
           </div>
 
           <div className="field-group">
+            <label className="modal-label" htmlFor="u-phone">
+              Mobile number
+            </label>
+            <input
+              id="u-phone"
+              className="modal-input"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+91 98765 43210"
+            />
+            <p className="modal-hint">
+              Optional, and stored as typed — country code, extension or a second number all fit.
+            </p>
+          </div>
+          <div className="field-group">
             <label className="modal-label" htmlFor="u-password">
               Password
             </label>
@@ -453,7 +486,7 @@ function CreateUserForm({
           type="button"
           className="db-btn is-primary"
           disabled={!ready}
-          onClick={() => onCreate({ email, password, name, role, grants })}
+          onClick={() => onCreate({ email, password, name, phone, role, grants })}
         >
           <Check size={14} /> Create
         </button>
@@ -481,9 +514,11 @@ function EditUserModal({
     active?: boolean;
     password?: string;
     page_grants?: string[];
+    phone?: string;
   }) => void;
 }) {
   const [name, setName] = useState(user.name);
+  const [phone, setPhone] = useState(user.phone ?? "");
   const [role, setRole] = useState(user.role);
   const [active, setActive] = useState(user.active);
   const [password, setPassword] = useState("");
@@ -502,16 +537,31 @@ function EditUserModal({
         </div>
 
         <div className="modal-body">
-          <div className="field-group">
-            <label className="modal-label" htmlFor="e-name">
-              Name
-            </label>
-            <input
-              id="e-name"
-              className="modal-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+          <div className="um-form-grid">
+            <div className="field-group">
+              <label className="modal-label" htmlFor="e-name">
+                Name
+              </label>
+              <input
+                id="e-name"
+                className="modal-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="field-group">
+              <label className="modal-label" htmlFor="e-phone">
+                Mobile number
+              </label>
+              <input
+                id="e-phone"
+                className="modal-input"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+91 98765 43210"
+              />
+            </div>
           </div>
 
           <div className="um-form-grid">
@@ -582,6 +632,7 @@ function EditUserModal({
             onClick={() =>
               onSave({
                 name,
+                phone,
                 role,
                 active,
                 page_grants: grants,

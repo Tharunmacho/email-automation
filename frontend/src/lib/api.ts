@@ -443,6 +443,7 @@ export function createStaff(payload: {
   password: string;
   name?: string;
   keywords?: string[];
+  phone?: string;
 }): Promise<{ staff: StaffMember }> {
   return request<{ staff: StaffMember }>("/staff", {
     method: "POST",
@@ -453,7 +454,13 @@ export function createStaff(payload: {
 
 export function updateStaff(
   staffId: string,
-  payload: { name?: string; keywords?: string[]; active?: boolean; password?: string },
+  payload: {
+    name?: string;
+    keywords?: string[];
+    active?: boolean;
+    password?: string;
+    phone?: string;
+  },
 ): Promise<{ staff: StaffMember }> {
   return request<{ staff: StaffMember }>(`/staff/${staffId}`, {
     method: "PATCH",
@@ -869,6 +876,8 @@ export interface ManagedUser {
   role: string;
   active: boolean;
   keywords: string[];
+  /** Mobile number, free text. Empty when nobody has recorded one. */
+  phone?: string;
   created_at: string | null;
   /** The extra pages an admin ticked. */
   page_grants: string[];
@@ -887,6 +896,7 @@ export function createUserAPI(payload: {
   role?: string;
   page_grants?: string[];
   keywords?: string[];
+  phone?: string;
 }): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>("/users", {
     method: "POST",
@@ -904,6 +914,7 @@ export function updateUserAPI(
     password?: string;
     page_grants?: string[];
     keywords?: string[];
+    phone?: string;
   },
 ): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>(`/users/${userId}`, {

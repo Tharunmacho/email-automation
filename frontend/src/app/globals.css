@@ -15740,3 +15740,378 @@ body {
     justify-content: center;
   }
 }
+
+/* --- staff roster: a card per person -------------------------------------- */
+/* The wide table this replaces spent the full page width on four columns of
+   single digits and gave no sign that a row could be opened. A card holds the
+   same five figures in a quarter of the width, and the whole of it is the
+   control that opens that person's queue. */
+
+.staff-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 0.85rem;
+}
+
+.staff-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.95rem 1rem 0.75rem;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.staff-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.4);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+/* The hit area covers the card and sits under the footer buttons, so a click
+   anywhere that is not one of them opens the queue. */
+.staff-card-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  cursor: pointer;
+}
+
+.staff-card-hit:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.staff-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.staff-card-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.staff-card-id strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staff-card-id small {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staff-card-chev {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-label);
+  transition:
+    transform 0.15s ease,
+    color 0.15s ease;
+}
+
+.staff-card:hover .staff-card-chev {
+  transform: translateX(2px);
+  color: var(--primary);
+}
+
+.staff-card-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* The flag is written for a table cell, where it trails a name. In a card it
+   starts its own line, so the inherited left margin has to go. */
+.staff-card-flags .staff-flag {
+  margin-left: 0;
+}
+
+.staff-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+  margin: 0;
+}
+
+.staff-card-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.4rem 0.2rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-1);
+  text-align: center;
+}
+
+.staff-card-stats dt {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.staff-card-stats dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.staff-card-stats dd.is-warn {
+  color: var(--warning-ink);
+}
+
+.staff-card-stats dd.is-good {
+  color: var(--success-ink);
+}
+
+.staff-card-progress .staff-progress-line {
+  font-size: 0.74rem;
+}
+
+.staff-card-progress .db-bar-track {
+  display: block;
+  height: 6px;
+}
+
+.staff-card-foot {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-top: auto;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.staff-card-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.staff-card-phone:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.staff-card-phone.is-empty {
+  color: var(--text-label);
+  opacity: 0.7;
+}
+
+/* The two account buttons stay together on the right when the number beside
+   them is long enough to want the rest of the row. */
+.staff-card-foot > .ds-ghost-btn:first-of-type {
+  margin-left: auto;
+}
+
+.um-phone {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.um-phone:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.um-phone.is-empty {
+  color: var(--text-label);
+}
+
+/* A deactivated account is dimmed but still legible — its work has not gone
+   anywhere and the card is still the way in to it. */
+.staff-card.is-inactive {
+  background: var(--tint-1);
+}
+
+.staff-card.is-inactive .staff-card-top,
+.staff-card.is-inactive .staff-card-stats,
+.staff-card.is-inactive .staff-card-progress {
+  opacity: 0.62;
+}
+
+.staff-card.is-overdue {
+  border-color: var(--error-edge);
+  box-shadow: inset 3px 0 0 var(--error-ink);
+}
+
+/* The two piles that belong to nobody: same frame, no per-person figures, so
+   the count carries the card. */
+.staff-card.is-bucket {
+  background: var(--tint-1);
+}
+
+.staff-card-bucket {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+}
+
+.staff-card-bucket strong {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.staff-card-bucket em {
+  font-style: normal;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.ds-avatar.is-bucket {
+  background: var(--tint-3);
+  color: var(--text-muted);
+}
+
+.ds-avatar.is-alert {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* --- one queue, opened from a card ---------------------------------------- */
+
+.modal-container.is-queue {
+  max-width: 1040px;
+  max-height: 88vh;
+}
+
+.queue-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+/* The body scrolls; the strip, the tabs and the caution line above the list do
+   not, so the thing you are reassigning against stays on screen. */
+.modal-body.is-flush {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 0 0;
+  overflow-y: auto;
+}
+
+.queue-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 0.4rem;
+  margin: 0 1.25rem;
+}
+
+.queue-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--tint-1);
+}
+
+.queue-stats em {
+  font-style: normal;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.queue-stats strong {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.queue-stats strong.is-warn {
+  color: var(--warning-ink);
+}
+
+.queue-stats strong.is-good {
+  color: var(--success-ink);
+}
+
+.queue-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0 1.25rem;
+}
+
+.queue-note {
+  margin: 0 1.25rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.queue-controls .staff-search {
+  flex: 1 1 200px;
+  /* Narrower than the base rule allows: in the dialog it shares its row with
+     four tabs, and a 260px floor pushed them onto a line of their own. */
+  min-width: 190px;
+  max-width: 280px;
+}
+
+/* Inside the dialog the list is already as wide as it will get, so the row's
+   own minimum can relax rather than force a horizontal scrollbar. */
+.modal-body .alloc-head,
+.modal-body .alloc-row {
+  min-width: 680px;
+}
+
+.modal-body .alloc-more {
+  padding-bottom: 1rem;
+}
+
+@media (max-width: 640px) {
+  .staff-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1052,6 +1052,10 @@ class CreateStaffRequest(BaseModel):
     password: str
     name: str | None = None
     keywords: list[str] = Field(default_factory=list)
+    # Capped rather than pattern-matched: a country code, spaces, an extension
+    # and a second number for the same person all have to fit, and the console
+    # only ever displays this or dials it.
+    phone: str = Field(default="", max_length=40)
 
 
 class UpdateStaffRequest(BaseModel):
@@ -1059,6 +1063,7 @@ class UpdateStaffRequest(BaseModel):
     keywords: list[str] | None = None
     active: bool | None = None
     password: str | None = None
+    phone: str | None = Field(default=None, max_length=40)
 
 
 @app.get("/staff")
@@ -1072,12 +1077,18 @@ def list_staff(
 
 @app.get("/staff/workload")
 def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
-    """The workload matrix: one row per active staff member, plus the totals.
+    """The workload matrix: one row per staff member, plus the totals.
 
-    `orphaned` is counted against the *whole* roster, deactivated accounts
-    included — a deactivated staff member still owns their work, so only
-    profiles pointing at an account that is gone are unreachable, and nothing
-    but a rebalance brings those back.
+    Every account, deactivated ones included. It used to be the active roster
+    only, which meant a deactivated colleague's queue was in no row and in no
+    total — the console could neither show that work nor offer to reactivate
+    the account holding it, and the candidate pool silently under-reported by
+    however much they were carrying. `active` is on each row, so the console
+    still knows which accounts new profiles may be routed to.
+
+    `orphaned` is counted against the same whole roster: a deactivated staff
+    member still owns their work, so only profiles pointing at an account that
+    is gone are unreachable, and nothing but a rebalance brings those back.
     """
     repository = repo()
     everyone = users.list_staff(include_inactive=True)
@@ -1095,7 +1106,7 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.warning("Auto-allocation on staff workload fetch failed: %s", exc)
 
-    items = repository.staff_workload(active)
+    items = repository.staff_workload(everyone)
     roster_ids = [member.id for member in everyone]
     return {
         "items": items,
@@ -1105,7 +1116,9 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
         # and would flag the first as orphaned, which it is not.
         "roster_ids": roster_ids,
         "totals": {
-            "staff": len(items),
+            # The accounts work is routed to, not the number of rows: `items`
+            # now carries deactivated accounts as well.
+            "staff": len(active),
             "assigned": sum(row["assigned"] for row in items),
             "evaluated": sum(row["evaluated"] for row in items),
             "unassigned": repository.unassigned_count(),
@@ -1133,6 +1146,7 @@ def create_staff(
             password=payload.password,
             name=payload.name,
             keywords=payload.keywords,
+            phone=payload.phone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1155,6 +1169,7 @@ def update_staff(
             keywords=payload.keywords,
             active=payload.active,
             password=payload.password,
+            phone=payload.phone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -2251,6 +2266,7 @@ class UserIn(BaseModel):
     role: str = STAFF_ROLE
     page_grants: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
+    phone: str = Field(default="", max_length=40)
 
 
 class UserPatch(BaseModel):
@@ -2262,6 +2278,7 @@ class UserPatch(BaseModel):
     password: str | None = None
     page_grants: list[str] | None = None
     keywords: list[str] | None = None
+    phone: str | None = Field(default=None, max_length=40)
 
 
 @app.get("/users")
@@ -2289,6 +2306,7 @@ def create_user(payload: UserIn, admin: dict = Depends(require_admin)) -> dict:
             name=payload.name,
             role=role,
             page_grants=payload.page_grants,
+            phone=payload.phone,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -2333,6 +2351,7 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
         password=payload.password,
         page_grants=payload.page_grants,
         keywords=payload.keywords,
+        phone=payload.phone,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
