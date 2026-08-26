@@ -2,25 +2,24 @@
 
 import { useMemo, useState } from "react";
 import {
-  Search,
-  UsersRound,
-  Eye,
-  Edit3,
-  Trash2,
-  MoreHorizontal,
   ArrowDown,
   ArrowUp,
-  Check,
-  X,
-  LayoutGrid,
-  Rows3,
-  FileText,
-  Plus,
-  ExternalLink,
-  Users,
-  FileSearch,
   Briefcase,
+  Check,
   CheckCircle2,
+  Edit3,
+  ExternalLink,
+  FileSearch,
+  FileText,
+  History,
+  LayoutGrid,
+  Plus,
+  Rows3,
+  Search,
+  Trash2,
+  Users,
+  UsersRound,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
@@ -159,12 +158,33 @@ function getReference(candidate: CandidateRecord): string {
   return (candidate.resume_hash?.slice(0, 8) || candidate.id.slice(-8)).toUpperCase();
 }
 
+function getAdded(candidate: CandidateRecord): string {
+  if (!candidate.created_at) return "—";
+  const date = new Date(candidate.created_at);
+  return Number.isNaN(date.getTime()) ? "—" : formatDateFull(date);
+}
+
 type StatusKey = "verified" | "review" | "active";
 
-function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string } {
-  if (candidate.status === "verified") return { key: "verified", label: "Verified" };
-  if ((candidate.profile?.confidence ?? 1) < REVIEW_CONFIDENCE) return { key: "review", label: "Needs Review" };
-  return { key: "active", label: "Active" };
+/**
+ * The state, and the tone that carries it.
+ *
+ * Resolved in one place rather than at each of the three that draw it, so the
+ * dot in a row, the dot on a card and the word beside either can never
+ * disagree about what colour "verified" is.
+ */
+const STATUS_TONE: Record<StatusKey, string> = {
+  verified: "ok",
+  review: "warn",
+  active: "info",
+};
+
+function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string; tone: string } {
+  if (candidate.status === "verified")
+    return { key: "verified", label: "Verified", tone: STATUS_TONE.verified };
+  if ((candidate.profile?.confidence ?? 1) < REVIEW_CONFIDENCE)
+    return { key: "review", label: "Needs review", tone: STATUS_TONE.review };
+  return { key: "active", label: "Unchecked", tone: STATUS_TONE.active };
 }
 
 const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
@@ -187,26 +207,44 @@ const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
 };
 
 const FILTERS: { id: TalentFilter; label: string }[] = [
-  { id: "all", label: "All Candidates" },
-  { id: "pending", label: "Needs Review" },
+  { id: "all", label: "All candidates" },
+  { id: "pending", label: "Needs review" },
   { id: "active", label: "Unchecked" },
   { id: "verified", label: "Verified" },
 ];
 
-type SortKey = "name" | "designation" | "industry" | "experience" | "status" | "added";
+type SortKey = "name" | "role" | "experience" | "status" | "added";
 type SortDir = "asc" | "desc";
 
-const COLUMNS = [
-  { key: "index", label: "S.No." },
-  { key: "name", label: "Candidate", sort: "name" as SortKey },
-  { key: "designation", label: "Designation", sort: "designation" as SortKey },
-  { key: "industry", label: "Industry", sort: "industry" as SortKey },
-  { key: "experience", label: "Experience", sort: "experience" as SortKey },
+/**
+ * Six facts and the row's controls.
+ *
+ * The old table ran to eight columns and said several things twice: a row
+ * number beside a sortable list, an industry column reading "General" for most
+ * of the pool, and a phone column beside an email already printed under the
+ * name. What is left is what a recruiter scans down — who, what they do, how
+ * long they have done it, how to reach them, when they arrived, where they
+ * stand.
+ */
+const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] = [
+  { key: "name", label: "Candidate", sort: "name" },
+  { key: "role", label: "Role", sort: "role" },
+  { key: "experience", label: "Experience", sort: "experience", align: "num" },
   { key: "contact", label: "Contact" },
-  { key: "status", label: "Status", sort: "status" as SortKey },
-  { key: "actions", label: "Actions" },
+  { key: "added", label: "Added", sort: "added" },
+  { key: "status", label: "Status", sort: "status" },
+  { key: "actions", label: "" },
 ];
 
+/**
+ * Every parsed profile, on one screen.
+ *
+ * Four readings across the top that are also the filter, then one panel
+ * holding the profiles — as a table by default, as cards when the width is
+ * better spent that way. The same register as the overview: white panels on
+ * the light plane, rows as tinted bands, one accent, and the state carried by
+ * a dot and a word rather than by a wash across the whole line.
+ */
 export default function CandidatesView({
   candidates: allCandidates,
   logCounts,
@@ -219,6 +257,7 @@ export default function CandidatesView({
   const [filter, setFilter] = useState<TalentFilter>("all");
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const candidates = useMemo(() => {
     if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
@@ -237,8 +276,6 @@ export default function CandidatesView({
     }
     return counts;
   }, [allCandidates]);
-
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -267,10 +304,8 @@ export default function CandidatesView({
       switch (sort.key) {
         case "name":
           return factor * getDisplayName(a).localeCompare(getDisplayName(b));
-        case "designation":
+        case "role":
           return factor * getDesignation(a).localeCompare(getDesignation(b));
-        case "industry":
-          return factor * getIndustry(a).localeCompare(getIndustry(b));
         case "experience": {
           const ax = getExperienceYears(a);
           const bx = getExperienceYears(b);
@@ -314,33 +349,112 @@ export default function CandidatesView({
 
     const out = {} as Record<TalentFilter, number | null>;
     for (const { id } of FILTERS) {
+      // Measured on the whole pool, not on the current slice: the card for
+      // "Verified" has to keep reading verified while "Needs review" is the
+      // one selected, or the three cards you are not on go blank.
       const rows =
         id === "all"
-          ? candidates
-          : candidates.filter((row) => {
+          ? allCandidates
+          : allCandidates.filter((row) => {
               const key = getStatus(row).key;
               if (id === "verified") return key === "verified";
               if (id === "pending") return key === "review";
-              return key !== "verified" && key !== "review";
+              return key === "active";
             });
       const current = countIn(rows, thisMonth, now.getTime());
       const previous = countIn(rows, lastMonth, thisMonth);
       out[id] = previous > 0 ? ((current - previous) / previous) * 100 : null;
     }
     return out;
-  }, [candidates]);
+  }, [allCandidates]);
 
   const toggleSort = (key: SortKey) =>
-    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+    setSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+
+  /**
+   * The controls a row carries.
+   *
+   * Opening the profile is the row itself, so there is no magnifier here
+   * repeating the click the whole row already answers — that magnifier was the
+   * fifth of five icons on every line, which is what made the actions column
+   * read as a wall.
+   */
+  const rowActions = (candidate: CandidateRecord) => {
+    const logCount = logCounts[candidate.id] ?? 0;
+    return (
+      <>
+        {candidate.resume?.storage_key && (
+          <a
+            className="ds-act"
+            href={resumeDownloadUrl(candidate.id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open the original résumé"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <FileText size={15} />
+          </a>
+        )}
+        <button
+          type="button"
+          className="ds-act"
+          title="Edit this profile"
+          onClick={() => onEditCandidate(candidate)}
+        >
+          <Edit3 size={15} />
+        </button>
+        <button
+          type="button"
+          className="ds-act"
+          title={logCount > 0 ? `Activity — ${formatInt(logCount)} entries` : "Activity"}
+          onClick={() => onOpenLogs(candidate)}
+        >
+          <History size={15} />
+        </button>
+        <button
+          type="button"
+          className="ds-act is-danger"
+          title="Delete this profile"
+          onClick={() => setDeleteConfirm(candidate.id)}
+        >
+          <Trash2 size={15} />
+        </button>
+      </>
+    );
+  };
+
+  /** The same two-button confirmation wherever a delete is asked for. */
+  const confirmDelete = (candidateId: string) => (
+    <div className="ds-confirm">
+      <span>Delete?</span>
+      <button
+        type="button"
+        className="ds-act is-danger is-solid"
+        title="Yes, delete it"
+        onClick={() => {
+          onDeleteCandidate(candidateId);
+          setDeleteConfirm(null);
+        }}
+      >
+        <Check size={15} />
+      </button>
+      <button type="button" className="ds-act" title="Keep it" onClick={() => setDeleteConfirm(null)}>
+        <X size={15} />
+      </button>
+    </div>
+  );
+
+  const activeLabel = FILTERS.find((f) => f.id === filter)?.label ?? "All candidates";
 
   return (
     <div className="ds-page">
+      {/* ── Page head ─────────────────────────────────────────────────── */}
       <header className="ds-head">
         <div>
           <h1 className="ds-head-title">Candidates</h1>
-          <p className="ds-head-sub">
-            Every parsed profile in the database — designation, experience and status.
-          </p>
+          <p className="ds-head-sub">Every parsed profile, and where each one stands</p>
         </div>
 
         <div className="ds-head-actions">
@@ -353,6 +467,7 @@ export default function CandidatesView({
         </div>
       </header>
 
+      {/* ── Four readings, which are also the filter ──────────────────── */}
       {/* The readings and the filter are the same control. Four cards above a
           row of four tabs would be the same four numbers twice, a click
           apart. */}
@@ -393,12 +508,11 @@ export default function CandidatesView({
         })}
       </div>
 
+      {/* ── The profiles themselves ───────────────────────────────────── */}
       <section className="ds-panel">
         <div className="ds-panel-head is-split">
           <div>
-            <h2 className="ds-panel-title">
-              {FILTERS.find((f) => f.id === filter)?.label ?? "All candidates"}
-            </h2>
+            <h2 className="ds-panel-title">{activeLabel}</h2>
             <p className="ds-panel-sub">
               {formatInt(sorted.length)} shown of {formatInt(candidates.length)} on file
             </p>
@@ -419,17 +533,19 @@ export default function CandidatesView({
             <div className="ds-seg is-quiet" role="group" aria-label="View">
               <button
                 type="button"
-                className={`ds-seg-btn ${view === "table" ? "is-on" : ""}`}
+                className={`ds-seg-btn is-icon ${view === "table" ? "is-on" : ""}`}
                 onClick={() => setView("table")}
                 title="Table view"
+                aria-label="Table view"
               >
                 <Rows3 size={15} />
               </button>
               <button
                 type="button"
-                className={`ds-seg-btn ${view === "cards" ? "is-on" : ""}`}
+                className={`ds-seg-btn is-icon ${view === "cards" ? "is-on" : ""}`}
                 onClick={() => setView("cards")}
                 title="Card view"
+                aria-label="Card view"
               >
                 <LayoutGrid size={15} />
               </button>
@@ -437,138 +553,91 @@ export default function CandidatesView({
           </div>
         </div>
 
-      {/* Main Content Area */}
-      {filtered.length === 0 ? (
-        <div className="ds-empty-state">
-          <UsersRound size={30} />
-          <h3>{EMPTY_COPY[filter].title}</h3>
-          <p>{query ? "Nothing here matches that search." : EMPTY_COPY[filter].sub}</p>
-          {query && (
-            <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
-              Clear search
-            </button>
-          )}
-        </div>
-      ) : view === "cards" ? (
-        /* Card View Grid */
-        <div className="shopeers-cand-grid">
-          {sorted.map((candidate) => {
-            const displayName = getDisplayName(candidate);
-            const status = getStatus(candidate);
-            const years = getExperienceYears(candidate);
-            const logCount = logCounts[candidate.id] ?? 0;
-            return (
-              <div
-                key={candidate.id}
-                className="shopeers-cand-card"
-                onClick={() => onOpenCandidate(candidate)}
-              >
-                <div className="shopeers-cand-card-head">
-                  <div className="shopeers-cand-cell">
-                    <span className="shopeers-cand-avatar">{initialsOf(displayName)}</span>
-                    <div className="shopeers-cand-info">
-                      <span className="shopeers-cand-name" title={displayName}>
-                        {displayName}
+        {sorted.length === 0 ? (
+          <div className="ds-empty-state">
+            <UsersRound size={30} />
+            <h3>{query ? "Nothing matches that search" : EMPTY_COPY[filter].title}</h3>
+            <p>{query ? "No profile matches what you typed." : EMPTY_COPY[filter].sub}</p>
+            {query && (
+              <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
+                Clear search
+              </button>
+            )}
+          </div>
+        ) : view === "cards" ? (
+          <div className="ds-grid">
+            {sorted.map((candidate) => {
+              const displayName = getDisplayName(candidate);
+              const status = getStatus(candidate);
+              const email = getEmail(candidate);
+              return (
+                <article
+                  key={candidate.id}
+                  className="ds-mini"
+                  onClick={() => onOpenCandidate(candidate)}
+                >
+                  <div className="ds-mini-head">
+                    <span className="ds-who">
+                      <span className="ds-avatar" aria-hidden="true">
+                        {initialsOf(displayName)}
                       </span>
-                      <span className="shopeers-cand-sub">{getDesignation(candidate) || getEmail(candidate)}</span>
-                    </div>
-                  </div>
-                  <span className={`shopeers-status-pill is-${status.key}`}>{status.label}</span>
-                </div>
-
-                <div className="shopeers-cand-card-meta">
-                  <div className="shopeers-meta-item">
-                    <span className="shopeers-meta-lbl">Industry</span>
-                    <span className="shopeers-meta-val">{getIndustry(candidate)}</span>
-                  </div>
-                  <div className="shopeers-meta-item">
-                    <span className="shopeers-meta-lbl">Experience</span>
-                    <span className="shopeers-meta-val">{formatExperience(years)}</span>
-                  </div>
-                  <div className="shopeers-meta-item">
-                    <span className="shopeers-meta-lbl">Contact</span>
-                    <span className="shopeers-meta-val">{getContact(candidate) || "—"}</span>
-                  </div>
-                  <div className="shopeers-meta-item">
-                    <span className="shopeers-meta-lbl">Added</span>
-                    <span className="shopeers-meta-val">
-                      {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
+                      <span className="ds-who-text">
+                        <strong title={displayName}>{displayName}</strong>
+                        <small title={email}>{email || "No email on file"}</small>
+                      </span>
+                    </span>
+                    <span className={`ds-status is-${status.tone}`}>
+                      <i aria-hidden="true" />
+                      {status.label}
                     </span>
                   </div>
-                </div>
 
-                <div className="shopeers-cand-card-foot" onClick={(e) => e.stopPropagation()}>
-                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{getEmail(candidate)}</span>
-                  <div className="shopeers-action-btns">
-                    {candidate.resume?.storage_key && (
-                      <a
-                        className="shopeers-act-btn"
-                        href={resumeDownloadUrl(candidate.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="View Resume PDF"
-                      >
-                        <FileText size={14} />
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="shopeers-act-btn"
-                      title="Edit Candidate"
-                      onClick={() => onEditCandidate(candidate)}
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="shopeers-act-btn"
-                      title="Activity Logs"
-                      onClick={() => onOpenLogs(candidate)}
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="shopeers-act-btn is-delete"
-                      title="Delete Candidate"
-                      onClick={() => {
-                        if (confirm(`Permanently delete "${displayName}"?`)) {
-                          onDeleteCandidate(candidate.id);
-                        }
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  <dl className="ds-mini-meta">
+                    <div>
+                      <dt>Role</dt>
+                      <dd>{getDesignation(candidate) || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Industry</dt>
+                      <dd>{getIndustry(candidate)}</dd>
+                    </div>
+                    <div>
+                      <dt>Experience</dt>
+                      <dd>{formatExperience(getExperienceYears(candidate))}</dd>
+                    </div>
+                    <div>
+                      <dt>Contact</dt>
+                      <dd>{getContact(candidate) || "—"}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="ds-mini-foot" onClick={(e) => e.stopPropagation()}>
+                    <span className="ds-mini-when">Added {getAdded(candidate)}</span>
+                    <div className="ds-acts">
+                      {deleteConfirm === candidate.id
+                        ? confirmDelete(candidate.id)
+                        : rowActions(candidate)}
+                    </div>
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        /* Table View */
-        <div className="shopeers-table-card">
-          <div className="shopeers-table-responsive">
-            <table className="shopeers-table">
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="ds-table-wrap">
+            <table className="ds-table">
               <thead>
                 <tr>
                   {COLUMNS.map((col) => (
-                    <th key={col.key}>
+                    <th
+                      key={col.key}
+                      className={col.align === "num" ? "is-num" : undefined}
+                      aria-label={col.label ? undefined : "Actions"}
+                    >
                       {col.sort ? (
                         <button
                           type="button"
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            font: "inherit",
-                            color: "inherit",
-                            cursor: "pointer",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: "0.25rem",
-                            fontWeight: 700,
-                          }}
+                          className={`ds-sort ${sort.key === col.sort ? "is-on" : ""}`}
                           onClick={() => toggleSort(col.sort!)}
                         >
                           {col.label}
@@ -583,134 +652,56 @@ export default function CandidatesView({
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((candidate, index) => {
+                {sorted.map((candidate) => {
                   const displayName = getDisplayName(candidate);
                   const designation = getDesignation(candidate);
-                  const industry = getIndustry(candidate);
-                  const years = getExperienceYears(candidate);
                   const contact = getContact(candidate);
                   const email = getEmail(candidate);
                   const status = getStatus(candidate);
-                  const isConfirmingDelete = deleteConfirm === candidate.id;
 
                   return (
-                    <tr
-                      key={candidate.id}
-                      // The row carries its own state as a wash, so the column
-                      // of pills is a confirmation rather than the only place
-                      // the status lives.
-                      className={`shopeers-tr-row tone-${
-                        status.key === "verified" ? "ok" : status.key === "review" ? "warn" : "info"
-                      }`}
-                      onClick={() => onOpenCandidate(candidate)}
-                    >
-                      <td className="shopeers-td-sno">{index + 1}</td>
-
+                    <tr key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
                       <td>
-                        <div className="shopeers-cand-cell">
-                          <span className="shopeers-cand-avatar">{initialsOf(displayName)}</span>
-                          <div className="shopeers-cand-info">
-                            <span className="shopeers-cand-name" title={displayName}>
-                              {displayName}
-                            </span>
-                            <span className="shopeers-cand-sub">{email}</span>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td title={designation || undefined}>
-                        <span style={{ fontWeight: 600, color: "var(--text-main)" }}>
-                          {designation || "—"}
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(displayName)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong title={displayName}>{displayName}</strong>
+                            <small title={email}>{email || "No email on file"}</small>
+                          </span>
                         </span>
                       </td>
 
-                      <td title={industry}>{industry}</td>
-
-                      <td style={{ textAlign: "center", fontWeight: 600, color: "var(--text-main)" }}>
-                        {formatExperience(years)}
+                      {/* The role and the industry it sits in are one fact read
+                          two ways, so they share a cell rather than take a
+                          column each. */}
+                      <td>
+                        <span className="ds-cell-main" title={designation || undefined}>
+                          {designation || "—"}
+                        </span>
+                        <span className="ds-cell-sub">{getIndustry(candidate)}</span>
                       </td>
 
-                      <td style={{ fontWeight: 500, color: "var(--dash-ink-2)" }} title={contact || undefined}>
-                        {contact || "—"}
-                      </td>
+                      <td className="is-num">{formatExperience(getExperienceYears(candidate))}</td>
 
-                      <td style={{ textAlign: "center" }}>
-                        <span className={`shopeers-status-pill is-${status.key}`}>{status.label}</span>
+                      <td title={contact || undefined}>{contact || "—"}</td>
+
+                      <td>{getAdded(candidate)}</td>
+
+                      <td>
+                        <span className={`ds-status is-${status.tone}`}>
+                          <i aria-hidden="true" />
+                          {status.label}
+                        </span>
                       </td>
 
                       <td onClick={(e) => e.stopPropagation()}>
-                        {isConfirmingDelete ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                            <span style={{ fontSize: "0.725rem", color: "var(--error)", fontWeight: 700 }}>
-                              Delete?
-                            </span>
-                            <button
-                              type="button"
-                              className="shopeers-act-btn"
-                              style={{ background: "var(--error)", color: "#FFFFFF", borderColor: "var(--error)" }}
-                              onClick={() => {
-                                onDeleteCandidate(candidate.id);
-                                setDeleteConfirm(null);
-                              }}
-                            >
-                              <Check size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className="shopeers-act-btn"
-                              onClick={() => setDeleteConfirm(null)}
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="shopeers-action-btns">
-                            {candidate.resume?.storage_key && (
-                              <a
-                                className="shopeers-act-btn"
-                                href={resumeDownloadUrl(candidate.id)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="View Original Resume PDF"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <FileText size={14} />
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              className="shopeers-act-btn"
-                              title="View Executive Profile"
-                              onClick={() => onOpenCandidate(candidate)}
-                            >
-                              <Eye size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="shopeers-act-btn"
-                              title="Edit Candidate Details"
-                              onClick={() => onEditCandidate(candidate)}
-                            >
-                              <Edit3 size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="shopeers-act-btn"
-                              title="Activity History"
-                              onClick={() => onOpenLogs(candidate)}
-                            >
-                              <MoreHorizontal size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="shopeers-act-btn is-delete"
-                              title="Delete Candidate"
-                              onClick={() => setDeleteConfirm(candidate.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        )}
+                        <div className="ds-acts">
+                          {deleteConfirm === candidate.id
+                            ? confirmDelete(candidate.id)
+                            : rowActions(candidate)}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -718,19 +709,18 @@ export default function CandidatesView({
               </tbody>
             </table>
           </div>
+        )}
 
-          <div className="shopeers-table-foot">
-            <span>
-              Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
-              <strong>{formatInt(candidates.length)}</strong> candidates
-            </span>
-            <span className="ds-status is-ok">
-              <i aria-hidden="true" />
-              Live DB sync
-            </span>
-          </div>
+        <div className="ds-panel-foot">
+          <span>
+            Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
+            <strong>{formatInt(candidates.length)}</strong> candidates
+          </span>
+          <span className="ds-status is-ok">
+            <i aria-hidden="true" />
+            Live DB sync
+          </span>
         </div>
-      )}
       </section>
     </div>
   );

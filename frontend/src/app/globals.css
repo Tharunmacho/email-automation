@@ -13787,1746 +13787,6 @@ body {
   cursor: not-allowed;
 }
 
-/* ============================================================================
-   SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES (PERFECT ALIGNMENT)
-   ============================================================================ */
-
-/* The workspace already supplies the gutter, the plane and the family. All
-   this adds is the space under the screen — anything else here is the shell
-   restated one level in, which is what pushed this screen 32px right of its
-   own page header and put a light plane behind it in dark mode. */
-.shopeers-page-container {
-  padding-bottom: 1rem;
-  box-sizing: border-box;
-  width: 100%;
-}
-
-/* Page Header */
-.shopeers-header {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  margin-bottom: 1.75rem;
-  width: 100%;
-  gap: 1.25rem;
-}
-
-.shopeers-header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.shopeers-title {
-  font-size: 1.75rem;
-  font-weight: 800;
-  color: var(--text-main);
-  letter-spacing: -0.025em;
-  margin: 0;
-  line-height: 1.2;
-}
-
-.shopeers-subtitle {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.shopeers-header-actions {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.65rem;
-  flex-wrap: nowrap;
-}
-
-/* Pill Buttons (INLINE HORIZONTAL FLEX) */
-.shopeers-pill-btn {
-  display: inline-flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0.45rem !important;
-  padding: 0.55rem 1rem !important;
-  height: 38px !important;
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border-main) !important;
-  border-radius: 9999px !important;
-  font-size: 0.825rem !important;
-  font-weight: 600 !important;
-  color: var(--text-muted) !important;
-  white-space: nowrap !important;
-  line-height: 1 !important;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  transition: all 0.15s ease;
-  box-sizing: border-box;
-}
-
-.shopeers-pill-btn:hover {
-  background: var(--tint-1) !important;
-  border-color: var(--border-hover) !important;
-  color: var(--text-main) !important;
-}
-
-.shopeers-pill-btn.is-outline {
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border-main) !important;
-}
-
-.shopeers-pill-icon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.shopeers-export-btn {
-  display: inline-flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0.45rem !important;
-  padding: 0.55rem 1.25rem !important;
-  height: 38px !important;
-  background: #1a3cff !important;
-  border: none !important;
-  border-radius: 9999px !important;
-  font-size: 0.825rem !important;
-  font-weight: 600 !important;
-  color: #ffffff !important;
-  white-space: nowrap !important;
-  line-height: 1 !important;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(26, 60, 255, 0.25);
-  transition: all 0.15s ease;
-  box-sizing: border-box;
-}
-
-.shopeers-export-btn:hover {
-  background: #0022e6 !important;
-  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.35);
-  transform: translateY(-1px);
-}
-
-/* Metric Cards Row */
-.shopeers-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.25rem;
-  margin-bottom: 1.5rem;
-  width: 100%;
-}
-
-@media (max-width: 1024px) {
-  .shopeers-metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .shopeers-metrics-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.shopeers-metric-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.25rem 1.4rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.shopeers-metric-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-
-.shopeers-metric-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.shopeers-metric-icon-wrap {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #eff2ff;
-  color: #1a3cff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.shopeers-metric-icon-wrap.is-green {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.shopeers-metric-icon-wrap.is-rose {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.shopeers-metric-val-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.65rem;
-  margin-bottom: 0.35rem;
-}
-
-.shopeers-metric-val {
-  font-size: 1.625rem;
-  font-weight: 700;
-  color: var(--text-main);
-  letter-spacing: -0.02em;
-}
-
-.shopeers-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.2rem 0.56rem;
-  border-radius: 9999px;
-  font-size: 0.725rem;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.shopeers-badge.is-up {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.shopeers-badge.is-down {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.shopeers-metric-sub {
-  font-size: 0.75rem;
-  color: var(--text-light);
-}
-
-/* Control Toolbar (Filters + Search + View toggle) */
-.shopeers-toolbar {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  background: var(--bg-card);
-  border: 1px solid var(--tint-2);
-  border-radius: 1.125rem;
-  padding: 0.75rem 1.25rem;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.shopeers-filter-pills {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.4rem;
-}
-
-.shopeers-filter-pill {
-  display: inline-flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.45rem !important;
-  padding: 0.45rem 0.95rem !important;
-  border-radius: 9999px !important;
-  font-size: 0.8rem !important;
-  font-weight: 600 !important;
-  color: var(--text-muted) !important;
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  line-height: 1 !important;
-}
-
-.shopeers-filter-pill:hover {
-  color: var(--text-main) !important;
-  background: var(--tint-1) !important;
-}
-
-.shopeers-filter-pill.is-active {
-  background: #eff2ff !important;
-  color: #1a3cff !important;
-  font-weight: 600 !important;
-  border-color: #d8deff !important;
-}
-
-.shopeers-pill-count {
-  font-size: 0.7rem !important;
-  font-weight: 700 !important;
-  padding: 0.12rem 0.45rem !important;
-  border-radius: 9999px !important;
-  background: var(--border-main) !important;
-  color: var(--text-muted) !important;
-  line-height: 1 !important;
-}
-
-.shopeers-filter-pill.is-active .shopeers-pill-count {
-  background: #1a3cff !important;
-  color: #ffffff !important;
-}
-
-.shopeers-toolbar-right {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.75rem;
-}
-
-.shopeers-search-box {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.5rem;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.45rem 0.95rem;
-  width: 290px;
-}
-
-.shopeers-search-icon {
-  color: var(--text-light);
-  flex-shrink: 0;
-}
-
-.shopeers-search-input {
-  border: none !important;
-  background: transparent !important;
-  outline: none !important;
-  width: 100%;
-  font-size: 0.8rem;
-  color: var(--text-main);
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-.shopeers-search-clear {
-  background: none;
-  border: none;
-  color: var(--text-light);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 0.1rem;
-}
-
-.shopeers-search-clear:hover {
-  color: var(--text-main);
-}
-
-.shopeers-view-toggle {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.2rem;
-}
-
-.shopeers-view-btn {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 32px;
-  height: 32px;
-  border-radius: 50% !important;
-  border: none !important;
-  background: transparent !important;
-  color: var(--text-muted) !important;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.shopeers-view-btn.is-active {
-  background: var(--bg-card) !important;
-  color: #1a3cff !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
-}
-
-/* Main Table Container */
-.shopeers-table-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.5rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.shopeers-table-responsive {
-  overflow-x: auto;
-  width: 100%;
-}
-
-.shopeers-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.shopeers-table th {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-light);
-  letter-spacing: 0.05em;
-  padding: 0.85rem 0.75rem;
-  border-bottom: 1px solid var(--tint-2);
-  text-align: left;
-}
-
-.shopeers-table td {
-  padding: 1rem 0.75rem;
-  border-bottom: 1px solid var(--tint-1);
-  font-size: 0.85rem;
-  vertical-align: middle;
-}
-
-.shopeers-table tr.shopeers-tr-row {
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.shopeers-table tr.shopeers-tr-row:hover {
-  background: var(--tint-1);
-}
-
-.shopeers-td-sno {
-  color: var(--text-light);
-  font-weight: 600;
-  text-align: center;
-}
-
-.shopeers-cand-cell {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.85rem;
-}
-
-.shopeers-cand-avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #eff2ff 0%, #d8deff 100%);
-  color: #1a3cff;
-  font-weight: 700;
-  font-size: 0.85rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.shopeers-cand-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.shopeers-cand-name {
-  font-weight: 700;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shopeers-cand-sub {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shopeers-status-pill {
-  display: inline-flex !important;
-  align-items: center !important;
-  padding: 0.25rem 0.75rem !important;
-  border-radius: 9999px !important;
-  font-size: 0.725rem !important;
-  font-weight: 700 !important;
-  line-height: 1 !important;
-}
-
-.shopeers-status-pill.is-verified {
-  background: #dcfce7 !important;
-  color: #15803d !important;
-}
-
-.shopeers-status-pill.is-review {
-  background: #fef3c7 !important;
-  color: #b45309 !important;
-}
-
-.shopeers-status-pill.is-active {
-  background: #eff2ff !important;
-  color: #1a3cff !important;
-}
-
-.shopeers-action-btns {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 0.4rem;
-}
-
-.shopeers-act-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 0.5rem !important;
-  border: 1px solid var(--border-main) !important;
-  background: var(--bg-card) !important;
-  color: var(--text-muted) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-decoration: none;
-}
-
-.shopeers-act-btn:hover {
-  background: var(--tint-1) !important;
-  color: #1a3cff !important;
-  border-color: var(--border-hover) !important;
-}
-
-.shopeers-act-btn.is-delete:hover {
-  background: #fee2e2 !important;
-  color: #dc2626 !important;
-  border-color: #fca5a5 !important;
-}
-
-.shopeers-table-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 1rem;
-  margin-top: 0.75rem;
-  border-top: 1px solid var(--tint-2);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* Card View Grid */
-.shopeers-cand-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.25rem;
-  width: 100%;
-}
-
-.shopeers-cand-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.25rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 1rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.shopeers-cand-card:hover {
-  border-color: var(--border-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
-}
-
-.shopeers-cand-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.shopeers-cand-card-meta {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.65rem;
-  background: var(--tint-1);
-  border-radius: 0.75rem;
-  padding: 0.75rem;
-}
-
-.shopeers-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.shopeers-meta-lbl {
-  font-size: 0.68rem;
-  color: var(--text-light);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.shopeers-meta-val {
-  font-size: 0.775rem;
-  color: var(--text-main);
-  font-weight: 600;
-}
-
-.shopeers-cand-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--tint-2);
-}
-
-/* Sidebar Styles */
-.shopeers-sidebar {
-  width: 240px;
-  background: var(--bg-card);
-  border-right: 1px solid var(--tint-2);
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 50;
-  padding: 1.25rem 1rem;
-  box-sizing: border-box;
-}
-
-.shopeers-brand-header {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.25rem 0.5rem 1.25rem 0.5rem;
-}
-
-.shopeers-logo-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 0.5rem;
-  background: #eff2ff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.shopeers-brand-title {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--text-main);
-  letter-spacing: -0.02em;
-}
-
-.shopeers-nav-scroll {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.shopeers-nav-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.shopeers-nav-item {
-  position: relative;
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 0.75rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  transition: all 0.15s ease;
-}
-
-.shopeers-nav-item:hover {
-  background: var(--tint-1);
-  color: var(--text-main);
-}
-
-.shopeers-nav-item.is-active {
-  background: #eff2ff;
-  color: #1a3cff;
-  font-weight: 600;
-}
-
-.shopeers-nav-active-indicator {
-  display: none;
-  position: absolute;
-  left: 0;
-  top: 15%;
-  height: 70%;
-  width: 3.5px;
-  background: #1a3cff;
-  border-radius: 0 4px 4px 0;
-}
-
-.shopeers-nav-item.is-active .shopeers-nav-active-indicator {
-  display: block;
-}
-
-.shopeers-nav-text {
-  flex: 1;
-}
-
-.shopeers-nav-badge {
-  background: #dcfce7;
-  color: #15803d;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.1rem 0.45rem;
-  border-radius: 9999px;
-}
-
-.shopeers-nav-group-btn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.65rem 0.85rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-}
-
-.shopeers-group-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.shopeers-subnav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding-left: 2.25rem;
-}
-
-.shopeers-subnav-item {
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 0.375rem;
-}
-
-.shopeers-subnav-item:hover {
-  color: var(--text-main);
-}
-
-.shopeers-upgrade-card {
-  margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, var(--text-main) 100%);
-  border-radius: 1rem;
-  padding: 1rem;
-  color: #ffffff;
-  position: relative;
-  overflow: hidden;
-}
-
-.shopeers-upgrade-badge {
-  width: 28px;
-  height: 28px;
-  border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0.65rem;
-}
-
-.shopeers-upgrade-title {
-  font-size: 0.85rem;
-  font-weight: 700;
-  margin: 0 0 0.25rem 0;
-}
-
-.shopeers-upgrade-sub {
-  font-size: 0.7rem;
-  color: #93a3ff;
-  margin: 0 0 0.75rem 0;
-  line-height: 1.3;
-}
-
-.shopeers-upgrade-btn {
-  width: 100%;
-  padding: 0.45rem;
-  border-radius: 0.55rem;
-  background: linear-gradient(135deg, #3452ff 0%, #1a3cff 100%);
-  color: #ffffff;
-  font-size: 0.75rem;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.4);
-}
-
-/* Topbar Header */
-.shopeers-topbar {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  padding: 0.75rem 2.5rem;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--tint-2);
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  box-sizing: border-box;
-}
-
-.shopeers-topbar-search {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.5rem;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.45rem 0.95rem;
-  width: 320px;
-}
-
-.shopeers-topbar-search-icon {
-  color: var(--text-light);
-  flex-shrink: 0;
-}
-
-.shopeers-topbar-search-input {
-  border: none !important;
-  background: transparent !important;
-  outline: none !important;
-  width: 100%;
-  font-size: 0.825rem;
-  color: var(--text-main);
-}
-
-.shopeers-topbar-kbd {
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: var(--text-light);
-  background: var(--bg-card);
-  border: 1px solid var(--border-hover);
-  border-radius: 0.25rem;
-  padding: 0.1rem 0.35rem;
-}
-
-.shopeers-topbar-right {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.85rem;
-}
-
-.shopeers-topbar-icon-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-main);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.15s ease;
-}
-
-.shopeers-topbar-icon-btn:hover {
-  background: var(--tint-1);
-  color: var(--text-main);
-}
-
-.shopeers-topbar-bell-dot {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 7px;
-  height: 7px;
-  background: #ef4444;
-  border-radius: 50%;
-}
-
-.shopeers-topbar-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3452ff 0%, #0022e6 100%);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(26, 60, 255, 0.25);
-}
-
-.shopeers-backdrop {
-  display: none;
-}
-
-
-
-/* ============================================================================
-   SHOPEERS DESIGN SYSTEM & CANDIDATES SECTION STYLES
-   ============================================================================ */
-
-
-/* Page Header */
-.shopeers-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.shopeers-header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.shopeers-title {
-  font-size: 1.75rem;
-  font-weight: 800;
-  color: var(--text-main);
-  letter-spacing: -0.025em;
-  margin: 0;
-}
-
-.shopeers-subtitle {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.shopeers-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  flex-wrap: wrap;
-}
-
-/* Metric Cards Row */
-.shopeers-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.25rem;
-  margin-bottom: 1.5rem;
-}
-
-@media (max-width: 1024px) {
-  .shopeers-metrics-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .shopeers-metrics-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.shopeers-metric-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.25rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.shopeers-metric-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-
-.shopeers-metric-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.shopeers-metric-icon-wrap {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #eff2ff;
-  color: #1a3cff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.shopeers-metric-icon-wrap.is-green {
-  background: #dcfce7;
-  color: #16a34a;
-}
-
-.shopeers-metric-icon-wrap.is-rose {
-  background: #fee2e2;
-  color: #dc2626;
-}
-
-.shopeers-metric-val-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.65rem;
-  margin-bottom: 0.35rem;
-}
-
-.shopeers-metric-val {
-  font-size: 1.625rem;
-  font-weight: 700;
-  color: var(--text-main);
-  letter-spacing: -0.02em;
-}
-
-.shopeers-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.2rem 0.56rem;
-  border-radius: 9999px;
-  font-size: 0.725rem;
-  font-weight: 600;
-}
-
-.shopeers-badge.is-up {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.shopeers-badge.is-down {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-
-.shopeers-metric-sub {
-  font-size: 0.75rem;
-  color: var(--text-light);
-}
-
-/* Control Bar (Filters + Search + View toggle) */
-.shopeers-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-card);
-  border: 1px solid var(--tint-2);
-  border-radius: 1.125rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1.25rem;
-  gap: 1rem;
-  flex-wrap: wrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-}
-
-.shopeers-filter-pills {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.shopeers-filter-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.85rem;
-  border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.shopeers-filter-pill:hover {
-  color: var(--text-main);
-  background: var(--tint-1);
-}
-
-.shopeers-filter-pill.is-active {
-  background: #eff2ff;
-  color: #1a3cff;
-  font-weight: 600;
-  border-color: #d8deff;
-}
-
-.shopeers-pill-count {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.1rem 0.4rem;
-  border-radius: 9999px;
-  background: var(--border-main);
-  color: var(--text-muted);
-}
-
-.shopeers-filter-pill.is-active .shopeers-pill-count {
-  background: #1a3cff;
-  color: #ffffff;
-}
-
-.shopeers-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.shopeers-search-box {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.45rem 0.85rem;
-  width: 280px;
-}
-
-.shopeers-search-icon {
-  color: var(--text-light);
-}
-
-.shopeers-search-input {
-  border: none;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font-size: 0.8rem;
-  color: var(--text-main);
-}
-
-.shopeers-search-clear {
-  background: none;
-  border: none;
-  color: var(--text-light);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 0.1rem;
-}
-
-.shopeers-search-clear:hover {
-  color: var(--text-main);
-}
-
-.shopeers-view-toggle {
-  display: flex;
-  align-items: center;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.2rem;
-}
-
-.shopeers-view-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.shopeers-view-btn.is-active {
-  background: var(--bg-card);
-  color: #1a3cff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-/* Main Table Container */
-.shopeers-table-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.5rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-}
-
-.shopeers-table-responsive {
-  overflow-x: auto;
-}
-
-.shopeers-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.shopeers-table th {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-light);
-  letter-spacing: 0.05em;
-  padding: 0.75rem 0.65rem;
-  border-bottom: 1px solid var(--tint-2);
-  text-align: left;
-}
-
-.shopeers-table td {
-  padding: 0.85rem 0.65rem;
-  border-bottom: 1px solid var(--tint-1);
-  font-size: 0.825rem;
-  vertical-align: middle;
-}
-
-.shopeers-table tr.shopeers-tr-row {
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.shopeers-table tr.shopeers-tr-row:hover {
-  background: var(--tint-1);
-}
-
-.shopeers-td-sno {
-  color: var(--text-light);
-  font-weight: 600;
-  text-align: center;
-}
-
-.shopeers-cand-cell {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.shopeers-cand-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #eff2ff 0%, #d8deff 100%);
-  color: #1a3cff;
-  font-weight: 700;
-  font-size: 0.85rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.shopeers-cand-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.shopeers-cand-name {
-  font-weight: 700;
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shopeers-cand-sub {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shopeers-status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.65rem;
-  border-radius: 9999px;
-  font-size: 0.725rem;
-  font-weight: 700;
-}
-
-.shopeers-status-pill.is-verified {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.shopeers-status-pill.is-review {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.shopeers-status-pill.is-active {
-  background: #eff2ff;
-  color: #1a3cff;
-}
-
-.shopeers-action-btns {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-}
-
-.shopeers-act-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border-main);
-  background: var(--bg-card);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  text-decoration: none;
-}
-
-.shopeers-act-btn:hover {
-  background: var(--tint-1);
-  color: #1a3cff;
-  border-color: var(--border-hover);
-}
-
-.shopeers-act-btn.is-delete:hover {
-  background: #fee2e2;
-  color: #dc2626;
-  border-color: #fca5a5;
-}
-
-.shopeers-table-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 1rem;
-  margin-top: 0.5rem;
-  border-top: 1px solid var(--tint-2);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* Card View Grid */
-.shopeers-cand-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.25rem;
-}
-
-.shopeers-cand-card {
-  background: var(--bg-card);
-  border-radius: 1.125rem;
-  padding: 1.25rem;
-  border: 1px solid var(--tint-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.025);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 1rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.shopeers-cand-card:hover {
-  border-color: var(--border-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
-}
-
-.shopeers-cand-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.shopeers-cand-card-meta {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.65rem;
-  background: var(--tint-1);
-  border-radius: 0.75rem;
-  padding: 0.75rem;
-}
-
-.shopeers-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.shopeers-meta-lbl {
-  font-size: 0.68rem;
-  color: var(--text-light);
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.shopeers-meta-val {
-  font-size: 0.775rem;
-  color: var(--text-main);
-  font-weight: 600;
-}
-
-.shopeers-cand-card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--tint-2);
-}
-
-/* Sidebar Styles */
-.shopeers-sidebar {
-  width: 240px;
-  background: var(--bg-card);
-  border-right: 1px solid var(--tint-2);
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  position: fixed;
-  left: 0;
-  top: 0;
-  z-index: 50;
-  padding: 1.25rem 1rem;
-  box-sizing: border-box;
-}
-
-.shopeers-brand-header {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.25rem 0.5rem 1.5rem 0.5rem;
-}
-
-.shopeers-logo-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 0.5rem;
-  background: #eff2ff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.shopeers-brand-title {
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--text-main);
-  letter-spacing: -0.02em;
-}
-
-.shopeers-nav-scroll {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.shopeers-nav-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.shopeers-nav-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 0.75rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  transition: all 0.15s ease;
-}
-
-.shopeers-nav-item:hover {
-  background: var(--tint-1);
-  color: var(--text-main);
-}
-
-.shopeers-nav-item.is-active {
-  background: #eff2ff;
-  color: #1a3cff;
-  font-weight: 600;
-}
-
-.shopeers-nav-active-indicator {
-  display: none;
-  position: absolute;
-  left: 0;
-  top: 15%;
-  height: 70%;
-  width: 3.5px;
-  background: #1a3cff;
-  border-radius: 0 4px 4px 0;
-}
-
-.shopeers-nav-item.is-active .shopeers-nav-active-indicator {
-  display: block;
-}
-
-.shopeers-nav-text {
-  flex: 1;
-}
-
-.shopeers-nav-badge {
-  background: #dcfce7;
-  color: #15803d;
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.1rem 0.45rem;
-  border-radius: 9999px;
-}
-
-.shopeers-nav-group-btn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.65rem 0.85rem;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-}
-
-.shopeers-group-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.shopeers-subnav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding-left: 2.25rem;
-}
-
-.shopeers-subnav-item {
-  background: none;
-  border: none;
-  text-align: left;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 0.375rem;
-}
-
-.shopeers-subnav-item:hover {
-  color: var(--text-main);
-}
-
-.shopeers-upgrade-card {
-  margin-top: auto;
-  background: linear-gradient(135deg, #1e1b4b 0%, #00189f 50%, var(--text-main) 100%);
-  border-radius: 1rem;
-  padding: 1.15rem;
-  color: #ffffff;
-  position: relative;
-  overflow: hidden;
-}
-
-.shopeers-upgrade-badge {
-  width: 32px;
-  height: 32px;
-  border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0.75rem;
-}
-
-.shopeers-upgrade-title {
-  font-size: 0.9rem;
-  font-weight: 700;
-  margin: 0 0 0.35rem 0;
-}
-
-.shopeers-upgrade-sub {
-  font-size: 0.725rem;
-  color: #93a3ff;
-  margin: 0 0 0.85rem 0;
-  line-height: 1.35;
-}
-
-.shopeers-upgrade-btn {
-  width: 100%;
-  padding: 0.5rem;
-  border-radius: 0.65rem;
-  background: linear-gradient(135deg, #3452ff 0%, #1a3cff 100%);
-  color: #ffffff;
-  font-size: 0.775rem;
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(26, 60, 255, 0.4);
-}
-
-/* Topbar Header */
-.shopeers-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.85rem 2rem;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--tint-2);
-  position: sticky;
-  top: 0;
-  z-index: 40;
-}
-
-.shopeers-topbar-search {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--tint-1);
-  border: 1px solid var(--border-main);
-  border-radius: 9999px;
-  padding: 0.45rem 0.85rem;
-  width: 320px;
-}
-
-.shopeers-topbar-search-icon {
-  color: var(--text-light);
-}
-
-.shopeers-topbar-search-input {
-  border: none;
-  background: transparent;
-  outline: none;
-  width: 100%;
-  font-size: 0.825rem;
-  color: var(--text-main);
-}
-
-.shopeers-topbar-kbd {
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: var(--text-light);
-  background: var(--bg-card);
-  border: 1px solid var(--border-hover);
-  border-radius: 0.25rem;
-  padding: 0.1rem 0.35rem;
-}
-
-.shopeers-topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-}
-
-.shopeers-topbar-icon-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-main);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.15s ease;
-}
-
-.shopeers-topbar-icon-btn:hover {
-  background: var(--tint-1);
-  color: var(--text-main);
-}
-
-.shopeers-topbar-bell-dot {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 7px;
-  height: 7px;
-  background: #ef4444;
-  border-radius: 50%;
-}
-
-.shopeers-topbar-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3452ff 0%, #0022e6 100%);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(26, 60, 255, 0.25);
-}
-
-.shopeers-backdrop {
-  display: none;
-}
-
-
-
-
 /* ==========================================================================
    OVERVIEW
    Three readings across the top with the headline one filled, the pipeline
@@ -16266,41 +14526,6 @@ body {
   color: var(--text-muted);
 }
 
-/* --- old screen chrome, un-nested ----------------------------------------- */
-
-/* These blocks now sit inside a `.ds-panel`, which draws the frame. Left as
-   they were, each drew a second one inside the first — the boxes-within-boxes
-   that made these screens read as busier than the data on them. */
-.ds-panel .shopeers-table-card,
-.ds-panel .shopeers-cand-card,
-.ds-panel .shopeers-toolbar {
-  border: none;
-  background: none;
-  box-shadow: none;
-  padding: 0;
-}
-
-.ds-panel .shopeers-table-responsive {
-  margin: 0 -0.35rem;
-}
-
-.ds-panel .shopeers-cand-grid {
-  padding-top: 1rem;
-}
-
-.ds-panel .shopeers-cand-card {
-  border: 1px solid var(--border-main);
-  border-radius: var(--radius-md);
-  padding: 1rem;
-}
-
-.ds-panel .shopeers-table-foot {
-  margin-top: 0.25rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--border-main);
-}
-
-
 /* --- shared: card variants, table and roster ------------------------------ */
 .ds-cards.is-three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -16720,53 +14945,6 @@ body {
 }
 
 
-/* The candidates table predates the shared one; inside a `.ds-panel` it takes
-   the same register — rows as tinted bands with space between them rather than
-   as cells divided by rules. */
-.ds-panel .shopeers-table {
-  border-collapse: separate;
-  border-spacing: 0 6px;
-}
-
-.ds-panel .shopeers-table thead th {
-  border: none;
-  background: none;
-}
-
-.ds-panel .shopeers-table tbody tr {
-  background: var(--tint-1);
-  box-shadow: none;
-}
-
-.ds-panel .shopeers-table tbody td {
-  border: none;
-}
-
-.ds-panel .shopeers-table tbody td:first-child {
-  border-radius: 10px 0 0 10px;
-}
-
-.ds-panel .shopeers-table tbody td:last-child {
-  border-radius: 0 10px 10px 0;
-}
-
-.ds-panel .shopeers-table tbody tr.tone-ok {
-  background: var(--success-fill);
-}
-
-.ds-panel .shopeers-table tbody tr.tone-warn {
-  background: var(--warning-fill);
-}
-
-.ds-panel .shopeers-table tbody tr.tone-info {
-  background: var(--tint-1);
-}
-
-.ds-panel .shopeers-table tbody tr:hover {
-  background: var(--primary-glow);
-}
-
-
 /* Two readings and the ring. The ring takes the wider track because it carries
    a legend beside it rather than a single figure. */
 .ds-stats.is-three {
@@ -16798,6 +14976,282 @@ body {
 
 @media (max-width: 1100px) {
   .ds-stats.is-three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+
+/* ==========================================================================
+   CANDIDATES
+   The same register as the overview: white panels on the light plane, rows as
+   tinted bands, one accent. What this section adds is the handful of parts
+   that screen does not have — a sortable head, a row's own controls, and the
+   card view the table folds into on a narrow width.
+
+   It replaces a parallel design system that only this screen used, drawn
+   twice in this file with `!important` between the copies. Everything below
+   is built from the shared tokens, so a change to the palette reaches this
+   screen the same way it reaches every other one.
+   ========================================================================== */
+
+/* --- the segmented control, carrying a mark rather than a word ------------ */
+.ds-seg-btn.is-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+}
+
+/* --- a sortable column head ----------------------------------------------- */
+
+/* The header's own type, plus the arrow that says which way. It inherits from
+   the `th` rather than restating the size and weight, so a column that sorts
+   and a column that does not read as the same row of labels. */
+.ds-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.ds-sort:hover {
+  color: var(--text-main);
+}
+
+.ds-sort.is-on {
+  color: var(--primary);
+}
+
+.ds-table th.is-num,
+.ds-table td.is-num {
+  text-align: right;
+}
+
+.ds-table th.is-num .ds-sort {
+  justify-content: flex-end;
+}
+
+/* --- a cell that carries a fact and the thing that qualifies it ----------- */
+.ds-cell-main {
+  display: block;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.ds-cell-sub {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.74rem;
+  color: var(--text-light);
+}
+
+/* --- the row's own controls ----------------------------------------------- */
+
+/* Quiet at rest and only as loud as they need to be under the pointer. A
+   column of five filled buttons per row was the loudest thing on the old
+   screen, and none of it was data. */
+.ds-acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.15rem;
+}
+
+.ds-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ds-act:hover {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.ds-act:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.ds-act.is-danger:hover {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+/* The one button on the screen that confirms something irreversible, so it is
+   the one that is filled before it is hovered. */
+.ds-act.is-solid,
+.ds-act.is-solid:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+.ds-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ds-confirm span {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--error-ink);
+  white-space: nowrap;
+}
+
+/* --- the line under a panel ----------------------------------------------- */
+.ds-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border-blue-faint);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.ds-panel-foot strong {
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-panel-foot .ds-status {
+  font-size: 0.78rem;
+}
+
+/* --- the same rows, as cards ---------------------------------------------- */
+
+/* One card per profile, on the same tint the table rows sit on, so switching
+   view changes the shape of the list and nothing about its colour. */
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.85rem;
+}
+
+.ds-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border-blue-faint);
+  border-radius: 14px;
+  background: var(--tint-1);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ds-mini:hover {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+}
+
+.ds-mini-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+/* The name has a card's width to fit in rather than a column's, so it wraps to
+   an ellipsis instead of pushing the status pill off the edge. */
+.ds-mini .ds-who {
+  min-width: 0;
+}
+
+.ds-mini .ds-who-text {
+  min-width: 0;
+}
+
+.ds-mini .ds-who-text strong,
+.ds-mini .ds-who-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-mini .ds-status {
+  flex: none;
+  font-size: 0.74rem;
+}
+
+/* Four facts as a definition list: the label is what the table would have put
+   in a column head, and it belongs to its value rather than to the card. */
+.ds-mini-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 0.9rem;
+  margin: 0;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--border-blue-faint);
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.ds-mini-meta dt {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+.ds-mini-meta dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-mini-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: auto;
+}
+
+.ds-mini-when {
+  font-size: 0.74rem;
+  color: var(--text-light);
+  white-space: nowrap;
+}
+
+/* Dark mode has no light plane, so `--tint-1` and the card it sits on are the
+   same colour and the bands disappear. One step up the tint scale gives the
+   rows back the separation the light theme gets for free. */
+:root[data-theme="dark"] .ds-table tbody tr {
+  background: var(--tint-2);
+}
+
+:root[data-theme="dark"] .ds-mini {
+  background: var(--tint-2);
+}
+
+@media (max-width: 640px) {
+  .ds-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
