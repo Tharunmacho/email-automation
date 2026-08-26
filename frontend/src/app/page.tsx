@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import OverviewScreen from "@/screens/OverviewScreen";
 import SourcingHub from "@/screens/SourcingHub";
+import B2BEnquiries from "@/screens/B2BEnquiries";
 import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
@@ -998,6 +999,8 @@ export default function Home() {
                 )}
 
                 {currentTab === "sourcing" && <SourcingHub onActivity={log} />}
+
+                {currentTab === "b2b-enquiries" && <B2BEnquiries onActivity={log} />}
 
                 {currentTab === "data-management" && <DataManagementScreen onActivity={log} />}
 

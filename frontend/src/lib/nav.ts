@@ -18,6 +18,7 @@ import {
   Briefcase,
   Building2,
   Database,
+  Handshake,
   Inbox,
   LayoutDashboard,
   ScrollText,
@@ -35,6 +36,7 @@ export type NavId =
   | "staff"
   | "job-orders"
   | "sourcing"
+  | "b2b-enquiries"
   | "data-management"
   | "users"
   | "activity"
@@ -95,6 +97,11 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin"] },
+      // Sits under the hub rather than beside it: the parties are the address
+      // book and these are the requirements they raise, so a recruiter reads
+      // one and then the other. What arrives here is collected by the WhatsApp
+      // bot from agents, the same bot that registers candidates.
+      { id: "b2b-enquiries", label: "B2B Enquiries", icon: Handshake, roles: ["admin"] },
       // The jobs and countries the agency recruits for, as data. What is
       // configured here decides two things a long way from this screen: which
       // options the WhatsApp bot offers candidates, and whether a candidate is
@@ -180,6 +187,12 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Tools",
     title: "Sourcing Hub",
     subtitle: "Agents, associations and business clients who submit talent requirements.",
+  },
+  "b2b-enquiries": {
+    eyebrow: "Tools",
+    title: "B2B Enquiries",
+    subtitle:
+      "Manpower requirements raised by agents over WhatsApp — review one, then raise the job order.",
   },
   "data-management": {
     eyebrow: "Tools",

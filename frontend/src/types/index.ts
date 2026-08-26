@@ -515,6 +515,59 @@ export interface SourcingClientRecord {
   created_at?: string;
 }
 
+/**
+ * A manpower requirement raised by an agent, as `GET /b2b-enquiries` returns it.
+ *
+ * Snake-case throughout because that is what the API sends; nothing is mapped
+ * on the way in. The fields are optional-by-omission rather than by design —
+ * the backend writes every one of them on every insert, and they are marked
+ * optional here only so a record stored by an earlier build still type-checks.
+ */
+export interface B2BEnquiryRecord {
+  id: string;
+  source: "whatsapp" | "manual" | string;
+  status: "new" | "reviewing" | "converted" | "closed" | string;
+
+  /** Who raised it. */
+  party_type: "agent" | "association" | "client" | string;
+  company_name?: string;
+  contact_name: string;
+  phone?: string;
+  phone_e164?: string;
+  email?: string;
+  country?: string;
+  city?: string;
+
+  /** What they asked for. `requirement` is their own words and is the field a
+   *  recruiter reads first; everything below it is what the bot managed to
+   *  pull out of the conversation. */
+  requirement?: string;
+  job_title?: string;
+  job_id?: string;
+  /** Absent rather than 0 when they did not give a number — see the backend's
+   *  `_coerce_headcount`, which refuses to invent one. */
+  headcount?: number | null;
+  destination_country?: string;
+  salary_budget?: string;
+  experience_required?: string;
+  skills?: string[];
+  needed_by?: string;
+  notes?: string;
+
+  /** The Sourcing Hub record this sender was matched to, when they are already
+   *  on file. Advisory — a display label, never an account link. */
+  sourcing_client_id?: string | null;
+  sourcing_client_name?: string;
+  wa_user_id?: string;
+
+  /** What the agency did about it. */
+  converted_job_order_id?: string | null;
+  handled_by?: string;
+  handled_at?: string | null;
+  received_at?: string;
+  updated_at?: string;
+}
+
 export interface JobOrderRecord {
   id: string;
   title: string;

@@ -14,6 +14,7 @@
 export const CACHE_KEYS = {
   jobOrders: "job_orders_records",
   sourcingClients: "sourcing_records",
+  b2bEnquiries: "b2b_enquiry_records",
 } as const;
 
 /** Returns the mirrored list, or null when there is nothing usable stored. */

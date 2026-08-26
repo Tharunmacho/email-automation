@@ -32,6 +32,7 @@ import type {
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  B2BEnquiryRecord,
   EvaluationStatus,
   StaffMember,
   StaffWorkloadRow,
@@ -63,6 +64,7 @@ export type {
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  B2BEnquiryRecord,
   EvaluationStatus,
   StaffMember,
   StaffWorkloadRow,
@@ -654,6 +656,83 @@ export function updateJobOrderAPI(orderId: string, record: any): Promise<{ statu
 
 export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/job-orders/${orderId}`, { method: "DELETE" });
+}
+
+// ---- B2B Enquiries -------------------------------------------------------- //
+//
+// Manpower requirements raised by agents. The WhatsApp bot writes them through
+// its own service-key endpoint (`POST /b2b-enquiries`), which is not reachable
+// from here and is not meant to be — everything below takes the signed-in
+// recruiter's session and is refused for anyone who is not an admin.
+
+export interface EnquiryListResponse {
+  items: B2BEnquiryRecord[];
+  /** Per-state totals over the whole collection, not over `items`. A filtered
+   *  list must not make the other tabs read zero. */
+  counts: Record<string, number>;
+  statuses: string[];
+}
+
+export function listB2BEnquiriesAPI(status?: string): Promise<EnquiryListResponse> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<EnquiryListResponse>(`/b2b-enquiries${query}`, { cache: "no-store" });
+}
+
+/** Log an enquiry that came in by phone or email rather than through the bot. */
+export function createB2BEnquiryAPI(
+  record: Partial<B2BEnquiryRecord>,
+): Promise<{ status: string; enquiry: B2BEnquiryRecord }> {
+  return request<{ status: string; enquiry: B2BEnquiryRecord }>("/b2b-enquiries/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(record),
+  });
+}
+
+/**
+ * Partial update. Only the fields sent are touched, so moving an enquiry to
+ * `reviewing` cannot blank the requirement text by omitting it.
+ *
+ * `converted` is refused by the API: it means a job order exists, and the only
+ * way to make that true is `convertB2BEnquiryAPI`, which writes both at once.
+ */
+export function updateB2BEnquiryAPI(
+  enquiryId: string,
+  changes: Partial<B2BEnquiryRecord>,
+): Promise<{ status: string; enquiry: B2BEnquiryRecord }> {
+  return request<{ status: string; enquiry: B2BEnquiryRecord }>(`/b2b-enquiries/${enquiryId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+}
+
+export interface ConvertEnquiryPayload {
+  title: string;
+  client: string;
+  headcount: number;
+  salary?: string;
+  skills?: string[];
+  description?: string;
+  due_date?: string;
+  industry?: string;
+  designation?: string;
+}
+
+/** Raise the job order this enquiry asked for, and stamp the enquiry with it. */
+export function convertB2BEnquiryAPI(
+  enquiryId: string,
+  payload: ConvertEnquiryPayload,
+): Promise<{ status: string; job_order: JobOrderRecord; enquiry: B2BEnquiryRecord }> {
+  return request(`/b2b-enquiries/${enquiryId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteB2BEnquiryAPI(enquiryId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/b2b-enquiries/${enquiryId}`, { method: "DELETE" });
 }
 
 

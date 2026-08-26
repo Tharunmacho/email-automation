@@ -37,6 +37,7 @@ PAGES = (
     "staff",
     "job-orders",
     "sourcing",
+    "b2b-enquiries",
     "data-management",
     "users",
     "visualizer",

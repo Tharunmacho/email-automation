@@ -14,6 +14,7 @@ import binascii
 import hashlib
 import os
 import threading
+import uuid
 
 from fastapi import (
     BackgroundTasks,
@@ -788,6 +789,262 @@ def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict
 
 
 # --------------------------------------------------------------------------- #
+#  B2B Enquiries — the recruiter's side
+#
+#  A manpower requirement an agent raised over WhatsApp, and what the agency
+#  decided to do about it. The bot's own way in is POST /b2b-enquiries down in
+#  the integration section; these are the endpoints the screen uses, and they
+#  take a staff session.
+#
+#  Admin-only, unlike the sourcing and job-order endpoints beside them. An
+#  enquiry carries a company's contact details and its hiring plans before the
+#  agency has agreed to anything, and a staff account exists to review the
+#  candidates allocated to it — there is no version of that job that needs this.
+# --------------------------------------------------------------------------- #
+
+
+def _enquiry_json(doc: dict) -> dict:
+    """One enquiry, with its timestamps as ISO strings.
+
+    Mongo hands back `datetime`, the frontend sorts and formats strings, and
+    leaving the conversion to whichever encoder happens to run means the same
+    field arrives in two shapes depending on the route. Done once, here.
+    """
+    from datetime import datetime as _dt
+
+    out = {k: v for k, v in doc.items() if k != "_id"}
+    for field in ("received_at", "updated_at", "handled_at"):
+        value = out.get(field)
+        if isinstance(value, _dt):
+            out[field] = value.isoformat()
+    return out
+
+
+class EnquiryPatch(BaseModel):
+    """The edits the screen may make. Absent means "leave it alone".
+
+    Every field is optional and `None` is not a value — `update_enquiry` skips
+    it. A PATCH that sends only `{"status": "reviewing"}` therefore cannot blank
+    the requirement text by omitting it, which is the failure a partial update
+    written against a full model produces on its first use.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: str | None = None
+    party_type: str | None = None
+    company_name: str | None = None
+    contact_name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    country: str | None = None
+    city: str | None = None
+    requirement: str | None = None
+    job_title: str | None = None
+    job_id: str | None = None
+    headcount: int | None = None
+    destination_country: str | None = None
+    salary_budget: str | None = None
+    experience_required: str | None = None
+    skills: list[str] | None = None
+    needed_by: str | None = None
+    notes: str | None = None
+
+
+class EnquiryIn(EnquiryPatch):
+    """An enquiry an admin typed in themselves.
+
+    Same fields as the patch, with the one the screen cannot render a row
+    without made mandatory. Sourced as `manual` so a phone call logged by hand
+    is never mistaken for something the bot heard.
+    """
+
+    contact_name: str = Field(min_length=1, max_length=200)
+
+
+class ConvertEnquiryIn(BaseModel):
+    """What the recruiter filled in on the job order before raising it.
+
+    The enquiry supplies the defaults and the recruiter supplies the judgement:
+    a title the client will recognise, a real due date, and a headcount they are
+    willing to commit to. Sent back here rather than derived, because "40
+    welders, before Eid" is not a requisition until somebody has decided what it
+    means.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(min_length=1, max_length=200)
+    client: str = Field(min_length=1, max_length=200)
+    headcount: int = Field(default=1, ge=1)
+    salary: str = ""
+    skills: list[str] = Field(default_factory=list)
+    description: str = ""
+    due_date: str = ""
+    industry: str = ""
+    designation: str = ""
+
+
+@app.get("/b2b-enquiries")
+def list_b2b_enquiries(
+    status: str | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=2000),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    """Every enquiry, newest first, with the per-state counts beside them.
+
+    The counts are computed over the whole collection rather than over the page
+    that came back, so the tab that reads "Converted 12" still reads 12 while
+    the list is filtered to the four that are new.
+    """
+    from app.db.b2b_enquiries import STATUSES, list_enquiries, status_counts
+
+    items = [_enquiry_json(doc) for doc in list_enquiries(status=status, limit=limit)]
+    return {"items": items, "counts": status_counts(), "statuses": list(STATUSES)}
+
+
+@app.post("/b2b-enquiries/manual", status_code=201)
+def create_manual_b2b_enquiry(payload: EnquiryIn, user: dict = Depends(require_admin)) -> dict:
+    """Log an enquiry that arrived some other way — a phone call, an email.
+
+    A separate path from the bot's POST /b2b-enquiries rather than a flag on
+    it: that one authenticates a system and this one authenticates a person, and
+    the credential is what decides which. Collapsing them would mean a route
+    that accepts either, which is a route that accepts the service key for a
+    recruiter's action.
+    """
+    from app.db.b2b_enquiries import record_enquiry
+
+    doc, _created = record_enquiry(payload.model_dump(exclude_none=True), source="manual")
+    log.info("B2B enquiry %s logged by %s", doc.get("id"), user.get("email"))
+    return {"status": "ok", "enquiry": _enquiry_json(doc)}
+
+
+@app.get("/b2b-enquiries/{enquiry_id}")
+def get_b2b_enquiry(enquiry_id: str, _user: dict = Depends(require_admin)) -> dict:
+    from app.db.b2b_enquiries import get_enquiry
+
+    doc = get_enquiry(enquiry_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Enquiry not found")
+    return _enquiry_json(doc)
+
+
+@app.patch("/b2b-enquiries/{enquiry_id}")
+def update_b2b_enquiry(
+    enquiry_id: str, payload: EnquiryPatch, user: dict = Depends(require_admin)
+) -> dict:
+    """Edit an enquiry, or move it along.
+
+    `converted` is refused here — it means a job order exists, and the only way
+    to make that true is to convert the enquiry, which writes the order's id at
+    the same time. A status that claims an order nothing points at is a dead end
+    on the screen and a job somebody raises twice.
+    """
+    from app.db.b2b_enquiries import update_enquiry
+
+    changes = payload.model_dump(exclude_none=True)
+    # Who moved it. Recorded from the session rather than accepted from the
+    # body: an audit field a caller can set is not one.
+    if changes.get("status") in ("reviewing", "closed"):
+        changes.setdefault("handled_by", user.get("email") or "")
+
+    try:
+        doc = update_enquiry(enquiry_id, changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not doc:
+        raise HTTPException(status_code=404, detail="Enquiry not found")
+    return {"status": "ok", "enquiry": _enquiry_json(doc)}
+
+
+@app.post("/b2b-enquiries/{enquiry_id}/convert", status_code=201)
+def convert_b2b_enquiry(
+    enquiry_id: str, payload: ConvertEnquiryIn, user: dict = Depends(require_admin)
+) -> dict:
+    """Turn an enquiry into a job order the agency has committed to.
+
+    The order is written first and the enquiry is stamped second. That order
+    matters: an order that exists while the enquiry still reads `new` is a
+    visible inconsistency a recruiter can resolve by looking at the Job Orders
+    screen, whereas an enquiry marked `converted` pointing at an order that was
+    never written is a dead end with nothing behind it.
+
+    Converting twice is refused. The second call would raise a second
+    requisition for one vacancy, and the recruiter who made it would have no way
+    of knowing — both orders look real.
+    """
+    from app.db.b2b_enquiries import get_enquiry, mark_converted
+    from app.db.mongo import get_db
+
+    enquiry = get_enquiry(enquiry_id)
+    if not enquiry:
+        raise HTTPException(status_code=404, detail="Enquiry not found")
+    if enquiry.get("converted_job_order_id"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This enquiry was already converted into job order "
+                f"{enquiry['converted_job_order_id']}."
+            ),
+        )
+
+    order_id = f"JO-{uuid.uuid4().hex[:8].upper()}"
+    order = {
+        "id": order_id,
+        "title": payload.title.strip(),
+        "client": payload.client.strip(),
+        "headcount": payload.headcount,
+        "salary": payload.salary.strip(),
+        "skills": [s.strip() for s in payload.skills if s.strip()],
+        "description": payload.description.strip(),
+        "dueDate": payload.due_date.strip(),
+        "status": "OPEN",
+        "industry": payload.industry.strip(),
+        "designation": payload.designation.strip(),
+        "fulfilledCount": 0,
+        "shortlistedCandidateIds": [],
+        "rejectedCandidateIds": [],
+        # Where this requisition came from, so the Job Orders screen can point
+        # back at the conversation that produced it.
+        "sourceEnquiryId": enquiry_id,
+    }
+    get_db()["job_orders"].insert_one(dict(order))
+    order.pop("_id", None)
+
+    updated = mark_converted(enquiry_id, order_id, handled_by=user.get("email") or "")
+    log.info(
+        "B2B enquiry %s converted into job order %s by %s",
+        enquiry_id,
+        order_id,
+        user.get("email"),
+    )
+
+    return {
+        "status": "ok",
+        "job_order": order,
+        "enquiry": _enquiry_json(updated) if updated else None,
+    }
+
+
+@app.delete("/b2b-enquiries/{enquiry_id}")
+def delete_b2b_enquiry(enquiry_id: str, user: dict = Depends(require_admin)) -> dict:
+    """Remove an enquiry outright — a duplicate, or a wrong number.
+
+    Deletion, not closure. `closed` is the answer for an enquiry that was real
+    and came to nothing, and it is the one a recruiter almost always wants: it
+    keeps the record of what was asked for. This is for the enquiries that
+    should never have been filed.
+    """
+    from app.db.b2b_enquiries import delete_enquiry
+
+    if not delete_enquiry(enquiry_id):
+        raise HTTPException(status_code=404, detail="Enquiry not found")
+    log.info("B2B enquiry %s deleted by %s", enquiry_id, user.get("email"))
+    return {"status": "deleted", "id": enquiry_id}
+
+
+# --------------------------------------------------------------------------- #
 #  Staff Administration
 # --------------------------------------------------------------------------- #
 class CreateStaffRequest(BaseModel):
@@ -1168,17 +1425,27 @@ def poll_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
 #  WhatsApp bot integration
 #
 #  The recruitment bot's entire surface on this system: ask what the CV policy
-#  says, submit a finished registration, hand over the résumé. Three endpoints,
-#  authenticated with a service key rather than a staff session, and none of
-#  them reachable with a recruiter's token.
+#  says, submit a finished registration, hand over the résumé, and — when the
+#  person on the other end is not a candidate at all — file the manpower
+#  requirement they came to raise. Authenticated with a service key rather than
+#  a staff session, and none of them reachable with a recruiter's token.
+#
+#  The bot talks to two kinds of people and this section reflects that. A
+#  candidate answers questions about themselves and becomes a row in
+#  `candidates`. An agent describes a vacancy and becomes a row in
+#  `b2b_enquiries` — a different collection, because filing a company as a
+#  candidate would put it in a recruiter's review queue and allocate it to a
+#  staff member as if it were a person.
 #
 #  What is deliberately absent is as important as what is here. There is no
 #  endpoint to assign a candidate, evaluate one, or change a hiring decision:
-#  those belong to the CRM and the bot has no business in them. And there is no
-#  way for the bot to write to MongoDB — every one of these goes through the
-#  same repository and the same balancer the mailbox pipeline uses, so the
-#  business logic runs on the way in rather than being re-implemented on the
-#  other side of the wire.
+#  those belong to the CRM and the bot has no business in them. Nor can the bot
+#  raise a job order — it files what an agent *said*, and turning that into a
+#  commitment the agency has made is a decision a recruiter takes on the B2B
+#  Enquiries screen. And there is no way for the bot to write to MongoDB
+#  directly — every one of these goes through the same repository, balancer and
+#  db modules the mailbox pipeline uses, so the business logic runs on the way
+#  in rather than being re-implemented on the other side of the wire.
 # --------------------------------------------------------------------------- #
 
 
@@ -1551,6 +1818,113 @@ def upload_candidate_resume(
         "success": True,
         "candidate_id": candidate_id,
         "resume": stored.model_dump(mode="json"),
+    }
+
+
+# --------------------------------------------------------------------------- #
+#  B2B enquiries, as the bot files them
+#
+#  The other half of what the bot collects. Same credential as the candidate
+#  intake, deliberately: it is the same system on the other end of the wire, and
+#  a second key would be a second secret to rotate for no gain in what either
+#  one protects.
+# --------------------------------------------------------------------------- #
+
+
+class B2BEnquiryIn(BaseModel):
+    """What the bot may say about a manpower requirement. An allow-list.
+
+    `extra="ignore"` for the same reason the candidate intake uses it: the bot's
+    own conversation record carries far more than this system has a screen for,
+    and a model that accepted whatever arrived would start storing it the first
+    time a mapping bug sent it. Fields not named below are dropped at the door.
+
+    Almost everything is optional, and that is not laxity. An agent messages
+    "I need 40 welders for Qatar" and leaves; refusing that for want of a
+    contact email loses the enquiry entirely, and an enquiry with three fields
+    filled in is still an enquiry a recruiter can act on. What cannot be missing
+    is the two things that make it *findable*: who to call back, and a key that
+    stops a retry filing it twice.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: Unique per *enquiry*, not per sender — an agent raises many, and each one
+    #: is a real vacancy. A submission id, not a WhatsApp user id.
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+    party_type: str | None = None
+    company_name: str | None = Field(default=None, max_length=200)
+    #: The one field the screen cannot render a row without. The bot falls back
+    #: to the sender's WhatsApp display name, and then to their number.
+    contact_name: str = Field(min_length=1, max_length=200)
+    phone: str | None = Field(default=None, max_length=40)
+    phone_e164: str | None = Field(default=None, max_length=40)
+    email: str | None = Field(default=None, max_length=200)
+    country: str | None = Field(default=None, max_length=100)
+    city: str | None = Field(default=None, max_length=100)
+
+    #: What they asked for, in their own words. The field a recruiter reads
+    #: first, and the only one that survives every conversation that went off
+    #: the script.
+    requirement: str | None = Field(default=None, max_length=4000)
+    job_title: str | None = Field(default=None, max_length=200)
+    #: The taxonomy id, when they picked from the list the bot offered.
+    job_id: str | None = Field(default=None, max_length=80)
+    headcount: int | None = None
+    destination_country: str | None = Field(default=None, max_length=100)
+    salary_budget: str | None = Field(default=None, max_length=120)
+    experience_required: str | None = Field(default=None, max_length=120)
+    skills: list[str] | str = Field(default_factory=list)
+    #: When they need people, in their own words — "next month", "before Eid".
+    #: Free text because that is how the question gets answered.
+    needed_by: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=4000)
+
+    wa_user_id: str | None = Field(default=None, max_length=100)
+
+
+@app.post("/b2b-enquiries", status_code=201)
+def create_b2b_enquiry(
+    payload: B2BEnquiryIn,
+    response: Response,
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """File one manpower requirement raised over WhatsApp.
+
+    Stores what was said and nothing more. It does not create a job order, does
+    not allocate anyone, and does not create a Sourcing Hub record for a company
+    nobody at the agency has agreed to work with — it only *matches* against the
+    ones already on file, so a known agent's enquiry arrives with their name on
+    it. Every one of those is a decision, and the screen is where they are taken.
+
+    201 when the enquiry is new, 200 on a replay of the same key. Both return
+    the enquiry, so a bot that timed out and retried can tell the operator which
+    reference the agency will quote back without needing to know which of the
+    two calls actually stored it.
+    """
+    from app.db.b2b_enquiries import record_enquiry
+
+    doc, created = record_enquiry(payload.model_dump(exclude_none=True), source="whatsapp")
+    if not created:
+        response.status_code = 200
+
+    log.info(
+        "B2B enquiry %s from %s (%s) — %s",
+        doc.get("id"),
+        doc.get("company_name") or doc.get("contact_name"),
+        doc.get("party_type"),
+        "created" if created else "replayed",
+    )
+
+    return {
+        "success": True,
+        "created": created,
+        "enquiry_id": doc.get("id"),
+        "status": doc.get("status"),
+        # Echoed back so the bot can confirm the requirement it just read out to
+        # the agent is the one the CRM stored, rather than assuming it.
+        "enquiry": _enquiry_json(doc),
     }
 
 

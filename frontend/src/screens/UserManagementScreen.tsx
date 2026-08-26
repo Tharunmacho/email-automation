@@ -53,6 +53,7 @@ const PAGE_LABELS: Record<string, string> = {
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
   sourcing: "Sourcing Hub",
+  "b2b-enquiries": "B2B Enquiries",
   "data-management": "Data Management",
   users: "User Management",
   visualizer: "Visualizer",
@@ -79,7 +80,14 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
   { label: "General", pages: ["overview", "candidates", "staff", "users"] },
   {
     label: "Tools",
-    pages: ["job-orders", "sourcing", "data-management", "visualizer", "resume-parser"],
+    pages: [
+      "job-orders",
+      "sourcing",
+      "b2b-enquiries",
+      "data-management",
+      "visualizer",
+      "resume-parser",
+    ],
   },
   { label: "Support", pages: ["activity", "settings"] },
 ];

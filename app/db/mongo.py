@@ -144,6 +144,7 @@ def ensure_indexes() -> None:
     # Durable "already ingested / user deleted" ledger, the accounts, and the
     # notification feed — the last of which carries the TTL that stops the
     # collection growing without bound, so it is not optional.
+    from app.db.b2b_enquiries import ensure_b2b_indexes
     from app.db.identity_records import ensure_identity_indexes
     from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
@@ -154,6 +155,10 @@ def ensure_indexes() -> None:
     ensure_ledger_indexes()
     ensure_user_indexes()
     ensure_notification_indexes()
+    # Manpower requirements the bot collects from agents. The unique index on
+    # `idempotency_key` is the one that matters: without it a retried
+    # submission becomes a second vacancy and the agency fills one job twice.
+    ensure_b2b_indexes()
     # The jobs and countries an admin edits, and the CV rules hanging off them.
     # Seeded here rather than by a migration script so a fresh database answers
     # the same questions a long-running one does — and seeding is additive, so
@@ -168,8 +173,8 @@ def ensure_indexes() -> None:
 
     log.info(
         "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders', "
-        "'ingest_ledger', 'users', 'notifications', 'ingestion_state', "
-        "'%s' and '%s'",
+        "'b2b_enquiries', 'ingest_ledger', 'users', 'notifications', "
+        "'ingestion_state', '%s' and '%s'",
         coll.name,
         settings.mongo_aadhaar_collection,
         settings.mongo_passport_collection,

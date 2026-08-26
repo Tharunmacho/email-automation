@@ -15196,3 +15196,541 @@ body {
 :root[data-theme="dark"] .ds-chip {
   background: transparent;
 }
+
+/* ==========================================================================
+   B2B ENQUIRIES — a requirement someone asked for, before the agency owns it
+   Written on the shared tokens throughout rather than under the dark-mode
+   sweep that rescues the two older screens: every surface, edge and ink here
+   names a variable that already has a dark value, so there is nothing for a
+   belt-and-braces pass to catch.
+   Colour is the enquiry's state and nothing else. Blue is waiting on us,
+   amber is in hand, green finished as a job order, slate finished and did not.
+   ========================================================================== */
+.be-root {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+}
+
+/* The API is unreachable and the cards below came out of the browser's mirror.
+   Said once, above the list, rather than on every card in it. */
+.be-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--warning-fill);
+  border: 1px solid var(--warning-edge);
+  color: var(--warning-ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* --- the grid ------------------------------------------------------------- */
+
+/* Wider minimum than the sourcing grid: these cards carry a sentence of free
+   text, and a requirement that wraps to four lines stops being scannable. */
+.be-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 1rem;
+}
+
+/* --- one enquiry ---------------------------------------------------------- */
+.be-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border-blue);
+  border-left: 4px solid var(--tone);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--dash-shadow);
+  overflow: hidden;
+  min-width: 0;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.be-card:hover {
+  box-shadow: var(--dash-shadow-hover);
+}
+
+/* The whole body of the card opens the enquiry, so it is one button rather
+   than a div with a click handler — that is what gives it a keyboard focus
+   ring and a role a screen reader can announce, for free. */
+.be-card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 1rem 1.1rem 0.85rem;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.be-card-open:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -3px;
+  border-radius: var(--radius-xl);
+}
+
+.be-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.be-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--tone-soft);
+  color: var(--tone-ink, var(--tone));
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.be-headings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.be-name {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.be-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+/* Three chips that answer three different questions, so they are three
+   different shapes rather than three colours of the same one: what kind of
+   party, where it came in from, and whether we already know them. */
+.be-party,
+.be-source,
+.be-known {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.be-party {
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.be-party.agent {
+  background: rgba(var(--primary-rgb), 0.10);
+  color: var(--primary);
+}
+
+.be-source {
+  border: 1px solid var(--border-blue-strong);
+  color: var(--text-muted);
+}
+
+/* Verbatim from the conversation, rather than a colleague's summary of a call.
+   Worth a mark of its own: it changes how much of the wording to trust. */
+.be-source.is-bot {
+  border-color: var(--success-edge);
+  color: var(--success-ink);
+}
+
+.be-known {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+/* --- state ---------------------------------------------------------------- */
+
+/* The one pill on the card that is colour-as-meaning. Shared with the dialog's
+   header so an enquiry reads the same in both places. */
+.be-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-shrink: 0;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.be-status.is-new {
+  background: rgba(var(--primary-rgb), 0.10);
+  color: var(--primary);
+}
+
+.be-status.is-reviewing {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.be-status.is-converted {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.be-status.is-closed {
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+/* --- what they asked for -------------------------------------------------- */
+
+/* Two lines, clamped. The whole of it is one click away, and a card that grows
+   to fit the longest enquiry makes every other card in the row grow with it. */
+.be-requirement {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-main);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Four rows on every card whether or not the values exist, so the footers in a
+   row of cards line up. An optional row is a ragged grid. */
+.be-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.be-row {
+  display: grid;
+  grid-template-columns: 18px 82px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.be-row-icon {
+  display: inline-flex;
+  color: var(--text-light);
+}
+
+.be-row-label {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.be-row-value {
+  font-size: 0.79rem;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A field that is present and has nothing to report. Kept legible without
+   drawing the eye down a column of em dashes. */
+.be-quiet {
+  color: var(--text-light);
+}
+
+/* --- the footer ----------------------------------------------------------- */
+.be-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1.1rem;
+  background: var(--tint-1);
+  border-top: 1px solid var(--border-blue-faint);
+}
+
+.be-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.71rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.be-when {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--text-light);
+  white-space: nowrap;
+}
+
+.be-foot-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.be-foot-btn:hover {
+  background: var(--bg-card);
+  border-color: var(--border-blue);
+  color: var(--primary);
+}
+
+/* --- the dialog ----------------------------------------------------------- */
+
+/* Wider than the shared 620px: this one holds a fourteen-field definition list
+   in two columns, and at 620 those columns are too narrow for a country name. */
+.be-dialog {
+  max-width: 760px;
+}
+
+.be-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.4rem;
+  background: var(--tint-1);
+  border-bottom: 1px solid var(--border-blue-faint);
+  flex-shrink: 0;
+}
+
+.be-dialog-headings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.be-dialog-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.71rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.be-dialog-title {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-main);
+}
+
+.be-dialog-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.be-dialog-body {
+  gap: 1rem;
+}
+
+/* Delete sits at the far left, away from the two buttons that move the enquiry
+   forward — the distance is the safeguard. */
+.be-dialog-foot {
+  justify-content: space-between;
+}
+
+.be-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.be-danger-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.be-danger-link:hover:not(:disabled) {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.be-danger-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* --- their own words ------------------------------------------------------ */
+
+/* The requirement as it was said, set apart from the fields the bot pulled out
+   of it. Where the two disagree, this is the one that was actually spoken, so
+   it is given the weight rather than filed as another row. */
+.be-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  border-left: 3px solid var(--primary);
+}
+
+.be-quote.is-note {
+  border-left-color: var(--border-blue-strong);
+}
+
+.be-quote-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.be-quote-body {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-main);
+  white-space: pre-wrap;
+}
+
+/* --- the fields ----------------------------------------------------------- */
+.be-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+  gap: 0.85rem 1.2rem;
+}
+
+.be-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.be-fact-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+
+.be-fact-value {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+/* The job order this enquiry became. Green, because it is the outcome the
+   screen exists to produce. */
+.be-linked {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--success-fill);
+  border: 1px solid var(--success-edge);
+  color: var(--success-ink);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* One line under a field, for the thing a person only finds out by getting it
+   wrong — that job orders match clients by name, and that a blank headcount is
+   better than an invented one. */
+.be-hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.73rem;
+  line-height: 1.4;
+  color: var(--text-light);
+}
+
+/* --- the delete confirmation ---------------------------------------------- */
+.be-confirm-dialog {
+  max-width: 440px;
+}
+
+.be-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.be-confirm-note {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* --- narrow screens ------------------------------------------------------- */
+@media (max-width: 620px) {
+  .be-row {
+    grid-template-columns: 18px 70px minmax(0, 1fr);
+  }
+
+  .be-dialog-foot {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+
+  .be-foot-actions {
+    justify-content: stretch;
+  }
+
+  .be-foot-actions > * {
+    flex: 1;
+    justify-content: center;
+  }
+}
