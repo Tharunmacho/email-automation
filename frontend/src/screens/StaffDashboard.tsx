@@ -1,22 +1,21 @@
 "use client";
 
 /**
- * The staff member's workspace, laid out like the Overview and the admin
- * console: three things to do, then the numbers that say whether you are
- * keeping up, then the work itself.
+ * The staff member's workspace, in the same register as the Overview and the
+ * Candidates screen: what is mine, how much of it is late, then the work
+ * itself.
  *
- * The same markup as both — `ov-action`, `ov-kpi`, `db-card` — because a
- * reviewer and an administrator are looking at the same records an hour apart,
- * and a screen that looked like a different product would read as one.
+ * It used to say every figure three times over — four KPI cards, a row of
+ * three shortcut cards, and a row of filter tabs, all carrying the same counts
+ * a click apart. The readings and the filter are now one control: five cards,
+ * each the number and the tab that selects it. What is left of the shortcuts
+ * is the one that was not a filter — "Review next", which opens the profile
+ * closest to its deadline, and belongs in the page head as the single primary
+ * action on the screen.
  *
  * This screen is the queue and only the queue: filters, the SLA clock, and this
  * reviewer's own turnaround. Opening a profile leaves it for the review screen,
  * which carries the full résumé and the verdict form together.
- *
- * It used to open a split drawer instead, and a separate eye icon opened the
- * executive profile — two views of one candidate, neither complete, and a
- * reviewer had to guess which one they wanted before they had seen either. The
- * row and the eye now do the same thing.
  *
  * There is no ingestion control anywhere on it — syncing the mailbox is the
  * admin's, and offering it here would be offering a 403.
@@ -29,19 +28,17 @@ import {
   Clock,
   Eye,
   FileText,
-  Gauge,
   Inbox,
   Search,
   Sparkles,
   Star,
   Timer,
-  TrendingDown,
-  TrendingUp,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 
 import { fetchUiConfig, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
-import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
+import { formatInt, initialsOf, timeAgo } from "@/lib/format";
 
 interface StaffDashboardProps {
   /** Already scoped to this user — the API only ever returns their own. */
@@ -66,12 +63,13 @@ interface StaffDashboardProps {
 type QueueFilter = "all" | "unviewed" | "pending" | "evaluated" | "at_risk";
 type QueueSort = "sla" | "newest" | "name";
 
-const FILTERS: { id: QueueFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "unviewed", label: "Unviewed" },
-  { id: "pending", label: "Pending Review" },
-  { id: "evaluated", label: "Evaluated" },
-  { id: "at_risk", label: "At risk" },
+/** One outlined mark per reading, in the order the cards are laid out. */
+const FILTERS: { id: QueueFilter; label: string; icon: LucideIcon }[] = [
+  { id: "all", label: "Allocated to me", icon: Users },
+  { id: "unviewed", label: "Unviewed", icon: Inbox },
+  { id: "pending", label: "Pending review", icon: Eye },
+  { id: "evaluated", label: "Evaluated", icon: CheckCircle2 },
+  { id: "at_risk", label: "At risk", icon: Timer },
 ];
 
 const SORTS: { id: QueueSort; label: string }[] = [
@@ -116,6 +114,33 @@ function formatHours(hours: number): string {
 
 function nameOf(candidate: CandidateRecord): string {
   return candidate.profile?.full_name || candidate.profile?.email || "Unnamed";
+}
+
+/**
+ * Where a profile stands, and the tone that carries it.
+ *
+ * A dot and a word, the same pair the Overview and the Candidates table use.
+ * The verdicts a reviewer can record are more than three, so they collapse to
+ * the four tones the palette has: cleared, in flight, waiting, turned down.
+ */
+const VERDICT_TONE: Record<string, string> = {
+  shortlisted: "ok",
+  hired: "ok",
+  interviewing: "info",
+  on_hold: "warn",
+  rejected: "bad",
+};
+
+function statusOf(candidate: CandidateRecord): { label: string; tone: string } {
+  if (isEvaluated(candidate)) {
+    const verdict = candidate.evaluation_status ?? "";
+    return {
+      label: verdict.replace(/_/g, " ") || "Evaluated",
+      tone: VERDICT_TONE[verdict] ?? "info",
+    };
+  }
+  if (!candidate.viewed_at) return { label: "Unviewed", tone: "warn" };
+  return { label: "Pending", tone: "info" };
 }
 
 export default function StaffDashboard({
@@ -311,269 +336,151 @@ export default function StaffDashboard({
 
   const progressPct = counts.all ? Math.round((counts.evaluated / counts.all) * 100) : 0;
 
-  /** The rest of the pace sentence, assembled from whatever there is to say. */
+  /** The line under each reading — what the figure above it means today. */
+  const captionFor = (id: QueueFilter): string => {
+    switch (id) {
+      case "unviewed":
+        return counts.unviewed ? "Not yet opened" : "Everything has been opened";
+      case "pending":
+        return counts.pending ? "Opened, awaiting a verdict" : "No verdict outstanding";
+      case "evaluated":
+        return counts.all
+          ? `${progressPct}% of your queue${performance.today ? ` · ${formatInt(performance.today)} today` : ""}`
+          : "Nothing allocated yet";
+      case "at_risk":
+        return counts.overdue
+          ? `${formatInt(counts.overdue)} already past the ${slaHours}h window`
+          : counts.at_risk
+            ? `Inside the last quarter of the ${slaHours}h window`
+            : "Everything is well inside the window";
+      case "all":
+      default:
+        return counts.all ? "Everything allocated to you" : "Nothing allocated yet";
+    }
+  };
+
+  /** The pace sentence, assembled from whatever there is to say. */
   const pace = [
-    performance.withinSla !== null &&
-      `${performance.withinSla}% of your evaluations landed inside the ${slaHours}-hour window`,
-    performance.shortlistRate !== null &&
-      `${performance.shortlistRate}% were shortlisted or taken to interview`,
+    performance.turnaround !== null && `avg ${formatHours(performance.turnaround)} turnaround`,
+    performance.shortlistRate !== null && `${performance.shortlistRate}% shortlisted`,
   ]
     .filter((part): part is string => Boolean(part))
-    .join(", and ");
+    .join(" · ");
 
-  /** The three things a reviewer comes here to do. */
-  const actions = [
-    {
-      id: "next",
-      icon: Sparkles,
-      title: nextUp ? `Review next — ${nameOf(nextUp)}` : "Queue clear",
-      subtitle: nextUp
-        ? "The unopened profile closest to its deadline."
-        : "Nothing is waiting on a first read.",
-      accent: true,
-      arrow: true,
-      on: false,
-      disabled: !nextUp,
-      onClick: () => nextUp && openProfile(nextUp),
-    },
-    {
-      id: "unviewed",
-      icon: Inbox,
-      title: `Unopened (${formatInt(counts.unviewed)})`,
-      subtitle: counts.unviewed
-        ? "Allocated to you and not yet read."
-        : "Everything allocated has been opened.",
-      accent: false,
-      arrow: false,
-      on: filter === "unviewed",
-      disabled: false,
-      onClick: () => setFilter(filter === "unviewed" ? "all" : "unviewed"),
-    },
-    {
-      id: "at_risk",
-      icon: Timer,
-      title: `Due soon (${formatInt(counts.at_risk)})`,
-      subtitle: counts.at_risk
-        ? `Inside the last quarter of the ${slaHours}-hour window.`
-        : `Every profile is well inside the ${slaHours}-hour window.`,
-      accent: false,
-      arrow: false,
-      on: filter === "at_risk",
-      disabled: false,
-      onClick: () => setFilter(filter === "at_risk" ? "all" : "at_risk"),
-    },
-  ];
-
-  /**
-   * Four numbers: the whole workload, what is unread, what has been judged, and
-   * the risk.
-   *
-   * "Total candidates" is its own tile rather than a caption on another,
-   * because it answers the question a reviewer opens this screen with — how much
-   * is mine — and reading it out of the corner of a progress tile made it look
-   * like a denominator rather than a figure.
-   */
-  const kpis = [
-    {
-      label: "Total candidates",
-      value: compactNumber(counts.all),
-      caption: counts.all
-        ? `Everything allocated to you, judged or not`
-        : "Nothing allocated to you yet",
-      icon: Users,
-      alert: false,
-    },
-    {
-      label: "Unviewed",
-      value: compactNumber(counts.unviewed),
-      caption: counts.unviewed
-        ? `Never opened · ${formatInt(counts.pending)} opened, awaiting a verdict`
-        : `Everything allocated has been opened`,
-      icon: Inbox,
-      alert: false,
-    },
-    {
-      label: "Evaluated",
-      value: compactNumber(counts.evaluated),
-      caption: counts.all
-        ? `${progressPct}% of your queue · ${formatInt(performance.today)} today`
-        : "Nothing allocated yet",
-      icon: CheckCircle2,
-      alert: false,
-    },
-    {
-      label: `Past the ${slaHours}h SLA`,
-      value: formatInt(counts.overdue),
-      caption: counts.overdue
-        ? "Already over — open these first"
-        : counts.at_risk
-          ? `${formatInt(counts.at_risk)} approaching the deadline`
-          : "Every profile is inside the window",
-      icon: Clock,
-      alert: counts.overdue > 0,
-    },
-  ];
+  const activeLabel = FILTERS.find((f) => f.id === filter)?.label ?? "Allocated to me";
 
   return (
-    <div className="staff-workspace">
-      {/* ── Shopeers-style KPI cards ── */}
-      <div className="ov-kpi-row">
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Total Candidates</span>
-            <span className="ov-kpi-card-icon"><Users size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{compactNumber(counts.all)}</p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {counts.all ? "Everything allocated to you" : "Nothing allocated yet"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Unviewed</span>
-            <span className="ov-kpi-card-icon is-warning"><Inbox size={17} /></span>
-          </div>
-          <p className={`ov-kpi-card-value ${counts.unviewed > 0 ? "is-rose" : ""}`}>
-            {compactNumber(counts.unviewed)}
+    <div className="ds-page">
+      {/* ── Page head ─────────────────────────────────────────────────── */}
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">My candidates</h1>
+          <p className="ds-head-sub">
+            The profiles allocated to you — read the résumé, record your evaluation.
           </p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {counts.unviewed ? "Not yet opened" : "All opened"}
-            </span>
-          </div>
-        </article>
+        </div>
 
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Evaluated</span>
-            <span className="ov-kpi-card-icon is-success"><CheckCircle2 size={17} /></span>
-          </div>
-          <p className="ov-kpi-card-value">{compactNumber(counts.evaluated)}</p>
-          <div className="ov-kpi-card-foot">
-            {counts.all > 0 && (
-              <span className={`ov-delta ${progressPct >= 50 ? "is-up" : "is-down"}`}>
-                {progressPct >= 50 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                {progressPct}%
+        {/* The one shortcut that was not a filter, and so the one that is left:
+            it opens the unopened profile closest to its deadline. */}
+        <div className="ds-head-actions">
+          <button
+            type="button"
+            className="ds-primary-btn"
+            disabled={!nextUp}
+            onClick={() => nextUp && openProfile(nextUp)}
+            title={
+              nextUp
+                ? "Open the unopened profile closest to its deadline"
+                : "Nothing is waiting on a first read"
+            }
+          >
+            <Sparkles size={15} />
+            {nextUp ? `Review next — ${nameOf(nextUp)}` : "Queue clear"}
+            {nextUp && <ArrowRight size={15} />}
+          </button>
+        </div>
+      </header>
+
+      {/* ── Five readings, which are also the filter ──────────────────── */}
+      {/* Five cards above a row of five tabs would be the same five numbers
+          twice, a click apart. Each card is the reading and the tab. */}
+      <div className="ds-stats is-five" role="tablist" aria-label="Filter your queue">
+        {FILTERS.map(({ id, label, icon: Icon }) => {
+          // The only figure on the screen allowed a second hue, and only when
+          // there is something actually wrong to report.
+          const alert = id === "at_risk" && counts.at_risk > 0;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={filter === id}
+              className={`ds-stat ${filter === id ? "is-on" : ""}`}
+              onClick={() => setFilter(id)}
+            >
+              <span className="ds-stat-top">
+                <span className="ds-stat-label">{label}</span>
+                <span className={`ds-stat-icon ${alert ? "is-alert" : ""}`} aria-hidden="true">
+                  <Icon size={16} strokeWidth={2} />
+                </span>
               </span>
-            )}
-            <span className="ov-kpi-card-caption">
-              {performance.today > 0 ? `${performance.today} today` : "of your queue"}
-            </span>
-          </div>
-        </article>
-
-        <article className="ov-kpi-card">
-          <div className="ov-kpi-card-top">
-            <span className="ov-kpi-card-label">Past SLA ({slaHours}h)</span>
-            <span className={`ov-kpi-card-icon ${counts.overdue > 0 ? "is-rose" : "is-success"}`}>
-              <Clock size={17} />
-            </span>
-          </div>
-          <p className={`ov-kpi-card-value ${counts.overdue > 0 ? "is-rose" : ""}`}>
-            {formatInt(counts.overdue)}
-          </p>
-          <div className="ov-kpi-card-foot">
-            <span className="ov-kpi-card-caption">
-              {counts.overdue > 0
-                ? "Open these first"
-                : counts.at_risk > 0
-                  ? `${counts.at_risk} approaching deadline`
-                  : "All within window"}
-            </span>
-          </div>
-        </article>
+              <span className={`ds-stat-value ${alert ? "is-alert" : ""}`}>
+                {formatInt(counts[id])}
+              </span>
+              <span className="ds-stat-foot">{captionFor(id)}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── SLA performance strip ── */}
+      {/* ── How you are keeping up ────────────────────────────────────── */}
+      {/* One line and a hairline bar rather than the full-width panel this used
+          to be: it is a single percentage, and it was taking a band of the
+          screen the size of the queue's first four rows. */}
       {performance.withinSla !== null && (
-        <div className="ov-chart-card staff-perf-bar">
-          <div className="ov-chart-card-head">
-            <div>
-              <h2 className="ov-chart-card-title">SLA Performance</h2>
-              <p className="ov-chart-card-sub">
-                <span className="ov-chart-big" style={{ fontSize: "1.35rem" }}>
-                  {performance.withinSla}%
-                </span>
-                <span className="ov-kpi-card-caption">
-                  {" "}of evaluations within the {slaHours}h window
-                  {performance.turnaround !== null && ` · avg ${formatHours(performance.turnaround)} turnaround`}
-                  {performance.shortlistRate !== null && ` · ${performance.shortlistRate}% shortlisted`}
-                </span>
-              </p>
-            </div>
+        <div className="ds-meter">
+          <div className="ds-meter-line">
+            <span className="ds-meter-label">SLA performance</span>
+            <span className="ds-meter-value">{performance.withinSla}%</span>
+            <span className="ds-meter-note">
+              of evaluations inside the {slaHours}h window
+              {pace && ` · ${pace}`}
+            </span>
           </div>
-          <div style={{ padding: "0 1.25rem 1.25rem" }}>
-            <div className="ov-conf-bar-track" style={{ height: 10 }}>
-              <div
-                className="ov-conf-bar-fill"
-                style={{
-                  width: `${performance.withinSla}%`,
-                  background: performance.withinSla >= 80
-                    ? "var(--success)"
-                    : performance.withinSla >= 50
-                      ? "var(--primary)"
-                      : "var(--warning)",
-                }}
-              />
-            </div>
+          <div className="ds-meter-track">
+            <div
+              className={`ds-meter-fill ${
+                performance.withinSla >= 80 ? "is-ok" : performance.withinSla >= 50 ? "" : "is-warn"
+              }`}
+              style={{ width: `${performance.withinSla}%` }}
+            />
           </div>
         </div>
       )}
 
-      {/* ── Action shortcuts ── */}
-      <section className="ov-actions is-three">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className={`ov-action ${action.accent || action.on ? "is-accent" : ""}`}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              aria-pressed={action.accent ? undefined : action.on}
-            >
-              <span className="ov-action-icon" aria-hidden="true">
-                <Icon size={19} strokeWidth={2} />
-              </span>
-              <span className="ov-action-text">
-                <span className="ov-action-title">
-                  {action.title}
-                  {action.arrow && <ArrowRight size={14} />}
-                </span>
-                <span className="ov-action-sub">{action.subtitle}</span>
-              </span>
-            </button>
-          );
-        })}
-      </section>
-
-      {/* ---- The queue ---- */}
-      <section className="db-card">
-        <header className="db-card-head">
+      {/* ── The queue itself ──────────────────────────────────────────── */}
+      <section className="ds-panel">
+        <div className="ds-panel-head is-split">
           <div>
-            <h3 className="db-card-title">My candidates</h3>
-            <p className="db-card-sub">
+            <h2 className="ds-panel-title">{activeLabel}</h2>
+            <p className="ds-panel-sub">
               Open a profile to read the résumé and record your evaluation.
             </p>
           </div>
 
-          <div className="queue-tools">
-            <label className="queue-search">
-              <Search size={14} />
+          <div className="ds-panel-tools">
+            <label className="ds-search">
+              <Search size={15} />
               <input
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search name, skill, title…"
+                placeholder="Search name, skill or title"
                 aria-label="Search your queue"
               />
             </label>
             <select
-              className="queue-sort"
+              className="ds-select"
               value={sort}
               onChange={(event) => setSort(event.target.value as QueueSort)}
               aria-label="Sort the queue"
@@ -585,163 +492,177 @@ export default function StaffDashboard({
               ))}
             </select>
           </div>
-        </header>
+        </div>
 
-        <div className="db-card-body">
-          <div className="db-tabs" role="tablist">
-            {FILTERS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={filter === tab.id}
-                className={`db-tab ${filter === tab.id ? "is-on" : ""} ${
-                  tab.id === "at_risk" && counts.at_risk > 0 ? "is-urgent" : ""
-                }`}
-                onClick={() => setFilter(tab.id)}
-              >
-                {tab.label}
-                <span className="db-tab-count">{counts[tab.id]}</span>
+        {visible.length === 0 ? (
+          <div className="ds-empty-state">
+            <Inbox size={30} />
+            <h3>
+              {query
+                ? "Nothing matches that search"
+                : filter === "all"
+                  ? "Nothing allocated to you yet"
+                  : "Nothing in this view"}
+            </h3>
+            <p>
+              {query
+                ? "Try a different name, skill or job title."
+                : filter === "all"
+                  ? "New résumés are allocated automatically as they are ingested."
+                  : "Try another reading above."}
+            </p>
+            {query && (
+              <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
+                Clear search
               </button>
-            ))}
+            )}
           </div>
+        ) : (
+          <div className="ds-table-wrap">
+            <table className="ds-table">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Skills</th>
+                  <th>SLA</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((candidate) => {
+                  const name = nameOf(candidate);
+                  const left = hoursRemaining(candidate, slaHours, now);
+                  const isNew = arrivedIds?.has(candidate.id) ?? false;
+                  const status = statusOf(candidate);
+                  const skills = (candidate.profile?.skills ?? []).slice(0, 3);
 
-          {visible.length === 0 ? (
-            <div className="db-empty">
-              <p className="db-empty-title">
-                {query
-                  ? "Nothing matches that search"
-                  : filter === "all"
-                    ? "Nothing allocated to you yet"
-                    : "Nothing in this view"}
-              </p>
-              <p className="db-empty-sub">
-                {query
-                  ? "Try a different name, skill or job title."
-                  : filter === "all"
-                    ? "New résumés are allocated automatically as they are ingested."
-                    : "Try another tab."}
-              </p>
-            </div>
-          ) : (
-            <div className="queue-list">
-              {visible.map((candidate) => {
-                const name = nameOf(candidate);
-                const evaluated = isEvaluated(candidate);
-                const left = hoursRemaining(candidate, slaHours, now);
-                const isNew = arrivedIds?.has(candidate.id) ?? false;
-                return (
-                  // A row, not a <button>: the eye is a second action inside it,
-                  // and a button may not contain a button. The role and the two
-                  // keys put back exactly what the element gave up.
-                  <div
-                    key={candidate.id}
-                    role="button"
-                    tabIndex={0}
-                    className={`queue-row ${!candidate.viewed_at ? "is-unviewed" : ""} ${
-                      left !== null && left <= 0 ? "is-breached" : ""
-                    }`}
-                    onClick={() => openProfile(candidate)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openProfile(candidate);
-                      }
-                    }}
-                  >
-                    <span className="staff-avatar">{initialsOf(name)}</span>
-
-                    <span className="queue-identity">
-                      <strong>
-                        {name}
-                        {isNew && <span className="queue-new">New</span>}
-                      </strong>
-                      <em>
-                        {candidate.profile?.current_designation ??
-                          candidate.profile?.email ??
-                          "No designation parsed"}
-                      </em>
-                    </span>
-
-                    <span className="queue-skills">
-                      {(candidate.profile?.skills ?? []).slice(0, 3).map((skill) => (
-                        <span key={skill} className="db-chip">
-                          {skill}
+                  return (
+                    <tr key={candidate.id} onClick={() => openProfile(candidate)}>
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(name)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong title={name}>
+                              {name}
+                              {isNew && <em className="ds-badge">New</em>}
+                            </strong>
+                            <small>
+                              {candidate.profile?.current_designation ??
+                                candidate.profile?.email ??
+                                "No designation parsed"}
+                            </small>
+                          </span>
                         </span>
-                      ))}
-                    </span>
+                      </td>
 
-                    <span className="queue-when">
-                      {left === null ? (
-                        candidate.assigned_at ? (
-                          timeAgo(candidate.assigned_at)
+                      <td>
+                        {skills.length > 0 ? (
+                          <span className="ds-chips">
+                            {skills.map((skill) => (
+                              <span key={skill} className="ds-chip">
+                                {skill}
+                              </span>
+                            ))}
+                          </span>
                         ) : (
                           "—"
-                        )
-                      ) : (
-                        <span className={`queue-sla ${left <= 0 ? "is-over" : left <= slaHours * AT_RISK_FRACTION ? "is-soon" : ""}`}>
-                          <Clock size={11} />
-                          {left <= 0 ? `${formatHours(left)} over` : `${formatHours(left)} left`}
+                        )}
+                      </td>
+
+                      {/* The clock only runs while a profile is unread; once it
+                          is opened the column says when it landed instead. */}
+                      <td>
+                        {left === null ? (
+                          <span className="ds-quiet">
+                            {candidate.assigned_at ? timeAgo(candidate.assigned_at) : "—"}
+                          </span>
+                        ) : (
+                          <span
+                            className={`ds-sla ${
+                              left <= 0
+                                ? "is-over"
+                                : left <= slaHours * AT_RISK_FRACTION
+                                  ? "is-soon"
+                                  : ""
+                            }`}
+                          >
+                            <Clock size={12} />
+                            {left <= 0 ? `${formatHours(left)} over` : `${formatHours(left)} left`}
+                          </span>
+                        )}
+                      </td>
+
+                      <td>
+                        <span className={`ds-status is-${status.tone}`}>
+                          <i aria-hidden="true" />
+                          {status.label}
                         </span>
-                      )}
-                    </span>
+                      </td>
 
-                    <span
-                      className={`db-pill is-${evaluated ? candidate.evaluation_status : candidate.viewed_at ? "pending" : "unviewed"}`}
-                    >
-                      {evaluated
-                        ? (candidate.evaluation_status ?? "").replace("_", " ")
-                        : candidate.viewed_at
-                          ? "pending"
-                          : "unviewed"}
-                    </span>
+                      <td>
+                        {candidate.evaluation_score ? (
+                          <span
+                            className="ds-score"
+                            title={`${candidate.evaluation_score} of 5`}
+                            aria-label={`${candidate.evaluation_score} of 5`}
+                          >
+                            {Array.from({ length: candidate.evaluation_score }).map((_, index) => (
+                              <Star key={index} size={12} fill="currentColor" />
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="ds-quiet">—</span>
+                        )}
+                      </td>
 
-                    {evaluated && candidate.evaluation_score ? (
-                      <span className="queue-score" title={`${candidate.evaluation_score} of 5`}>
-                        {Array.from({ length: candidate.evaluation_score }).map((_, index) => (
-                          <Star key={index} size={12} fill="currentColor" />
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="queue-score" />
-                    )}
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <div className="ds-acts">
+                          {candidate.resume?.storage_key && (
+                            <a
+                              className="ds-act"
+                              href={resumeDownloadUrl(candidate.id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`Open ${name}'s original résumé`}
+                              aria-label={`Open ${name}'s original résumé`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <FileText size={15} />
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            className="ds-act"
+                            title={`Open ${name}'s profile and evaluation`}
+                            aria-label={`Open ${name}'s profile and evaluation`}
+                            onClick={() => openProfile(candidate)}
+                          >
+                            <Eye size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                    {/* Held open when there is no file, the way `queue-score`
-                        is: the row is a fixed grid, and a column that appears
-                        only on some rows pushes every later cell out of line. */}
-                    {candidate.resume?.storage_key ? (
-                      <a
-                        className="queue-eye"
-                        href={resumeDownloadUrl(candidate.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`View ${name}'s original resume`}
-                        aria-label={`View ${name}'s original resume`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <FileText size={14} />
-                      </a>
-                    ) : (
-                      <span className="queue-eye-slot" aria-hidden="true" />
-                    )}
-
-                    <button
-                      type="button"
-                      className="queue-eye"
-                      title={`Open ${name}'s profile and evaluation`}
-                      aria-label={`Open ${name}'s profile and evaluation`}
-                      onClick={(event) => {
-                        // The row underneath would fire too, opening it twice.
-                        event.stopPropagation();
-                        openProfile(candidate);
-                      }}
-                    >
-                      <Eye size={14} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+        <div className="ds-panel-foot">
+          <span>
+            Showing <strong>{formatInt(visible.length)}</strong> of{" "}
+            <strong>{formatInt(counts.all)}</strong> allocated to you
+          </span>
+          {counts.overdue > 0 && (
+            <span className="ds-status is-bad">
+              <i aria-hidden="true" />
+              {formatInt(counts.overdue)} past the {slaHours}h SLA
+            </span>
           )}
         </div>
       </section>
