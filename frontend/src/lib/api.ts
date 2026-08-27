@@ -1,10 +1,10 @@
 /**
  * Typed client for the FastAPI resume-ingestion backend (app/api/routes.py).
  *
- * The app is built with `output: "export"`, so it is served as static files —
- * usually by the same FastAPI process, in which case a relative origin works.
- * During `next dev` the frontend runs on :3000 and the API on :8000, so point
- * NEXT_PUBLIC_API_BASE at the backend (CORS is already wide open server-side).
+ * The production container uses Next.js standalone output. During local
+ * development or Docker usage the frontend runs on :3000 and FastAPI on
+ * :8000, so point NEXT_PUBLIC_API_BASE at the backend. A reverse-proxied
+ * deployment can compile it as an empty string to keep API calls same-origin.
  */
 
 export const API_BASE =
