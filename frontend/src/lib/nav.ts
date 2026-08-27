@@ -27,16 +27,35 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type NavId =
-  | "overview"
-  | "candidates"
-  | "staff"
-  | "job-orders"
-  | "sourcing"
-  | "b2b-enquiries"
-  | "data-management"
-  | "users"
-  | "settings";
+export const NAV_IDS = [
+  "overview",
+  "candidates",
+  "staff",
+  "job-orders",
+  "sourcing",
+  "b2b-enquiries",
+  "data-management",
+  "users",
+  "settings",
+] as const;
+
+export type NavId = (typeof NAV_IDS)[number];
+
+export function isNavId(value: string): value is NavId {
+  return (NAV_IDS as readonly string[]).includes(value);
+}
+
+/** Overview owns `/`; every other CRM destination gets a shareable path. */
+export function navPath(id: NavId): string {
+  return id === "overview" ? "/" : `/${id}`;
+}
+
+/** Resolve a browser pathname into the tab it represents. */
+export function navIdFromPath(pathname: string): NavId | null {
+  const segment = pathname.replace(/^\/+|\/+$/g, "");
+  if (!segment) return "overview";
+  return !segment.includes("/") && isNavId(segment) ? segment : null;
+}
 
 export interface NavItem {
   id: NavId;

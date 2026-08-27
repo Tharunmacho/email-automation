@@ -2,9 +2,10 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
+import Link from "next/link";
 
 import BrandLogo from "@/components/BrandLogo";
-import { navGroupsFor, type NavId } from "@/lib/nav";
+import { navGroupsFor, navPath, type NavId } from "@/lib/nav";
 import {
   getThemeServerSnapshot,
   getThemeSnapshot,
@@ -108,17 +109,24 @@ export default function Sidebar({
                 const Icon = item.icon;
                 const isActive = activeId === item.id;
                 return (
-                  <button
+                  <Link
                     key={item.id}
-                    type="button"
+                    href={navPath(item.id)}
                     className={`rail-item ${isActive ? "is-active" : ""}`}
-                    onClick={() => go(item.id)}
+                    onClick={(event) => {
+                      // Keep modified clicks native so a destination can open
+                      // in a new tab. Plain clicks stay inside the mounted CRM
+                      // workspace and preserve its loaded data.
+                      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                      event.preventDefault();
+                      go(item.id);
+                    }}
                     aria-current={isActive ? "page" : undefined}
                     title={collapsed ? item.label : undefined}
                   >
                     <Icon size={18} strokeWidth={2} />
                     <span className="rail-item-label">{item.label}</span>
-                  </button>
+                  </Link>
                 );
               })}
             </div>

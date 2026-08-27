@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
@@ -22,7 +23,14 @@ import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
 import { summariseProfileChange } from "@/lib/candidateProfile";
 import { useRealtime, type RealtimeEvent } from "@/lib/realtime";
-import { NAV_META, defaultNavFor, navGroupsFor, type NavId } from "@/lib/nav";
+import {
+  NAV_META,
+  defaultNavFor,
+  navGroupsFor,
+  navIdFromPath,
+  navPath,
+  type NavId,
+} from "@/lib/nav";
 import {
   appendCandidateLog,
   dropCandidateLogs,
@@ -100,13 +108,13 @@ const logEntry = (message: string, type: LogEntry["type"] = "info"): LogEntry =>
 });
 
 export default function Home() {
+  const pathname = usePathname();
   // null = signed out. `checking` covers the first paint, where a stored token
   // exists but has not been validated yet — without it the login screen would
   // flash on every refresh for an already-signed-in user.
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<NavId>("overview");
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -167,6 +175,30 @@ export default function Home() {
     [user],
   );
   const canReadCandidates = reachableTabs?.has("candidates") ?? false;
+
+  // The path is the page state. Native history updates keep this large client
+  // workspace mounted, while Back/Forward changes `pathname` and therefore the
+  // rendered destination without maintaining a second copy in React state.
+  const routeTab = navIdFromPath(pathname) ?? "overview";
+
+  useEffect(() => {
+    const closeTransientScreen = () => {
+      setScreen(null);
+      setUsersOpenCreate(false);
+    };
+    window.addEventListener("popstate", closeTransientScreen);
+    return () => window.removeEventListener("popstate", closeTransientScreen);
+  }, []);
+
+  // A bookmarked route may be valid application-wide but unavailable to the
+  // signed-in account. Render the role's safe landing page and correct the URL
+  // without leaving the forbidden destination in browser history.
+  useEffect(() => {
+    if (!user || !reachableTabs) return;
+    if (reachableTabs.has(routeTab)) return;
+    const fallback = defaultNavFor(user.role, user.pages);
+    window.history.replaceState(null, "", navPath(fallback));
+  }, [reachableTabs, routeTab, user]);
 
   // ---- helpers ---------------------------------------------------------- //
   /**
@@ -249,7 +281,7 @@ export default function Home() {
     // So the next session opens with its own connect banner.
     bootLoggedRef.current = false;
     setScreen(null);
-    setActiveTab("overview");
+    window.history.replaceState(null, "", navPath("overview"));
   }, []);
 
   // ---- bootstrap -------------------------------------------------------- //
@@ -340,9 +372,9 @@ export default function Home() {
    * and then correct itself a frame later.
    */
   const currentTab = useMemo(() => {
-    if (!user || !reachableTabs) return activeTab;
-    return reachableTabs.has(activeTab) ? activeTab : defaultNavFor(user.role, user.pages);
-  }, [user, reachableTabs, activeTab]);
+    if (!user || !reachableTabs) return routeTab;
+    return reachableTabs.has(routeTab) ? routeTab : defaultNavFor(user.role, user.pages);
+  }, [user, reachableTabs, routeTab]);
 
   /**
    * Whether this session gets a navigation rail.
@@ -451,7 +483,8 @@ export default function Home() {
       // exactly like the rail: if it was not granted, the click learns nothing
       // and opens nothing.
       if (!reachableTabs?.has(next)) return;
-      setActiveTab(next);
+      const nextPath = navPath(next);
+      if (pathname !== nextPath) window.history.pushState(null, "", nextPath);
       // Leaving for another destination closes whichever candidate screen was
       // open, so coming back lands on the list rather than mid-edit.
       setScreen(null);
@@ -460,7 +493,7 @@ export default function Home() {
       setUsersOpenCreate(false);
       if (next === "candidates") void refreshCandidates();
     },
-    [reachableTabs, refreshCandidates],
+    [pathname, reachableTabs, refreshCandidates],
   );
 
   /**
@@ -709,7 +742,8 @@ export default function Home() {
   const listTab: NavId = "candidates";
 
   const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
-    setActiveTab(listTab);
+    const listPath = navPath(listTab);
+    if (pathname !== listPath) window.history.pushState(null, "", listPath);
     setScreen({ mode, candidateId });
   };
 
@@ -826,7 +860,7 @@ export default function Home() {
   const handleOpenCandidateById = (candidateId: string) => {
     if (!reachableTabs?.has("candidates")) return;
     if (user?.role === "staff") {
-      setActiveTab("candidates");
+      handleNavigate("candidates");
       setQueueFocusId(candidateId);
       return;
     }
@@ -868,7 +902,8 @@ export default function Home() {
       <LoginScreen
         onSuccess={(u) => {
           setUser(u);
-          setActiveTab(defaultNavFor(u.role, u.pages));
+          const landing = defaultNavFor(u.role, u.pages);
+          window.history.replaceState(null, "", navPath(landing));
         }}
       />
     );

@@ -696,6 +696,7 @@
   letter-spacing: -0.005em;
   font-family: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.14s ease, color 0.14s ease;
