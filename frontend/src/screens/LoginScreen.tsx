@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Image from "next/image";
 import {
   AlertCircle,
   Eye,
@@ -12,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+import BrandLogo from "@/components/BrandLogo";
 import { fetchDemoAccounts, login, type AuthUser, type DemoAccount } from "@/lib/api";
 
 interface LoginScreenProps {
@@ -22,7 +22,7 @@ const DEFAULT_DEMO_ACCOUNTS: DemoAccount[] = [
   {
     role: "admin",
     label: "Super Admin",
-    description: "Full access: allocation, staff accounts and SLA.",
+    description: "Full access: allocation, staff accounts and review monitoring.",
     email: "admin@gmail.com",
     password: "admin@123",
   },
@@ -116,7 +116,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           <header className="login-head">
             <div className="login-brand">
               <span className="login-logo">
-                <Image src="/adira-logo.png" alt="Adira Enterprises" width={600} height={200} preload />
+                <BrandLogo />
               </span>
             </div>
 

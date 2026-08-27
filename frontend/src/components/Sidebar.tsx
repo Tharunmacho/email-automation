@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
-import Image from "next/image";
 import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
 
+import BrandLogo from "@/components/BrandLogo";
 import { navGroupsFor, type NavId } from "@/lib/nav";
 import {
   getThemeServerSnapshot,
@@ -80,11 +80,7 @@ export default function Sidebar({
             rather than taking a band of its own. */}
         <div className="rail-brand">
           <span className="rail-logo">
-            {collapsed ? (
-              <Image src="/adira-mark.png" alt="Adira" width={249} height={249} preload />
-            ) : (
-              <Image src="/adira-logo.png" alt="Adira" width={600} height={200} preload />
-            )}
+            <BrandLogo />
           </span>
         </div>
 

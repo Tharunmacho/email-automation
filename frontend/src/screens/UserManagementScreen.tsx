@@ -49,7 +49,6 @@ import {
 const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
   candidates: "Candidates",
-  "my-queue": "My Candidates",
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
   sourcing: "Sourcing Hub",
@@ -58,7 +57,6 @@ const PAGE_LABELS: Record<string, string> = {
   users: "User Management",
   visualizer: "Visualizer",
   "resume-parser": "Résumé Parser",
-  activity: "Activity Logs",
   settings: "Settings",
 };
 
@@ -76,7 +74,6 @@ const PAGE_LABELS: Record<string, string> = {
  * ungrouped row.
  */
 const PAGE_GROUPS: { label: string; pages: string[] }[] = [
-  { label: "Workspace", pages: ["my-queue"] },
   { label: "General", pages: ["overview", "candidates", "staff", "users"] },
   {
     label: "Tools",
@@ -89,7 +86,7 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
       "resume-parser",
     ],
   },
-  { label: "Support", pages: ["activity", "settings"] },
+  { label: "Support", pages: ["settings"] },
 ];
 
 /** The two roles, with what each one means stated against it rather than after it. */
@@ -115,7 +112,7 @@ const ROLE_OPTIONS = [
  */
 const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
-  staff: ["my-queue"],
+  staff: ["candidates", "settings"],
 };
 
 type Section = "create" | "manage";
@@ -161,7 +158,15 @@ export default function UserManagementScreen({
     try {
       const res = await listUsersAPI();
       setUsers(res.items ?? []);
-      setPages(res.pages ?? []);
+      setPages(
+        Array.from(
+          new Set(
+            (res.pages ?? [])
+              .filter((page) => page !== "activity")
+              .map((page) => (page === "my-queue" ? "candidates" : page)),
+          ),
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -170,7 +175,8 @@ export default function UserManagementScreen({
   }, []);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   const activeAdmins = useMemo(
@@ -255,7 +261,7 @@ export default function UserManagementScreen({
           <div>
             <h3 className="db-card-title">Accounts matrix</h3>
             <p className="db-card-sub">
-              {users.length} total accounts. A grant puts a page on someone's rail. It does not widen the data behind it.
+              {users.length} total accounts. A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
             </p>
           </div>
         </header>
@@ -319,7 +325,13 @@ export default function UserManagementScreen({
                     <td className="is-wrap">
                       {user.role === "admin"
                         ? "Everything"
-                        : user.pages.map((p) => PAGE_LABELS[p] ?? p).join(", ") || "—"}
+                        : Array.from(
+                            new Set(
+                              user.pages
+                                .filter((page) => page !== "activity")
+                                .map((page) => (page === "my-queue" ? "candidates" : page)),
+                            ),
+                          ).map((page) => PAGE_LABELS[page] ?? page).join(", ") || "—"}
                     </td>
                     <td>
                       <div className="staff-actions">

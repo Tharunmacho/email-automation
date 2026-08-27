@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
@@ -11,11 +11,9 @@ import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
-import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import CandidateEditScreen from "@/screens/CandidateEditScreen";
-import CandidateLogsScreen from "@/screens/CandidateLogsScreen";
 import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
@@ -28,9 +26,6 @@ import { NAV_META, defaultNavFor, navGroupsFor, type NavId } from "@/lib/nav";
 import {
   appendCandidateLog,
   dropCandidateLogs,
-  getLogsServerSnapshot,
-  getLogsSnapshot,
-  subscribeLogs,
 } from "@/lib/candidateLog";
 import {
   evaluateCandidate,
@@ -64,7 +59,7 @@ import type { Verdict } from "@/screens/CandidateProfileScreen";
  * record for that candidate alone.
  */
 interface CandidateScreen {
-  mode: "profile" | "edit" | "logs";
+  mode: "profile" | "edit";
   candidateId: string;
 }
 
@@ -93,11 +88,6 @@ const CANDIDATE_SCREEN_META: Record<
     eyebrow: "Talent Pool",
     title: "Edit Candidate",
     subtitle: "Change the stored details. Only the fields you can edit are shown.",
-  },
-  logs: {
-    eyebrow: "Talent Pool",
-    title: "Candidate Activity",
-    subtitle: "Everything that has happened to this one record.",
   },
 };
 
@@ -140,9 +130,6 @@ export default function Home() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
 
-  // Persisted outside React, so a reload does not erase who edited what.
-  const candidateLogs = useSyncExternalStore(subscribeLogs, getLogsSnapshot, getLogsServerSnapshot);
-
   const [screen, setScreen] = useState<CandidateScreen | null>(null);
   // The whole record for whichever candidate a screen is open on. Fetched per
   // candidate because the list no longer carries the full profile — and it has
@@ -180,14 +167,6 @@ export default function Home() {
   }, []);
 
   /** How many events each candidate has — the directory shows this on the row. */
-  const logCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const entry of candidateLogs) {
-      counts[entry.candidateId] = (counts[entry.candidateId] ?? 0) + 1;
-    }
-    return counts;
-  }, [candidateLogs]);
-
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type, key: Date.now() });
   }, []);
@@ -410,7 +389,12 @@ export default function Home() {
           break;
         }
         case "sla_alert": {
-          setSlaPopup({ message: event.message, alerts: event.alerts });
+          setSlaPopup({
+            message: `${event.count} profile${event.count === 1 ? " is" : "s are"} beyond the ${
+              event.threshold_hours
+            }-hour review window.`,
+            alerts: event.alerts,
+          });
           setRealtimeNonce((n) => n + 1);
           break;
         }
@@ -434,13 +418,15 @@ export default function Home() {
    */
   useEffect(() => {
     if (!openCandidateId) {
-      setDetail(null);
-      setDetailError(null);
-      return;
+      const timer = window.setTimeout(() => {
+        setDetail(null);
+        setDetailError(null);
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     let active = true;
-    setDetailError(null);
+    const clearErrorTimer = window.setTimeout(() => active && setDetailError(null), 0);
 
     getCandidate(openCandidateId).then(
       (record) => active && setDetail(record),
@@ -453,6 +439,7 @@ export default function Home() {
 
     return () => {
       active = false;
+      window.clearTimeout(clearErrorTimer);
     };
   }, [openCandidateId, detailNonce]);
 
@@ -713,7 +700,7 @@ export default function Home() {
    * their queue. Sending a reviewer back to a screen the API refuses them is
    * how the back button used to end up somewhere they could not be.
    */
-  const listTab: NavId = user?.role === "staff" ? "my-queue" : "candidates";
+  const listTab: NavId = "candidates";
 
   const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
     setActiveTab(listTab);
@@ -747,11 +734,6 @@ export default function Home() {
   const handleEditCandidate = (candidate: CandidateRecord) => {
     openScreen("edit", candidate.id);
     appendCandidateLog(candidate.id, "Opened editor", `Edit screen opened.`, "info", user?.email);
-  };
-
-  /** Reading the history is not itself an event in it. */
-  const handleOpenLogs = (candidate: CandidateRecord) => {
-    openScreen("logs", candidate.id);
   };
 
   const closeScreen = () => setScreen(null);
@@ -837,7 +819,7 @@ export default function Home() {
    */
   const handleOpenCandidateById = (candidateId: string) => {
     if (user?.role === "staff") {
-      setActiveTab("my-queue");
+      setActiveTab("candidates");
       setQueueFocusId(candidateId);
       return;
     }
@@ -985,14 +967,6 @@ export default function Home() {
               />
             )}
 
-            {screenCandidate && screen?.mode === "logs" && (
-              <CandidateLogsScreen
-                candidate={screenCandidate}
-                logs={candidateLogs}
-                onBack={closeScreen}
-              />
-            )}
-
             {/* The record is fetched when the screen opens, so there is a
                 moment with nothing to show — and, if it cannot be fetched, no
                 screen to show at all. Neither may fall through to the
@@ -1040,25 +1014,25 @@ export default function Home() {
                 )}
 
                 {currentTab === "candidates" && (
-                  <CandidatesView
-                    candidates={candidates}
-                    logCounts={logCounts}
-                    onOpenCandidate={handleOpenCandidate}
-                    onEditCandidate={handleEditCandidate}
-                    onOpenLogs={handleOpenLogs}
-                    onDeleteCandidate={handleDeleteCandidate}
-                  />
-                )}
-
-                {currentTab === "my-queue" && (
-                  <StaffDashboard
-                    candidates={candidates}
-                    arrivedIds={arrivedIds}
-                    focusCandidateId={queueFocusId}
-                    onFocusHandled={() => setQueueFocusId(null)}
-                    onToast={showToast}
-                    onOpenCandidate={handleOpenCandidate}
-                  />
+                  user?.role === "staff" ? (
+                    <StaffDashboard
+                      candidates={candidates}
+                      arrivedIds={arrivedIds}
+                      focusCandidateId={queueFocusId}
+                      onFocusHandled={() => setQueueFocusId(null)}
+                      onToast={showToast}
+                      onOpenCandidate={handleOpenCandidate}
+                    />
+                  ) : (
+                    <CandidatesView
+                      candidates={candidates}
+                      onOpenCandidate={handleOpenCandidate}
+                      onEditCandidate={handleEditCandidate}
+                      onDeleteCandidate={handleDeleteCandidate}
+                      onAssignmentChanged={() => void refreshCandidates()}
+                      onToast={showToast}
+                    />
+                  )
                 )}
 
                 {currentTab === "staff" && (
@@ -1076,15 +1050,6 @@ export default function Home() {
 
                 {currentTab === "job-orders" && (
                   <JobOrders candidates={candidates} onActivity={log} />
-                )}
-
-                {currentTab === "activity" && (
-                  <ActivityLogsScreen
-                    systemLogs={logs}
-                    candidateLogs={candidateLogs}
-                    candidates={candidates}
-                    onOpenCandidateLogs={handleOpenLogs}
-                  />
                 )}
 
                 {currentTab === "settings" && (
@@ -1105,12 +1070,12 @@ export default function Home() {
             className="modal-container is-narrow"
             role="alertdialog"
             aria-modal="true"
-            aria-label="SLA breach"
+            aria-label="Overdue reviews"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
               <div>
-                <h3 className="modal-title">Profiles past the SLA</h3>
+                <h3 className="modal-title">Profiles past the review window</h3>
                 <p className="modal-subtitle">{slaPopup.message}</p>
               </div>
               <button

@@ -417,6 +417,22 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   const isFiltered = Boolean(searchQuery.trim()) || liveOnly || typeFilter !== "all";
 
+  const sourcingSummary = useMemo(() => {
+    let hiring = 0;
+    let liveOrders = 0;
+    let openSeats = 0;
+
+    records.forEach((record) => {
+      const engagement = engagementOf(record.name);
+      const live = engagement?.live ?? 0;
+      if (live > 0) hiring += 1;
+      liveOrders += live;
+      openSeats += Math.max(0, (engagement?.seats ?? 0) - (engagement?.filled ?? 0));
+    });
+
+    return { hiring, liveOrders, openSeats };
+  }, [records, engagementOf]);
+
   const clearFilters = () => {
     setSearchQuery("");
     setLiveOnly(false);
@@ -777,7 +793,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             {searchQuery.trim() ? `No client matches “${searchQuery.trim()}”. ` : ""}
             Try widening the search or clearing the filters.
           </span>
-          <button className="sh-empty-btn" onClick={clearFilters}>
+          <button type="button" className="sh-empty-btn" onClick={clearFilters}>
             Clear filters
           </button>
         </>
@@ -788,7 +804,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             Add the agents, associates and clients you source through. Job orders
             raised against them will then roll up here as live demand.
           </span>
-          <button className="sh-empty-btn primary" onClick={openCreateModal}>
+          <button type="button" className="sh-empty-btn primary" onClick={openCreateModal}>
             <Plus size={15} />
             Add your first client
           </button>
@@ -821,27 +837,75 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   return (
     <div className="sh-root">
-      {/* Controls */}
-      <div className="sh-toolbar">
-        <div className="sh-segment" role="tablist" aria-label="Client type">
-          {TYPE_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const active = typeFilter === tab.key;
-            return (
-              <button
-                key={tab.key}
-                role="tab"
-                aria-selected={active}
-                className={`sh-segment-btn ${active ? "active" : ""}`}
-                onClick={() => setTypeFilter(tab.key)}
-              >
-                <Icon size={15} />
-                <span>{tab.label}</span>
-                <span className="sh-segment-count">{formatInt(countFor(tab.key))}</span>
-              </button>
-            );
-          })}
+      <div className="ds-stats sh-summary" aria-label="Sourcing summary">
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Sourcing partners</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Building2 size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(records.length)}</span>
+          <span className="ds-stat-foot">Agents, associates and clients</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Hiring now</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Zap size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.hiring)}</span>
+          <span className="ds-stat-foot">Partners with active demand</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Live job orders</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Briefcase size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.liveOrders)}</span>
+          <span className="ds-stat-foot">Open or in-progress orders</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Open seats</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Target size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.openSeats)}</span>
+          <span className="ds-stat-foot">Positions still to be filled</span>
+        </section>
+      </div>
+
+      <section className="ds-panel sh-directory" aria-labelledby="sh-directory-title">
+        <div className="ds-panel-head is-split sh-directory-head">
+          <div>
+            <h2 id="sh-directory-title">Sourcing partners</h2>
+            <p>Search contacts, review active demand, and manage every sourcing relationship.</p>
+          </div>
+          <button type="button" className="sh-new-btn" onClick={openCreateModal}>
+            <Plus size={16} />
+            <span>New client</span>
+          </button>
         </div>
+
+        {/* Controls */}
+        <div className="sh-toolbar">
+          <div className="sh-segment" role="tablist" aria-label="Client type">
+            {TYPE_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const active = typeFilter === tab.key;
+              return (
+                <button
+                  type="button"
+                  key={tab.key}
+                  role="tab"
+                  aria-selected={active}
+                  className={`sh-segment-btn ${active ? "active" : ""}`}
+                  onClick={() => setTypeFilter(tab.key)}
+                >
+                  <Icon size={15} />
+                  <span>{tab.label}</span>
+                  <span className="sh-segment-count">{formatInt(countFor(tab.key))}</span>
+                </button>
+              );
+            })}
+          </div>
 
         <div className="sh-toolbar-right">
           <div className="sh-search">
@@ -856,6 +920,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             />
             {searchQuery && (
               <button
+                type="button"
                 className="sourcing-search-clear"
                 onClick={() => setSearchQuery("")}
                 title="Clear search"
@@ -867,6 +932,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           </div>
 
           <button
+            type="button"
             className={`sh-toggle ${liveOnly ? "active" : ""}`}
             onClick={() => setLiveOnly((prev) => !prev)}
             aria-pressed={liveOnly}
@@ -891,12 +957,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             <ChevronDown size={14} />
           </div>
 
-          <button className="sh-new-btn" onClick={openCreateModal}>
-            <Plus size={16} />
-            <span>New client</span>
-          </button>
+          </div>
         </div>
-      </div>
 
       <div className="sh-resultbar">
         <span className="sh-result-count">
@@ -905,7 +967,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             : `${formatInt(visibleRecords.length)} of ${formatInt(records.length)} client${records.length === 1 ? "" : "s"}`}
         </span>
         {isFiltered && !loading && (
-          <button className="sh-clear-link" onClick={clearFilters}>
+          <button type="button" className="sh-clear-link" onClick={clearFilters}>
             <X size={13} />
             Clear filters
           </button>
@@ -915,6 +977,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       {loading ? renderSkeleton() : visibleRecords.length === 0 ? renderEmpty() : (
         <div className="sh-grid">{visibleRecords.map(renderCard)}</div>
       )}
+      </section>
 
       {/* Create / edit client */}
       {isModalOpen && (

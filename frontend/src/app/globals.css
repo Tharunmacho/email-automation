@@ -61,6 +61,13 @@
      sweep read as a gradient first and a logo second. */
   --brand-gradient: linear-gradient(140deg, #3452ff 0%, var(--primary) 55%, var(--primary-deep) 100%);
 
+  /* Adira's identity is intentionally separate from the product accent: the
+     two-colour mark is brand, while electric blue remains interaction. */
+  --brand-mark-left: #062d68;
+  --brand-mark-right: #c3003d;
+  --brand-word: #062d68;
+  --brand-tagline: #b9003a;
+
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
@@ -195,17 +202,23 @@
      re-picked per rule. */
   --primary-glow: rgba(var(--primary-rgb), 0.16);
 
-  /* Deepest navy, replicating the old theme, and entirely borderless. */
-  --bg-main: #0b0f19;
-  --bg-card: #111827;
-  --bg-sidebar: #0b0f19;
+  /* The supplied dark lockup is a clean knockout, not a dimmed colour logo. */
+  --brand-mark-left: #ffffff;
+  --brand-mark-right: #ffffff;
+  --brand-word: #ffffff;
+  --brand-tagline: #ffffff;
 
-  --tint-1: #111827;
-  --tint-2: #1f2937;
-  --tint-3: #374151;
+  /* True black canvas with neutral charcoal elevation. */
+  --bg-main: #000000;
+  --bg-card: #080808;
+  --bg-sidebar: #000000;
 
-  --border-main: transparent;
-  --border-hover: transparent;
+  --tint-1: #0d0d0d;
+  --tint-2: #171717;
+  --tint-3: #262626;
+
+  --border-main: #242424;
+  --border-hover: #383838;
   --glass-border: rgba(255, 255, 255, 0.05);
 
   --text-main: #f9fafb;
@@ -213,9 +226,9 @@
   --text-light: #6b7280;
   --text-label: #9ca3af;
 
-  --border-blue: transparent;
-  --border-blue-strong: transparent;
-  --border-blue-faint: rgba(255, 255, 255, 0.04);
+  --border-blue: #242424;
+  --border-blue-strong: #383838;
+  --border-blue-faint: #171717;
 
   --success-ink: #4ade80;
   --success-fill: rgba(22, 163, 74, 0.16);
@@ -248,7 +261,7 @@
   /* The same hairline, inverted — a black edge is invisible on a dark surface. */
   --header-hairline: rgba(255, 255, 255, 0.09);
 
-  --dash-surface: #0d0d0d;
+  --dash-surface: #080808;
   --dash-muted: #a3a3a3;
   --dash-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --dash-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.06),
@@ -313,6 +326,69 @@
 
 
 
+/* One vector lockup serves every brand placement. Its parent sets the mark and
+   type sizes; the internal geometry keeps the symbol and wordmark optically
+   centred, while the theme tokens produce the supplied colour/white variants. */
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  gap: var(--brand-gap, 0.52rem);
+  line-height: 1;
+}
+
+.brand-mark {
+  display: block;
+  width: var(--brand-mark-size, 44px);
+  height: var(--brand-mark-size, 44px);
+  flex: 0 0 var(--brand-mark-size, 44px);
+  overflow: visible;
+}
+
+.brand-mark-left {
+  fill: var(--brand-mark-left);
+}
+
+.brand-mark-right {
+  fill: var(--brand-mark-right);
+}
+
+.brand-copy {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  transform: translateY(-0.02em);
+}
+
+.brand-name,
+.brand-tagline {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.brand-name {
+  color: var(--brand-word);
+  font-family: var(--font-outfit), sans-serif;
+  font-size: var(--brand-name-size, 0.88rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+}
+
+.brand-tagline {
+  margin-top: var(--brand-tag-gap, 0.28rem);
+  color: var(--brand-tagline);
+  font-family: var(--font-outfit), sans-serif;
+  font-size: var(--brand-tag-size, 0.38rem);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+
 /* The brand block. Pinned to `--app-header-h` and closed with the same
    hairline the header draws, so the two rules meet and read as one line across
    the shell — the reason that height is a variable in the first place. */
@@ -332,20 +408,16 @@
 
 
 .rail-logo {
-  width: 180px;
-  height: 48px;
+  --brand-mark-size: 46px;
+  --brand-name-size: 0.88rem;
+  --brand-tag-size: 0.37rem;
+  --brand-gap: 0.48rem;
+  width: 212px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   flex-shrink: 0;
-}
-
-.rail-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: left center;
-  display: block;
 }
 
 .rail.is-collapsed .rail-brand {
@@ -356,14 +428,15 @@
    square, so the box it sits in is square too — a 48x60 slot would letterbox
    the mark and float it off the vertical centre of the 68px stub. */
 .rail.is-collapsed .rail-logo {
+  --brand-mark-size: 42px;
   width: 40px;
   height: 40px;
   justify-content: center;
   margin: 0 auto;
 }
 
-.rail.is-collapsed .rail-logo img {
-  object-position: center;
+.rail.is-collapsed .rail-logo .brand-copy {
+  display: none;
 }
 
 .rail-brandname {
@@ -887,28 +960,16 @@
 /* The Adira mark carries its own colour, so the tile behind it is only a box:
    a brand gradient under a red-and-blue logo reads as two marks stacked. */
 .topbar-logo {
-  width: 160px;
+  --brand-mark-size: 42px;
+  --brand-name-size: 0.8rem;
+  --brand-tag-size: 0.33rem;
+  --brand-gap: 0.42rem;
+  width: 174px;
   height: 44px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   flex-shrink: 0;
-}
-
-.topbar-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: left center;
-  display: block;
-}
-
-.login-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: center;
-  display: block;
 }
 
 .topbar-title {
@@ -1322,6 +1383,17 @@
   .rail.is-collapsed .rail-signout,
   .rail.is-collapsed .theme-switch {
     display: revert;
+  }
+
+  .rail.is-collapsed .rail-logo {
+    --brand-mark-size: 46px;
+    width: 212px;
+    height: 50px;
+    margin: 0;
+  }
+
+  .rail.is-collapsed .rail-logo .brand-copy {
+    display: flex;
   }
 
   .rail.is-collapsed .theme-switch {
@@ -6578,8 +6650,13 @@ body {
 }
 
 .login-logo {
-  width: 260px;
-  height: 70px;
+  --brand-mark-size: 68px;
+  --brand-name-size: 1.16rem;
+  --brand-tag-size: 0.51rem;
+  --brand-gap: 0.68rem;
+  --brand-tag-gap: 0.34rem;
+  width: 292px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11641,6 +11718,327 @@ body {
   padding-top: 0.75rem;
 }
 
+/* Data Management is an operational register, so its overview and its rows
+   use the same visual hierarchy as the CRM dashboard: readings first, then a
+   clearly labelled working surface. */
+.dm-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dm-stats .ds-stat {
+  min-height: 132px;
+}
+
+.dm-panel {
+  overflow: hidden;
+  border-color: transparent;
+  border-radius: 18px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.1);
+}
+
+:root[data-theme="dark"] .dm-panel {
+  border-color: var(--border-main);
+  box-shadow: none;
+}
+
+.dm-panel-head {
+  align-items: center;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.dm-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.dm-panel-title > svg {
+  width: 36px;
+  height: 36px;
+  padding: 9px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.dm-panel-title .db-card-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dm-panel-title p {
+  margin: 0.18rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.77rem;
+  line-height: 1.4;
+}
+
+.dm-panel .db-card-body {
+  padding: 1rem 1.25rem 1.25rem;
+  overflow-x: auto;
+}
+
+.dm-panel .db-card-body > .db-card-sub,
+.dm-panel > .db-card-sub {
+  margin: 0 0 0.9rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(var(--primary-rgb), 0.12);
+  border-radius: 10px;
+  background: var(--primary-glow);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.dm-panel > .db-card-sub {
+  margin: 1rem 1.25rem 0;
+}
+
+.dm-list-head,
+.dm-row {
+  display: grid;
+  align-items: stretch;
+}
+
+.dm-job-grid {
+  grid-template-columns: minmax(220px, 1.5fr) minmax(125px, 0.72fr) minmax(170px, 0.9fr) 100px auto;
+  min-width: 880px;
+}
+
+.dm-country-grid {
+  grid-template-columns: minmax(190px, 1fr) 150px minmax(280px, 1.6fr) auto;
+  min-width: 760px;
+}
+
+.dm-question-grid {
+  grid-template-columns: minmax(300px, 1.6fr) minmax(190px, 0.8fr) auto;
+  min-width: 700px;
+}
+
+.dm-list-head {
+  border: 1px solid var(--border-main);
+  border-radius: 11px 11px 0 0;
+  background: var(--tint-1);
+  overflow: hidden;
+}
+
+.dm-list-head > span {
+  padding: 0.62rem 0.85rem;
+  border-right: 1px solid var(--border-main);
+  color: var(--text-label);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.dm-list-head > span:last-child {
+  border-right: 0;
+  text-align: right;
+}
+
+.dm-list {
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--border-main);
+  border-top: 0;
+  border-radius: 0 0 11px 11px;
+  overflow-x: auto;
+}
+
+.dm-row,
+.dm-row:last-child {
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-main);
+  border-radius: 0;
+  background: var(--bg-card);
+}
+
+.dm-row:last-child {
+  border-bottom: 0;
+}
+
+.dm-row:hover {
+  background: var(--primary-glow);
+}
+
+.dm-row > * {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0.8rem 0.85rem;
+  border-right: 1px solid var(--border-main);
+}
+
+.dm-row > *:last-child {
+  border-right: 0;
+}
+
+.dm-row .staff-identity,
+.dm-row .staff-metrics,
+.dm-row .staff-progress,
+.dm-row .staff-actions {
+  width: auto;
+}
+
+.dm-row .staff-metric {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
+.dm-row .staff-metric em {
+  display: none;
+}
+
+.dm-row .staff-name {
+  font-size: 0.84rem;
+}
+
+.dm-row .staff-mail {
+  margin-top: 0.12rem;
+  font-size: 0.7rem;
+}
+
+.dm-row .staff-actions {
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.dm-policy {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dm-policy.is-required {
+  color: var(--success-ink);
+}
+
+.dm-policy em {
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.dm-dialog {
+  max-width: 760px;
+}
+
+.dm-dialog.is-compact {
+  max-width: 580px;
+}
+
+.dm-dialog .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.4rem;
+}
+
+.dm-dialog .modal-header,
+.dm-dialog .modal-footer {
+  flex: none;
+}
+
+.dm-dialog .dm-table {
+  display: table;
+  min-width: 0;
+}
+
+.dm-question-grid > .staff-progress {
+  display: none;
+}
+
+.dm-retired-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.dm-retired-note > svg {
+  margin-top: 0.12rem;
+  flex: none;
+}
+
+.dm-question-group {
+  gap: 0;
+  margin: 0 1.25rem;
+  padding: 1.1rem 0 0;
+  overflow-x: auto;
+}
+
+.dm-question-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.15rem 0.55rem;
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.dm-question-head em {
+  padding: 0.18rem 0.48rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.dm-empty {
+  margin: 0.5rem 0;
+}
+
+@media (max-width: 1100px) {
+  .dm-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .dm-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dm-panel-head {
+    align-items: flex-start;
+  }
+
+  .dm-panel-head > .db-btn,
+  .dm-panel-head > .ds-primary-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 /* ==========================================================================
    USER MANAGEMENT — the create/edit form
    ========================================================================== */
@@ -14082,6 +14480,55 @@ body {
   border-bottom: none;
 }
 
+/* Candidate registers are real tables, not separated list bands. The outer
+   frame, column rules and uninterrupted row rules keep long records aligned
+   when the eye scans either across or down. Other compact dashboard tables
+   retain their lighter treatment. */
+.ds-table-wrap.is-ruled {
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.ds-table.is-ruled {
+  min-width: 920px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.ds-table.is-ruled thead {
+  background: var(--tint-1);
+}
+
+.ds-table.is-ruled th,
+.ds-table.is-ruled td {
+  border-right: 1px solid var(--border-main);
+  border-bottom: 1px solid var(--border-main);
+}
+
+.ds-table.is-ruled th:last-child,
+.ds-table.is-ruled td:last-child {
+  border-right: 0;
+}
+
+.ds-table.is-ruled tbody tr,
+:root[data-theme="dark"] .ds-table.is-ruled tbody tr {
+  background: var(--bg-card);
+}
+
+.ds-table.is-ruled tbody tr td:first-child,
+.ds-table.is-ruled tbody tr td:last-child {
+  border-radius: 0;
+}
+
+.ds-table.is-ruled tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ds-table.is-ruled tbody tr:hover {
+  background: var(--primary-glow);
+}
+
 .ds-who {
   display: flex;
   align-items: center;
@@ -15816,6 +16263,77 @@ body {
     transform 0.15s ease;
 }
 
+/* The roster follows the Overview card register: raised white surfaces on the
+   light plane, a quiet edge in dark mode, and enough internal spacing for the
+   figures to read as a small dashboard rather than a dense account form. */
+.staff-roster {
+  gap: 0;
+}
+
+.staff-roster .ds-panel-head {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.staff-roster .staff-grid {
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 1rem;
+}
+
+.staff-roster .staff-card {
+  gap: 0.9rem;
+  padding: 1.1rem;
+  border-color: transparent;
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -12px rgba(15, 23, 42, 0.14);
+}
+
+:root[data-theme="dark"] .staff-roster .staff-card {
+  border-color: var(--border-blue-faint);
+  background: var(--tint-1);
+  box-shadow: none;
+}
+
+.staff-roster .staff-card:hover {
+  border-color: rgba(var(--primary-rgb), 0.42);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05), 0 14px 28px -14px rgba(15, 23, 42, 0.2);
+}
+
+.staff-roster .staff-card-top .ds-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+}
+
+.staff-roster .staff-card-id strong {
+  font-size: 0.96rem;
+}
+
+.staff-roster .staff-card-stats {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-blue-faint);
+  border-radius: 12px;
+  background: var(--tint-1);
+}
+
+.staff-roster .staff-card-stats > div {
+  padding: 0.55rem 0.2rem;
+  border-right: 1px solid var(--border-blue-faint);
+  border-radius: 0;
+  background: transparent;
+}
+
+.staff-roster .staff-card-stats > div:last-child {
+  border-right: 0;
+}
+
+.staff-roster .staff-card-foot {
+  padding-top: 0.8rem;
+}
+
 .staff-card:hover {
   border-color: rgba(var(--primary-rgb), 0.4);
   box-shadow: var(--shadow-md);
@@ -16161,5 +16679,631 @@ a.um-phone:hover {
 @media (max-width: 640px) {
   .staff-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ===========================================================================
+   SOURCING HUB — relationship directory
+   The summary answers "what needs attention?" before the directory asks the
+   user to filter it. Filters and results live inside one clearly named panel,
+   which prevents four unrelated control groups from reading as a page header.
+   ========================================================================== */
+.sh-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sh-directory {
+  min-width: 0;
+  padding: 1.15rem 1.25rem 1.25rem;
+}
+
+.sh-directory-head {
+  align-items: center;
+  padding-bottom: 1rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border-main);
+}
+
+.sh-directory-head h2 {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: var(--text-main);
+}
+
+.sh-directory-head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.sh-directory .sh-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.85rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sh-directory .sh-toolbar-right {
+  justify-content: flex-end;
+  flex: 1 1 440px;
+}
+
+.sh-directory .sh-search {
+  max-width: 360px;
+}
+
+.sh-directory .sh-resultbar {
+  min-height: 28px;
+  margin: 0 0 0.75rem;
+  padding: 0.15rem 0 0.75rem;
+  border-bottom: 1px solid var(--border-main);
+}
+
+.sh-directory .sh-result-count {
+  color: var(--text-muted);
+}
+
+.sh-directory .sh-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+}
+
+.sh-directory .sh-card {
+  border-color: var(--border-main);
+  border-radius: var(--radius-lg);
+  box-shadow: none;
+}
+
+.sh-directory .sh-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.sh-directory .sh-rows {
+  overflow: hidden;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+}
+
+.sh-directory .sh-row {
+  padding: 0.62rem 0.7rem;
+  border-bottom: 1px solid var(--border-main);
+  background: var(--tint-1);
+}
+
+.sh-directory .sh-row:last-child {
+  border-bottom: 0;
+}
+
+.sh-directory .sh-demand {
+  border-radius: var(--radius-md);
+}
+
+.sh-directory .sh-empty {
+  min-height: 300px;
+  margin: 0;
+  border: 1px dashed var(--border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--tint-1);
+}
+
+/* Job Orders is an operational register: one order per ruled row, with the
+   fields recruiters compare arranged in stable columns. The detail screen
+   still carries the richer matching and deadline actions. */
+.jo-register {
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.jo-grid.is-hidden {
+  display: none;
+}
+
+.jo-register .ds-table-wrap {
+  border: 0;
+  border-radius: 18px;
+}
+
+.jo-table {
+  min-width: 1180px;
+}
+
+.jo-table th:last-child {
+  width: 84px;
+}
+
+.jo-table tbody tr {
+  cursor: pointer;
+}
+
+.jo-table-job,
+.jo-table-due,
+.jo-table-match {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.jo-table-job strong {
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jo-table-job small,
+.jo-table-due small,
+.jo-table-match small {
+  overflow: hidden;
+  color: var(--text-light);
+  font-size: 0.69rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jo-table-client {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.jo-table-client .ds-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 0.68rem;
+}
+
+.jo-table-client > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jo-table-due.is-late,
+.jo-table-due.is-late small {
+  color: var(--error-ink);
+  font-weight: 600;
+}
+
+.jo-table-match strong {
+  color: var(--text-main);
+  font-size: 0.84rem;
+}
+
+.jo-table .jo-actions {
+  justify-content: flex-end;
+}
+
+.jo-table .jo-menu-wrap {
+  position: relative;
+}
+
+.ds-status.is-neutral i {
+  background: var(--text-light);
+}
+
+/* A named review control makes the candidate workflow discoverable; the
+   adjacent icon buttons remain secondary record utilities. */
+.ds-review-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 30px;
+  padding: 0.35rem 0.62rem;
+  border: 1px solid rgba(var(--primary-rgb), 0.24);
+  border-radius: var(--radius-sm);
+  background: var(--primary-glow);
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.73rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ds-review-action:hover {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.14);
+}
+
+.ds-review-action.is-done {
+  border-color: var(--success-edge);
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.ds-review-action.is-assign {
+  border-color: var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+
+.ds-review-action.is-assign:hover {
+  border-color: var(--border-hover);
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.ds-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 150px;
+  color: var(--text-main);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.ds-owner.is-empty {
+  color: var(--warning-ink);
+}
+
+.candidate-assign-dialog {
+  max-width: 520px;
+}
+
+.candidate-assign-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.4rem;
+}
+
+.candidate-assign-person {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+}
+
+.candidate-assign-person > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.candidate-assign-person strong {
+  color: var(--text-main);
+  font-size: 0.88rem;
+}
+
+.candidate-assign-person small,
+.candidate-assign-loading {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.candidate-assign-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 40px;
+}
+
+@media (max-width: 760px) {
+  .ds-review-action span {
+    display: none;
+  }
+}
+
+:root[data-theme="dark"] .sh-directory .sh-card,
+:root[data-theme="dark"] .sh-directory .sh-rows {
+  border-color: var(--border-main);
+}
+
+@media (max-width: 1120px) {
+  .sh-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sh-directory .sh-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sh-directory .sh-toolbar-right {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 680px) {
+  .sh-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sh-directory,
+  .sh-directory .sh-toolbar {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  .sh-directory .sh-toolbar {
+    margin-left: -0.9rem;
+    margin-right: -0.9rem;
+  }
+
+  .sh-directory-head {
+    align-items: stretch;
+  }
+
+  .sh-directory-head .sh-new-btn {
+    width: 100%;
+  }
+
+  .sh-directory .sh-segment {
+    overflow-x: auto;
+    width: 100%;
+  }
+
+  .sh-directory .sh-toolbar-right {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sh-directory .sh-search {
+    min-width: 0;
+    max-width: none;
+    flex-basis: auto;
+  }
+
+  .sh-directory .sh-toggle,
+  .sh-directory .sh-select select {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ===========================================================================
+   SETTINGS
+   A restrained account page for every user. Organization-wide communication
+   and OCR configuration is presented as a separate, admin-only directory.
+   ========================================================================== */
+.settings-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: fadeIn 0.22s ease;
+}
+
+.settings-account-icon,
+.settings-ocr-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.settings-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.settings-account-grid > div {
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border-main);
+}
+
+.settings-account-grid > div:nth-child(odd) {
+  border-right: 1px solid var(--border-main);
+}
+
+.settings-account-grid > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.settings-account-grid dt {
+  margin-bottom: 0.28rem;
+  color: var(--text-label);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.settings-account-grid dd {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.88rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.settings-account-grid dd svg {
+  flex: none;
+  color: var(--text-light);
+}
+
+.settings-account-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-blue-faint);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.settings-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.settings-config-block {
+  min-width: 0;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.settings-config-block.is-ocr {
+  grid-column: 1 / -1;
+}
+
+.settings-config-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.78rem 0.9rem;
+  border-bottom: 1px solid var(--border-main);
+  background: var(--tint-2);
+  color: var(--text-muted);
+}
+
+.settings-config-head h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.settings-config-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-config-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  min-height: 58px;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+}
+
+.settings-config-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-config-row > span:first-child,
+.settings-ocr-source > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.settings-config-row strong,
+.settings-ocr-source strong {
+  color: var(--text-main);
+  font-size: 0.82rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.settings-config-row small,
+.settings-ocr-source small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.settings-empty,
+.settings-config-state {
+  margin: 0;
+  padding: 1.3rem 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.settings-config-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 150px;
+  border: 1px dashed var(--border-main);
+  border-radius: var(--radius-lg);
+}
+
+.settings-config-state.is-error {
+  color: var(--error-ink);
+  background: var(--error-fill);
+  border-color: var(--error-edge);
+}
+
+.settings-ocr-source {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  .settings-account-grid,
+  .settings-config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-account-grid > div:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .settings-account-grid > div:nth-last-child(-n + 2) {
+    border-bottom: 1px solid var(--border-main);
+  }
+
+  .settings-account-grid > div:last-child {
+    border-bottom: 0;
+  }
+
+  .settings-config-block.is-ocr {
+    grid-column: auto;
+  }
+
+  .settings-account-foot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-account-foot .db-btn {
+    width: 100%;
+  }
+
+  .settings-ocr-source {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-ocr-source .db-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }

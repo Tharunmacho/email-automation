@@ -19,9 +19,7 @@ import {
   Building2,
   Database,
   Handshake,
-  Inbox,
   LayoutDashboard,
-  ScrollText,
   Settings as SettingsIcon,
   ShieldCheck,
   UserCog,
@@ -32,14 +30,12 @@ import {
 export type NavId =
   | "overview"
   | "candidates"
-  | "my-queue"
   | "staff"
   | "job-orders"
   | "sourcing"
   | "b2b-enquiries"
   | "data-management"
   | "users"
-  | "activity"
   | "settings";
 
 export interface NavItem {
@@ -81,13 +77,12 @@ export const NAV_GROUPS: NavGroup[] = [
       // and the staff member's own allocated queue. One group, because they
       // are the same thing seen from the two seats.
       { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
-      { id: "my-queue", label: "My Candidates", icon: Inbox, roles: ["staff"] },
     ],
   },
   {
     label: "General",
     items: [
-      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin"] },
+      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "staff"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],
@@ -112,8 +107,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Support",
     items: [
-      { id: "activity", label: "Activity Logs", icon: ScrollText, roles: ["admin"] },
-      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin"] },
+      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "staff"] },
     ],
   },
 ];
@@ -133,7 +127,12 @@ export const NAV_GROUPS: NavGroup[] = [
  * them, because that scoping lives in the API and not in this menu.
  */
 export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
-  const allowed = pages && pages.length ? new Set(pages) : undefined;
+  const allowed = pages && pages.length
+    ? new Set(pages.map((page) => (page === "my-queue" ? "candidates" : page)))
+    : undefined;
+  // Every signed-in user owns an account page. Older sessions were issued
+  // before Settings became part of the staff floor, so include it here too.
+  allowed?.add("settings");
   return NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
@@ -150,7 +149,8 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
  * and that screen is also where the SLA breaches are listed.
  */
 export function defaultNavFor(role: string | undefined): NavId {
-  return role === "staff" ? "my-queue" : "candidates";
+  void role;
+  return "candidates";
 }
 
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */
@@ -165,18 +165,13 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     title: "Candidates",
     subtitle: "Every parsed profile in the database.",
   },
-  "my-queue": {
-    eyebrow: "Workspace",
-    title: "My Candidates",
-    subtitle: "The profiles allocated to you — read the résumé, record your evaluation.",
-  },
   staff: {
     eyebrow: "General",
     title: "Staff & Allocation",
     // No hours in the copy: the window is configuration, every screen that
     // reports it reads the real value from /config, and a number frozen into a
     // subtitle is the one that goes stale the day someone changes it.
-    subtitle: "Accounts, expertise keywords, workload balance, and the review SLA.",
+    subtitle: "Accounts, workload balance, review progress, and overdue work.",
   },
   "job-orders": {
     eyebrow: "Tools",
@@ -205,14 +200,9 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     title: "User Management",
     subtitle: "Accounts, roles, and which pages each person can reach.",
   },
-  activity: {
-    eyebrow: "Support",
-    title: "Activity Logs",
-    subtitle: "Full pipeline audit history and system events.",
-  },
   settings: {
     eyebrow: "Support",
     title: "Settings",
-    subtitle: "Preferences, system health, and the rules the ingestion pipeline applies.",
+    subtitle: "Account details and configured communication channels.",
   },
 };

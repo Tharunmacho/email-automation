@@ -21,11 +21,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
   Database,
   FileQuestion,
   Globe2,
-  Loader2,
   Pencil,
   Plus,
   RefreshCw,
@@ -36,7 +34,6 @@ import {
 
 import {
   deleteJobQuestionAPI,
-  jobCvMatrixAPI,
   listCountriesAPI,
   listJobDesignationsAPI,
   listJobQuestionsAPI,
@@ -46,7 +43,6 @@ import {
   saveJobDesignationAPI,
   saveJobQuestionAPI,
   type CountryRow,
-  type CvMatrixRow,
   type JobDesignation,
   type JobQuestion,
 } from "@/lib/api";
@@ -79,9 +75,6 @@ export default function DataManagementScreen({ onActivity }: Props) {
   const [editingJob, setEditingJob] = useState<JobDesignation | "new" | null>(null);
   const [editingCountry, setEditingCountry] = useState<CountryRow | "new" | null>(null);
   const [editingQuestion, setEditingQuestion] = useState<JobQuestion | "new" | null>(null);
-  const [matrixFor, setMatrixFor] = useState<{ job: JobDesignation; rows: CvMatrixRow[] } | null>(
-    null,
-  );
 
   const say = useCallback(
     (message: string, type: "info" | "success" | "error" = "info") => onActivity?.(message, type),
@@ -108,8 +101,26 @@ export default function DataManagementScreen({ onActivity }: Props) {
   }, []);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (!editingJob && !editingCountry && !editingQuestion) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setEditingJob(null);
+      setEditingCountry(null);
+      setEditingQuestion(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [editingJob, editingCountry, editingQuestion]);
 
   /** Active jobs in the order the bot will show them. */
   const orderedJobs = useMemo(
@@ -223,15 +234,6 @@ export default function DataManagementScreen({ onActivity }: Props) {
     }
   };
 
-  const openMatrix = async (job: JobDesignation) => {
-    try {
-      const res = await jobCvMatrixAPI(job.id);
-      setMatrixFor({ job: res.job, rows: res.matrix });
-    } catch (err) {
-      say(err instanceof Error ? err.message : "Could not read the CV rules", "error");
-    }
-  };
-
   /* ---------------------------------------------------------------- */
   /* Render                                                            */
   /* ---------------------------------------------------------------- */
@@ -291,14 +293,52 @@ export default function DataManagementScreen({ onActivity }: Props) {
         </div>
       </header>
 
+      <div className="ds-stats dm-stats" aria-label="Configuration summary">
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Active jobs</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Database size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{orderedJobs.length}</span>
+          <span className="ds-stat-foot">Recruitment designations in use</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Bot menu</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Smartphone size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{shownInBot.size}/{BOT_VISIBLE_ROWS}</span>
+          <span className="ds-stat-foot">Visible job slots currently used</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Destinations</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Globe2 size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{activeCountries.length}</span>
+          <span className="ds-stat-foot">Active destination countries</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Screening questions</span>
+            <span className="ds-stat-icon" aria-hidden="true"><FileQuestion size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{questions.filter((question) => question.active).length}</span>
+          <span className="ds-stat-foot">Active job-specific questions</span>
+        </section>
+      </div>
+
       {section === "jobs" && (
         <>
           {/* ---- Jobs ------------------------------------------------- */}
-          <div className="db-card">
-            <div className="db-card-head">
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <section className="db-card dm-panel">
+            <div className="db-card-head dm-panel-head">
+              <div className="dm-panel-title">
                 <Database size={16} />
-                <h3 className="db-card-title" style={{ margin: 0 }}>Job designations</h3>
+                <div>
+                  <h3 className="db-card-title">Job designations</h3>
+                  <p>Control menu visibility, CV rules, and job-specific screening.</p>
+                </div>
               </div>
               <button
                 type="button"
@@ -316,12 +356,16 @@ export default function DataManagementScreen({ onActivity }: Props) {
                 types a job that is not listed.
               </div>
 
-              <div className="staff-matrix">
+              <div className="dm-list-head dm-job-grid" aria-hidden="true">
+                <span>Job designation</span><span>Bot menu</span><span>CV policy</span>
+                <span>Questions</span><span>Actions</span>
+              </div>
+              <div className="staff-matrix dm-list">
                 {orderedJobs.map((job) => {
                   const overrides = Object.entries(job.cv_overrides ?? {});
                   const shown = job.bot_visible && shownInBot.has(job.id);
                   return (
-                    <article key={job.id} className="staff-row is-job">
+                    <article key={job.id} className="staff-row is-job dm-row dm-job-grid">
                       <div className="staff-identity">
                         <div className="staff-identity-text">
                           <span className="staff-name">{job.title}</span>
@@ -347,21 +391,13 @@ export default function DataManagementScreen({ onActivity }: Props) {
                         </span>
                       </div>
                       <div className="staff-progress">
-                        <div className="db-bar-row">
-                          <button
-                            type="button"
-                            className="db-btn"
-                            onClick={() => void openMatrix(job)}
-                            title="See the answer for every destination"
-                          >
-                            {job.cv_required_default ? "Required" : "Not required"}
-                            {overrides.length > 0 && (
-                              <span className="db-tab-count" style={{ marginLeft: "6px" }}>
-                                {overrides.length} exc
-                              </span>
-                            )}
-                          </button>
-                        </div>
+                        <span className={`dm-policy ${job.cv_required_default ? "is-required" : ""}`}>
+                          {job.cv_required_default ? <Check size={13} /> : <X size={13} />}
+                          {job.cv_required_default ? "Required" : "Not required"}
+                          {overrides.length > 0 && (
+                            <em>{overrides.length} exception{overrides.length === 1 ? "" : "s"}</em>
+                          )}
+                        </span>
                       </div>
                       <div className="staff-metrics">
                         <span className="staff-metric">
@@ -387,22 +423,39 @@ export default function DataManagementScreen({ onActivity }: Props) {
                 })}
               </div>
 
+              {orderedJobs.length === 0 && (
+                <div className="ds-empty-state dm-empty">
+                  <Database size={28} />
+                  <h3>No active jobs</h3>
+                  <p>Add a designation to start routing candidate registrations.</p>
+                  <button type="button" className="ds-primary-btn" onClick={() => setEditingJob("new")}>
+                    <Plus size={14} /> Add job
+                  </button>
+                </div>
+              )}
+
               {retiredJobs.length > 0 && (
-                <div className="db-card-sub">
+                <div className="dm-retired-note">
+                  <AlertTriangle size={14} />
+                  <span>
                   {retiredJobs.length} retired job{retiredJobs.length === 1 ? "" : "s"} —{" "}
                   {retiredJobs.map((j) => j.title).join(", ")}. They are kept because candidates are on
                   file against them.
+                  </span>
                 </div>
               )}
             </div>
-          </div>
+          </section>
 
           {/* ---- Countries -------------------------------------------- */}
-          <div className="db-card">
-            <div className="db-card-head">
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <section className="db-card dm-panel">
+            <div className="db-card-head dm-panel-head">
+              <div className="dm-panel-title">
                 <Globe2 size={16} />
-                <h3 className="db-card-title" style={{ margin: 0 }}>Destination countries</h3>
+                <div>
+                  <h3 className="db-card-title">Destination countries</h3>
+                  <p>Manage registration destinations and country-specific CV exceptions.</p>
+                </div>
               </div>
               <button
                 type="button"
@@ -419,14 +472,17 @@ export default function DataManagementScreen({ onActivity }: Props) {
                 whether they are asked for a CV.
               </div>
 
-              <div className="staff-matrix">
+              <div className="dm-list-head dm-country-grid" aria-hidden="true">
+                <span>Destination</span><span>Bot menu</span><span>CV exceptions</span><span>Actions</span>
+              </div>
+              <div className="staff-matrix dm-list">
                 {activeCountries.map((country) => {
                   const key = country.name.trim().toLowerCase();
                   const exceptions = orderedJobs.filter(
                     (j) => (j.cv_overrides ?? {})[key] !== undefined,
                   );
                   return (
-                    <article key={country.id} className="staff-row">
+                    <article key={country.id} className="staff-row dm-row dm-country-grid">
                       <div className="staff-identity">
                         <div className="staff-identity-text">
                           <span className="staff-name">{country.name}</span>
@@ -474,17 +530,31 @@ export default function DataManagementScreen({ onActivity }: Props) {
                   );
                 })}
               </div>
+
+              {activeCountries.length === 0 && (
+                <div className="ds-empty-state dm-empty">
+                  <Globe2 size={28} />
+                  <h3>No active destinations</h3>
+                  <p>Add a country to make it available during candidate registration.</p>
+                  <button type="button" className="ds-primary-btn" onClick={() => setEditingCountry("new")}>
+                    <Plus size={14} /> Add country
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
+          </section>
         </>
       )}
 
       {section === "questions" && (
-        <div className="db-card">
-          <div className="db-card-head">
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <section className="db-card dm-panel">
+          <div className="db-card-head dm-panel-head">
+            <div className="dm-panel-title">
               <FileQuestion size={16} />
-              <h3 className="db-card-title" style={{ margin: 0 }}>Questions asked about a job</h3>
+              <div>
+                <h3 className="db-card-title">Job screening questions</h3>
+                <p>Collect role-specific answers after a candidate chooses their job.</p>
+              </div>
             </div>
             <button
               type="button"
@@ -508,10 +578,16 @@ export default function DataManagementScreen({ onActivity }: Props) {
             if (list.length === 0) return null;
             return (
               <div key={job.id} className="dm-question-group">
-                <div className="db-card-title">{job.title}</div>
-                <div className="staff-matrix">
+                <div className="dm-question-head">
+                  <span>{job.title}</span>
+                  <em>{list.length} question{list.length === 1 ? "" : "s"}</em>
+                </div>
+                <div className="dm-list-head dm-question-grid" aria-hidden="true">
+                  <span>Question</span><span>Answer format</span><span>Actions</span>
+                </div>
+                <div className="staff-matrix dm-list">
                   {list.map((q) => (
-                    <article key={q.id} className="staff-row">
+                    <article key={q.id} className="staff-row dm-row dm-question-grid">
                       <div className="staff-identity">
                         <div className="staff-identity-text">
                           <span className="staff-name" style={{ whiteSpace: "normal" }}>{q.text}</span>
@@ -550,44 +626,50 @@ export default function DataManagementScreen({ onActivity }: Props) {
           })}
 
           {questions.length === 0 && (
-            <div className="db-empty is-compact">
-              <div className="db-empty-title">No questions yet</div>
-              <div className="db-empty-sub">
-                Candidates are asked the standard registration questions only.
-              </div>
+            <div className="ds-empty-state dm-empty">
+              <FileQuestion size={28} />
+              <h3>No job-specific questions</h3>
+              <p>Candidates currently receive only the standard registration questions.</p>
+              {orderedJobs.length > 0 && (
+                <button type="button" className="ds-primary-btn" onClick={() => setEditingQuestion("new")}>
+                  <Plus size={14} /> Add question
+                </button>
+              )}
             </div>
           )}
-        </div>
+        </section>
       )}
 
       {editingJob && (
-        <JobEditor
-          job={editingJob === "new" ? null : editingJob}
-          countries={activeCountries}
-          onCancel={() => setEditingJob(null)}
-          onSave={saveJob}
-        />
+        <div className="cm-overlay active" onClick={() => setEditingJob(null)}>
+          <JobEditor
+            job={editingJob === "new" ? null : editingJob}
+            countries={activeCountries}
+            onCancel={() => setEditingJob(null)}
+            onSave={saveJob}
+          />
+        </div>
       )}
 
       {editingCountry && (
-        <CountryEditor
-          country={editingCountry === "new" ? null : editingCountry}
-          onCancel={() => setEditingCountry(null)}
-          onSave={saveCountry}
-        />
+        <div className="cm-overlay active" onClick={() => setEditingCountry(null)}>
+          <CountryEditor
+            country={editingCountry === "new" ? null : editingCountry}
+            onCancel={() => setEditingCountry(null)}
+            onSave={saveCountry}
+          />
+        </div>
       )}
 
       {editingQuestion && (
-        <QuestionEditor
-          question={editingQuestion === "new" ? null : editingQuestion}
-          jobs={orderedJobs}
-          onCancel={() => setEditingQuestion(null)}
-          onSave={saveQuestion}
-        />
-      )}
-
-      {matrixFor && (
-        <CvMatrixModal data={matrixFor} onClose={() => setMatrixFor(null)} />
+        <div className="cm-overlay active" onClick={() => setEditingQuestion(null)}>
+          <QuestionEditor
+            question={editingQuestion === "new" ? null : editingQuestion}
+            jobs={orderedJobs}
+            onCancel={() => setEditingQuestion(null)}
+            onSave={saveQuestion}
+          />
+        </div>
       )}
     </div>
   );
@@ -646,7 +728,7 @@ function JobEditor({
   };
 
   return (
-    <div className="modal-container is-narrow">
+    <div className="cm-dialog dm-dialog" onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
         <div className="modal-label">{job ? `Edit ${job.title}` : "Add a job"}</div>
         <button type="button" className="modal-close" onClick={onCancel}>
@@ -793,7 +875,7 @@ function CountryEditor({
   const [order, setOrder] = useState(country?.bot_order ?? 50);
 
   return (
-    <div className="modal-container is-narrow">
+    <div className="cm-dialog dm-dialog is-compact" onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
         <div className="modal-label">{country ? `Edit ${country.name}` : "Add a country"}</div>
         <button type="button" className="modal-close" onClick={onCancel}>
@@ -905,7 +987,7 @@ function QuestionEditor({
     .filter(Boolean);
 
   return (
-    <div className="modal-container is-narrow">
+    <div className="cm-dialog dm-dialog" onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
         <div className="modal-label">{question ? "Edit question" : "Add a question"}</div>
         <button type="button" className="modal-close" onClick={onCancel}>
@@ -1034,64 +1116,6 @@ function QuestionEditor({
           }
         >
           <Check size={14} /> Save
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * What a job's rules actually resolve to, destination by destination.
- *
- * The form takes a default and a handful of exceptions; this is the answer a
- * candidate will get. Computed by the CRM through the same function the bot's
- * request goes through, so this screen cannot drift from the decision.
- */
-function CvMatrixModal({
-  data,
-  onClose,
-}: {
-  data: { job: JobDesignation; rows: CvMatrixRow[] };
-  onClose: () => void;
-}) {
-  return (
-    <div className="modal-container is-narrow">
-      <div className="modal-header">
-        <div className="modal-label">{data.job.title} — CV rule by destination</div>
-        <button type="button" className="modal-close" onClick={onClose}>
-          <X size={16} />
-        </button>
-      </div>
-      <div className="modal-body">
-        <table className="dm-table">
-          <thead>
-            <tr>
-              <th>Destination</th>
-              <th>CV</th>
-              <th>Because</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row) => (
-              <tr key={row.country}>
-                <td className="dm-cell-strong">{row.country}</td>
-                <td>{row.cv_required ? "Required" : "Not required"}</td>
-                <td className="dm-cell-muted">
-                  {row.is_override ? "exception set here" : "the job’s default"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="modal-hint">
-          This is what a candidate registering right now would be asked. Candidates already
-          registered keep the answer that applied on the day — changing a rule never rewrites a
-          record.
-        </div>
-      </div>
-      <div className="modal-footer">
-        <button type="button" className="db-btn is-primary" onClick={onClose}>
-          <ChevronDown size={14} /> Close
         </button>
       </div>
     </div>

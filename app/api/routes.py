@@ -499,8 +499,8 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) 
 
 
 @app.get("/ingest/rules")
-def ingest_rules(_user: dict = Depends(current_user)) -> dict:
-    """The rules the ingestion pipeline actually applies, for the Email Rules screen.
+def ingest_rules(_user: dict = Depends(require_admin)) -> dict:
+    """The pipeline configuration visible to administrators in Settings.
 
     Read-only and deliberately hand-listed rather than dumped from `settings`:
     the settings object holds mailbox passwords and API keys, and a blanket
@@ -528,6 +528,7 @@ def ingest_rules(_user: dict = Depends(current_user)) -> dict:
         "attachments": {"accepted_extensions": settings.resume_extensions},
         "ignored_senders": settings.ignore_sender_fragments,
         "ocr": {
+            "provider": "Veris",
             "min_text_chars": settings.ocr_min_text_chars,
             "dpi": settings.ocr_dpi,
             "chunk_pages": settings.ocr_chunk_pages,

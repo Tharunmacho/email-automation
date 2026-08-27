@@ -8,7 +8,6 @@ import {
   BadgeCheck,
   CheckCircle2,
   Download,
-  FileText,
   FolderGit2,
   IdCard,
   Link as LinkIcon,
@@ -599,7 +598,7 @@ export default function CandidateProfileScreen({
               disabled={verifying || isVerified}
             >
               <CheckCircle2 size={15} />
-              {verifying ? "Verifying…" : isVerified ? "Verified profile" : "Verify profile"}
+              {verifying ? "Saving review…" : isVerified ? "Review completed" : "Complete review"}
             </button>
           )}
         </div>

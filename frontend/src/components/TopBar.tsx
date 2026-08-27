@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { Menu, RefreshCw, Search } from "lucide-react";
 
+import BrandLogo from "@/components/BrandLogo";
 import NotificationBell from "@/components/NotificationBell";
 import type { AuthUser } from "@/lib/api";
 
@@ -63,7 +63,7 @@ export default function TopBar({
           here the rail is off-canvas, so the band carries the name instead. */}
       <div className="topbar-brand">
         <span className="topbar-logo">
-          <Image src="/adira-logo.png" alt="Adira" width={600} height={200} preload />
+          <BrandLogo />
         </span>
       </div>
 

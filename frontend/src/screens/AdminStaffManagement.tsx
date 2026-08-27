@@ -166,10 +166,6 @@ export default function AdminStaffManagement({
     };
   }, [refreshNonce, reloadToken]);
 
-  // Narrowing the queue takes you back to its first page; keeping the old
-  // offset would open a two-result filter on an empty page.
-  useEffect(() => setVisible(PAGE_SIZE), [filter, query]);
-
   const staff = useMemo(() => workload?.items ?? [], [workload]);
   const activeStaff = useMemo(() => staff.filter((member) => member.active), [staff]);
   const totals = workload?.totals;
@@ -553,7 +549,10 @@ export default function AdminStaffManagement({
       const parts = [`${formatInt(result.in_breach)} in breach`];
       if (result.new_alerts) parts.push(`${formatInt(result.new_alerts)} newly alerted`);
       if (result.resolved) parts.push(`${formatInt(result.resolved)} resolved`);
-      onToast(`SLA sweep complete — ${parts.join(", ")}.`, result.in_breach ? "info" : "success");
+      onToast(
+        `Review-window check complete — ${parts.join(", ")}.`,
+        result.in_breach ? "info" : "success",
+      );
       reload();
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not run the sweep.", "error");
@@ -610,7 +609,7 @@ export default function AdminStaffManagement({
       jump: null as string | null,
     },
     {
-      label: `Past the ${thresholdHours}h SLA`,
+      label: `Past the ${thresholdHours}h review window`,
       value: formatInt(breaches.length),
       // The tile is the route to the rows it counts. It lands on the roster,
       // where every card carries its own overdue badge, and opening that card
@@ -648,7 +647,7 @@ export default function AdminStaffManagement({
         <div>
           <h1 className="ds-head-title">Staff &amp; allocation</h1>
           <p className="ds-head-sub">
-            Accounts, expertise keywords, workload balance, and the review SLA.
+            Accounts, workload balance, review progress, and overdue work.
           </p>
         </div>
 
@@ -675,7 +674,7 @@ export default function AdminStaffManagement({
           title={`Re-check every allocation against the ${thresholdHours}-hour window`}
         >
           {scanning ? <Loader2 size={15} className="icon-spin" /> : <ShieldCheck size={15} />}
-          {scanning ? "Sweeping…" : "Run SLA sweep"}
+          {scanning ? "Checking…" : "Check review times"}
         </button>
         <button type="button" className="ds-ghost-btn" onClick={reload} title="Refresh">
           <RefreshCw size={15} />
@@ -796,11 +795,11 @@ export default function AdminStaffManagement({
           say "0", and buried the one thing an admin comes here to do — look
           inside somebody's pile — behind no affordance at all. The card is
           the affordance: the whole of it opens that person's queue. */}
-      <section className="db-card" ref={rosterRef}>
-        <header className="db-card-head">
+      <section className="ds-panel staff-roster" ref={rosterRef}>
+        <header className="ds-panel-head">
           <div>
-            <h3 className="db-card-title">Staff roster</h3>
-            <p className="db-card-sub">
+            <h3 className="ds-panel-title">Staff roster</h3>
+            <p className="ds-panel-sub">
               {activeStaff.length === 0
                 ? "No active accounts — ingested résumés will stay unallocated."
                 : `${formatInt(activeStaff.length)} active${
@@ -867,7 +866,7 @@ export default function AdminStaffManagement({
                       {!member.active && <em className="staff-flag">deactivated</em>}
                       {overdue > 0 && (
                         <em className="staff-flag is-overdue">
-                          {formatInt(overdue)} past the {thresholdHours}h SLA
+                          {formatInt(overdue)} past the {thresholdHours}h window
                         </em>
                       )}
                     </div>
@@ -1118,7 +1117,10 @@ export default function AdminStaffManagement({
                       role="tab"
                       aria-selected={filter === id}
                       className={`db-tab ${filter === id ? "is-on" : ""}`}
-                      onClick={() => setFilter(id)}
+                      onClick={() => {
+                        setFilter(id);
+                        setVisible(PAGE_SIZE);
+                      }}
                     >
                       {label}
                       <span className="db-tab-count">{formatInt(filterCounts[id])}</span>
@@ -1136,14 +1138,19 @@ export default function AdminStaffManagement({
                 <input
                   className="search-input"
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setVisible(PAGE_SIZE);
+                  }}
                   placeholder="Search this queue…"
                   aria-label="Search this queue"
                 />
               </div>
             </div>
 
-            <p className="queue-note">Reassigning restarts the SLA clock and clears any evaluation.</p>
+            <p className="queue-note">
+              Reassigning restarts the review timer and clears any evaluation.
+            </p>
 
             {filtered.length === 0 ? (
               <div className="db-empty is-compact">

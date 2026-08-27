@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -10,20 +10,25 @@ import {
   Edit3,
   ExternalLink,
   FileSearch,
-  FileText,
-  History,
   LayoutGrid,
+  Loader2,
   Plus,
   Rows3,
   Search,
   Trash2,
+  UserCheck,
   Users,
   UsersRound,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
-import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
+import {
+  assignCandidate,
+  listStaff,
+  type CandidateRecord,
+  type StaffMember,
+} from "@/lib/api";
 
 export type TalentFilter = "all" | "verified" | "pending" | "active";
 
@@ -37,12 +42,11 @@ const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
-  /** How many activity entries each candidate has, keyed by id. */
-  logCounts: Record<string, number>;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
-  onOpenLogs: (candidate: CandidateRecord) => void;
   onDeleteCandidate: (candidateId: string) => void;
+  onAssignmentChanged?: () => void;
+  onToast?: (message: string, type?: "info" | "success" | "error") => void;
 }
 
 /** Confidence below this reads as "needs a human to look at it". */
@@ -184,7 +188,7 @@ function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string;
     return { key: "verified", label: "Verified", tone: STATUS_TONE.verified };
   if ((candidate.profile?.confidence ?? 1) < REVIEW_CONFIDENCE)
     return { key: "review", label: "Needs review", tone: STATUS_TONE.review };
-  return { key: "active", label: "Unchecked", tone: STATUS_TONE.active };
+  return { key: "active", label: "Ready to review", tone: STATUS_TONE.active };
 }
 
 const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
@@ -209,7 +213,7 @@ const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
 const FILTERS: { id: TalentFilter; label: string }[] = [
   { id: "all", label: "All candidates" },
   { id: "pending", label: "Needs review" },
-  { id: "active", label: "Unchecked" },
+  { id: "active", label: "Ready to review" },
   { id: "verified", label: "Verified" },
 ];
 
@@ -232,6 +236,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
   { key: "experience", label: "Experience", sort: "experience", align: "num" },
   { key: "contact", label: "Contact" },
   { key: "added", label: "Added", sort: "added" },
+  { key: "owner", label: "Assigned to" },
   { key: "status", label: "Status", sort: "status" },
   { key: "actions", label: "" },
 ];
@@ -247,17 +252,37 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
  */
 export default function CandidatesView({
   candidates: allCandidates,
-  logCounts,
   onOpenCandidate,
   onEditCandidate,
-  onOpenLogs,
   onDeleteCandidate,
+  onAssignmentChanged,
+  onToast,
 }: CandidatesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TalentFilter>("all");
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<CandidateRecord | null>(null);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [assignmentError, setAssignmentError] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
+
+  useEffect(() => {
+    if (!assigning) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !assignmentSaving) setAssigning(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [assigning, assignmentSaving]);
 
   const candidates = useMemo(() => {
     if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
@@ -373,6 +398,40 @@ export default function CandidatesView({
       prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
     );
 
+  const openAssignment = async (candidate: CandidateRecord) => {
+    setAssigning(candidate);
+    setSelectedStaffId(candidate.assigned_staff_id ?? "");
+    setAssignmentError("");
+    setStaffLoading(true);
+    try {
+      const response = await listStaff(false);
+      setStaff((response.items ?? []).filter((member) => member.active));
+    } catch (error) {
+      setAssignmentError(error instanceof Error ? error.message : "Could not load staff accounts.");
+    } finally {
+      setStaffLoading(false);
+    }
+  };
+
+  const saveAssignment = async () => {
+    if (!assigning || !selectedStaffId) return;
+    setAssignmentSaving(true);
+    setAssignmentError("");
+    try {
+      await assignCandidate(assigning.id, selectedStaffId);
+      const owner = staff.find((member) => member.id === selectedStaffId);
+      onToast?.(`${getDisplayName(assigning)} assigned to ${owner?.name || owner?.email || "staff"}.`, "success");
+      setAssigning(null);
+      onAssignmentChanged?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not assign this candidate.";
+      setAssignmentError(message);
+      onToast?.(message, "error");
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
   /**
    * The controls a row carries.
    *
@@ -382,21 +441,27 @@ export default function CandidatesView({
    * read as a wall.
    */
   const rowActions = (candidate: CandidateRecord) => {
-    const logCount = logCounts[candidate.id] ?? 0;
+    const reviewed = candidate.status === "verified";
     return (
       <>
-        {candidate.resume?.storage_key && (
-          <a
-            className="ds-act"
-            href={resumeDownloadUrl(candidate.id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open the original résumé"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <FileText size={15} />
-          </a>
-        )}
+        <button
+          type="button"
+          className={`ds-review-action ${reviewed ? "is-done" : ""}`}
+          title={reviewed ? "Open the completed review" : "Review this candidate"}
+          onClick={() => onOpenCandidate(candidate)}
+        >
+          {reviewed ? <CheckCircle2 size={14} /> : <FileSearch size={14} />}
+          <span>{reviewed ? "Reviewed" : "Review"}</span>
+        </button>
+        <button
+          type="button"
+          className="ds-review-action is-assign"
+          title={`Assign ${getDisplayName(candidate)} to a staff member`}
+          onClick={() => void openAssignment(candidate)}
+        >
+          <UserCheck size={14} />
+          <span>Assign</span>
+        </button>
         <button
           type="button"
           className="ds-act"
@@ -404,14 +469,6 @@ export default function CandidatesView({
           onClick={() => onEditCandidate(candidate)}
         >
           <Edit3 size={15} />
-        </button>
-        <button
-          type="button"
-          className="ds-act"
-          title={logCount > 0 ? `Activity — ${formatInt(logCount)} entries` : "Activity"}
-          onClick={() => onOpenLogs(candidate)}
-        >
-          <History size={15} />
         </button>
         <button
           type="button"
@@ -609,6 +666,10 @@ export default function CandidatesView({
                       <dt>Contact</dt>
                       <dd>{getContact(candidate) || "—"}</dd>
                     </div>
+                    <div>
+                      <dt>Assigned to</dt>
+                      <dd>{candidate.assigned_staff_name || "Unassigned"}</dd>
+                    </div>
                   </dl>
 
                   <div className="ds-mini-foot" onClick={(e) => e.stopPropagation()}>
@@ -624,8 +685,8 @@ export default function CandidatesView({
             })}
           </div>
         ) : (
-          <div className="ds-table-wrap">
-            <table className="ds-table">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled">
               <thead>
                 <tr>
                   {COLUMNS.map((col) => (
@@ -690,6 +751,13 @@ export default function CandidatesView({
                       <td>{getAdded(candidate)}</td>
 
                       <td>
+                        <span className={`ds-owner ${candidate.assigned_staff_id ? "" : "is-empty"}`}>
+                          <UserCheck size={13} />
+                          {candidate.assigned_staff_name || "Unassigned"}
+                        </span>
+                      </td>
+
+                      <td>
                         <span className={`ds-status is-${status.tone}`}>
                           <i aria-hidden="true" />
                           {status.label}
@@ -722,6 +790,93 @@ export default function CandidatesView({
           </span>
         </div>
       </section>
+
+      {assigning && (
+        <div className="cm-overlay active" onClick={() => !assignmentSaving && setAssigning(null)}>
+          <div
+            className="cm-dialog candidate-assign-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="candidate-assign-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="candidate-assign-title" className="modal-title">Assign candidate</h3>
+                <p className="modal-subtitle">Choose who will own and review this profile.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setAssigning(null)}
+                disabled={assignmentSaving}
+                aria-label="Close assignment dialog"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="modal-body candidate-assign-body">
+              <div className="candidate-assign-person">
+                <span className="ds-avatar" aria-hidden="true">{initialsOf(getDisplayName(assigning))}</span>
+                <span>
+                  <strong>{getDisplayName(assigning)}</strong>
+                  <small>Current owner: {assigning.assigned_staff_name || "Unassigned"}</small>
+                </span>
+              </div>
+
+              <div className="field-group">
+                <label className="modal-label" htmlFor="candidate-owner">Assign to</label>
+                {staffLoading ? (
+                  <div className="candidate-assign-loading">
+                    <Loader2 size={16} className="icon-spin" /> Loading staff…
+                  </div>
+                ) : (
+                  <select
+                    id="candidate-owner"
+                    className="modal-select"
+                    value={selectedStaffId}
+                    onChange={(event) => setSelectedStaffId(event.target.value)}
+                    autoFocus
+                  >
+                    <option value="">Select an active staff member</option>
+                    {staff.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name || member.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="modal-hint">
+                  New candidates continue to be distributed automatically to the least-loaded active staff member.
+                </span>
+              </div>
+
+              {assignmentError && <div className="sh-form-error">{assignmentError}</div>}
+            </div>
+
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-cancel-btn"
+                onClick={() => setAssigning(null)}
+                disabled={assignmentSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="db-btn is-primary"
+                onClick={() => void saveAssignment()}
+                disabled={!selectedStaffId || staffLoading || assignmentSaving}
+              >
+                {assignmentSaving ? <Loader2 size={14} className="icon-spin" /> : <UserCheck size={14} />}
+                {assignmentSaving ? "Assigning…" : "Assign candidate"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

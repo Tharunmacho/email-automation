@@ -409,6 +409,7 @@ export interface IngestRules {
   attachments: { accepted_extensions: string[] };
   ignored_senders: string[];
   ocr: {
+    provider: string;
     min_text_chars: number;
     dpi: number;
     chunk_pages: number;

@@ -30,12 +30,8 @@ import {
   MapPin,
   Inbox,
   Sparkles,
-  Download,
-  Copy,
   Share2,
-  Send,
   Info,
-  ExternalLink,
 } from "lucide-react";
 
 import DatePicker from "@/components/ui/DatePicker";
@@ -1780,7 +1776,122 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         </div>
       </section>
 
-      <div className="jo-grid">
+      {!ordersLoading && filteredOrders.length > 0 && (
+        <section className="ds-panel jo-register" aria-label="Job orders">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled jo-table">
+              <thead>
+                <tr>
+                  <th>Job order</th>
+                  <th>Client</th>
+                  <th>Status</th>
+                  <th>Salary</th>
+                  <th>Experience</th>
+                  <th className="is-num">Filled</th>
+                  <th>Due date</th>
+                  <th>Match</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.map((item) => {
+                  const fulfilled = (item.shortlistedCandidateIds || []).length || item.fulfilledCount || 0;
+                  const rowStatus = deriveStatus(item);
+                  const due = getDueMeta(item.dueDate);
+                  const isLate = due.overdue && rowStatus !== "CLOSED";
+                  const match = matchSummaryByOrder.get(item.id);
+                  const statusTone = isLate
+                    ? "bad"
+                    : rowStatus === "FILLED"
+                      ? "ok"
+                      : rowStatus === "CLOSED"
+                        ? "neutral"
+                        : "info";
+
+                  return (
+                    <tr key={item.id} onClick={() => setSelectedOrder(item)}>
+                      <td>
+                        <span className="jo-table-job">
+                          <strong title={item.title}>{item.title}</strong>
+                          <small>
+                            {(item.skills || []).slice(0, 3).join(" · ") || "No skills specified"}
+                          </small>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="jo-table-client">
+                          <span className="ds-avatar" aria-hidden="true">{initialsOf(item.client)}</span>
+                          <span title={item.client}>{item.client}</span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`ds-status is-${statusTone}`}>
+                          <i aria-hidden="true" />
+                          {isLate ? "Overdue" : rowStatus.replace("IN PROGRESS", "In progress")}
+                        </span>
+                      </td>
+                      <td>{formatSalary(item.salary)}</td>
+                      <td>{item.minExperience && item.minExperience !== "Any" ? item.minExperience : "Open"}</td>
+                      <td className="is-num"><strong>{fulfilled}</strong> of {item.headcount}</td>
+                      <td>
+                        <span className={`jo-table-due ${isLate ? "is-late" : ""}`}>
+                          {formatDueDate(item.dueDate)}
+                          <small>{due.label}</small>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="jo-table-match">
+                          <strong>{match?.best ?? 0}%</strong>
+                          <small>{match?.strong ? `${match.strong} strong` : "No strong matches"}</small>
+                        </span>
+                      </td>
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <div className="jo-actions">
+                          <button
+                            type="button"
+                            className="jo-icon-btn"
+                            onClick={() => openEditModal(item)}
+                            title="Edit this job order"
+                            aria-label={`Edit ${item.title}`}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <div className="jo-menu-wrap">
+                            <button
+                              type="button"
+                              className="jo-icon-btn"
+                              onClick={() => setActiveMenuId((prev) => (prev === item.id ? null : item.id))}
+                              aria-label={`Actions for ${item.title}`}
+                            >
+                              <MoreVertical size={15} />
+                            </button>
+                            {activeMenuId === item.id && (
+                              <div className="sourcing-dropdown-menu">
+                                <button type="button" className="dropdown-item" onClick={() => openEditModal(item)}>
+                                  <Pencil size={14} /><span>Edit</span>
+                                </button>
+                                <button type="button" className="dropdown-item" onClick={() => handleToggleCloseOrder(item)}>
+                                  <CheckCircle size={14} />
+                                  <span>{item.status === "CLOSED" ? "Reopen order" : "Close order"}</span>
+                                </button>
+                                <button type="button" className="dropdown-item danger" onClick={() => handleDeleteOrder(item.id)}>
+                                  <Trash2 size={14} /><span>Delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <div className={`jo-grid ${!ordersLoading && filteredOrders.length > 0 ? "is-hidden" : ""}`}>
         {ordersLoading ? (
           <div className="jo-state">
             <Loader2 size={26} className="jo-spinner" />

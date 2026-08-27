@@ -531,6 +531,8 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  /** Personal mobile number recorded on this account, when configured. */
+  phone?: string;
   /**
    * The pages this account may reach: its role's floor plus whatever an admin
    * granted it. Computed by the API so the browser never has to reimplement the

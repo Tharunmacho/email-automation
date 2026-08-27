@@ -22,7 +22,6 @@ import JobOrders from "@/screens/JobOrders";
 import SourcingHub from "@/screens/SourcingHub";
 import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
-import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
@@ -161,7 +160,8 @@ export default function PreviewPage() {
     if (theme === "dark" || theme === "light") setTheme(theme);
     const token = params?.get("token");
     if (token) setToken(token);
-    setReady(true);
+    const timer = window.setTimeout(() => setReady(true), 0);
+    return () => window.clearTimeout(timer);
   }, [params]);
 
   const candidates = useMemo(() => buildCandidates(240), []);
@@ -230,10 +230,8 @@ export default function PreviewPage() {
             {screen === "candidates" && (
               <CandidatesView
                 candidates={candidates}
-                logCounts={{}}
                 onOpenCandidate={noop}
                 onEditCandidate={noop}
-                onOpenLogs={noop}
                 onDeleteCandidate={noop}
               />
             )}
@@ -253,14 +251,6 @@ export default function PreviewPage() {
                 onToast={noop}
                 onCandidatesChanged={noop}
                 onOpenCandidate={noop}
-              />
-            )}
-            {screen === "activity" && (
-              <ActivityLogsScreen
-                systemLogs={[]}
-                candidateLogs={[]}
-                candidates={candidates}
-                onOpenCandidateLogs={noop}
               />
             )}
             {screen === "settings" && <SettingsScreen user={USER} onSignOut={noop} />}

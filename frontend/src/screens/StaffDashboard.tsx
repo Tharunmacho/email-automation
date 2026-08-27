@@ -73,7 +73,7 @@ const FILTERS: { id: QueueFilter; label: string; icon: LucideIcon }[] = [
 ];
 
 const SORTS: { id: QueueSort; label: string }[] = [
-  { id: "sla", label: "Closest to SLA" },
+  { id: "sla", label: "Least time remaining" },
   { id: "newest", label: "Newest first" },
   { id: "name", label: "Name (A–Z)" },
 ];
@@ -435,7 +435,7 @@ export default function StaffDashboard({
       {performance.withinSla !== null && (
         <div className="ds-meter">
           <div className="ds-meter-line">
-            <span className="ds-meter-label">SLA performance</span>
+            <span className="ds-meter-label">On-time reviews</span>
             <span className="ds-meter-value">{performance.withinSla}%</span>
             <span className="ds-meter-note">
               of evaluations inside the {slaHours}h window
@@ -513,13 +513,13 @@ export default function StaffDashboard({
             )}
           </div>
         ) : (
-          <div className="ds-table-wrap">
-            <table className="ds-table">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled">
               <thead>
                 <tr>
                   <th>Candidate</th>
                   <th>Skills</th>
-                  <th>SLA</th>
+                  <th>Time left</th>
                   <th>Status</th>
                   <th>Score</th>
                   <th aria-label="Actions" />
@@ -656,7 +656,7 @@ export default function StaffDashboard({
           {counts.overdue > 0 && (
             <span className="ds-status is-bad">
               <i aria-hidden="true" />
-              {formatInt(counts.overdue)} past the {slaHours}h SLA
+              {formatInt(counts.overdue)} past the {slaHours}h window
             </span>
           )}
         </div>
