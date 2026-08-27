@@ -16952,6 +16952,165 @@ a.um-phone:hover {
   color: var(--text-muted);
 }
 
+/* The partner directory is a ruled register rather than a card grid. Fixed
+   column tracks keep every contact, demand reading and action on one axis while
+   the wrapper provides horizontal scrolling on narrower screens. */
+.sh-table-wrap {
+  border-radius: 14px;
+}
+
+.ds-table.sh-table {
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
+.sh-table th:nth-child(1) { width: 22%; }
+.sh-table th:nth-child(2) { width: 19%; }
+.sh-table th:nth-child(3) { width: 14%; }
+.sh-table th:nth-child(4) { width: 20%; }
+.sh-table th:nth-child(5) { width: 12%; }
+.sh-table th:nth-child(6) { width: 8%; }
+.sh-table th:nth-child(7) { width: 5%; }
+
+.sh-table td {
+  height: 92px;
+}
+
+.sh-table-row td:first-child {
+  box-shadow: inset 3px 0 0 var(--tone);
+}
+
+.sh-table-partner .sh-monogram {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  box-shadow: none;
+}
+
+.sh-table-partner .ds-who-text {
+  min-width: 0;
+}
+
+.sh-table-partner .ds-who-text > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-partner .ds-who-text > small {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.sh-table-partner .ds-who-text > small > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-contact,
+.sh-table-demand,
+.sh-table-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.sh-table-contact > strong,
+.sh-table-reference > strong {
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-contact > small,
+.sh-table-reference > small,
+.sh-table-demand > small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-contact .sh-link,
+.sh-table-email {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.sh-table-contact .sh-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-contact .sh-link svg {
+  flex: none;
+}
+
+.sh-table-email > .sh-link {
+  flex: 1 1 auto;
+}
+
+.sh-table-email .sh-copy {
+  width: 20px;
+  height: 20px;
+}
+
+.sh-table-office {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sh-table-demand .sh-demand-head {
+  font-size: 0.73rem;
+}
+
+.sh-table-demand .sh-demand-head > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-demand .sh-bar {
+  height: 5px;
+}
+
+.sh-table-reference > strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-table .sh-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sh-table .sh-icon-btn {
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-main);
+  background: var(--bg-card);
+}
+
 .sh-directory .sh-grid {
   grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
 }
