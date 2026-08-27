@@ -892,6 +892,8 @@ export function deleteJobQuestionAPI(questionId: string): Promise<{ status: stri
 
 export interface ManagedUser {
   id: string;
+  /** Present for staff accounts; admins do not belong to the staff roster. */
+  staff_code?: string | null;
   email: string;
   name: string;
   role: string;

@@ -14644,6 +14644,28 @@ body {
   font-size: 0.74rem;
 }
 
+/* Human-facing record keys use one quiet, copy-friendly treatment everywhere
+   they appear. Tabular glyphs keep a column of identifiers visually aligned. */
+.crm-record-id {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  color: var(--primary) !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.crm-record-id.is-prominent {
+  padding: 0.22rem 0.52rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 999px;
+  background: var(--primary-glow);
+}
+
 /* A dot and a word. The dot carries the state at a glance down the column;
    the word is what makes it readable to someone who has not learned the dots. */
 .ds-status {

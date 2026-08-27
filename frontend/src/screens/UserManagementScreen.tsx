@@ -304,6 +304,11 @@ export default function UserManagementScreen({
                             {user.name || user.email}
                             {!user.active && <em className="staff-flag">deactivated</em>}
                           </strong>
+                          {user.role === "staff" && (
+                            <small className="crm-record-id">
+                              Staff ID · {user.staff_code || `STF-${user.id.slice(-12).toUpperCase()}`}
+                            </small>
+                          )}
                           <small>{user.email}</small>
                         </span>
                       </span>

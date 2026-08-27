@@ -394,6 +394,9 @@ class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
     id: str                     # stored as Mongo _id
+    # Human-facing CRM identifier. The database id remains private and keeps
+    # powering every route; this is what staff quote, search and see on screen.
+    candidate_code: Optional[str] = None
 
     # Defaulted to "email" so every document written before this field existed
     # reads back as what it actually is. There is no backfill to run.
@@ -513,6 +516,17 @@ class CandidateRecord(BaseModel):
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="after")
+    def _ensure_candidate_code(self) -> "CandidateRecord":
+        # Old documents do not carry this field. Deriving it at the model edge
+        # makes detail reads complete immediately; startup also persists the
+        # same value so projected list reads and database searches have it.
+        if not self.candidate_code:
+            from app.core.crm_ids import candidate_code
+
+            self.candidate_code = candidate_code(self.id)
+        return self
 
     @model_validator(mode="after")
     def _check_source_rules(self) -> "CandidateRecord":

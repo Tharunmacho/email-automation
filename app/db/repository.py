@@ -13,6 +13,7 @@ from bson.errors import InvalidId
 from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError
 
+from app.core.crm_ids import candidate_code
 from app.core.models import CandidateProfile, CandidateRecord, StoredResume
 from app.db import whatsapp_compat
 from app.db.mongo import get_candidates_collection
@@ -56,6 +57,7 @@ def _id_filter(candidate_id: str) -> dict:
 # named here is available from `GET /candidates/{id}`.
 LIST_PROJECTION = {
     "_id": 1,
+    "candidate_code": 1,
     "status": 1,
     "duplicate_of": 1,
     "auto_reply_sent": 1,
@@ -112,6 +114,7 @@ LIST_PROJECTION = {
 # nothing they did not ask for.
 MINIMAL_PROJECTION = {
     "_id": 1,
+    "candidate_code": 1,
     "status": 1,
     "created_at": 1,
     "profile.full_name": 1,
@@ -162,6 +165,7 @@ def _minimal_row(doc: dict) -> dict:
     profile = doc.get("profile") or {}
     return {
         "id": str(doc["_id"]),
+        "candidate_code": doc.get("candidate_code") or candidate_code(doc["_id"]),
         "full_name": profile.get("full_name"),
         "email": profile.get("email"),
         "phone": profile.get("phone"),
@@ -517,6 +521,7 @@ class CandidateRepository:
         for doc in cursor:
             doc = whatsapp_compat.normalize(doc)
             doc["id"] = str(doc.pop("_id"))
+            doc["candidate_code"] = doc.get("candidate_code") or candidate_code(doc["id"])
             rows.append(doc)
         return rows
 

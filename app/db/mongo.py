@@ -96,6 +96,30 @@ def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
     db = get_db()
     coll = get_candidates_collection()
+    # Add a public CRM id to records written before the field existed. The
+    # generator is deterministic, so this is safe after interrupted startups
+    # and produces the exact same value as a legacy detail read.
+    from app.core.crm_ids import candidate_code
+
+    for doc in coll.find(
+        {"$or": [
+            {"candidate_code": {"$exists": False}},
+            {"candidate_code": None},
+            {"candidate_code": ""},
+        ]},
+        {"_id": 1},
+    ):
+        coll.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"candidate_code": candidate_code(doc["_id"])}},
+        )
+    ensure_index(
+        coll,
+        [("candidate_code", ASCENDING)],
+        "candidate_code_unique",
+        unique=True,
+        sparse=True,
+    )
     # Exact-duplicate detection: one candidate per resume file hash.
     ensure_index(coll, [("resume_hash", ASCENDING)], "resume_hash_unique", unique=True, sparse=True)
     # Person-level dedup lookups.

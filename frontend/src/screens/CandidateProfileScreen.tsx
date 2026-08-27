@@ -602,6 +602,9 @@ export default function CandidateProfileScreen({
         <div className="cprof-hero-text">
           <div className="cprof-hero-line">
             <h2 className="cprof-name">{view.full_name}</h2>
+            <span className="crm-record-id is-prominent">
+              Candidate ID · {candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`}
+            </span>
             <span className={`db-pill ${isVerified ? "is-verified" : "is-info"}`}>
               {isVerified ? "Verified" : "Active"}
             </span>

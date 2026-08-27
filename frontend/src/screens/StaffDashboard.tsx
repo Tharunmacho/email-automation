@@ -264,6 +264,7 @@ export default function StaffDashboard({
       }
       if (!term) return true;
       const haystack = [
+        candidate.candidate_code,
         candidate.profile?.full_name,
         candidate.profile?.email,
         candidate.profile?.current_designation,
@@ -545,6 +546,9 @@ export default function StaffDashboard({
                               {name}
                               {isNew && <em className="ds-badge">New</em>}
                             </strong>
+                            <small className="crm-record-id">
+                              Candidate ID · {candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`}
+                            </small>
                             <small>
                               {candidate.profile?.current_designation ??
                                 candidate.profile?.email ??

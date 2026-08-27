@@ -172,6 +172,8 @@ export interface SourceEmail {
  */
 export interface CandidateRecord {
   id: string;
+  /** Human-facing CRM identifier; the internal database key remains `id`. */
+  candidate_code?: string;
   /**
    * Where this candidate came from. Absent on records written before the
    * WhatsApp integration, which are all email — read it as `"email"` when
@@ -384,6 +386,8 @@ export interface DemoAccount {
 
 export interface StaffMember {
   id: string;
+  /** Human-facing roster identifier; separate from the account/database key. */
+  staff_code?: string;
   email: string;
   name: string;
   role: string;
@@ -528,6 +532,8 @@ export interface PollSummary {
 
 export interface AuthUser {
   id: string;
+  /** Present for staff accounts. */
+  staff_code?: string | null;
   email: string;
   name: string;
   role: string;

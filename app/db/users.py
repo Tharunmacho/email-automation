@@ -12,6 +12,7 @@ from typing import Optional
 
 from pymongo import ASCENDING
 
+from app.core.crm_ids import staff_code
 from app.core.models import utcnow
 from app.core.security import hash_password, verify_password
 from app.db.mongo import get_db
@@ -78,6 +79,9 @@ class User:
     email: str
     name: str
     role: str
+    # Public only for staff accounts; admins are not members of the allocation
+    # roster and therefore do not need a staff identifier.
+    staff_code: str = ""
     keywords: list[str] = None
     active: bool = True
     created_at: Optional[datetime] = None
@@ -97,6 +101,9 @@ class User:
             "email": self.email,
             "name": self.name,
             "role": self.role,
+            "staff_code": self.staff_code or (
+                staff_code(self.id) if self.role == STAFF_ROLE else None
+            ),
             "keywords": self.keywords or [],
             "phone": self.phone or "",
             "active": self.active,
@@ -130,6 +137,9 @@ class UserRepository:
             email=doc.get("email", ""),
             name=doc.get("name") or doc.get("email", "").split("@")[0].title(),
             role=doc.get("role", "admin"),
+            staff_code=doc.get("staff_code") or (
+                staff_code(doc["_id"]) if doc.get("role") == STAFF_ROLE else ""
+            ),
             keywords=doc.get("keywords", []),
             phone=doc.get("phone") or "",
             active=doc.get("active", True),
@@ -161,8 +171,9 @@ class UserRepository:
         email = _normalize(email)
         if self.find_by_email(email):
             raise ValueError(f"A user with email {email} already exists.")
+        user_id = uuid.uuid4().hex
         doc = {
-            "_id": uuid.uuid4().hex,
+            "_id": user_id,
             "email": email,
             "name": name or email.split("@")[0].title(),
             "role": role,
@@ -177,6 +188,8 @@ class UserRepository:
             "created_at": utcnow(),
             "last_login_at": None,
         }
+        if role == STAFF_ROLE:
+            doc["staff_code"] = staff_code(user_id)
         self._coll.insert_one(doc)
         log.info("Created user %s (%s)", email, role)
         return self._to_user(doc)
@@ -226,8 +239,10 @@ class UserRepository:
         email = _normalize(email)
         if self.find_by_email(email):
             raise ValueError(f"A user with email {email} already exists.")
+        user_id = uuid.uuid4().hex
         doc = {
-            "_id": uuid.uuid4().hex,
+            "_id": user_id,
+            "staff_code": staff_code(user_id),
             "email": email,
             "name": name or email.split("@")[0].title(),
             "role": STAFF_ROLE,
@@ -283,6 +298,8 @@ class UserRepository:
             updates["name"] = name
         if role in (ADMIN_ROLE, STAFF_ROLE):
             updates["role"] = role
+            if role == STAFF_ROLE and not doc.get("staff_code"):
+                updates["staff_code"] = staff_code(user_id)
         if active is not None:
             updates["active"] = active
         if password:
@@ -427,6 +444,30 @@ def ensure_user_indexes() -> None:
     from app.db.mongo import ensure_index
 
     coll = get_users_collection()
+    # Existing staff receive the same stable code they would have received at
+    # creation time. Admin accounts intentionally remain without one.
+    for doc in coll.find(
+        {
+            "role": STAFF_ROLE,
+            "$or": [
+                {"staff_code": {"$exists": False}},
+                {"staff_code": None},
+                {"staff_code": ""},
+            ],
+        },
+        {"_id": 1},
+    ):
+        coll.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"staff_code": staff_code(doc["_id"])}},
+        )
+    ensure_index(
+        coll,
+        [("staff_code", ASCENDING)],
+        "staff_code_unique",
+        unique=True,
+        sparse=True,
+    )
     # Sign-in reads by address, and two accounts on one address would make
     # authentication ambiguous.
     ensure_index(coll, [("email", ASCENDING)], "user_email_unique", unique=True)

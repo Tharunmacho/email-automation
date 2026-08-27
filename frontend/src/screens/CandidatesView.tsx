@@ -159,7 +159,7 @@ function getEmail(candidate: CandidateRecord): string {
 }
 
 function getReference(candidate: CandidateRecord): string {
-  return (candidate.resume_hash?.slice(0, 8) || candidate.id.slice(-8)).toUpperCase();
+  return candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`;
 }
 
 function getAdded(candidate: CandidateRecord): string {
@@ -640,6 +640,7 @@ export default function CandidatesView({
                       </span>
                       <span className="ds-who-text">
                         <strong title={displayName}>{displayName}</strong>
+                        <small className="crm-record-id">Candidate ID · {getReference(candidate)}</small>
                         <small title={email}>{email || "No email on file"}</small>
                       </span>
                     </span>
@@ -729,6 +730,7 @@ export default function CandidatesView({
                           </span>
                           <span className="ds-who-text">
                             <strong title={displayName}>{displayName}</strong>
+                            <small className="crm-record-id">Candidate ID · {getReference(candidate)}</small>
                             <small title={email}>{email || "No email on file"}</small>
                           </span>
                         </span>

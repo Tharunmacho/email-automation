@@ -312,6 +312,7 @@ export default function AdminStaffManagement({
       if (!matches(candidate, filter)) return false;
       if (!needle) return true;
       const haystack = [
+        candidate.candidate_code,
         candidate.profile?.full_name,
         candidate.profile?.email,
         candidate.profile?.current_designation,
@@ -866,6 +867,9 @@ export default function AdminStaffManagement({
                           </span>
                           <span className="ds-who-text">
                             <strong>{member.name || member.email}</strong>
+                            <small className="crm-record-id">
+                              Staff ID · {member.staff_code || `STF-${member.id.slice(-12).toUpperCase()}`}
+                            </small>
                             <small>{member.email}</small>
                           </span>
                         </span>

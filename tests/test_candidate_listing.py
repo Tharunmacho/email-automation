@@ -10,6 +10,7 @@ to fetch.
 """
 from __future__ import annotations
 
+from app.core.crm_ids import candidate_code
 from app.db.repository import CandidateRepository
 
 
@@ -203,6 +204,7 @@ def test_the_minimal_view_is_flat_and_exactly_the_agreed_fields():
 
     assert row == {
         "id": "candidate-alice",
+        "candidate_code": candidate_code("candidate-alice"),
         "full_name": "Alice Smith",
         "email": "alice@example.com",
         "phone": "+1 555-0100",
