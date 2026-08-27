@@ -50,20 +50,35 @@ def _parse_from(value: str) -> tuple[str, Optional[str]]:
 class SMTPIMAPClient:
     """IMAP (receiving) + SMTP (sending) client using standard email credentials."""
 
-    def __init__(self):
-        self.imap_server = settings.imap_server
-        self.imap_port = settings.imap_port
-        self.imap_username = settings.imap_username
-        self.imap_password = settings.imap_password
-        self.imap_use_ssl = settings.imap_use_ssl
-        self.imap_folder = settings.imap_folder or "INBOX"
+    def __init__(self, config: dict | None = None):
+        if config:
+            self.imap_server = config.get("imap_server", "")
+            self.imap_port = config.get("imap_port", 993)
+            self.imap_username = config.get("imap_username", "")
+            self.imap_password = config.get("imap_password", "")
+            self.imap_use_ssl = config.get("imap_use_ssl", True)
+            self.imap_folder = config.get("imap_folder", "INBOX")
 
-        self.smtp_server = settings.smtp_server
-        self.smtp_port = settings.smtp_port
-        self.smtp_username = settings.smtp_username
-        self.smtp_password = settings.smtp_password
-        self.smtp_use_tls = settings.smtp_use_tls
-        self.smtp_use_ssl = settings.smtp_use_ssl
+            self.smtp_server = config.get("smtp_server", "")
+            self.smtp_port = config.get("smtp_port", 465)
+            self.smtp_username = config.get("smtp_username", "")
+            self.smtp_password = config.get("smtp_password", "")
+            self.smtp_use_tls = config.get("smtp_use_tls", False)
+            self.smtp_use_ssl = config.get("smtp_use_ssl", True)
+        else:
+            self.imap_server = settings.imap_server
+            self.imap_port = settings.imap_port
+            self.imap_username = settings.imap_username
+            self.imap_password = settings.imap_password
+            self.imap_use_ssl = settings.imap_use_ssl
+            self.imap_folder = settings.imap_folder or "INBOX"
+
+            self.smtp_server = settings.smtp_server
+            self.smtp_port = settings.smtp_port
+            self.smtp_username = settings.smtp_username
+            self.smtp_password = settings.smtp_password
+            self.smtp_use_tls = settings.smtp_use_tls
+            self.smtp_use_ssl = settings.smtp_use_ssl
 
         # In-memory cache for fetched messages during batch run to avoid re-fetching
         self._fetched_bytes_cache: dict[str, bytes] = {}

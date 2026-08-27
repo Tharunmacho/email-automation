@@ -83,20 +83,31 @@ class BatchSummary:
 
 
 class IngestionRunner:
-    def __init__(self, gmail: Any | None = None, pipeline: IngestionPipeline | None = None):
-        self.gmail = gmail or get_email_client()
+    def __init__(self, clients: List[Any] | None = None, pipeline: IngestionPipeline | None = None):
+        if clients is not None:
+            self.clients = clients
+        else:
+            from app.email_client import get_all_email_clients
+            self.clients = get_all_email_clients()
         self.pipeline = pipeline or IngestionPipeline()
 
     def run_once(self, query: str | None = None) -> BatchSummary:
         summary = BatchSummary()
         effective_query = query if query is not None else settings.gmail_query
-        message_ids = self.gmail.search_message_ids(query=effective_query)
-        summary.fetched = len(message_ids)
-        log.info("Fetched %d message(s) matching query '%s'", summary.fetched, effective_query)
+        
+        # Collect message IDs from all clients
+        client_messages = []
+        for client in self.clients:
+            mids = client.search_message_ids(query=effective_query)
+            if mids:
+                client_messages.extend([(client, mid) for mid in mids])
+                
+        summary.fetched = len(client_messages)
+        log.info("Fetched %d message(s) across %d account(s) matching query '%s'", summary.fetched, len(self.clients), effective_query)
 
         import concurrent.futures
 
-        def _process_one_message(mid: str) -> ProcessResult | None:
+        def _process_one_message(client: Any, mid: str) -> ProcessResult | None:
             # Claim the message first. Beat fans out one Celery task per email
             # and gives the poll lock straight back, so a manual sync starting a
             # minute later re-fetches messages that are still being extracted —
@@ -107,10 +118,9 @@ class IngestionRunner:
                         mid, "skipped", "already being processed by another worker"
                     )
 
-                gmail_client = self.gmail
                 try:
-                    email = _fetch_with_retry(gmail_client, mid)
-                    result = self.pipeline.process_email(email, gmail=gmail_client)
+                    email = _fetch_with_retry(client, mid)
+                    result = self.pipeline.process_email(email, gmail=client)
                 except Exception:  # noqa: BLE001
                     log.exception("Failed to process message %s", mid)
                     return None
@@ -120,7 +130,7 @@ class IngestionRunner:
                 # result — that reported "Ingested Candidates=0" for a poll that had
                 # just written a profile.
                 try:
-                    mark_message_done(gmail_client, mid, result.status)
+                    mark_message_done(client, mid, result.status)
                 except Exception as err:  # noqa: BLE001
                     log.warning(
                         "Processed %s but could not mark it done in Gmail (%s); "
@@ -130,10 +140,14 @@ class IngestionRunner:
 
                 return result
 
-        max_workers = min(10, max(1, len(message_ids)))
+        # Bounded by the batch, then by the setting. The threads are
+        # I/O-bound (Gmail, Veris, the LLM), so this sits well above the
+        # core count; what stops us flooding Veris is the gateway's
+        # in-flight cap, not this number.
+        max_workers = min(max(1, settings.ingestion_max_workers), max(1, len(client_messages)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_mid = {executor.submit(_process_one_message, mid): mid for mid in message_ids}
-            for future in concurrent.futures.as_completed(future_to_mid):
+            future_to_msg = {executor.submit(_process_one_message, client, mid): mid for client, mid in client_messages}
+            for future in concurrent.futures.as_completed(future_to_msg):
                 res = future.result()
                 if res is None:
                     summary.errors += 1

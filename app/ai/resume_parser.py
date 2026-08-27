@@ -344,7 +344,7 @@ class ResumeParser:
         # own objective section; never dump raw OCR into the field.
         objective = " ".join(sections.get("objective", [])).strip()
         summary_text = objective or (clean_summary or "")
-        if len(summary_text) > 600 and not objective:
+        if len(summary_text) > 2000 and not objective:
             summary_text = ""
 
         raw_ocr_fallback = {
@@ -394,7 +394,7 @@ class ResumeParser:
             achievements=achievements_list,
             current_designation=current_des,
             current_company=current_comp,
-            resume_summary=summary_text[:600] or None,
+            resume_summary=summary_text[:2000] or None,
             raw_ocr=raw_ocr_fallback,
         )
 
@@ -1110,12 +1110,15 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     # Veris reliably returns skills/education/experience but usually leaves
     # achievements, certifications and languages in the page text. Recover them
     # from the resume's own section headings — no per-candidate keywords.
-    page_text_parts = [veris_text] if veris_text else []
+    page_text_parts = []
     pages_list = data.get("pages") or getattr(res, "pages", [])
-    for page in pages_list:
-        decol = decolumnize_ocr_page(page)
-        if decol:
-            page_text_parts.append(decol)
+    if pages_list:
+        for page in pages_list:
+            decol = decolumnize_ocr_page(page)
+            if decol:
+                page_text_parts.append(decol)
+    elif veris_text:
+        page_text_parts.append(veris_text)
 
     page_text = "\n\n".join(page_text_parts)
     sections = extract_sections(page_text)
@@ -1179,7 +1182,7 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
 
     summary = data.get("summary") or getattr(res, "summary", None)
     if not summary and objective_lines:
-        summary = " ".join(objective_lines)[:600]
+        summary = " ".join(objective_lines)[:2000]
     if summary and (summary.strip().lower() == "0 months" or len(summary.strip()) < 5):
         summary = None
 
