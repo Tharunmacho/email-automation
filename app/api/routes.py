@@ -45,7 +45,12 @@ from app.assignment.balancer import (
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
-from app.policy.cv_policy import JOB_CATEGORIES, is_cv_required, policy_version
+from app.policy.cv_policy import (
+    JOB_CATEGORIES,
+    is_cv_required,
+    known_job_ids,
+    policy_version,
+)
 from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
@@ -1683,14 +1688,27 @@ def create_whatsapp_candidate(
     # which would look like a working rule and be nothing of the sort. Absent is
     # allowed — a candidate bound for the Gulf never answers this question, and
     # an unknown category resolves to "CV required" anyway.
+    #
+    # Checked against the table rather than the built-in tuple, which is what
+    # `known_job_ids` was written for and was never wired to. The two disagree
+    # the moment an admin adds a job: the bot offers it within five minutes, a
+    # candidate picks it, and the submission is refused as an unknown category —
+    # so Data Management could add a row that nobody could then apply for, and
+    # the failure landed on the candidate rather than on the person who made it.
+    #
+    # The union is deliberate. `known_job_ids` reads the table, so a job retired
+    # after somebody answered it — and "other", if a deployment's table has no
+    # row for it — stay acceptable. This check exists to catch a typo; no
+    # narrowing of it is worth refusing a real registration over.
     category = (payload.profile.job_category or "").strip()
-    if category and category not in JOB_CATEGORIES:
+    accepted = set(known_job_ids()) | set(JOB_CATEGORIES)
+    if category and category not in accepted:
         return JSONResponse(
             status_code=422,
             content={
                 "code": "unknown_job_category",
                 "detail": (
-                    f"job_category {category!r} is not one of: {', '.join(JOB_CATEGORIES)}"
+                    f"job_category {category!r} is not one of: {', '.join(sorted(accepted))}"
                 ),
             },
         )
