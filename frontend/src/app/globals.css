@@ -17702,15 +17702,15 @@ a.um-phone:hover {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: clamp(1rem, 3vw, 2.5rem);
+  padding: clamp(0.75rem, 2.2vw, 1.5rem);
   background:
     radial-gradient(circle at 8% 8%, rgba(var(--primary-rgb), 0.09), transparent 28rem),
     var(--bg-main);
 }
 
 .auth-shell {
-  width: min(1160px, 100%);
-  min-height: min(760px, calc(100dvh - clamp(2rem, 6vw, 5rem)));
+  width: min(1080px, 100%);
+  min-height: min(680px, calc(100dvh - clamp(1.5rem, 4.4vw, 3rem)));
   display: grid;
   grid-template-columns: minmax(390px, 0.92fr) minmax(460px, 1.08fr);
   overflow: hidden;
@@ -17728,7 +17728,7 @@ a.um-phone:hover {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: clamp(2rem, 4.2vw, 3.75rem);
+  padding: clamp(1.75rem, 3.4vw, 3rem);
   color: #ffffff;
   background:
     linear-gradient(150deg, rgba(255, 255, 255, 0.08), transparent 44%),
@@ -17812,7 +17812,7 @@ a.um-phone:hover {
   position: relative;
   z-index: 1;
   margin: auto 0;
-  padding: 4rem 0;
+  padding: 2.5rem 0;
 }
 
 .auth-eyebrow {
@@ -17833,7 +17833,7 @@ a.um-phone:hover {
   max-width: 520px;
   margin-top: 1.45rem;
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2.45rem, 4vw, 4rem);
+  font-size: clamp(2.35rem, 3.5vw, 3.45rem);
   font-weight: 720;
   line-height: 1.02;
   letter-spacing: -0.055em;
@@ -17885,7 +17885,7 @@ a.um-phone:hover {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  padding: clamp(3rem, 6vw, 5.5rem);
+  padding: clamp(2.25rem, 4.5vw, 4rem);
   background: var(--bg-card);
 }
 
@@ -17921,7 +17921,7 @@ a.um-phone:hover {
 }
 
 .auth-card {
-  width: min(100%, 430px);
+  width: min(100%, 410px);
 }
 
 .auth-mobile-logo {
@@ -17936,7 +17936,7 @@ a.um-phone:hover {
 }
 
 .auth-head {
-  margin-bottom: 2rem;
+  margin-bottom: 1.55rem;
 }
 
 .auth-secure-label {
@@ -17954,7 +17954,7 @@ a.um-phone:hover {
 .auth-head h2 {
   color: var(--text-main);
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 3vw, 2.55rem);
+  font-size: clamp(1.9rem, 2.7vw, 2.3rem);
   font-weight: 720;
   line-height: 1.1;
   letter-spacing: -0.045em;
@@ -17976,11 +17976,11 @@ a.um-phone:hover {
 }
 
 .auth-field {
-  height: 55px;
+  height: 51px;
   display: flex;
   align-items: center;
   gap: 0.72rem;
-  margin-bottom: 1.18rem;
+  margin-bottom: 0.95rem;
   padding: 0 0.95rem;
   border: 1px solid var(--border-blue-strong);
   border-radius: 12px;
@@ -18050,7 +18050,7 @@ a.um-phone:hover {
   align-items: center;
   gap: 0.58rem;
   width: fit-content;
-  margin: 0.15rem 0 1.45rem;
+  margin: 0.1rem 0 1.1rem;
   color: var(--text-muted);
   font-size: 0.79rem;
   cursor: pointer;
@@ -18125,7 +18125,7 @@ a.um-phone:hover {
 
 .auth-submit {
   width: 100%;
-  min-height: 54px;
+  min-height: 50px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -18163,7 +18163,7 @@ a.um-phone:hover {
 }
 
 .auth-demo {
-  margin-top: 1.55rem;
+  margin-top: 1.15rem;
 }
 
 .auth-divider {
@@ -18292,6 +18292,107 @@ a.um-phone:hover {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* Laptop-height viewports should still show the submit control and any demo
+   access without asking the user to scroll the entire page. */
+@media (max-height: 720px) and (min-width: 861px) {
+  .auth-page {
+    padding: 0.625rem;
+  }
+
+  .auth-shell {
+    height: calc(100dvh - 1.25rem);
+    min-height: 0;
+  }
+
+  .auth-story {
+    padding: 1.6rem 2rem;
+  }
+
+  .auth-story-logo {
+    --brand-mark-size: 46px;
+    --brand-name-size: 0.9rem;
+    width: 228px;
+    height: 54px;
+  }
+
+  .auth-story-content {
+    padding: 1rem 0;
+  }
+
+  .auth-story-content h1 {
+    margin-top: 0.9rem;
+    font-size: clamp(2.1rem, 4.5vh, 2.7rem);
+  }
+
+  .auth-story-content > p {
+    margin-top: 0.8rem;
+    font-size: 0.88rem;
+  }
+
+  .auth-benefits {
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+
+  .auth-access {
+    padding: 2.25rem 3rem;
+  }
+
+  .auth-head {
+    margin-bottom: 1rem;
+  }
+
+  .auth-secure-label {
+    margin-bottom: 0.5rem;
+  }
+
+  .auth-head h2 {
+    font-size: 1.8rem;
+  }
+
+  .auth-head p {
+    margin-top: 0.35rem;
+  }
+
+  .auth-field {
+    height: 46px;
+    margin-bottom: 0.65rem;
+  }
+
+  .auth-remember {
+    margin-bottom: 0.7rem;
+  }
+
+  .auth-submit {
+    min-height: 46px;
+  }
+
+  .auth-demo {
+    margin-top: 0.7rem;
+  }
+
+  .auth-divider {
+    margin-bottom: 0.5rem;
+  }
+
+  .auth-demo-grid {
+    gap: 0.4rem;
+  }
+
+  .auth-demo-button {
+    padding: 0.48rem 0.65rem;
+  }
+
+  .auth-demo-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .auth-access-foot {
+    bottom: 0.55rem;
   }
 }
 

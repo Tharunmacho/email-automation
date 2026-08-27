@@ -4,7 +4,7 @@ import Home from "../page";
 import { isNavId, NAV_IDS } from "@/lib/nav";
 
 export function generateStaticParams() {
-  return NAV_IDS.filter((section) => section !== "overview").map((section) => ({ section }));
+  return NAV_IDS.map((section) => ({ section }));
 }
 
 export default async function SectionPage({
@@ -13,6 +13,6 @@ export default async function SectionPage({
   params: Promise<{ section: string }>;
 }) {
   const { section } = await params;
-  if (!isNavId(section) || section === "overview") notFound();
+  if (!isNavId(section)) notFound();
   return <Home />;
 }

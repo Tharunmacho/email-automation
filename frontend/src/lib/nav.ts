@@ -45,9 +45,9 @@ export function isNavId(value: string): value is NavId {
   return (NAV_IDS as readonly string[]).includes(value);
 }
 
-/** Overview owns `/`; every other CRM destination gets a shareable path. */
+/** Every CRM destination has its own shareable path. `/` is the sign-in entry. */
 export function navPath(id: NavId): string {
-  return id === "overview" ? "/" : `/${id}`;
+  return `/${id}`;
 }
 
 /** Resolve a browser pathname into the tab it represents. */
@@ -160,12 +160,12 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
 /**
  * Where a role lands on sign-in.
  *
- * The admin opens on the staff console rather than the ingestion Overview:
- * their first question is who is holding what and whether anyone has stalled,
- * and that screen is also where the SLA breaches are listed.
+ * Admins open on the whole-CRM Overview. Reviewers open directly on the
+ * candidate queue assigned to them.
  */
 export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
   const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
+  if (role === "admin" && visible.includes("overview")) return "overview";
   if (visible.includes("candidates")) return "candidates";
   return visible[0] ?? "settings";
 }

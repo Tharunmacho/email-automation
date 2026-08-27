@@ -269,6 +269,15 @@ export default function Home() {
     };
   }, []);
 
+  // `/` is the public sign-in address. If a valid session is restored there,
+  // move it to that account's canonical workspace URL instead of leaving the
+  // Overview screen mounted behind a root URL that cannot be shared clearly.
+  useEffect(() => {
+    if (!user || pathname !== "/") return;
+    const landing = defaultNavFor(user.role, user.pages);
+    window.history.replaceState(null, "", navPath(landing));
+  }, [pathname, user]);
+
   const handleSignOut = useCallback(() => {
     clearSession();
     setUser(null);
