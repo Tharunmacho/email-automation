@@ -8794,6 +8794,51 @@ body {
   color: var(--dash-muted);
 }
 
+/* The download for one scan. Pushed to the far end of the heading so the
+   badges keep reading as a run of statements about the document and the one
+   thing you can *do* to it is not among them. `margin-left: auto` rather than
+   `justify-content: space-between` because the heading wraps: on a narrow
+   column the badges drop to a second line and the button has to follow them
+   rather than stay pinned to the title. */
+.cprof-doc-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.cprof-doc-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cprof-doc-download:hover:not(:disabled) {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+}
+
+.cprof-doc-download:disabled {
+  cursor: default;
+  color: var(--dash-muted);
+}
+
+.cprof-doc-download-error {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--error-ink);
+}
+
 /* --- editor --------------------------------------------------------------- */
 .cedit-card-head {
   display: flex;

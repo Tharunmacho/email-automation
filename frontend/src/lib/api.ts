@@ -367,6 +367,28 @@ export function resumeDownloadUrl(candidateId: string): string {
   return `${API_BASE}/candidates/${candidateId}/resume${query}`;
 }
 
+/**
+ * The Aadhaar or passport scan behind one identity row.
+ *
+ * The record id is scoped to the candidate id server-side, so this is not a
+ * second way to reach a document — holding a record id is not authorisation.
+ * An Aadhaar is refused with a 403 to anyone who is not an administrator, for
+ * the same reason its number is masked: the card is the number. Ask
+ * `file_available` on the record before offering the link.
+ */
+export function identityFileUrl(
+  candidateId: string,
+  documentType: "aadhaar" | "passport",
+  recordId: string,
+): string {
+  const token = getToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return (
+    `${API_BASE}/candidates/${candidateId}/identity/` +
+    `${documentType}/${encodeURIComponent(recordId)}/file${query}`
+  );
+}
+
 // ---- System / ingestion configuration ----
 export interface IngestRules {
   provider: string;

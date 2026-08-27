@@ -690,6 +690,165 @@ def test_an_unknown_job_category_is_refused(client):
 
 
 # --------------------------------------------------------------------------- #
+#  A job an admin added, and the questions they hung on it
+#
+#  The two halves of Data Management reaching a candidate record. The first is
+#  a regression that made the screen actively harmful: a job created there was
+#  offered to candidates by the bot within five minutes and then refused at
+#  submission, because the category was validated against the tuple compiled
+#  into `cv_policy` rather than against the table the screen writes to.
+#
+#  `known_job_ids` reads Mongo, which `conftest` refuses, so these patch the
+#  table the way a deployment would have one. Without the patch the lookup
+#  falls back to the built-in tuple — which is the behaviour every other test
+#  in this file exercises, and is why the regression survived them.
+# --------------------------------------------------------------------------- #
+def with_table(*extra_ids):
+    """Point `known_job_ids` at a table holding the seeded jobs plus `extra_ids`."""
+    from app.db.taxonomy import SEED_JOBS
+
+    rows = [{"id": seed["id"]} for seed in SEED_JOBS]
+    rows.extend({"id": job_id} for job_id in extra_ids)
+    return patch("app.db.taxonomy.list_jobs", return_value=rows)
+
+
+def test_a_job_an_admin_added_is_accepted(client):
+    """The whole point of the screen: add a row, and a candidate can apply for it.
+
+    With a resume attached, because a job an admin created carries no CV rule of
+    its own and the policy default is "required" — which is a separate refusal
+    from the one this test is about, and would hide it.
+    """
+    with with_table("cnc_operator"):
+        res = client.post(
+            "/candidates",
+            json={
+                "source": "whatsapp",
+                "profile": {
+                    "full_name": "Ravi Kumar",
+                    "phone": "+919876543210",
+                    "destination_country": "Malaysia",
+                    "job_category": "cnc_operator",
+                    "job_id": "cnc_operator",
+                    "job_title": "CNC Operator",
+                },
+                "idempotency_key": "whatsapp/111/cnc",
+                "resume": resume_payload(),
+            },
+            headers={"X-Service-Key": SERVICE_KEY},
+        )
+
+    assert res.status_code == 201, res.text
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.job_category == "cnc_operator"
+    assert stored.profile.job_title == "CNC Operator"
+
+
+def test_a_typo_is_still_refused_when_the_table_can_be_read(client):
+    """Widening the check to the table must not turn it off."""
+    with with_table("cnc_operator"):
+        res = post_candidate(client, job_category="not_a_real_category")
+
+    assert res.status_code == 422
+    assert "job_category" in res.text
+
+
+def test_a_job_retired_after_somebody_answered_it_is_still_accepted(client):
+    """A row an admin retires is not a typo, and the person who answered it
+    while it existed must not be refused because of a later edit."""
+    with patch("app.db.taxonomy.list_jobs", return_value=[{"id": "cnc_operator"}]):
+        res = post_candidate(client, job_category="general_worker")
+
+    assert res.status_code == 201, res.text
+
+
+def test_the_designation_and_its_screening_answers_are_stored(client):
+    """What the bot sends about the job, as the CRM keeps it."""
+    res = post_candidate(
+        client,
+        job_id="general_worker",
+        job_title="General Worker",
+        job_answers=[
+            {
+                "question_id": "q_shifts",
+                "question": "Which shifts can you work?",
+                "answer": "Nights, Weekends",
+                "kind": "choice",
+                "asked_at": "2026-08-27T09:00:00.000Z",
+            }
+        ],
+    )
+
+    assert res.status_code == 201, res.text
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.job_id == "general_worker"
+    assert stored.profile.job_title == "General Worker"
+    assert len(stored.profile.job_answers) == 1
+
+    answer = stored.profile.job_answers[0]
+    assert answer.question_id == "q_shifts"
+    # The wording travels with the answer rather than being resolved at read
+    # time, so an admin rewording the question does not rewrite this record.
+    assert answer.question == "Which shifts can you work?"
+    assert answer.answer == "Nights, Weekends"
+    assert answer.kind == "choice"
+
+
+def test_a_later_partial_adds_the_answers_the_first_one_did_not_have(client):
+    """The bot sends every answer under one key, so a screening answer given
+    after the first partial has to land on the record the first one created."""
+    key = "whatsapp/111/919876543210"
+
+    first = post_candidate(client, key=key)
+    assert first.status_code == 201, first.text
+
+    second = post_candidate(
+        client,
+        key=key,
+        job_id="general_worker",
+        job_answers=[
+            {
+                "question_id": "q_years",
+                "question": "How many years of experience do you have?",
+                "answer": "6 years",
+                "kind": "text",
+            }
+        ],
+    )
+
+    # 200, not 201: nothing new exists because of it.
+    assert second.status_code == 200, second.text
+    assert len(client.fake_repo.candidates) == 1, "a partial created a second candidate"
+
+    # Read back the way the refresh writes it: `refresh_whatsapp_profile` sets
+    # the dumped value, which is what lands in Mongo and what a later load
+    # parses back into `JobAnswer`.
+    stored = next(iter(client.fake_repo.candidates.values()))
+    answers = stored.profile.model_dump()["job_answers"]
+    assert [a["question_id"] for a in answers] == ["q_years"]
+    assert stored.profile.job_id == "general_worker"
+
+
+def test_a_partial_with_no_answers_does_not_blank_the_ones_on_file(client):
+    """A candidate who edits their name after answering a screening question
+    must not lose the answer to the submission that carried the edit."""
+    key = "whatsapp/111/919876543210"
+
+    post_candidate(
+        client,
+        key=key,
+        job_answers=[
+            {"question_id": "q_years", "question": "How many years?", "answer": "6 years"}
+        ],
+    )
+    post_candidate(client, key=key, full_name="Ravi Kumar Singh")
+
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.full_name == "Ravi Kumar Singh"
+    assert [a.answer for a in stored.profile.job_answers] == ["6 years"]
+
+
+# --------------------------------------------------------------------------- #
 #  Allocation reuse
 # --------------------------------------------------------------------------- #
 def test_a_new_candidate_goes_through_the_existing_balancer(client):

@@ -15,6 +15,7 @@ import hashlib
 import os
 import threading
 import uuid
+from typing import Any
 
 from fastapi import (
     BackgroundTasks,
@@ -52,6 +53,7 @@ from app.policy.cv_policy import (
     policy_version,
 )
 from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
+from app.services.identity_intake import file_documents as file_identity_documents
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
     ADMIN_ROLE,
@@ -320,9 +322,32 @@ def get_candidate(candidate_id: str, user: dict = Depends(current_user)) -> dict
     return record.model_dump(mode="json")
 
 
+def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> Response:
+    """A download, named so every browser gets the name right.
+
+    Both header forms, because they fail in opposite directions: the plain one
+    mangles anything non-ASCII, and the `filename*` one is ignored by enough
+    old clients to matter. Quotes are stripped rather than escaped — a quote in
+    a filename is worth nothing and a quote that terminates the header early is
+    worth a broken download.
+    """
+    import urllib.parse
+
+    safe = (filename or "download").replace('"', "").replace("'", "")
+    # `UTF-8''<pct-encoded>` — the two quotes are the empty language tag RFC
+    # 5987 requires between the charset and the name, not a stray pair.
+    extended = f"UTF-8''{urllib.parse.quote(safe)}"
+    return Response(
+        content=data,
+        media_type=mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}"; filename*={extended}'
+        },
+    )
+
+
 @app.get("/candidates/{candidate_id}/resume")
 def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Response:
-    import urllib.parse
     record = _owned_or_404(candidate_id, user)
     if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
@@ -344,16 +369,10 @@ def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Re
                 detail=f"Resume file '{filename}' is missing from server storage."
             )
     
-    original_name = record.resume.original_filename or "resume.pdf"
-    safe_filename = original_name.replace('"', '').replace("'", "")
-    encoded_filename = urllib.parse.quote(safe_filename)
-    
-    return Response(
-        content=data,
-        media_type=record.resume.mime_type or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}'
-        },
+    return _attachment_response(
+        data,
+        record.resume.mime_type,
+        record.resume.original_filename or "resume.pdf",
     )
 
 
@@ -614,11 +633,12 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(current
     is a different question with a different answer.
     """
     from app.db.identity_records import find_for_candidate
+    from app.services import identity_files
 
     # 404s a record that belongs to another staff member, exactly as the
     # candidate endpoints do — an identity document must not be the thing that
     # confirms a candidate id exists.
-    _owned_or_404(candidate_id, user)
+    record = _owned_or_404(candidate_id, user)
 
     try:
         found = find_for_candidate(candidate_id)
@@ -626,6 +646,17 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(current
         raise HTTPException(status_code=503, detail=f"Identity records unavailable: {exc}")
 
     is_admin = user.get("role") == ADMIN_ROLE
+
+    def _may_download(doc: dict) -> bool:
+        """An Aadhaar scan is the full Aadhaar number, in a picture.
+
+        The number itself is masked for everyone but an administrator in
+        `_clean` below, and serving the card would hand back exactly what the
+        masking withholds. A passport is a different judgement: its number is
+        on the candidate record already, and overseas placement is decided on
+        whether it is in date.
+        """
+        return is_admin or doc.get("document_type") != "aadhaar"
 
     def _clean(doc: dict) -> dict:
         doc = dict(doc)
@@ -635,6 +666,22 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(current
             doc.pop("aadhaar_number", None)
             doc.pop("vid", None)
             doc.pop("raw_mrz", None)
+
+        # Whether there is a scan to download, answered here rather than
+        # guessed at in the browser. The screen offering a button that can only
+        # 404 is the same mistake the résumé button already avoids, and the
+        # facts it turns on — a `file` block, a bundle to re-cut, the caller's
+        # role — are all on this side of the wire.
+        doc["file_available"] = _may_download(doc) and identity_files.available(record, doc)
+        # A storage key is an implementation detail and a thing to probe. The
+        # name, type and size are what a recruiter is shown before clicking.
+        block = doc.get("file")
+        if isinstance(block, dict):
+            doc["file"] = {
+                key: block.get(key)
+                for key in ("filename", "mime_type", "size", "sha256")
+                if block.get(key) is not None
+            }
         return doc
 
     return {
@@ -642,6 +689,71 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(current
         "aadhaar": [_clean(d) for d in found["aadhaar"]],
         "passport": [_clean(d) for d in found["passport"]],
     }
+
+
+@app.get("/candidates/{candidate_id}/identity/{document_type}/{record_id}/file")
+def download_identity_document(
+    candidate_id: str,
+    document_type: str,
+    record_id: str,
+    user: dict = Depends(current_user),
+) -> Response:
+    """The Aadhaar or passport scan itself, as a download.
+
+    The row above it says what an extractor read. This is the page it read it
+    off, which is what a documentation officer checking a digit actually needs
+    — and, for the email pipeline, it is cut out of the stored bundle on the
+    way past rather than kept as a second copy. See `app/services/identity_files`.
+
+    An Aadhaar is administrators only, for the same reason the number is masked
+    for everybody else: the card is the number.
+    """
+    from app.db.identity_records import DOCUMENT_TYPES, find_one
+    from app.services import identity_files
+
+    if document_type not in DOCUMENT_TYPES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{document_type}' is not an identity document type",
+        )
+
+    record = _owned_or_404(candidate_id, user)
+
+    if document_type == "aadhaar" and user.get("role") != ADMIN_ROLE:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "An Aadhaar scan carries the full Aadhaar number, which is "
+                "masked for anyone who is not an administrator. Ask an "
+                "administrator for the card."
+            ),
+        )
+
+    try:
+        doc = find_one(candidate_id, document_type, record_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Identity records unavailable: {exc}")
+    if not doc:
+        raise HTTPException(
+            status_code=404, detail=f"No {document_type} record with that id for this candidate"
+        )
+
+    try:
+        found = identity_files.load(record, doc)
+    except identity_files.IdentityFileMissing as exc:
+        raise HTTPException(
+            status_code=404, detail=f"The {document_type} scan could not be served — {exc}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "Identity file for candidate %s (%s %s) could not be built: %s",
+            candidate_id, document_type, record_id, exc,
+        )
+        raise HTTPException(
+            status_code=500, detail=f"The {document_type} scan could not be built: {exc}"
+        )
+
+    return _attachment_response(found.data, found.mime_type, found.filename)
 
 
 @app.get("/ingest/workers")
@@ -1601,6 +1713,81 @@ class WhatsAppProfileIn(BaseModel):
     passport_expiry: str | None = None
 
 
+class WhatsAppIdentityDocumentIn(BaseModel):
+    """One Aadhaar or passport the bot read, as it files it here.
+
+    `result` travels untouched and is deliberately not an allow-list: it is the
+    extractor's own payload, and the CRM already owns the code that projects an
+    Aadhaar or a passport out of exactly this shape — `store_aadhaar_record`
+    and `store_passport_record`, the same two the mailbox pipeline feeds.
+    Naming the fields again here would be a second implementation of one
+    projection, and the extractors gain fields.
+
+    That is a different judgement from `WhatsAppProfileIn`, and the difference
+    is where the data lands. The profile is projected onto the candidate
+    document that every recruiter list reads wholesale, so an Aadhaar number
+    arriving there would be served to a browser; these go to their own
+    collections, masked on the way out, which is what those collections are
+    for.
+
+    No file. The bytes are their own request — see
+    `POST /candidates/{id}/identity/{type}/{record_id}/file`. A partial sync
+    runs on every answered question and inlining a passport photograph would
+    put it on the wire twenty times for one registration.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: The bot's upload id. Doubles as this record's `_id`, so a re-send
+    #: overwrites its own row rather than adding another — the same idea as the
+    #: email path's `(message, attachment, mode)` key, with the ids this path
+    #: has.
+    #: Not required, and that is the point: a malformed document must not cost
+    #: a candidate their registration. One without an id is skipped and
+    #: reported in the response — see `identity_intake.file_documents` — while
+    #: the profile and the documents beside it land as normal.
+    record_id: str = Field(default="", max_length=128)
+    #: Which slot it arrived in: `aadhaar`, `aadhaar_back`, `passport`.
+    slot: str | None = Field(default=None, max_length=64)
+    filename: str | None = Field(default=None, max_length=255)
+    mime_type: str | None = Field(default=None, max_length=128)
+    sha256: str | None = Field(default=None, max_length=128)
+    #: The message the file arrived on, so provenance names it the way the
+    #: email path names a Gmail message id.
+    message_id: str | None = Field(default=None, max_length=255)
+    uploaded_at: str | None = None
+    extracted_at: str | None = None
+    #: Untyped on purpose. This is an extractor's payload and the CRM's job is
+    #: to project it, not to police its shape — and a `dict` here would turn an
+    #: OCR service returning something unexpected into a 422 that refuses the
+    #: whole submission, profile included. A payload the projection cannot read
+    #: costs one document and is reported as such.
+    result: Any = None
+
+
+class WhatsAppIdentitySectionIn(BaseModel):
+    """The Aadhaar and passport documents on one submission.
+
+    Two lists rather than one, because the type is what decides which
+    collection a document goes to and reading it off a field inside `result`
+    would let a mislabelled payload file a passport as an Aadhaar. The key is
+    the type, and it is the route that says so.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    aadhaar: list[WhatsAppIdentityDocumentIn] = Field(default_factory=list)
+    passport: list[WhatsAppIdentityDocumentIn] = Field(default_factory=list)
+
+
+class WhatsAppIdentityFileIn(BaseModel):
+    """The bytes of one identity document, for the JSON upload path."""
+
+    filename: str | None = Field(default=None, max_length=255)
+    mime_type: str | None = Field(default=None, max_length=128)
+    content_base64: str
+
+
 class WhatsAppCandidateIn(BaseModel):
     source: str = "whatsapp"
     profile: WhatsAppProfileIn
@@ -1611,6 +1798,12 @@ class WhatsAppCandidateIn(BaseModel):
     #: never trusted — the CRM derives its own answer from the policy table.
     cv_required_claim: bool | None = None
     resume: WhatsAppResumeIn | None = None
+    #: The identity documents this candidate has sent so far, as their
+    #: extractor read them. Sent on every submission, because a candidate who
+    #: sends their passport on Friday has to reach the record that was created
+    #: on Tuesday — and re-sending is free: each document overwrites its own
+    #: row.
+    identity: WhatsAppIdentitySectionIn | None = None
 
 
 def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
@@ -1770,6 +1963,31 @@ def create_whatsapp_candidate(
             },
         )
 
+    # The Aadhaar and the passport, filed against whichever candidate the
+    # intake resolved. After the intake and never before it: these belong to a
+    # candidate, and on a late upload — the common case, since documents are
+    # the last thing a registration collects — that candidate is one who has
+    # existed since Tuesday. Filing them first would mean choosing an owner
+    # before the code whose job that is had run.
+    #
+    # Failures here are reported, not raised. The profile is written by the
+    # time this runs and an unreadable passport must not undo a registration.
+    identity_filed: list[dict] = []
+    if payload.identity is not None:
+        identity_filed = [
+            {
+                "document_type": entry.document_type,
+                "record_id": entry.record_id,
+                "stored": entry.stored,
+                **({"skipped": entry.skipped} if entry.skipped else {}),
+            }
+            for entry in file_identity_documents(
+                candidate_id=result.candidate_id,
+                section=payload.identity.model_dump(exclude_none=True),
+                idempotency_key=payload.idempotency_key,
+            )
+        ]
+
     # 201 only when something was actually created. A replay of the same key,
     # and a re-registration that refreshed someone already on file, are both
     # 200: nothing new exists because of them.
@@ -1783,6 +2001,9 @@ def create_whatsapp_candidate(
         "cv_required": result.cv_required,
         "cv_policy_version": result.cv_policy_version,
         "policy_overrode_claim": result.policy_overrode_claim,
+        # So the bot knows which documents landed and can stop offering the
+        # ones that did. An empty list is a submission that carried none.
+        "identity_documents": identity_filed,
     }
 
 
@@ -1865,6 +2086,102 @@ def upload_candidate_resume(
         "success": True,
         "candidate_id": candidate_id,
         "resume": stored.model_dump(mode="json"),
+    }
+
+
+@app.post("/candidates/{candidate_id}/identity/{document_type}/{record_id}/file")
+def attach_identity_document_file(
+    candidate_id: str,
+    document_type: str,
+    record_id: str,
+    file: UploadFile = File(...),
+    _service: None = Depends(require_service_key),
+):
+    """The scan itself, for a document the submission already described.
+
+    Two requests rather than one, and the split is the same one the résumé
+    already makes: the record travels with every submission because it is small
+    and a partial sync runs on every answered question, and the bytes travel
+    once because they are not. What makes "once" work is that the bot knows the
+    digest it has handed over and stops offering the same file.
+
+    The record has to exist first — this attaches a file to a document, it does
+    not create one. A 404 here means the submission carrying that document has
+    not landed yet, and the bot's next sync sends both in the right order.
+
+    Multipart rather than base64, exactly as `POST /candidates/{id}/resume`: a
+    passport photograph is a couple of megabytes and base64 would make it a
+    third bigger for nothing.
+    """
+    from app.db.identity_records import DOCUMENT_TYPES, attach_file, find_one
+    from app.services import identity_files
+
+    if document_type not in DOCUMENT_TYPES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{document_type}' is not an identity document type",
+        )
+
+    record = repo().get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if record.source != "whatsapp":
+        # An email candidate's identity documents are pages of the bundle they
+        # were ingested from, and `identity_files.load` cuts them out of it on
+        # demand. Writing a second copy over the top would leave the record
+        # disagreeing with the file it names.
+        raise HTTPException(
+            status_code=409,
+            detail="this endpoint attaches scans to whatsapp candidates only",
+        )
+
+    try:
+        doc = find_one(candidate_id, document_type, record_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Identity records unavailable: {exc}")
+    if not doc:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "code": "identity_record_not_found",
+                "detail": (
+                    f"no {document_type} record {record_id!r} for this candidate — "
+                    "send the submission describing it first"
+                ),
+            },
+        )
+
+    try:
+        stored = identity_files.store(
+            candidate_id=candidate_id,
+            document_type=document_type,
+            record_id=record_id,
+            data=file.file.read(),
+            filename=file.filename,
+            mime_type=file.content_type,
+            # So a file already on this record, or already stored as this
+            # candidate's résumé, is pointed at rather than written again.
+            existing=doc.get("file"),
+            resume=record.resume,
+        )
+    except identity_files.IdentityRejected as exc:
+        return JSONResponse(status_code=422, content={"code": exc.code, "detail": exc.message})
+
+    if not attach_file(document_type, record_id, candidate_id, stored):
+        raise HTTPException(status_code=404, detail="Identity record not found")
+
+    return {
+        "success": True,
+        "candidate_id": candidate_id,
+        "document_type": document_type,
+        "record_id": record_id,
+        # Never the storage key. The name, type and size are what a caller can
+        # do anything with.
+        "file": {
+            key: stored.get(key)
+            for key in ("filename", "mime_type", "size", "sha256", "shared_with_resume")
+            if stored.get(key) is not None
+        },
     }
 
 

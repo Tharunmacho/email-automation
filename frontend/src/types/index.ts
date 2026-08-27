@@ -244,6 +244,24 @@ export interface IdentityDocumentSource {
 }
 
 /**
+ * The scan itself, where one is stored against the record.
+ *
+ * A document read out of an application bundle has no block of its own — the
+ * pages in `source` are what it is, and the server cuts them out of the stored
+ * bundle when somebody asks. A document that arrived as its own upload has
+ * this. Either way the download is the same call; this only says what the file
+ * will turn out to be called.
+ *
+ * No storage key. The server never sends one.
+ */
+export interface IdentityDocumentFile {
+  filename?: string;
+  mime_type?: string;
+  size?: number;
+  sha256?: string;
+}
+
+/**
  * One Aadhaar card as the OCR service read it.
  *
  * `aadhaar_number` and `vid` are served to administrators only — every other
@@ -274,6 +292,16 @@ export interface AadhaarRecord {
   document_side?: string | null;
   warnings?: string[];
   source?: IdentityDocumentSource;
+  /**
+   * Whether there is a scan behind this row that this caller may download.
+   *
+   * Answered by the server, not guessed at here: it turns on facts the browser
+   * does not have — whether a bundle is still in storage, and whether an
+   * Aadhaar may be served to whoever is signed in. A button that can only 404
+   * tells a recruiter something untrue.
+   */
+  file_available?: boolean;
+  file?: IdentityDocumentFile;
   created_at?: string;
   updated_at?: string;
 }
@@ -306,6 +334,16 @@ export interface PassportRecord {
   printed_fields?: Record<string, unknown> | null;
   warnings?: string[];
   source?: IdentityDocumentSource;
+  /**
+   * Whether there is a scan behind this row that this caller may download.
+   *
+   * Answered by the server, not guessed at here: it turns on facts the browser
+   * does not have — whether a bundle is still in storage, and whether an
+   * Aadhaar may be served to whoever is signed in. A button that can only 404
+   * tells a recruiter something untrue.
+   */
+  file_available?: boolean;
+  file?: IdentityDocumentFile;
   created_at?: string;
   updated_at?: string;
 }

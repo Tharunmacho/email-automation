@@ -329,6 +329,67 @@ EVALUATION_STATUSES = (
 CANDIDATE_SOURCES = ("email", "whatsapp")
 
 
+#: Where a contact number came from. Not a preference order — a WhatsApp number
+#: is not "better" than the one on the CV, it is a different fact about the same
+#: person, and a documentation officer ringing them needs to know which is which.
+CONTACT_SOURCES = ("whatsapp", "resume", "email", "manual")
+
+
+class CandidateContact(BaseModel):
+    """One way to reach a candidate, and where we learned it.
+
+    A person has more than one number: the handset they message from, and the
+    one printed on the CV they wrote two years ago. Both are theirs. Storing
+    only the first loses the number a documentation officer will actually get
+    an answer on; treating the second as a *different person* is how one
+    candidate becomes two records with half a registration each.
+
+    So contacts are a list on the record, deduplicated on `key` — the same
+    last-ten-digit normalisation the rest of the system compares phones with —
+    with every source that produced the number kept alongside it. One number
+    both sources gave is one entry naming both, not two entries.
+    """
+
+    #: As it was given, because that is what a person reads back to a candidate.
+    value: str
+    #: International form where one could be derived. Never invented.
+    e164: Optional[str] = None
+    #: The comparable form. `normalize_phone`, so it lines up with `phone_key`.
+    key: str
+    #: Every source that produced this number. See `CONTACT_SOURCES`.
+    sources: List[str] = Field(default_factory=list)
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+
+
+class IdentityReview(BaseModel):
+    """Two records that look like one person, left for a human to settle.
+
+    Raised, never acted on. Merging two candidates means choosing which
+    allocation survives, which evaluation survives and which documents are
+    thrown away, and every one of those is a decision with somebody's work
+    inside it. A passport number appearing on a second record is strong
+    evidence and it is still evidence — an OCR misread of one character
+    produces exactly this, and so does a genuine data-entry error on a shared
+    handset.
+
+    So the conflict is written down, both records keep everything they have,
+    and the submission that exposed it lands on the passport holder.
+    """
+
+    #: Machine-readable. `duplicate_passport` is the only one so far.
+    reason: str
+    passport_key: Optional[str] = None
+    #: Every record the conflict spans, this one included, oldest first.
+    candidate_ids: List[str] = Field(default_factory=list)
+    flagged_at: Optional[datetime] = None
+    #: Set when somebody has dealt with it. The flag is kept either way — that
+    #: two records once collided is a fact about the data worth keeping.
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    note: Optional[str] = None
+
+
 class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
@@ -349,6 +410,31 @@ class CandidateRecord(BaseModel):
     # Normalised dedup keys (also indexed in Mongo).
     email_key: Optional[str] = None
     phone_key: Optional[str] = None
+
+    # ---- identity --------------------------------------------------------- #
+    #: The normalised passport number, and the strongest identity this system
+    #: has. One person, one passport: a submission carrying a number already on
+    #: file belongs to that candidate whatever handset it came from, whichever
+    #: of the agency's lines it arrived on, and however far through registration
+    #: either record is.
+    #:
+    #: Absent until a passport turns up, which is usually late — documents are
+    #: the last thing a registration collects. A candidate without one is not
+    #: broken, they are unresolved, and they are matched the way they always
+    #: were until the passport lands. See `app/services/candidate_intake`.
+    passport_key: Optional[str] = None
+    #: Which of the two things that can produce it did: an OCR'd passport page,
+    #: or a number the candidate typed. Kept because they disagree, and when
+    #: they do it is the scan that is worth believing.
+    passport_key_source: Optional[str] = None
+
+    #: Every number that reaches this person, with its source. See
+    #: `CandidateContact` — a phone is a contact detail, not an identity.
+    contacts: List[CandidateContact] = Field(default_factory=list)
+
+    #: Set when this record's passport number is also on another record.
+    #: Nothing is merged and nothing is deleted; a human decides.
+    identity_review: Optional[IdentityReview] = None
     # None, never "".
     #
     # `resume_hash` carries a unique sparse index (`app/db/mongo.py`), and

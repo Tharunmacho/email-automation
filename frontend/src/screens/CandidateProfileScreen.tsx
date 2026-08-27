@@ -33,6 +33,7 @@ import {
 import {
   getCandidateIdentity,
   getToken,
+  identityFileUrl,
   resumeDownloadUrl,
   type AadhaarRecord,
   type CandidateRecord,
@@ -41,6 +42,109 @@ import {
   type PassportRecord,
 } from "@/lib/api";
 import { formatDateFull, initialsOf } from "@/lib/format";
+
+/**
+ * Fetch a protected file and hand it to the browser as a download.
+ *
+ * `fetch` rather than an `<a href>`, because the token has to travel in the
+ * `Authorization` header: a link puts it in the URL, where it lands in the
+ * browser history and in every access log between here and the server. The
+ * object URL is revoked straight after the click — the blob is the whole file
+ * and holding it costs the tab that much memory for as long as it lives.
+ */
+async function saveFile(url: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    let detail = `Server replied ${response.status}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Not a JSON error body — the status line is what there is.
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = nameFromDisposition(response) || fallbackName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
+/**
+ * The filename the server chose, if it sent one.
+ *
+ * Worth reading rather than always naming the file here: for a document cut
+ * out of an application bundle only the server knows which pages it took, and
+ * `application_passport_p55.pdf` is the difference between four downloads a
+ * recruiter can tell apart and four called `passport.pdf`.
+ */
+function nameFromDisposition(response: Response): string | null {
+  const header = response.headers.get("content-disposition") || "";
+  const plain = /filename="([^"]+)"/.exec(header);
+  return plain ? plain[1] : null;
+}
+
+/**
+ * "Download scan" on one identity row.
+ *
+ * Its own component because its own state: two passports and an Aadhaar on one
+ * profile are three independent downloads, and a single spinner shared between
+ * them would report the wrong one as busy and the wrong one as failed.
+ *
+ * Rendered only when the server said `file_available`. That flag is not a
+ * cosmetic hint — an Aadhaar scan is refused outright to anyone who is not an
+ * administrator, because the card is the number the row above it masks.
+ */
+function ScanDownload({
+  candidateId,
+  documentType,
+  recordId,
+}: {
+  candidateId: string;
+  documentType: "aadhaar" | "passport";
+  recordId: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const click = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await saveFile(
+        identityFileUrl(candidateId, documentType, recordId),
+        `${documentType}.pdf`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Could not download the ${documentType} scan.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="cprof-doc-action">
+      <button type="button" className="cprof-doc-download" onClick={click} disabled={busy}>
+        {busy ? <Loader2 size={13} className="icon-spin" /> : <Download size={13} />}
+        {busy ? "Downloading…" : "Download scan"}
+      </button>
+      {/* Beside the button rather than at the top of the screen: the message is
+          about this document, and a profile carrying three of them would
+          otherwise say "the scan could not be downloaded" about no one in
+          particular. */}
+      {error && <span className="cprof-doc-download-error">{error}</span>}
+    </span>
+  );
+}
 
 /** What a reviewer records against a profile. */
 export interface Verdict {
@@ -159,6 +263,7 @@ function DocumentCard({
   title,
   icon,
   badges,
+  action,
   warnings,
   source,
   readAt,
@@ -167,6 +272,8 @@ function DocumentCard({
   title: string;
   icon: React.ReactNode;
   badges?: React.ReactNode;
+  /** Sits at the far end of the heading. The download, where there is one. */
+  action?: React.ReactNode;
   warnings?: string[];
   source?: { filename?: string; pages?: number[] };
   readAt?: string;
@@ -189,6 +296,7 @@ function DocumentCard({
         </span>
         <h4 className="cprof-doc-title">{title}</h4>
         {badges}
+        {action}
       </div>
 
       <div className="cprof-facts">{children}</div>
@@ -411,20 +519,10 @@ export default function CandidateProfileScreen({
     setDownloadError(null);
     setDownloading(true);
     try {
-      const token = getToken();
-      const response = await fetch(resumeDownloadUrl(candidate.id), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error(`Server replied ${response.status}`);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = candidate.resume?.original_filename || "resume.pdf";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      await saveFile(
+        resumeDownloadUrl(candidate.id),
+        candidate.resume?.original_filename || "resume.pdf",
+      );
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : "Could not download the resume file.");
     } finally {
@@ -680,6 +778,15 @@ export default function CandidateProfileScreen({
                           )}
                         </>
                       }
+                      action={
+                        passport.file_available && passport._id ? (
+                          <ScanDownload
+                            candidateId={candidate.id}
+                            documentType="passport"
+                            recordId={passport._id}
+                          />
+                        ) : null
+                      }
                       warnings={passport.warnings}
                       source={passport.source}
                       readAt={passport.updated_at}
@@ -750,6 +857,15 @@ export default function CandidateProfileScreen({
                       )}
                     </>
                   }
+                  action={
+                    aadhaar.file_available && aadhaar._id ? (
+                      <ScanDownload
+                        candidateId={candidate.id}
+                        documentType="aadhaar"
+                        recordId={aadhaar._id}
+                      />
+                    ) : null
+                  }
                   warnings={aadhaar.warnings}
                   source={aadhaar.source}
                   readAt={aadhaar.updated_at}
@@ -783,7 +899,8 @@ export default function CandidateProfileScreen({
                 telling that reader about masking explains nothing. */}
             {aadhaars.some((card) => !card.aadhaar_number && card.masked_aadhaar_number) && (
               <p className="cprof-doc-note">
-                Aadhaar numbers are masked. Only an administrator is served the full number.
+                Aadhaar numbers are masked, and the scan is not offered — the card is the
+                number. Only an administrator is served either.
               </p>
             )}
           </section>

@@ -38,6 +38,21 @@ def get_passport_collection():
     return get_db()[settings.mongo_passport_collection]
 
 
+#: The two document types this module files, and where each one goes. Anything
+#: not named here is not an identity document as far as this system is
+#: concerned, which is what makes it safe to take the type from a URL.
+DOCUMENT_TYPES = ("aadhaar", "passport")
+
+
+def collection_for(document_type: str):
+    """The collection holding ``document_type``, or ``None`` if there isn't one."""
+    if document_type == "aadhaar":
+        return get_aadhaar_collection()
+    if document_type == "passport":
+        return get_passport_collection()
+    return None
+
+
 def _mask_aadhaar(number: Optional[str]) -> str:
     """``XXXXXXXX9017`` — enough to recognise the card, not enough to use it.
 
@@ -65,8 +80,9 @@ def _base_document(
     pages: List[int],
     ocr_job_id: Optional[str],
     result: Dict[str, Any],
+    file: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    doc = {
         "_id": record_id,
         "document_type": document_type,
         "candidate_id": candidate_id,
@@ -88,6 +104,13 @@ def _base_document(
         "warnings": list(result.get("warnings") or []),
         "updated_at": utcnow(),
     }
+    # Only when there is one. Every write here is a `$set` upsert, and a
+    # redelivered email re-runs the extraction without the bytes to hand — a
+    # `"file": None` in that payload would delete the scan a recruiter can
+    # currently download, on a pass that changed nothing else.
+    if file:
+        doc["file"] = dict(file)
+    return doc
 
 
 def store_aadhaar_record(
@@ -103,6 +126,7 @@ def store_aadhaar_record(
     sha256: str = "",
     pages: Optional[List[int]] = None,
     ocr_job_id: Optional[str] = None,
+    file: Optional[Dict[str, Any]] = None,
     collection=None,
 ) -> str:
     """Upsert one Aadhaar extraction. Returns the record id."""
@@ -122,6 +146,7 @@ def store_aadhaar_record(
         pages=pages or [],
         ocr_job_id=ocr_job_id,
         result=result,
+        file=file,
     )
     number = data.get("aadhaar_number")
     doc.update(
@@ -170,6 +195,7 @@ def store_passport_record(
     sha256: str = "",
     pages: Optional[List[int]] = None,
     ocr_job_id: Optional[str] = None,
+    file: Optional[Dict[str, Any]] = None,
     collection=None,
 ) -> str:
     """Upsert one passport extraction. Returns the record id."""
@@ -190,6 +216,7 @@ def store_passport_record(
         pages=pages or [],
         ocr_job_id=ocr_job_id,
         result=result,
+        file=file,
     )
     doc.update(
         {
@@ -234,6 +261,54 @@ def find_for_candidate(candidate_id: str) -> Dict[str, List[Dict[str, Any]]]:
         "aadhaar": list(get_aadhaar_collection().find({"candidate_id": candidate_id})),
         "passport": list(get_passport_collection().find({"candidate_id": candidate_id})),
     }
+
+
+def find_one(
+    candidate_id: str, document_type: str, record_id: str
+) -> Optional[Dict[str, Any]]:
+    """One identity document, or ``None``.
+
+    Matched on the candidate id as well as the record id, so a record id
+    belonging to somebody else does not resolve just because the caller can
+    read *a* candidate. The pair is the authorisation, not the id alone.
+    """
+    coll = collection_for(document_type)
+    if coll is None:
+        return None
+    return coll.find_one({"_id": record_id, "candidate_id": candidate_id})
+
+
+def find_by_record_id(document_type: str, record_id: str) -> Optional[Dict[str, Any]]:
+    """One identity document by its id alone, whoever it belongs to.
+
+    The only caller is the check that refuses to re-file a document under a
+    different candidate. Everything a *reader* reaches for goes through
+    `find_one`, which takes the candidate id as well — this exists precisely to
+    find the record the caller is not entitled to and stop there.
+    """
+    coll = collection_for(document_type)
+    if coll is None:
+        return None
+    return coll.find_one({"_id": record_id})
+
+
+def attach_file(
+    document_type: str, record_id: str, candidate_id: str, file: Dict[str, Any]
+) -> bool:
+    """Hang a stored scan on an identity record. False if there is no such record.
+
+    Scoped to the candidate as well as the record, so a file cannot be attached
+    to a document belonging to somebody else even by a caller holding the right
+    record id. `updated_at` moves because the record did.
+    """
+    coll = collection_for(document_type)
+    if coll is None:
+        return False
+    result = coll.update_one(
+        {"_id": record_id, "candidate_id": candidate_id},
+        {"$set": {"file": dict(file), "updated_at": utcnow()}},
+    )
+    return result.matched_count > 0
 
 
 def ensure_identity_indexes() -> None:
