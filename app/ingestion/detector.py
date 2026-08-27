@@ -151,7 +151,7 @@ def _body_as_attachment(email: EmailMessage) -> Attachment | None:
 
     verdict = pc.classify_page(body)
     if verdict.kind != pc.RESUME:
-        log.info(
+        log.debug(
             "Email body of %s is not a resume (kind=%s, score=%.2f)",
             email.message_id, verdict.kind, verdict.score,
         )

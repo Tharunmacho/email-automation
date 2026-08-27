@@ -176,7 +176,7 @@ class IngestionRunner:
                 f"{a.filename}: {a.status}" + (f" ({a.detail})" if a.detail else "")
                 for a in res.attachments
             ) or res.reason
-            log.info("  %s -> %s | %s", res.message_id, res.status, detail)
+            log.debug("  %s -> %s | %s", res.message_id, res.status, detail)
 
         # Auto-assign any unallocated candidates remaining in MongoDB Atlas
         try:
