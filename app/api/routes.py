@@ -571,16 +571,26 @@ def ocr_state(_user: dict = Depends(current_user)) -> dict:
         with AsyncOCRJobClient() as client:
             queue = client.queue_stats()
 
+    from app.extraction import ocr_gateway
+
     return {
         "rows": counts,
         "in_flight": counts["received"] + counts["submitting"] + counts["running"],
         "needs_review": counts["abandoned"],
         "ocr_queue": queue,
+        # This process's own view: how many jobs it has in flight, how long
+        # submissions waited for a slot, and the p50/p95 of a whole extraction.
+        # `queue_wait_ms` near zero with a high `total_ms` means Veris is the
+        # bottleneck and raising `veris_max_inflight_jobs` will not help.
+        "throughput": ocr_gateway.snapshot(),
         "config": {
             "async_jobs": settings.ocr_async_jobs_enabled,
             "multipass": settings.multipass_extraction_enabled,
             "max_attempts": settings.ocr_job_max_attempts,
             "stuck_after_seconds": settings.reconciler_stuck_after_seconds,
+            "max_inflight_jobs": settings.veris_max_inflight_jobs,
+            "ingestion_workers": settings.ingestion_max_workers,
+            "fast_poll_seconds": settings.ocr_job_fast_poll_seconds,
         },
     }
 

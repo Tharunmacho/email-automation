@@ -41,8 +41,10 @@ def get_passport_collection():
 #: The two document types this module files, and where each one goes. Anything
 #: not named here is not an identity document as far as this system is
 #: concerned, which is what makes it safe to take the type from a URL.
-DOCUMENT_TYPES = ("aadhaar", "passport")
+DOCUMENT_TYPES = ("aadhaar", "passport", "document")
 
+def get_document_collection():
+    return get_db()[settings.mongo_document_collection]
 
 def collection_for(document_type: str):
     """The collection holding ``document_type``, or ``None`` if there isn't one."""
@@ -50,6 +52,8 @@ def collection_for(document_type: str):
         return get_aadhaar_collection()
     if document_type == "passport":
         return get_passport_collection()
+    if document_type == "document":
+        return get_document_collection()
     return None
 
 
@@ -255,11 +259,57 @@ def store_passport_record(
     return record_id
 
 
+def store_document_record(
+    record_id: str,
+    result: Dict[str, Any],
+    *,
+    candidate_id: Optional[str] = None,
+    provider: str = "email",
+    account_id: str = "",
+    message_id: str = "",
+    attachment_id: str = "",
+    filename: str = "",
+    sha256: str = "",
+    pages: Optional[List[int]] = None,
+    ocr_job_id: Optional[str] = None,
+    collection=None,
+) -> str:
+    """Upsert one raw generic document extraction. Returns the record id."""
+    coll = collection if collection is not None else get_document_collection()
+
+    doc = _base_document(
+        record_id,
+        document_type="document",
+        candidate_id=candidate_id,
+        provider=provider,
+        account_id=account_id,
+        message_id=message_id,
+        attachment_id=attachment_id,
+        filename=filename,
+        sha256=sha256,
+        pages=pages or [],
+        ocr_job_id=ocr_job_id,
+        result=result,
+    )
+
+    coll.update_one(
+        {"_id": record_id},
+        {"$set": doc, "$setOnInsert": {"created_at": utcnow()}},
+        upsert=True,
+    )
+    log.info(
+        "Stored document record %s for candidate %s",
+        record_id, candidate_id,
+    )
+    return record_id
+
+
 def find_for_candidate(candidate_id: str) -> Dict[str, List[Dict[str, Any]]]:
     """Every identity document read out of this candidate's application."""
     return {
         "aadhaar": list(get_aadhaar_collection().find({"candidate_id": candidate_id})),
         "passport": list(get_passport_collection().find({"candidate_id": candidate_id})),
+        "document": list(get_document_collection().find({"candidate_id": candidate_id})),
     }
 
 
@@ -325,3 +375,8 @@ def ensure_identity_indexes() -> None:
     ensure_index(passport, [("passport_number", ASCENDING)], "passport_number_idx", sparse=True)
     ensure_index(passport, [("source.message_id", ASCENDING)], "passport_msg_idx")
     ensure_index(passport, [("created_at", DESCENDING)], "passport_created_idx")
+
+    document = get_document_collection()
+    ensure_index(document, [("candidate_id", ASCENDING)], "document_candidate_idx", sparse=True)
+    ensure_index(document, [("source.message_id", ASCENDING)], "document_msg_idx")
+    ensure_index(document, [("created_at", DESCENDING)], "document_created_idx")

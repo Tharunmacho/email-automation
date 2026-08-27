@@ -13,6 +13,14 @@ This module routes each document to the endpoint that can actually read it:
     page  55     ──▶  POST /v1/jobs  mode=passport  ──▶  passport_records
     everything else                                 ──▶  ignored, never uploaded
 
+One passport pass carries a gate the other two do not. The passport endpoint is
+trained on the Indian booklet, and a foreign passport fed to it comes back
+confidently wrong rather than refused. So `page_classifier` establishes the
+issuing country from the local text layer first, and only an Indian passport is
+submitted; anything else arrives here already in
+`classification.foreign_passport_pages` and is recorded as a *skipped* pass.
+See `app/extraction/passport_nationality.py`.
+
 Each pass is its own row in the ingestion state machine, keyed on
 ``(provider, account, message, attachment, mode)``, so a passport that fails
 retries on its own without touching the Aadhaar that succeeded — and a
@@ -35,6 +43,7 @@ from app.db.ingestion_state import (
     IngestionStateStore,
     MODE_AADHAAR,
     MODE_PASSPORT,
+    MODE_DOCUMENT,
     PROVIDER_EMAIL,
 )
 from app.extraction import page_classifier as pc
@@ -45,12 +54,41 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 #: The passes this module owns. Résumé extraction is the pipeline's own.
-IDENTITY_MODES = (MODE_AADHAAR, MODE_PASSPORT)
+IDENTITY_MODES = (MODE_AADHAAR, MODE_PASSPORT, MODE_DOCUMENT)
 
 _STORE_BY_MODE = {
     MODE_AADHAAR: identity_records.store_aadhaar_record,
     MODE_PASSPORT: identity_records.store_passport_record,
+    MODE_DOCUMENT: identity_records.store_document_record,
 }
+
+
+class _DirectGateway:
+    """`ocr_gateway.run_job` over one specific client, with no in-flight cap.
+
+    Exists so an injected client — always a test double — is driven exactly as
+    it was before the gateway, rather than every test needing to know the
+    gateway exists.
+    """
+
+    def __init__(self, client: AsyncOCRJobClient):
+        self._client = client
+
+    def run_job(
+        self,
+        data: bytes,
+        filename: str,
+        mode: str,
+        idempotency_key: str,
+        *,
+        budget_seconds: Optional[float] = None,
+        lang: Optional[str] = None,
+        on_submitted: Optional[Any] = None,
+    ):
+        handle = self._client.submit(data, filename, mode, idempotency_key, lang=lang)
+        if on_submitted is not None:
+            on_submitted(handle)
+        return handle, self._client.wait(handle.job_id, mode, budget_seconds)
 
 
 def mailbox_account_id() -> str:
@@ -137,6 +175,19 @@ class MultipassExtractor:
         return self._client
 
     @property
+    def _gateway(self) -> Any:
+        """Where submissions go: the shared gateway, or an injected client.
+
+        A test that hands this extractor a fake client is asserting on that
+        client, so an injected one keeps the old direct submit-and-wait path.
+        Production injects nothing and gets the pooled, capped gateway.
+        """
+        if self._client is not None:
+            return _DirectGateway(self._client)
+        from app.extraction import ocr_gateway
+        return ocr_gateway
+
+    @property
     def account_id(self) -> str:
         if self._account_id is None:
             self._account_id = mailbox_account_id()
@@ -172,29 +223,79 @@ class MultipassExtractor:
             classification=classification,
             ignored_pages=list(classification.ignored_pages),
         )
+        # Passports the nationality filter held back. They never reach
+        # `run_one`, so they cost nothing — but they are recorded as skipped
+        # passes rather than vanishing, because "the passport was in the PDF and
+        # no record appeared" is otherwise unanswerable.
+        for number in classification.foreign_passport_pages:
+            held = classification.passport_nationality.get(number)
+            result.passes.append(
+                PassResult(
+                    mode=MODE_PASSPORT,
+                    pages=[number],
+                    status="skipped",
+                    detail=held.describe() if held else "non-Indian passport",
+                )
+            )
+
         found = {
             MODE_AADHAAR: classification.aadhaar_pages,
             MODE_PASSPORT: classification.passport_pages,
+            MODE_DOCUMENT: classification.document_pages,
         }
         if not any(found.values()):
-            log.debug("No Aadhaar or passport pages in %s", filename)
+            log.debug("No Aadhaar, passport, or document pages in %s", filename)
             return result
 
         for mode in IDENTITY_MODES:
             pages = found.get(mode) or []
             if not pages:
                 continue
+                
+            if mode == MODE_DOCUMENT:
+                # We already have the text from the local Tesseract OCR!
+                # The generic document API endpoint is not enabled on this Veris account, 
+                # and since all we want is the raw text, we can just save it instantly for free.
+                try:
+                    document_text = "\n\n".join(
+                        page_texts[p - 1] for p in pages if p - 1 < len(page_texts)
+                    )
+                    
+                    row = self.state.open_row(
+                        self.provider, self.account_id, message_id, attachment_id, mode,
+                        sha256=sha256, storage_key=storage_key, filename=filename,
+                        pages=pages, candidate_id=candidate_id,
+                    )
+                    
+                    if row.status == "succeeded":
+                        result.passes.append(PassResult(
+                            mode=mode, pages=pages, status="succeeded", row_id=row.id,
+                            record_id=row.result_id, detail="already extracted",
+                        ))
+                        continue
+                        
+                    store = _STORE_BY_MODE.get(mode)
+                    if store:
+                        record_id = store(
+                            row.id, {"text": document_text}, candidate_id=candidate_id,
+                            provider=self.provider, account_id=self.account_id,
+                            message_id=message_id, attachment_id=attachment_id,
+                            filename=filename, sha256=sha256, pages=pages,
+                        )
+                        self.state.mark_succeeded(row.id, result_id=record_id, candidate_id=candidate_id)
+                        result.passes.append(PassResult(
+                            mode=mode, pages=pages, status="succeeded", row_id=row.id, record_id=record_id,
+                        ))
+                except Exception as exc:
+                    log.exception("Multipass %s extraction failed for %s", mode, filename)
+                    result.passes.append(PassResult(mode=mode, pages=pages, status="failed", detail=str(exc)))
+                continue
+
             try:
                 result.passes.append(
                     self.run_one(
-                        mode,
-                        pages,
-                        data,
-                        message_id=message_id,
-                        attachment_id=attachment_id,
-                        filename=filename,
-                        sha256=sha256,
-                        storage_key=storage_key,
+                        mode, pages, data, message_id=message_id, attachment_id=attachment_id,
+                        filename=filename, sha256=sha256, storage_key=storage_key,
                         candidate_id=candidate_id,
                     )
                 )
@@ -264,7 +365,20 @@ class MultipassExtractor:
 
         payload, payload_name = self._payload_for(data, pages, filename, mode)
         try:
-            handle = self.client.submit(payload, payload_name, mode, row.idempotency_key)
+            # The gateway holds one in-flight slot for the submit-and-wait, and
+            # gives it back the moment the job is terminal — so an identity pass
+            # cannot sit on capacity a resume could be using. `mark_submitted`
+            # runs from the hook, i.e. before the wait, because the wait is the
+            # part that can be abandoned and the job id is what makes it
+            # recoverable when it is.
+            handle, outcome = self._gateway.run_job(
+                payload,
+                payload_name,
+                mode,
+                row.idempotency_key,
+                budget_seconds=settings.identity_job_wait_seconds,
+                on_submitted=lambda h: self.state.mark_submitted(row.id, h.job_id),
+            )
         except OCRJobError as exc:
             status = self.state.mark_failed(row.id, str(exc), settings.ocr_job_max_attempts)
             return PassResult(
@@ -273,10 +387,6 @@ class MultipassExtractor:
                 row_id=row.id, detail=str(exc),
             )
 
-        self.state.mark_submitted(row.id, handle.job_id)
-        outcome = self.client.wait(
-            handle.job_id, mode, settings.identity_job_wait_seconds
-        )
         return self.complete(row, outcome, pages=pages)
 
     # ------------------------------------------------------------------ #

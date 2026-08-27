@@ -26,7 +26,43 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
-    # ---- Email Provider Choice ----
+    # ---- Email Accounts (Multi-Inbox Configuration) ----
+    # Reads from secrets/email_accounts.json if it exists.
+    # Otherwise, falls back to the legacy single `.env` variables for backward compatibility.
+    email_accounts_file: str = "secrets/email_accounts.json"
+    
+    @property
+    def email_accounts(self) -> List[dict]:
+        import json
+        from pathlib import Path
+        path = Path(self.email_accounts_file)
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to parse %s: %s", self.email_accounts_file, e)
+
+        # Fallback to single account from .env if json doesn't exist
+        return [{
+            "provider": self.email_provider,
+            "imap_server": self.imap_server,
+            "imap_port": self.imap_port,
+            "imap_username": self.imap_username,
+            "imap_password": self.imap_password,
+            "imap_use_ssl": self.imap_use_ssl,
+            "imap_folder": self.imap_folder,
+            "smtp_server": self.smtp_server,
+            "smtp_port": self.smtp_port,
+            "smtp_username": self.smtp_username,
+            "smtp_password": self.smtp_password,
+            "smtp_use_ssl": self.smtp_use_ssl,
+            "smtp_use_tls": self.smtp_use_tls,
+        }]
+
+    # ---- Legacy Email Provider Choice ----
     # "smtp_imap" | "gmail"
     email_provider: str = "smtp_imap"
 
@@ -237,6 +273,13 @@ class Settings(BaseSettings):
     # lockstep. A `Retry-After` from the service overrides both.
     ocr_job_backoff_base_seconds: float = 1.5
     ocr_job_backoff_cap_seconds: float = 30.0
+    # Before the backoff starts, poll fast and flat. Pure exponential backoff
+    # meant a job that finished at 8s was not seen until ~22s — the waiting cost
+    # more than the extraction. Almost every resume finishes inside this window,
+    # so this interval, not the backoff curve, is what sets per-resume latency.
+    # Past the window the job is a long one and polling gets out of the way.
+    ocr_job_fast_poll_seconds: float = 25.0
+    ocr_job_fast_poll_interval_seconds: float = 0.6
     # How many times one submission rides out a full queue (429/503) before the
     # row is failed and left to the reconciler.
     ocr_job_submit_retries: int = 4
@@ -244,6 +287,23 @@ class Settings(BaseSettings):
     # last one the row is abandoned into the operator review queue rather than
     # being retried forever.
     ocr_job_max_attempts: int = 5
+
+    # ---- Throughput ----
+    # How many extractions may be submitted-but-unfinished at Veris at once,
+    # process-wide. This is the real throttle on how much work is queued at the
+    # service, and it is deliberately NOT the worker-thread count: a thread
+    # waiting on a job it already submitted should not be occupying a slot that
+    # a résumé with nothing submitted could use. Raising it does not make Veris
+    # faster; it stops us being the reason its queue is short. Watch
+    # `queue_wait_ms` in GET /ingest/ocr-state — near zero means the cap is not
+    # the bottleneck and raising it will not help.
+    veris_max_inflight_jobs: int = 24
+    # Worker threads in one batch run (`IngestionRunner`). The work is I/O-bound
+    # — Gmail, Veris, the LLM — so this can sit well above the core count. It
+    # bounds Gmail and Mongo concurrency; `veris_max_inflight_jobs` bounds Veris.
+    # Bound to a small number (3) by default because IMAP providers (like Hostinger)
+    # strictly limit simultaneous connections per IP address.
+    ingestion_max_workers: int = 3
 
     # ---- Multipass extraction ----
     # Route Aadhaar and passport pages out of the same bundle to their own OCR
@@ -257,6 +317,23 @@ class Settings(BaseSettings):
     prefer_local_ocr_for_scanning: bool = True
     mongo_aadhaar_collection: str = "aadhaar_records"
     mongo_passport_collection: str = "passport_records"
+    mongo_document_collection: str = "document_records"
+
+    # ---- Passport nationality filter ----
+    # The Veris passport endpoint is trained on the Indian booklet. Fed a
+    # foreign passport it does not decline — it returns a confidently wrong
+    # record, and a wrong passport number reaches a Gulf visa file. So the
+    # issuing country is settled locally, from the text layer, and only an
+    # Indian passport is uploaded. Set False to send every passport again.
+    passport_india_only: bool = True
+    # What to do with a passport whose country cannot be established at all —
+    # a scan too poor to yield an MRZ or an emblem line. The two failure modes
+    # are not symmetric: allow them and an occasional foreign passport gets
+    # through, forbid them and a genuine Indian passport behind a bad scan is
+    # silently lost. Defaulting to True keeps the Indian ones, which are the
+    # overwhelming majority of what this mailbox receives. Set False for a
+    # strict "confirmed Indian or nothing" policy.
+    passport_allow_undetermined_nationality: bool = True
 
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last

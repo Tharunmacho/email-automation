@@ -174,9 +174,9 @@ def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
     because "no job" and "a job that found no text" have to route differently:
     the first falls back to the synchronous endpoint, the second is an answer.
     """
+    from app.extraction import ocr_gateway
     from app.extraction.jobs import (
         MODE_RESUME,
-        AsyncOCRJobClient,
         OCRJobError,
         content_key,
         current_job_context,
@@ -190,38 +190,54 @@ def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
     )
     recorder = getattr(context, "recorder", None)
 
+    def _record_submission(handle) -> None:
+        # Fires the moment Veris accepts the work, before the wait begins. The
+        # wait is the interruptible part, and the job id is the only thing that
+        # makes the extraction recoverable when it is interrupted.
+        if recorder is not None:
+            recorder.on_submitted(MODE_RESUME, handle.job_id, key)
+
     try:
-        with AsyncOCRJobClient() as client:
-            handle = client.submit(file_data, filename or "resume.pdf", MODE_RESUME, key)
-            if recorder is not None:
-                recorder.on_submitted(MODE_RESUME, handle.job_id, key)
-
-            outcome = client.wait(handle.job_id, MODE_RESUME, settings.ocr_job_wait_seconds)
-            if recorder is not None:
-                recorder.on_finished(MODE_RESUME, handle.job_id, outcome.status, outcome.error)
-
-            if outcome.succeeded:
-                page_texts = _page_texts_from((outcome.result or {}).get("pages"))
-                log.info(
-                    "Veris job %s extracted %d chars over %d page(s) from %s",
-                    handle.job_id, sum(len(p) for p in page_texts), len(page_texts), filename,
-                )
-                return page_texts
-
-            if outcome.pending:
-                # Still running, and the job id is recorded. Reading the file
-                # locally now would spend Tesseract on work that is already paid
-                # for — but returning nothing would reject a real resume, so the
-                # local read is the lesser evil and the next poll of this
-                # (still unlabelled) mail collects the job's own answer.
-                log.warning(
-                    "Veris job %s for %s is still %s after %.0fs; using the local read this pass",
-                    handle.job_id, filename, outcome.status, settings.ocr_job_wait_seconds,
-                )
-                return None
-
-            log.warning("Veris job %s failed for %s: %s", handle.job_id, filename, outcome.error)
+        # Through the gateway: a connection this thread already has open, and an
+        # in-flight slot released the instant this job finishes so the next
+        # resume in the batch is submitted immediately rather than when some
+        # unrelated thread frees up.
+        handle, outcome = ocr_gateway.run_job(
+            file_data,
+            filename or "resume.pdf",
+            MODE_RESUME,
+            key,
+            budget_seconds=settings.ocr_job_wait_seconds,
+            on_submitted=_record_submission,
+        )
+        if handle is None or outcome is None:
             return None
+
+        if recorder is not None:
+            recorder.on_finished(MODE_RESUME, handle.job_id, outcome.status, outcome.error)
+
+        if outcome.succeeded:
+            page_texts = _page_texts_from((outcome.result or {}).get("pages"))
+            log.info(
+                "Veris job %s extracted %d chars over %d page(s) from %s",
+                handle.job_id, sum(len(p) for p in page_texts), len(page_texts), filename,
+            )
+            return page_texts
+
+        if outcome.pending:
+            # Still running, and the job id is recorded. Reading the file
+            # locally now would spend Tesseract on work that is already paid
+            # for — but returning nothing would reject a real resume, so the
+            # local read is the lesser evil and the next poll of this
+            # (still unlabelled) mail collects the job's own answer.
+            log.warning(
+                "Veris job %s for %s is still %s after %.0fs; using the local read this pass",
+                handle.job_id, filename, outcome.status, settings.ocr_job_wait_seconds,
+            )
+            return None
+
+        log.warning("Veris job %s failed for %s: %s", handle.job_id, filename, outcome.error)
+        return None
     except OCRJobError as exc:
         log.warning("Could not run %s through the OCR job queue (%s)", filename, exc)
         if recorder is not None:
