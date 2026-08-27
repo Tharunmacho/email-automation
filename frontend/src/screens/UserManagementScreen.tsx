@@ -279,8 +279,8 @@ export default function UserManagementScreen({
             <p className="db-empty-title">No accounts found</p>
           </div>
         ) : (
-          <div className="ds-table-wrap">
-            <table className="ds-table staff-table">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled staff-table">
               <thead>
                 <tr>
                   <th>Account</th>
@@ -288,7 +288,7 @@ export default function UserManagementScreen({
                   <th>Role</th>
                   <th>Added</th>
                   <th>Pages</th>
-                  <th aria-label="Actions" />
+                  <th className="is-actions" aria-label="Actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -340,7 +340,7 @@ export default function UserManagementScreen({
                             ),
                           ).map((page) => PAGE_LABELS[page] ?? page).join(", ") || "—"}
                     </td>
-                    <td>
+                    <td className="is-actions">
                       <div className="staff-actions">
                         <button
                           type="button"

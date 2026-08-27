@@ -692,7 +692,7 @@ export default function CandidatesView({
                   {COLUMNS.map((col) => (
                     <th
                       key={col.key}
-                      className={col.align === "num" ? "is-num" : undefined}
+                      className={`${col.align === "num" ? "is-num " : ""}${!col.label ? "is-actions" : ""}`.trim() || undefined}
                       aria-label={col.label ? undefined : "Actions"}
                     >
                       {col.sort ? (
@@ -721,7 +721,7 @@ export default function CandidatesView({
                   const status = getStatus(candidate);
 
                   return (
-                    <tr key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
+                    <tr className="is-clickable" key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
                       <td>
                         <span className="ds-who">
                           <span className="ds-avatar" aria-hidden="true">
@@ -764,7 +764,7 @@ export default function CandidatesView({
                         </span>
                       </td>
 
-                      <td onClick={(e) => e.stopPropagation()}>
+                      <td className="is-actions" onClick={(e) => e.stopPropagation()}>
                         <div className="ds-acts">
                           {deleteConfirm === candidate.id
                             ? confirmDelete(candidate.id)

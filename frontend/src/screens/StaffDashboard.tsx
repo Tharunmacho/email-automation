@@ -522,7 +522,7 @@ export default function StaffDashboard({
                   <th>Time left</th>
                   <th>Status</th>
                   <th>Score</th>
-                  <th aria-label="Actions" />
+                  <th className="is-actions" aria-label="Actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -534,7 +534,7 @@ export default function StaffDashboard({
                   const skills = (candidate.profile?.skills ?? []).slice(0, 3);
 
                   return (
-                    <tr key={candidate.id} onClick={() => openProfile(candidate)}>
+                    <tr className="is-clickable" key={candidate.id} onClick={() => openProfile(candidate)}>
                       <td>
                         <span className="ds-who">
                           <span className="ds-avatar" aria-hidden="true">
@@ -614,7 +614,7 @@ export default function StaffDashboard({
                         )}
                       </td>
 
-                      <td onClick={(event) => event.stopPropagation()}>
+                      <td className="is-actions" onClick={(event) => event.stopPropagation()}>
                         <div className="ds-acts">
                           {candidate.resume?.storage_key && (
                             <a

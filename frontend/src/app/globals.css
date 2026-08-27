@@ -470,15 +470,15 @@
 
 
 .rail-logo {
-  --brand-mark-size: 46px;
-  --brand-name-size: 0.88rem;
-  --brand-tag-size: 0.37rem;
-  --brand-gap: 0.48rem;
-  width: 212px;
-  height: 50px;
+  --brand-mark-size: 50px;
+  --brand-name-size: 0.96rem;
+  --brand-tag-size: 0.4rem;
+  --brand-gap: 0.52rem;
+  width: 100%;
+  height: 54px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -1022,15 +1022,15 @@
 /* The Adira mark carries its own colour, so the tile behind it is only a box:
    a brand gradient under a red-and-blue logo reads as two marks stacked. */
 .topbar-logo {
-  --brand-mark-size: 42px;
-  --brand-name-size: 0.8rem;
-  --brand-tag-size: 0.33rem;
-  --brand-gap: 0.42rem;
-  width: 174px;
-  height: 44px;
+  --brand-mark-size: 45px;
+  --brand-name-size: 0.86rem;
+  --brand-tag-size: 0.35rem;
+  --brand-gap: 0.45rem;
+  width: 184px;
+  height: 48px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -1448,9 +1448,10 @@
   }
 
   .rail.is-collapsed .rail-logo {
-    --brand-mark-size: 46px;
-    width: 212px;
-    height: 50px;
+    --brand-mark-size: 50px;
+    --brand-name-size: 0.96rem;
+    width: 100%;
+    height: 54px;
     margin: 0;
   }
 
@@ -11860,120 +11861,104 @@ body {
   margin: 1rem 1.25rem 0;
 }
 
-.dm-list-head,
-.dm-row {
-  display: grid;
-  align-items: stretch;
-}
-
-.dm-job-grid {
-  grid-template-columns: minmax(220px, 1.5fr) minmax(125px, 0.72fr) minmax(170px, 0.9fr) 100px auto;
-  min-width: 880px;
-}
-
-.dm-country-grid {
-  grid-template-columns: minmax(190px, 1fr) 150px minmax(280px, 1.6fr) auto;
-  min-width: 760px;
-}
-
-.dm-question-grid {
-  grid-template-columns: minmax(300px, 1.6fr) minmax(190px, 0.8fr) auto;
-  min-width: 700px;
-}
-
-.dm-list-head {
-  border: 1px solid var(--border-main);
-  border-radius: 11px 11px 0 0;
-  background: var(--tint-1);
-  overflow: hidden;
-}
-
-.dm-list-head > span {
-  padding: 0.62rem 0.85rem;
-  border-right: 1px solid var(--border-main);
-  color: var(--text-label);
-  font-size: 0.67rem;
-  font-weight: 700;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-}
-
-.dm-list-head > span:last-child {
-  border-right: 0;
-  text-align: right;
-}
-
-.dm-list {
-  gap: 0;
-  padding: 0;
-  border: 1px solid var(--border-main);
-  border-top: 0;
-  border-radius: 0 0 11px 11px;
+.dm-table-frame {
+  width: 100%;
   overflow-x: auto;
-}
-
-.dm-row,
-.dm-row:last-child {
-  gap: 0;
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid var(--border-main);
-  border-radius: 0;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
   background: var(--bg-card);
 }
 
-.dm-row:last-child {
-  border-bottom: 0;
+.dm-table.is-register {
+  min-width: 820px;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.dm-row:hover {
-  background: var(--primary-glow);
+.dm-table.is-register thead {
+  background: var(--tint-1);
 }
 
-.dm-row > * {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  padding: 0.8rem 0.85rem;
+.dm-table.is-register th,
+.dm-table.is-register td {
+  box-sizing: border-box;
+  padding: 0.82rem 1rem;
   border-right: 1px solid var(--border-main);
+  border-bottom: 1px solid var(--border-main);
+  vertical-align: middle;
 }
 
-.dm-row > *:last-child {
+.dm-table.is-register th:last-child,
+.dm-table.is-register td:last-child {
   border-right: 0;
 }
 
-.dm-row .staff-identity,
-.dm-row .staff-metrics,
-.dm-row .staff-progress,
-.dm-row .staff-actions {
-  width: auto;
+.dm-table.is-register tbody tr:last-child td {
+  border-bottom: 0;
 }
 
-.dm-row .staff-metric {
+.dm-table.is-register tbody tr:hover {
+  background: var(--primary-glow);
+}
+
+.dm-table th.is-center,
+.dm-table td.is-center {
+  text-align: center;
+}
+
+.dm-table th.is-actions,
+.dm-table td.is-actions {
+  text-align: right;
+}
+
+.dm-table td.is-num {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dm-table td.is-wrap {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.dm-primary-cell {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.15rem;
   min-width: 0;
+}
+
+.dm-primary-cell strong {
+  overflow: hidden;
   color: var(--text-main);
-  font-size: 0.8rem;
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dm-row .staff-metric em {
-  display: none;
+.dm-primary-cell small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dm-row .staff-name {
-  font-size: 0.84rem;
-}
+.dm-job-table .dm-col-job { width: 38%; }
+.dm-job-table .dm-col-menu { width: 13%; }
+.dm-job-table .dm-col-policy { width: 23%; }
+.dm-job-table .dm-col-count { width: 10%; }
+.dm-job-table .dm-col-actions { width: 16%; }
 
-.dm-row .staff-mail {
-  margin-top: 0.12rem;
-  font-size: 0.7rem;
-}
+.dm-country-table .dm-col-country { width: 24%; }
+.dm-country-table .dm-col-menu { width: 17%; }
+.dm-country-table .dm-col-exceptions { width: 43%; }
+.dm-country-table .dm-col-actions { width: 16%; }
 
-.dm-row .staff-actions {
-  justify-content: flex-end;
-  gap: 0.35rem;
-}
+.dm-question-table .dm-col-question { width: 56%; }
+.dm-question-table .dm-col-format { width: 26%; }
+.dm-question-table .dm-col-actions { width: 18%; }
 
 .dm-policy {
   display: inline-flex;
@@ -12023,10 +12008,6 @@ body {
 .dm-dialog .dm-table {
   display: table;
   min-width: 0;
-}
-
-.dm-question-grid > .staff-progress {
-  display: none;
 }
 
 .dm-retired-note {
@@ -12843,18 +12824,28 @@ body {
 
 /* ---- Recent candidates table ---- */
 .rc-table-wrap {
-  padding: 0.75rem 0.5rem 0.4rem;
+  margin: 0.75rem 0.5rem 0.4rem;
   overflow-x: auto;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
 }
 
 .rc-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 680px;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.83rem;
 }
 
+.rc-table thead {
+  background: var(--tint-1);
+}
+
 .rc-table thead th {
-  padding: 0.35rem 0.75rem 0.6rem;
+  padding: 0.68rem 0.75rem;
+  border-right: 1px solid var(--border-main);
   text-align: left;
   font-size: 0.68rem;
   font-weight: 700;
@@ -12866,8 +12857,9 @@ body {
 }
 
 .rc-table tbody td {
-  padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid var(--border-blue-faint);
+  padding: 0.72rem 0.75rem;
+  border-right: 1px solid var(--border-main);
+  border-bottom: 1px solid var(--border-main);
   color: var(--text-muted);
   vertical-align: middle;
 }
@@ -14502,17 +14494,34 @@ body {
 }
 
 .ds-table-wrap {
+  width: 100%;
   overflow-x: auto;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.rc-table th:last-child,
+.rc-table td:last-child {
+  border-right: 0;
 }
 
 .ds-table {
   width: 100%;
-  border-collapse: collapse;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.85rem;
 }
 
+.ds-table thead {
+  background: var(--tint-1);
+}
+
 .ds-table th {
-  padding: 0.55rem 0.75rem;
+  box-sizing: border-box;
+  padding: 0.7rem 0.9rem;
+  border-right: 1px solid var(--border-main);
   border-bottom: 1px solid var(--border-main);
   text-align: left;
   font-size: 0.75rem;
@@ -14522,16 +14531,27 @@ body {
 }
 
 .ds-table td {
-  padding: 0.7rem 0.75rem;
-  border-bottom: 1px solid var(--border-blue-faint);
+  box-sizing: border-box;
+  padding: 0.78rem 0.9rem;
+  border-right: 1px solid var(--border-main);
+  border-bottom: 1px solid var(--border-main);
   color: var(--text-main);
   vertical-align: middle;
   white-space: nowrap;
 }
 
+.ds-table th:last-child,
+.ds-table td:last-child {
+  border-right: 0;
+  text-align: right;
+}
+
 .ds-table tbody tr {
-  cursor: pointer;
   transition: background 0.15s ease;
+}
+
+.ds-table tbody tr.is-clickable {
+  cursor: pointer;
 }
 
 .ds-table tbody tr:hover {
@@ -14548,8 +14568,6 @@ body {
    retain their lighter treatment. */
 .ds-table-wrap.is-ruled {
   border: 1px solid var(--border-main);
-  border-radius: 12px;
-  background: var(--bg-card);
 }
 
 .ds-table.is-ruled {
@@ -15195,23 +15213,15 @@ body {
 
 /* --- the table, in the same register -------------------------------------- */
 
-/* Rows separated by their own tint rather than by rules: a status you can see
-   without reading down to the Status column, and one less line per row. */
+/* Every register uses the same uninterrupted row and column rules. This keeps
+   headers, values and row actions on a shared visual axis across the CRM. */
 .ds-table tbody tr {
-  background: var(--tint-1);
-}
-
-.ds-table tbody tr td:first-child {
-  border-radius: 10px 0 0 10px;
-}
-
-.ds-table tbody tr td:last-child {
-  border-radius: 0 10px 10px 0;
+  background: var(--bg-card);
 }
 
 .ds-table td,
 .ds-table th {
-  border-bottom: 4px solid var(--bg-card);
+  border-bottom: 1px solid var(--border-main);
 }
 
 .ds-table tbody tr:hover {
@@ -15228,6 +15238,10 @@ body {
 
 .ds-table tbody tr.tone-bad {
   background: var(--error-fill);
+}
+
+.ds-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .ds-panel-sub {
@@ -15337,6 +15351,18 @@ body {
 .ds-table th.is-num,
 .ds-table td.is-num {
   text-align: right;
+}
+
+.ds-table th.is-actions,
+.ds-table td.is-actions {
+  text-align: right;
+}
+
+.ds-table td.is-actions .ds-open {
+  justify-content: flex-end;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
 .ds-table th.is-num .ds-sort {
@@ -16662,7 +16688,98 @@ a.um-phone:hover {
   color: var(--error-ink);
 }
 
-/* --- one queue, opened from a card ---------------------------------------- */
+/* The staff directory is a true register: one person per row and one stable
+   column per workload reading. Numeric columns are right-aligned so differences
+   can be compared vertically without hunting across cards. */
+.staff-roster-table-wrap {
+  border-radius: 14px;
+}
+
+.ds-table.staff-roster-table {
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
+.staff-roster-table th:nth-child(1) { width: 19%; }
+.staff-roster-table th:nth-child(2) { width: 12%; }
+.staff-roster-table th:nth-child(3),
+.staff-roster-table th:nth-child(4),
+.staff-roster-table th:nth-child(5),
+.staff-roster-table th:nth-child(6) { width: 7%; }
+.staff-roster-table th:nth-child(7) { width: 15%; }
+.staff-roster-table th:nth-child(8) { width: 12%; }
+.staff-roster-table th:nth-child(9) { width: 14%; }
+
+.staff-roster-table th.is-actions,
+.staff-roster-table td.is-actions {
+  text-align: right;
+}
+
+.staff-roster-table tbody tr.is-clickable {
+  cursor: pointer;
+}
+
+.staff-roster-table tbody tr:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.staff-roster-table tbody tr.is-inactive {
+  opacity: 0.62;
+}
+
+.staff-roster-table tbody tr.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--error-ink);
+}
+
+.staff-roster-table td.is-warn {
+  color: var(--warning-ink);
+}
+
+.staff-roster-table td.is-good {
+  color: var(--success-ink);
+}
+
+.staff-table-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.staff-table-phone:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+.staff-table-status {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.staff-roster-table .staff-flag {
+  margin-left: 0;
+}
+
+.staff-roster-table .staff-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.staff-roster-table .staff-progress-cell {
+  min-width: 0;
+}
+
+.staff-roster-table .is-bucket td {
+  background: var(--tint-1);
+}
+
+/* --- one queue, opened from a roster row ---------------------------------- */
 
 .modal-container.is-queue {
   max-width: 1040px;
@@ -16896,7 +17013,7 @@ a.um-phone:hover {
   border-radius: 18px;
 }
 
-.jo-table {
+.ds-table.jo-table {
   min-width: 1180px;
 }
 

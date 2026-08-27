@@ -356,72 +356,85 @@ export default function DataManagementScreen({ onActivity }: Props) {
                 types a job that is not listed.
               </div>
 
-              <div className="dm-list-head dm-job-grid" aria-hidden="true">
-                <span>Job designation</span><span>Bot menu</span><span>CV policy</span>
-                <span>Questions</span><span>Actions</span>
-              </div>
-              <div className="staff-matrix dm-list">
-                {orderedJobs.map((job) => {
-                  const overrides = Object.entries(job.cv_overrides ?? {});
-                  const shown = job.bot_visible && shownInBot.has(job.id);
-                  return (
-                    <article key={job.id} className="staff-row is-job dm-row dm-job-grid">
-                      <div className="staff-identity">
-                        <div className="staff-identity-text">
-                          <span className="staff-name">{job.title}</span>
-                          <span className="staff-mail">
-                            ID: <code>{job.id}</code>
-                          </span>
-                        </div>
-                      </div>
-                      <div className="staff-metrics">
-                        <span className="staff-metric">
-                          <em>Visibility</em>
-                          {!job.bot_visible ? (
-                            <span className="dm-pill is-off">hidden</span>
-                          ) : shown ? (
-                            <span className="dm-pill">
-                              <Smartphone size={12} /> shown
-                            </span>
-                          ) : (
-                            <span className="dm-pill is-off" title="Past the ninth row">
-                              below cut
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="staff-progress">
-                        <span className={`dm-policy ${job.cv_required_default ? "is-required" : ""}`}>
-                          {job.cv_required_default ? <Check size={13} /> : <X size={13} />}
-                          {job.cv_required_default ? "Required" : "Not required"}
-                          {overrides.length > 0 && (
-                            <em>{overrides.length} exception{overrides.length === 1 ? "" : "s"}</em>
-                          )}
-                        </span>
-                      </div>
-                      <div className="staff-metrics">
-                        <span className="staff-metric">
-                          <em>Questions</em>
-                          {questionsByJob.get(job.id)?.length ?? 0}
-                        </span>
-                      </div>
-                      <div className="staff-actions">
-                        <button type="button" className="db-btn" onClick={() => setEditingJob(job)}>
-                          <Pencil size={13} /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="db-btn is-danger"
-                          onClick={() => void retireJob(job)}
-                          title="Retire — candidates already on this job keep it"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+              {orderedJobs.length > 0 && (
+                <div className="dm-table-frame">
+                  <table className="dm-table is-register dm-job-table">
+                    <colgroup>
+                      <col className="dm-col-job" />
+                      <col className="dm-col-menu" />
+                      <col className="dm-col-policy" />
+                      <col className="dm-col-count" />
+                      <col className="dm-col-actions" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>Job designation</th>
+                        <th>Bot menu</th>
+                        <th>CV policy</th>
+                        <th className="is-center">Questions</th>
+                        <th className="is-actions">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderedJobs.map((job) => {
+                        const overrides = Object.entries(job.cv_overrides ?? {});
+                        const shown = job.bot_visible && shownInBot.has(job.id);
+                        return (
+                          <tr key={job.id}>
+                            <td>
+                              <span className="dm-primary-cell">
+                                <strong>{job.title}</strong>
+                                <small>ID: {job.id}</small>
+                              </span>
+                            </td>
+                            <td>
+                              {!job.bot_visible ? (
+                                <span className="dm-pill is-off">hidden</span>
+                              ) : shown ? (
+                                <span className="dm-pill">
+                                  <Smartphone size={12} /> shown
+                                </span>
+                              ) : (
+                                <span className="dm-pill is-off" title="Past the ninth row">
+                                  below cut
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`dm-policy ${job.cv_required_default ? "is-required" : ""}`}>
+                                {job.cv_required_default ? <Check size={13} /> : <X size={13} />}
+                                {job.cv_required_default ? "Required" : "Not required"}
+                                {overrides.length > 0 && (
+                                  <em>{overrides.length} exception{overrides.length === 1 ? "" : "s"}</em>
+                                )}
+                              </span>
+                            </td>
+                            <td className="is-center is-num">
+                              {questionsByJob.get(job.id)?.length ?? 0}
+                            </td>
+                            <td className="is-actions">
+                              <div className="dm-cell-actions">
+                                <button type="button" className="db-btn" onClick={() => setEditingJob(job)}>
+                                  <Pencil size={13} /> Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="db-btn is-danger"
+                                  onClick={() => void retireJob(job)}
+                                  title="Retire — candidates already on this job keep it"
+                                  aria-label={`Retire ${job.title}`}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {orderedJobs.length === 0 && (
                 <div className="ds-empty-state dm-empty">
@@ -472,64 +485,76 @@ export default function DataManagementScreen({ onActivity }: Props) {
                 whether they are asked for a CV.
               </div>
 
-              <div className="dm-list-head dm-country-grid" aria-hidden="true">
-                <span>Destination</span><span>Bot menu</span><span>CV exceptions</span><span>Actions</span>
-              </div>
-              <div className="staff-matrix dm-list">
-                {activeCountries.map((country) => {
-                  const key = country.name.trim().toLowerCase();
-                  const exceptions = orderedJobs.filter(
-                    (j) => (j.cv_overrides ?? {})[key] !== undefined,
-                  );
-                  return (
-                    <article key={country.id} className="staff-row dm-row dm-country-grid">
-                      <div className="staff-identity">
-                        <div className="staff-identity-text">
-                          <span className="staff-name">{country.name}</span>
-                        </div>
-                      </div>
-                      <div className="staff-metrics">
-                        <span className="staff-metric">
-                          <em>Visibility</em>
-                          {country.bot_visible ? (
-                            <span className="dm-pill">
-                              <Smartphone size={12} /> offered
-                            </span>
-                          ) : (
-                            <span className="dm-pill is-off">hidden</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="staff-progress">
-                        <div className="db-bar-row">
-                          <span className="db-bar-label" style={{ color: "var(--text)" }}>
-                            <strong>Exceptions:</strong>{" "}
-                            {exceptions.length === 0
-                              ? "—"
-                              : exceptions.map((j) => j.title).join(", ")}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="staff-actions">
-                        <button
-                          type="button"
-                          className="db-btn"
-                          onClick={() => setEditingCountry(country)}
-                        >
-                          <Pencil size={13} /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="db-btn is-danger"
-                          onClick={() => void retireCountry(country)}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+              {activeCountries.length > 0 && (
+                <div className="dm-table-frame">
+                  <table className="dm-table is-register dm-country-table">
+                    <colgroup>
+                      <col className="dm-col-country" />
+                      <col className="dm-col-menu" />
+                      <col className="dm-col-exceptions" />
+                      <col className="dm-col-actions" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>Destination</th>
+                        <th>Bot menu</th>
+                        <th>CV exceptions</th>
+                        <th className="is-actions">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeCountries.map((country) => {
+                        const key = country.name.trim().toLowerCase();
+                        const exceptions = orderedJobs.filter(
+                          (job) => (job.cv_overrides ?? {})[key] !== undefined,
+                        );
+                        return (
+                          <tr key={country.id}>
+                            <td>
+                              <span className="dm-primary-cell">
+                                <strong>{country.name}</strong>
+                              </span>
+                            </td>
+                            <td>
+                              {country.bot_visible ? (
+                                <span className="dm-pill">
+                                  <Smartphone size={12} /> offered
+                                </span>
+                              ) : (
+                                <span className="dm-pill is-off">hidden</span>
+                              )}
+                            </td>
+                            <td className="is-wrap">
+                              {exceptions.length === 0
+                                ? "—"
+                                : exceptions.map((job) => job.title).join(", ")}
+                            </td>
+                            <td className="is-actions">
+                              <div className="dm-cell-actions">
+                                <button
+                                  type="button"
+                                  className="db-btn"
+                                  onClick={() => setEditingCountry(country)}
+                                >
+                                  <Pencil size={13} /> Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="db-btn is-danger"
+                                  onClick={() => void retireCountry(country)}
+                                  aria-label={`Retire ${country.name}`}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {activeCountries.length === 0 && (
                 <div className="ds-empty-state dm-empty">
@@ -582,44 +607,58 @@ export default function DataManagementScreen({ onActivity }: Props) {
                   <span>{job.title}</span>
                   <em>{list.length} question{list.length === 1 ? "" : "s"}</em>
                 </div>
-                <div className="dm-list-head dm-question-grid" aria-hidden="true">
-                  <span>Question</span><span>Answer format</span><span>Actions</span>
-                </div>
-                <div className="staff-matrix dm-list">
-                  {list.map((q) => (
-                    <article key={q.id} className="staff-row dm-row dm-question-grid">
-                      <div className="staff-identity">
-                        <div className="staff-identity-text">
-                          <span className="staff-name" style={{ whiteSpace: "normal" }}>{q.text}</span>
-                        </div>
-                      </div>
-                      <div className="staff-metrics">
-                        <span className="staff-metric">
-                          <em>Format</em>
-                          {q.kind === "choice" ? `${q.choices.length} options` : "typed answer"}
-                          {q.required ? " · required" : ""}
-                          {!q.active ? " · off" : ""}
-                        </span>
-                      </div>
-                      <div className="staff-progress" />
-                      <div className="staff-actions">
-                        <button
-                          type="button"
-                          className="db-btn"
-                          onClick={() => setEditingQuestion(q)}
-                        >
-                          <Pencil size={13} /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="db-btn is-danger"
-                          onClick={() => void removeQuestion(q)}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                <div className="dm-table-frame">
+                  <table className="dm-table is-register dm-question-table">
+                    <colgroup>
+                      <col className="dm-col-question" />
+                      <col className="dm-col-format" />
+                      <col className="dm-col-actions" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>Question</th>
+                        <th>Answer format</th>
+                        <th className="is-actions">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((question) => (
+                        <tr key={question.id}>
+                          <td className="is-wrap">
+                            <span className="dm-primary-cell">
+                              <strong>{question.text}</strong>
+                            </span>
+                          </td>
+                          <td>
+                            {question.kind === "choice"
+                              ? `${question.choices.length} options`
+                              : "Typed answer"}
+                            {question.required ? " · Required" : ""}
+                            {!question.active ? " · Off" : ""}
+                          </td>
+                          <td className="is-actions">
+                            <div className="dm-cell-actions">
+                              <button
+                                type="button"
+                                className="db-btn"
+                                onClick={() => setEditingQuestion(question)}
+                              >
+                                <Pencil size={13} /> Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="db-btn is-danger"
+                                onClick={() => void removeQuestion(question)}
+                                aria-label={`Delete question: ${question.text}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             );

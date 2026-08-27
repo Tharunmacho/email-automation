@@ -21,7 +21,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronRight,
   Clock,
   KeyRound,
   Loader2,
@@ -793,12 +792,7 @@ export default function AdminStaffManagement({
         </div>
       )}
 
-      {/* ---- Roster ----------------------------------------------------- //
-          A card per person rather than a row per person. The table this
-          replaces gave four numeric columns the full width of the screen to
-          say "0", and buried the one thing an admin comes here to do — look
-          inside somebody's pile — behind no affordance at all. The card is
-          the affordance: the whole of it opens that person's queue. */}
+      {/* ---- Roster ----------------------------------------------------- */}
       <section className="ds-panel staff-roster" ref={rosterRef}>
         <header className="ds-panel-head">
           <div>
@@ -810,7 +804,7 @@ export default function AdminStaffManagement({
                     staff.length !== activeStaff.length
                       ? ` · ${formatInt(staff.length - activeStaff.length)} deactivated`
                       : ""
-                  } · new profiles go to whoever is holding the fewest. Open a card to see and move what it holds.`}
+                  } · new profiles go to whoever is holding the fewest. Open a row to see and move what it holds.`}
             </p>
           </div>
           {/* No buttons here. Rebalance and Create both used to sit on this
@@ -831,189 +825,161 @@ export default function AdminStaffManagement({
             </button>
           </div>
         ) : (
-          <div className="staff-grid">
-            {staff.map((member) => {
-              const overdue = breachesByStaff[member.id] ?? 0;
-              return (
-                <article
-                  key={member.id}
-                  className={`staff-card ${member.active ? "" : "is-inactive"} ${
-                    overdue > 0 ? "is-overdue" : ""
-                  }`}
-                >
-                  {/* The hit area is laid over the card rather than wrapped
-                      around it: a <button> may not contain the list and the bar
-                      below it, and the two real buttons in the footer have to
-                      stay clickable in their own right. */}
-                  <button
-                    type="button"
-                    className="staff-card-hit"
-                    onClick={() => openQueue(member.id)}
-                    aria-label={`Open the ${formatInt(member.assigned)} profiles allocated to ${
-                      member.name || member.email
-                    }`}
-                  />
-
-                  <div className="staff-card-top">
-                    <span className="ds-avatar" aria-hidden="true">
-                      {initialsOf(member.name || member.email)}
-                    </span>
-                    <span className="staff-card-id">
-                      <strong>{member.name || member.email}</strong>
-                      <small>{member.email}</small>
-                    </span>
-                    <ChevronRight size={16} className="staff-card-chev" aria-hidden="true" />
-                  </div>
-
-                  {(!member.active || overdue > 0) && (
-                    <div className="staff-card-flags">
-                      {!member.active && <em className="staff-flag">deactivated</em>}
-                      {overdue > 0 && (
-                        <em className="staff-flag is-overdue">
-                          {formatInt(overdue)} past the {thresholdHours}h window
-                        </em>
-                      )}
-                    </div>
-                  )}
-
-                  <dl className="staff-card-stats">
-                    <div>
-                      <dt>Allocated</dt>
-                      <dd>{formatInt(member.assigned)}</dd>
-                    </div>
-                    <div>
-                      <dt>Unviewed</dt>
-                      <dd className={member.unviewed > 0 ? "is-warn" : ""}>
+          <div className="ds-table-wrap is-ruled staff-roster-table-wrap">
+            <table className="ds-table is-ruled staff-roster-table">
+              <thead>
+                <tr>
+                  <th>Staff member</th>
+                  <th>Contact</th>
+                  <th className="is-num">Allocated</th>
+                  <th className="is-num">Unviewed</th>
+                  <th className="is-num">Pending</th>
+                  <th className="is-num">Judged</th>
+                  <th>Review progress</th>
+                  <th>Status</th>
+                  <th className="is-actions" aria-label="Actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((member) => {
+                  const overdue = breachesByStaff[member.id] ?? 0;
+                  const openMemberQueue = () => openQueue(member.id);
+                  return (
+                    <tr
+                      key={member.id}
+                      className={`${member.active ? "" : "is-inactive"} ${
+                        overdue > 0 ? "is-overdue" : ""
+                      } is-clickable`}
+                      onClick={openMemberQueue}
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openMemberQueue();
+                        }
+                      }}
+                    >
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(member.name || member.email)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong>{member.name || member.email}</strong>
+                            <small>{member.email}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        {member.phone ? (
+                          <a
+                            className="staff-table-phone"
+                            href={`tel:${member.phone.replace(/\s+/g, "")}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Phone size={13} /> {member.phone}
+                          </a>
+                        ) : (
+                          <span className="ds-quiet">No number</span>
+                        )}
+                      </td>
+                      <td className="is-num">{formatInt(member.assigned)}</td>
+                      <td className={`is-num ${member.unviewed > 0 ? "is-warn" : ""}`}>
                         {formatInt(member.unviewed)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Pending</dt>
-                      <dd>{formatInt(member.pending)}</dd>
-                    </div>
-                    <div>
-                      <dt>Judged</dt>
-                      <dd className={member.evaluated > 0 ? "is-good" : ""}>
+                      </td>
+                      <td className="is-num">{formatInt(member.pending)}</td>
+                      <td className={`is-num ${member.evaluated > 0 ? "is-good" : ""}`}>
                         {formatInt(member.evaluated)}
-                      </dd>
-                    </div>
-                  </dl>
+                      </td>
+                      <td className="staff-progress-cell">
+                        <span className="staff-progress-line">
+                          {formatInt(member.evaluated)} of {formatInt(member.assigned)}
+                          <em>{member.progress}%</em>
+                        </span>
+                        <span className="db-bar-track">
+                          <span
+                            className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
+                            style={{ width: `${member.progress}%` }}
+                          />
+                        </span>
+                      </td>
+                      <td>
+                        <div className="staff-table-status">
+                          <span className={`ds-status ${member.active ? "is-ok" : "is-neutral"}`}>
+                            <i aria-hidden="true" /> {member.active ? "Active" : "Deactivated"}
+                          </span>
+                          {overdue > 0 && (
+                            <span className="staff-flag is-overdue">
+                              {formatInt(overdue)} overdue
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="is-actions" onClick={(event) => event.stopPropagation()}>
+                        <div className="staff-actions">
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm"
+                            onClick={() => void handleToggleActive(member)}
+                            title={
+                              member.active
+                                ? "Stop routing new profiles here; keeps their existing work"
+                                : "Start routing new profiles here again"
+                            }
+                          >
+                            <KeyRound size={14} />
+                            {member.active ? "Deactivate" : "Reactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm is-danger"
+                            onClick={() => void handleDelete(member)}
+                            title="Delete the account and redistribute its profiles"
+                            aria-label={`Delete ${member.name || member.email}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
 
-                  {/* The figure and the bar together: the percentage on its own
-                      says nothing about how much work it is a percentage of. */}
-                  <div className="staff-card-progress">
-                    <span className="staff-progress-line">
-                      {formatInt(member.evaluated)} of {formatInt(member.assigned)} judged
-                      <em>{member.progress}%</em>
-                    </span>
-                    <span className="db-bar-track">
-                      <span
-                        className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
-                        style={{ width: `${member.progress}%` }}
-                      />
-                    </span>
-                  </div>
+                {buckets.unallocated > 0 && (
+                  <tr className="is-clickable is-bucket" onClick={() => openQueue(UNALLOCATED)}>
+                    <td>
+                      <span className="ds-who">
+                        <span className="ds-avatar is-bucket" aria-hidden="true"><Users size={15} /></span>
+                        <span className="ds-who-text"><strong>Unallocated</strong><small>Waiting for an owner</small></span>
+                      </span>
+                    </td>
+                    <td className="is-wrap">Not visible to staff until assigned</td>
+                    <td className="is-num">{formatInt(buckets.unallocated)}</td>
+                    <td className="is-num">—</td><td className="is-num">—</td><td className="is-num">—</td>
+                    <td>—</td>
+                    <td><span className="ds-status is-warn"><i aria-hidden="true" />Needs assignment</span></td>
+                    <td className="is-actions"><span className="ds-open">Open</span></td>
+                  </tr>
+                )}
 
-                  <footer className="staff-card-foot">
-                    {/* Above the hit area, so it dials rather than opening the
-                        queue — chasing somebody about their pile usually means
-                        ringing them, not reading it again. */}
-                    {member.phone ? (
-                      <a
-                        className="staff-card-phone"
-                        href={`tel:${member.phone.replace(/\s+/g, "")}`}
-                        title={`Call ${member.name || member.email}`}
-                      >
-                        <Phone size={13} />
-                        {member.phone}
-                      </a>
-                    ) : (
-                      <span className="staff-card-phone is-empty">No number</span>
-                    )}
-                    <button
-                      type="button"
-                      className="ds-ghost-btn is-sm"
-                      onClick={() => void handleToggleActive(member)}
-                      title={
-                        member.active
-                          ? "Stop routing new profiles here; keeps their existing work"
-                          : "Start routing new profiles here again"
-                      }
-                    >
-                      <KeyRound size={14} />
-                      {member.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                    <button
-                      type="button"
-                      className="ds-ghost-btn is-sm is-danger"
-                      onClick={() => void handleDelete(member)}
-                      title="Delete the account and redistribute its profiles"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </footer>
-                </article>
-              );
-            })}
-
-            {/* The two piles that belong to nobody. They are cards for the same
-                reason the people are: without them, the only route to a profile
-                nobody owns would be a blanket rebalance. */}
-            {buckets.unallocated > 0 && (
-              <article className="staff-card is-bucket">
-                <button
-                  type="button"
-                  className="staff-card-hit"
-                  onClick={() => openQueue(UNALLOCATED)}
-                  aria-label={`Open the ${formatInt(buckets.unallocated)} unallocated profiles`}
-                />
-                <div className="staff-card-top">
-                  <span className="ds-avatar is-bucket" aria-hidden="true">
-                    <Users size={15} />
-                  </span>
-                  <span className="staff-card-id">
-                    <strong>Unallocated</strong>
-                    <small>Waiting for an owner</small>
-                  </span>
-                  <ChevronRight size={16} className="staff-card-chev" aria-hidden="true" />
-                </div>
-                <p className="staff-card-bucket">
-                  <strong>{formatInt(buckets.unallocated)}</strong>
-                  <em>
-                    Invisible to every staff dashboard until somebody is holding them. Allocate
-                    them one at a time here, or level the whole pile with Rebalance.
-                  </em>
-                </p>
-              </article>
-            )}
-
-            {buckets.orphaned > 0 && (
-              <article className="staff-card is-bucket is-overdue">
-                <button
-                  type="button"
-                  className="staff-card-hit"
-                  onClick={() => openQueue(ORPHANED)}
-                  aria-label={`Open the ${formatInt(buckets.orphaned)} orphaned profiles`}
-                />
-                <div className="staff-card-top">
-                  <span className="ds-avatar is-bucket is-alert" aria-hidden="true">
-                    <AlertTriangle size={15} />
-                  </span>
-                  <span className="staff-card-id">
-                    <strong>Orphaned</strong>
-                    <small>The owning account is gone</small>
-                  </span>
-                  <ChevronRight size={16} className="staff-card-chev" aria-hidden="true" />
-                </div>
-                <p className="staff-card-bucket">
-                  <strong>{formatInt(buckets.orphaned)}</strong>
-                  <em>
-                    Still carrying whoever used to own them, and nobody can see them. Re-homing
-                    keeps the evaluation.
-                  </em>
-                </p>
-              </article>
-            )}
+                {buckets.orphaned > 0 && (
+                  <tr className="is-clickable is-bucket is-overdue" onClick={() => openQueue(ORPHANED)}>
+                    <td>
+                      <span className="ds-who">
+                        <span className="ds-avatar is-alert" aria-hidden="true"><AlertTriangle size={15} /></span>
+                        <span className="ds-who-text"><strong>Orphaned</strong><small>Owning account no longer exists</small></span>
+                      </span>
+                    </td>
+                    <td className="is-wrap">Reassign without losing the evaluation</td>
+                    <td className="is-num">{formatInt(buckets.orphaned)}</td>
+                    <td className="is-num">—</td><td className="is-num">—</td><td className="is-num">—</td>
+                    <td>—</td>
+                    <td><span className="ds-status is-bad"><i aria-hidden="true" />Needs re-homing</span></td>
+                    <td className="is-actions"><span className="ds-open">Open</span></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

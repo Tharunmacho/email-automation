@@ -1790,7 +1790,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   <th className="is-num">Filled</th>
                   <th>Due date</th>
                   <th>Match</th>
-                  <th aria-label="Actions" />
+                  <th className="is-actions" aria-label="Actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1809,7 +1809,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                         : "info";
 
                   return (
-                    <tr key={item.id} onClick={() => setSelectedOrder(item)}>
+                    <tr className="is-clickable" key={item.id} onClick={() => setSelectedOrder(item)}>
                       <td>
                         <span className="jo-table-job">
                           <strong title={item.title}>{item.title}</strong>
@@ -1845,7 +1845,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                           <small>{match?.strong ? `${match.strong} strong` : "No strong matches"}</small>
                         </span>
                       </td>
-                      <td onClick={(event) => event.stopPropagation()}>
+                      <td className="is-actions" onClick={(event) => event.stopPropagation()}>
                         <div className="jo-actions">
                           <button
                             type="button"

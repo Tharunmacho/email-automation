@@ -440,17 +440,17 @@ export default function OverviewScreen({
               : "No profile matches that search."}
           </p>
         ) : (
-          <div className="ds-table-wrap">
-            <table className="ds-table">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled">
               <thead>
                 <tr>
                   <th>Candidate</th>
                   <th>Designation</th>
                   <th>Date</th>
                   <th>Time</th>
-                  <th>Confidence</th>
+                  <th className="is-num">Confidence</th>
                   <th>Status</th>
-                  <th aria-label="Open" />
+                  <th className="is-actions" aria-label="Open">Open</th>
                 </tr>
               </thead>
               <tbody>
@@ -464,7 +464,7 @@ export default function OverviewScreen({
                       : { label: "In progress", tone: "info" };
 
                   return (
-                    <tr key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
+                    <tr className="is-clickable" key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
                       <td>
                         <span className="ds-who">
                           <span className="ds-avatar" aria-hidden="true">
@@ -481,7 +481,7 @@ export default function OverviewScreen({
                         {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
                       </td>
                       <td>{clockOf(candidate.created_at)}</td>
-                      <td>
+                      <td className="is-num">
                         {typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "—"}
                       </td>
                       <td>
@@ -490,7 +490,7 @@ export default function OverviewScreen({
                           {state.label}
                         </span>
                       </td>
-                      <td>
+                      <td className="is-actions">
                         <span className="ds-open">
                           <ArrowRight size={15} />
                         </span>
