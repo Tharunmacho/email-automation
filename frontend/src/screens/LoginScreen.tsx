@@ -1,69 +1,59 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
 import {
   AlertCircle,
+  ArrowRight,
+  CheckCircle2,
   Eye,
   EyeOff,
   Loader2,
   Lock,
   Mail,
+  Moon,
   ShieldCheck,
+  Sun,
 } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
 import { fetchDemoAccounts, login, type AuthUser, type DemoAccount } from "@/lib/api";
+import {
+  getThemeServerSnapshot,
+  getThemeSnapshot,
+  setTheme,
+  subscribeTheme,
+} from "@/lib/theme";
 
 interface LoginScreenProps {
   onSuccess: (user: AuthUser) => void;
 }
 
-const DEFAULT_DEMO_ACCOUNTS: DemoAccount[] = [
-  {
-    role: "admin",
-    label: "Super Admin",
-    description: "Full access: allocation, staff accounts and review monitoring.",
-    email: "admin@gmail.com",
-    password: "admin@123",
-  },
-  {
-    role: "staff",
-    label: "Staff Evaluator",
-    description: "Evaluate candidates allocated to your review queue.",
-    email: "staff@gmail.com",
-    password: "staff@123",
-  },
+const LOGIN_BENEFITS = [
+  "Candidate records in one clear workspace",
+  "Fair assignment across your review team",
+  "Role-based access that keeps work focused",
 ];
 
 export default function LoginScreen({ onSuccess }: LoginScreenProps) {
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // Served by the API rather than hard-coded, so a button can never fill a
-  // password that has been changed in settings or an account that is turned off.
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>(DEFAULT_DEMO_ACCOUNTS);
+  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     void fetchDemoAccounts().then((accounts) => {
-      if (!cancelled) setDemoAccounts(accounts.length > 0 ? accounts : DEFAULT_DEMO_ACCOUNTS);
+      if (!cancelled) setDemoAccounts(accounts);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  /**
-   * Fill *and* submit.
-   *
-   * A button that only fills the form asks the reader to notice that something
-   * changed and then find the submit control. The point of a demo button is to
-   * be one press, so it signs in.
-   */
   const signInWithDemo = async (account: DemoAccount) => {
     if (busy) return;
     setEmail(account.email);
@@ -85,7 +75,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
     }
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy) return;
 
@@ -108,134 +98,172 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   };
 
   return (
-    <div className="login-page">
-      <div className="login-shell">
-        <div className="login-card">
-          {/* Brand lockup, then the heading. Two aligned blocks read as
-              deliberate; a logo floating above centred text does not. */}
-          <header className="login-head">
-            <div className="login-brand">
-              <span className="login-logo">
-                <BrandLogo />
+    <div className="auth-page">
+      <div className="auth-shell">
+        <aside className="auth-story" aria-label="About ADIRA-Master CRM">
+          <div className="auth-story-orb is-one" aria-hidden="true" />
+          <div className="auth-story-orb is-two" aria-hidden="true" />
+
+          <div className="auth-story-logo">
+            <BrandLogo />
+          </div>
+
+          <div className="auth-story-content">
+            <span className="auth-eyebrow">
+              <ShieldCheck size={15} />
+              ADIRA-Master CRM
+            </span>
+            <h1>
+              Every candidate.
+              <span>One clear workflow.</span>
+            </h1>
+            <p>
+              Move from sourcing to review with a focused workspace built for recruitment teams.
+            </p>
+
+            <ul className="auth-benefits">
+              {LOGIN_BENEFITS.map((benefit) => (
+                <li key={benefit}>
+                  <CheckCircle2 size={17} />
+                  <span>{benefit}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="auth-story-foot">Recruitment operations, organised.</p>
+        </aside>
+
+        <main className="auth-access">
+          <button
+            type="button"
+            className="auth-theme-toggle"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+
+          <section className="auth-card" aria-labelledby="auth-title">
+            <div className="auth-mobile-logo">
+              <BrandLogo />
+            </div>
+
+            <header className="auth-head">
+              <span className="auth-secure-label">
+                <ShieldCheck size={14} /> Secure staff access
               </span>
-            </div>
+              <h2 id="auth-title">Welcome back</h2>
+              <p>Sign in to continue to ADIRA-Master CRM.</p>
+            </header>
 
-            <h1 className="login-title">Login</h1>
-            <p className="login-sub">Welcome back</p>
-          </header>
-
-          <form onSubmit={handleSubmit} noValidate>
-            <label className="login-label" htmlFor="login-email">
-              Email address
-            </label>
-            <div className="login-field">
-              <Mail size={16} />
-              <input
-                id="login-email"
-                type="email"
-                autoComplete="username"
-                className="login-input"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={busy}
-                autoFocus
-              />
-            </div>
-
-            <label className="login-label" htmlFor="login-password">
-              Password
-            </label>
-            <div className="login-field">
-              <Lock size={16} />
-              <input
-                id="login-password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                className="login-input"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={busy}
-              />
-              <button
-                type="button"
-                className="login-reveal"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-
-            {/* Genuinely functional: unchecked keeps the token in sessionStorage,
-                so it dies with the tab instead of persisting on a shared machine. */}
-            <label className="login-remember">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(e) => setRemember(e.target.checked)}
-                disabled={busy}
-              />
-              <span className="login-checkbox" aria-hidden="true" />
-              <span>Keep me signed in</span>
-            </label>
-
-            {/* role="alert" so screen readers announce a failed attempt */}
-            {error && (
-              <p className="login-error" role="alert">
-                <AlertCircle size={15} />
-                <span>{error}</span>
-              </p>
-            )}
-
-            <button type="submit" className="login-submit" disabled={busy}>
-              {busy ? (
-                <>
-                  <Loader2 size={17} className="login-spin" />
-                  <span>Logging in…</span>
-                </>
-              ) : (
-                <span>Login</span>
-              )}
-            </button>
-          </form>
-
-          {/* The super admin only. The API decides what is offered here, so a
-              deployment that turns demo mode off leaves nothing behind; staff
-              sign in with credentials an admin issues them, not from here. */}
-          {demoAccounts.length > 0 && (
-            <div className="login-demo">
-              <span className="login-demo-label">Demo account</span>
-
-              <div className="login-demo-grid">
-                {demoAccounts.map((account) => (
-                  <button
-                    key={account.email}
-                    type="button"
-                    className={`login-demo-btn is-${account.role}`}
-                    onClick={() => void signInWithDemo(account)}
-                    disabled={busy}
-                    title={`Sign in as ${account.email}`}
-                  >
-                    <span className="login-demo-icon">
-                      <ShieldCheck size={16} strokeWidth={2.2} />
-                    </span>
-                    <span className="login-demo-text">
-                      <strong>{account.label}</strong>
-                      <em>{account.description}</em>
-                      <code>
-                        {account.email} · {account.password}
-                      </code>
-                    </span>
-                  </button>
-                ))}
+            <form className="auth-form" onSubmit={handleSubmit} noValidate aria-busy={busy}>
+              <label className="auth-label" htmlFor="login-email">
+                Email address
+              </label>
+              <div className="auth-field">
+                <Mail size={18} aria-hidden="true" />
+                <input
+                  id="login-email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="you@company.com"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={busy}
+                  autoFocus
+                />
               </div>
-            </div>
-          )}
-        </div>
 
+              <label className="auth-label" htmlFor="login-password">
+                Password
+              </label>
+              <div className="auth-field">
+                <Lock size={18} aria-hidden="true" />
+                <input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  className="auth-reveal"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              <label className="auth-remember">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                  disabled={busy}
+                />
+                <span className="auth-checkbox" aria-hidden="true" />
+                <span>Keep me signed in on this device</span>
+              </label>
+
+              {error && (
+                <p className="auth-error" role="alert">
+                  <AlertCircle size={17} />
+                  <span>{error}</span>
+                </p>
+              )}
+
+              <button type="submit" className="auth-submit" disabled={busy}>
+                {busy ? (
+                  <>
+                    <Loader2 size={18} className="auth-spin" />
+                    <span>Signing in...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Sign in</span>
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {demoAccounts.length > 0 && (
+              <div className="auth-demo">
+                <div className="auth-divider">
+                  <span>Demo access</span>
+                </div>
+                <div className="auth-demo-grid">
+                  {demoAccounts.map((account) => (
+                    <button
+                      key={account.email}
+                      type="button"
+                      className="auth-demo-button"
+                      onClick={() => void signInWithDemo(account)}
+                      disabled={busy}
+                    >
+                      <span className="auth-demo-icon">
+                        <ShieldCheck size={17} />
+                      </span>
+                      <span className="auth-demo-copy">
+                        <strong>{account.label}</strong>
+                        <small>{account.description}</small>
+                      </span>
+                      <ArrowRight size={16} className="auth-demo-arrow" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <p className="auth-access-foot">Protected workspace · Authorised access only</p>
+        </main>
       </div>
     </div>
   );
