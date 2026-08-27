@@ -144,6 +144,7 @@ def api():
             "email": f"{user_id}@x.com",
             "name": user_id,
             "role": role,
+            "pages": ["candidates", "settings"],
         }
 
     with patch("app.api.routes.repo", return_value=repo), patch(

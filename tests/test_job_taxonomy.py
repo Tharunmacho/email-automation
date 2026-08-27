@@ -196,17 +196,17 @@ def test_an_admin_reaches_every_page():
 
 
 def test_a_staff_member_reaches_their_queue_and_account_settings_by_default():
-    assert pages_for("staff") == ["my-queue", "settings"]
+    assert pages_for("staff") == ["candidates", "settings"]
 
 
 def test_grants_add_and_never_subtract():
     granted = pages_for("staff", ["candidates", "job-orders"])
-    assert "my-queue" in granted, "a grant must not cost a staff member their own queue"
-    assert set(granted) == {"my-queue", "candidates", "job-orders", "settings"}
+    assert "candidates" in granted, "a grant must not cost a staff member their own queue"
+    assert set(granted) == {"candidates", "job-orders", "settings"}
 
 
 def test_a_grant_for_a_page_that_does_not_exist_is_ignored():
-    assert pages_for("staff", ["nonsense", "candidates"]) == ["candidates", "my-queue", "settings"]
+    assert pages_for("staff", ["nonsense", "candidates"]) == ["candidates", "settings"]
 
 
 def test_an_admins_grants_cannot_reduce_what_they_reach():

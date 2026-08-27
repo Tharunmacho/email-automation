@@ -712,7 +712,7 @@ export default function AdminStaffManagement({
         {/* The ring says what the percentage beside it is a percentage of —
             "8% evaluated" reads very differently against thirteen profiles
             than against nine hundred. */}
-        <section className="ds-stat is-static">
+        <section className="ds-stat is-static is-review-progress">
           <span className="ds-stat-top">
             <span className="ds-stat-label">Review progress</span>
           </span>
@@ -720,16 +720,20 @@ export default function AdminStaffManagement({
             size={104}
             centre={`${evaluatedPct}%`}
             slices={[
-              { label: "Evaluated", value: totals?.evaluated ?? 0, color: "var(--success)" },
+              {
+                label: "Evaluated",
+                value: totals?.evaluated ?? 0,
+                color: "var(--review-evaluated)",
+              },
               {
                 label: "Opened, not judged",
                 value: Math.max(
                   0,
                   (totals?.assigned ?? 0) - (totals?.evaluated ?? 0) - unopenedTotal,
                 ),
-                color: "rgb(var(--primary-rgb))",
+                color: "var(--review-opened)",
               },
-              { label: "Unopened", value: unopenedTotal, color: "var(--warning)" },
+              { label: "Unopened", value: unopenedTotal, color: "var(--review-unopened)" },
             ]}
           />
         </section>

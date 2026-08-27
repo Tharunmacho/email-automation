@@ -154,6 +154,20 @@ export default function Home() {
   // refresh a stale one without re-fetching a list that is seconds old.
   const lastRefreshRef = useRef(0);
 
+  /** The only destinations this account is allowed to discover or open. */
+  const reachableTabs = useMemo(
+    () =>
+      user
+        ? new Set(
+            navGroupsFor(user.role, user.pages).flatMap((group) =>
+              group.items.map((item) => item.id),
+            ),
+          )
+        : null,
+    [user],
+  );
+  const canReadCandidates = reachableTabs?.has("candidates") ?? false;
+
   // ---- helpers ---------------------------------------------------------- //
   /**
    * Two logs, and an entry belongs to exactly one of them. Anything scoped to a
@@ -240,7 +254,7 @@ export default function Home() {
 
   // ---- bootstrap -------------------------------------------------------- //
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canReadCandidates) return;
     let active = true;
 
     listCandidates().then(
@@ -279,7 +293,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [canReadCandidates, user]);
 
   /**
    * The backstop refresh: slow, and only when someone is actually looking.
@@ -291,7 +305,7 @@ export default function Home() {
    * of what it ingested.
    */
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canReadCandidates) return;
 
     const refreshIfIdle = () => {
       if (syncingRef.current) return;
@@ -314,7 +328,7 @@ export default function Home() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshCandidates, user]);
+  }, [canReadCandidates, refreshCandidates, user]);
 
   /**
    * The destination actually shown, which is not always the one in state.
@@ -325,21 +339,9 @@ export default function Home() {
    * on the first pass, where writing it back would render the wrong one first
    * and then correct itself a frame later.
    */
-  const reachableTabs = useMemo(
-    () =>
-      user
-        ? new Set(
-            navGroupsFor(user.role, user.pages).flatMap((group) =>
-              group.items.map((item) => item.id),
-            ),
-          )
-        : null,
-    [user],
-  );
-
   const currentTab = useMemo(() => {
     if (!user || !reachableTabs) return activeTab;
-    return reachableTabs.has(activeTab) ? activeTab : defaultNavFor(user.role);
+    return reachableTabs.has(activeTab) ? activeTab : defaultNavFor(user.role, user.pages);
   }, [user, reachableTabs, activeTab]);
 
   /**
@@ -377,7 +379,7 @@ export default function Home() {
             if (event.candidate?.id) next.add(event.candidate.id);
             return next;
           });
-          void refreshCandidates();
+          if (canReadCandidates) void refreshCandidates();
           break;
         }
         // The admin's copy of the same moment. Without this, the person who
@@ -385,7 +387,7 @@ export default function Home() {
         case "candidate_ingested": {
           showToast(event.message, "success");
           setRealtimeNonce((n) => n + 1);
-          void refreshCandidates();
+          if (canReadCandidates) void refreshCandidates();
           break;
         }
         case "sla_alert": {
@@ -402,7 +404,7 @@ export default function Home() {
           break;
       }
     },
-    [refreshCandidates, showToast],
+    [canReadCandidates, refreshCandidates, showToast],
   );
 
   const { status: realtimeStatus } = useRealtime(Boolean(user), handleRealtime);
@@ -445,6 +447,10 @@ export default function Home() {
 
   const handleNavigate = useCallback(
     (next: NavId) => {
+      // Internal dashboard cards may suggest another destination. Treat them
+      // exactly like the rail: if it was not granted, the click learns nothing
+      // and opens nothing.
+      if (!reachableTabs?.has(next)) return;
       setActiveTab(next);
       // Leaving for another destination closes whichever candidate screen was
       // open, so coming back lands on the list rather than mid-edit.
@@ -454,7 +460,7 @@ export default function Home() {
       setUsersOpenCreate(false);
       if (next === "candidates") void refreshCandidates();
     },
-    [refreshCandidates],
+    [reachableTabs, refreshCandidates],
   );
 
   /**
@@ -818,6 +824,7 @@ export default function Home() {
    * their queue — so the bell hands over an id and this decides.
    */
   const handleOpenCandidateById = (candidateId: string) => {
+    if (!reachableTabs?.has("candidates")) return;
     if (user?.role === "staff") {
       setActiveTab("candidates");
       setQueueFocusId(candidateId);
@@ -861,7 +868,7 @@ export default function Home() {
       <LoginScreen
         onSuccess={(u) => {
           setUser(u);
-          setActiveTab(defaultNavFor(u.role));
+          setActiveTab(defaultNavFor(u.role, u.pages));
         }}
       />
     );
@@ -877,7 +884,7 @@ export default function Home() {
         realtime={realtimeStatus}
         realtimeNonce={realtimeNonce}
         hasRail={hasRail}
-        onOpenCandidate={handleOpenCandidateById}
+        onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
         onSync={runPipeline}
         onToggleRail={() => setMobileOpen((open) => !open)}
       />

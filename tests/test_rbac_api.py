@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import app, current_user
+from app.api.routes import _has_page, app, current_user
 from app.core.models import CandidateProfile, CandidateRecord, SourceEmail, StoredResume
 
 
@@ -83,12 +83,13 @@ def api():
         ]
     )
 
-    def sign_in_as(role: str, user_id: str = "staff-1"):
+    def sign_in_as(role: str, user_id: str = "staff-1", pages: list[str] | None = None):
         app.dependency_overrides[current_user] = lambda: {
             "id": user_id,
             "email": f"{user_id}@x.com",
             "name": user_id,
             "role": role,
+            "pages": pages if pages is not None else ["candidates", "settings"],
         }
 
     with patch("app.api.routes.repo", return_value=repo):
@@ -226,7 +227,7 @@ def test_an_identity_document_never_confirms_someone_elses_candidate(api):
 
 
 # --------------------------------------------------------------------------- #
-#  Admin-only routes
+#  Pages the account was not granted
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "method,path",
@@ -242,14 +243,24 @@ def test_an_identity_document_never_confirms_someone_elses_candidate(api):
         ("post", "/sla/scan"),
     ],
 )
-def test_staff_are_refused_every_admin_route(api, method, path):
+def test_ungranted_pages_are_indistinguishable_from_missing_routes(api, method, path):
     api.sign_in_as("staff", "staff-1")
     # Only POST carries a body; the client rejects `json=` on GET and DELETE.
     kwargs = {"json": {}} if method == "post" else {}
     response = getattr(api, method)(path, **kwargs)
-    assert response.status_code == 403, (
-        f"{method.upper()} {path} answered {response.status_code}, not 403"
+    assert response.status_code == 404, (
+        f"{method.upper()} {path} answered {response.status_code}, not 404"
     )
+
+
+def test_a_granted_page_is_recognised_and_an_ungranted_page_is_not():
+    staff = {"role": "staff", "pages": ["candidates", "job-orders", "settings"]}
+    assert _has_page(staff, "job-orders") is True
+    assert _has_page(staff, "sourcing") is False
+
+
+def test_an_admin_reaches_every_page_even_with_an_old_session_shape():
+    assert _has_page({"role": "admin"}, "users") is True
 
 
 # --------------------------------------------------------------------------- #

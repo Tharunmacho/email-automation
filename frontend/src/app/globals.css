@@ -68,6 +68,12 @@
   --brand-word: #062d68;
   --brand-tagline: #b9003a;
 
+  /* One-blue review hierarchy: completion is solid, opened work is mid-tone,
+     and untouched work is the quietest tint of the same product accent. */
+  --review-evaluated: rgb(var(--primary-rgb));
+  --review-opened: rgba(var(--primary-rgb), 0.58);
+  --review-unopened: rgba(var(--primary-rgb), 0.22);
+
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
@@ -208,6 +214,10 @@
   --brand-word: #ffffff;
   --brand-tagline: #ffffff;
 
+  --review-evaluated: rgb(var(--primary-rgb));
+  --review-opened: rgba(var(--primary-rgb), 0.68);
+  --review-unopened: rgba(var(--primary-rgb), 0.38);
+
   /* True black canvas with neutral charcoal elevation. */
   --bg-main: #000000;
   --bg-card: #080808;
@@ -326,12 +336,13 @@
 
 
 
-/* One vector lockup serves every brand placement. Its parent sets the mark and
-   type sizes; the internal geometry keeps the symbol and wordmark optically
-   centred, while the theme tokens produce the supplied colour/white variants. */
+/* The six supplied logo files keep their original pixels and transparent
+   canvases. These frames only crop that empty canvas and align the three pieces
+   into one lockup; no replacement shapes, fonts or recolouring are applied. */
 .brand-lockup {
   display: inline-flex;
   align-items: center;
+  justify-content: inherit;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -339,54 +350,105 @@
   line-height: 1;
 }
 
-.brand-mark {
+.brand-piece {
+  position: relative;
   display: block;
+  flex: none;
+  overflow: hidden;
+}
+
+.brand-mark {
   width: var(--brand-mark-size, 44px);
-  height: var(--brand-mark-size, 44px);
+  height: calc(var(--brand-mark-size, 44px) * 0.86322);
   flex: 0 0 var(--brand-mark-size, 44px);
-  overflow: visible;
 }
 
-.brand-mark-left {
-  fill: var(--brand-mark-left);
+.brand-art {
+  position: absolute;
+  display: block;
+  max-width: none;
+  height: auto;
+  user-select: none;
+  pointer-events: none;
 }
 
-.brand-mark-right {
-  fill: var(--brand-mark-right);
+.brand-art.is-dark {
+  display: none;
 }
 
 .brand-copy {
   display: flex;
-  flex: 1 1 auto;
+  flex: none;
+  width: calc(var(--brand-name-size, 0.88rem) * 7.40976);
   min-width: 0;
   flex-direction: column;
   justify-content: center;
-  align-items: flex-start;
-  transform: translateY(-0.02em);
-}
-
-.brand-name,
-.brand-tagline {
-  display: block;
-  max-width: 100%;
-  white-space: nowrap;
+  align-items: center;
 }
 
 .brand-name {
-  color: var(--brand-word);
-  font-family: var(--font-outfit), sans-serif;
-  font-size: var(--brand-name-size, 0.88rem);
-  font-weight: 800;
-  letter-spacing: -0.055em;
+  width: 100%;
+  height: var(--brand-name-size, 0.88rem);
 }
 
 .brand-tagline {
+  width: 90%;
+  aspect-ratio: 1368 / 94;
   margin-top: var(--brand-tag-gap, 0.28rem);
-  color: var(--brand-tagline);
-  font-family: var(--font-outfit), sans-serif;
-  font-size: var(--brand-tag-size, 0.38rem);
-  font-weight: 800;
-  letter-spacing: 0.22em;
+}
+
+/* Transparent-canvas crop coordinates for the supplied light artwork. */
+.brand-mark .brand-art.is-light {
+  width: 291.79331%;
+  left: -95.89666%;
+  top: -38.38028%;
+}
+
+.brand-name .brand-art.is-light {
+  width: 126.39895%;
+  left: -13.29822%;
+  top: -219.5122%;
+}
+
+.brand-tagline .brand-art.is-light {
+  width: 140.35088%;
+  left: -20.61404%;
+  top: -529.78723%;
+}
+
+[data-theme="dark"] .brand-art.is-light {
+  display: none;
+}
+
+[data-theme="dark"] .brand-art.is-dark {
+  display: block;
+}
+
+[data-theme="dark"] .brand-mark {
+  height: calc(var(--brand-mark-size, 44px) * 0.86806);
+}
+
+[data-theme="dark"] .brand-tagline {
+  aspect-ratio: 852 / 58;
+}
+
+/* Transparent-canvas crop coordinates for the supplied white artwork. */
+[data-theme="dark"] .brand-mark .brand-art.is-dark {
+  width: 266.66667%;
+  left: -84.44444%;
+  top: -36.16%;
+}
+
+[data-theme="dark"] .brand-name .brand-art.is-dark {
+  width: 166.08997%;
+  left: -32.95848%;
+  top: -294.87179%;
+}
+
+[data-theme="dark"] .brand-tagline .brand-art.is-dark {
+  width: 225.35211%;
+  left: -64.43662%;
+  top: -779.31034%;
 }
 
 /* The brand block. Pinned to `--app-header-h` and closed with the same
@@ -428,7 +490,7 @@
    square, so the box it sits in is square too — a 48x60 slot would letterbox
    the mark and float it off the vertical centre of the 68px stub. */
 .rail.is-collapsed .rail-logo {
-  --brand-mark-size: 42px;
+  --brand-mark-size: 40px;
   width: 40px;
   height: 40px;
   justify-content: center;
@@ -15107,6 +15169,28 @@ body {
 .ds-donut-legend strong {
   color: var(--text-main);
   font-variant-numeric: tabular-nums;
+}
+
+.ds-stat.is-review-progress {
+  border-color: rgba(var(--primary-rgb), 0.2);
+  background:
+    linear-gradient(145deg, rgba(var(--primary-rgb), 0.075), transparent 58%),
+    var(--bg-card);
+}
+
+.ds-stat.is-review-progress .ds-stat-label {
+  color: var(--primary);
+}
+
+.ds-stat.is-review-progress .ds-donut {
+  flex-wrap: nowrap;
+}
+
+.ds-stat.is-review-progress .ds-donut-legend li {
+  min-height: 24px;
+  padding: 0.18rem 0.38rem;
+  border-radius: 7px;
+  background: rgba(var(--primary-rgb), 0.045);
 }
 
 /* --- the table, in the same register -------------------------------------- */

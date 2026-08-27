@@ -33,16 +33,12 @@ USERS_COLLECTION = "users"
 PAGES = (
     "overview",
     "candidates",
-    "my-queue",
     "staff",
     "job-orders",
     "sourcing",
     "b2b-enquiries",
     "data-management",
     "users",
-    "visualizer",
-    "resume-parser",
-    "activity",
     "settings",
 )
 
@@ -61,7 +57,7 @@ PAGES = (
 #: their own work in a different screen, not the whole database's PII.
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
-    STAFF_ROLE: {"my-queue", "settings"},
+    STAFF_ROLE: {"candidates", "settings"},
 }
 
 

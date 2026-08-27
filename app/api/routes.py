@@ -183,6 +183,33 @@ def require_admin(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def _has_page(user: dict, *pages: str) -> bool:
+    """Whether this session may reach at least one named application page."""
+    if user.get("role") == ADMIN_ROLE:
+        return True
+    allowed = set(user.get("pages") or [])
+    # Sessions issued before My Candidates and Candidates became one page may
+    # still carry the old id until their next refresh.
+    if "my-queue" in allowed:
+        allowed.add("candidates")
+    return any(page in allowed for page in pages)
+
+
+def require_page(*pages: str):
+    """FastAPI dependency for a page-level permission.
+
+    Missing access is deliberately a 404. A user who was not granted a section
+    must not be able to distinguish its API from an endpoint that does not
+    exist, which matches the navigation removing the section altogether.
+    """
+    def dependency(user: dict = Depends(current_user)) -> dict:
+        if not _has_page(user, *pages):
+            raise HTTPException(status_code=404, detail="Not found")
+        return user
+
+    return dependency
+
+
 def _staff_scope(user: dict) -> str | None:
     """Return the staff_id when scoped to a staff member, or None for admin."""
     return user["id"] if user.get("role") == STAFF_ROLE else None
@@ -280,7 +307,7 @@ def list_candidates(
         description="'list' for the directory row; 'minimal' for id/name/email/"
                     "phone/status/confidence/created_at only.",
     ),
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_page("candidates")),
 ) -> dict:
     """A page of candidates, projected in the database and scoped to the caller.
 
@@ -316,7 +343,7 @@ def list_candidates(
 
 
 @app.get("/candidates/{candidate_id}")
-def get_candidate(candidate_id: str, user: dict = Depends(current_user)) -> dict:
+def get_candidate(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
     """The whole record, OCR payload included. The only place that serves it."""
     record = _owned_or_404(candidate_id, user)
     return record.model_dump(mode="json")
@@ -347,7 +374,7 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
 
 
 @app.get("/candidates/{candidate_id}/resume")
-def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Response:
+def download_resume(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> Response:
     record = _owned_or_404(candidate_id, user)
     if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
@@ -416,7 +443,7 @@ def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> Non
 def delete_candidate(
     candidate_id: str,
     background: BackgroundTasks,
-    _user: dict = Depends(current_user),
+    _user: dict = Depends(require_admin),
 ) -> dict:
     rec = repo().get(candidate_id)
     if not rec:
@@ -474,7 +501,7 @@ _inline_poll_lock = threading.Lock()
 
 
 @app.post("/ingest/poll")
-def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
+def trigger_poll(query: str | None = None, _user: dict = Depends(require_admin)) -> dict:
     """Run one Gmail poll cycle inline and return its summary.
 
     Blocks for the whole batch (OCR + LLM per attachment), so it only suits
@@ -548,7 +575,7 @@ def ingest_rules(_user: dict = Depends(require_admin)) -> dict:
 # ---- Background ingestion ------------------------------------------------- #
 # ---- Multipass OCR state machine ------------------------------------------ #
 @app.get("/ingest/ocr-state")
-def ocr_state(_user: dict = Depends(current_user)) -> dict:
+def ocr_state(_user: dict = Depends(require_admin)) -> dict:
     """How much OCR work is in flight, and how much of it is stuck.
 
     One number matters more than the rest: `abandoned`. Everything else drains
@@ -596,7 +623,7 @@ def ocr_state(_user: dict = Depends(current_user)) -> dict:
 
 
 @app.get("/ingest/ocr-state/review")
-def ocr_review_queue(limit: int = 100, _user: dict = Depends(current_user)) -> dict:
+def ocr_review_queue(limit: int = 100, _user: dict = Depends(require_admin)) -> dict:
     """The rows that exhausted their retries and now need a human."""
     from app.tasks.reconciler import review_queue
 
@@ -636,7 +663,7 @@ def retry_ocr_row(row_id: str, _user: dict = Depends(require_admin)) -> dict:
 
 
 @app.get("/candidates/{candidate_id}/identity")
-def candidate_identity_documents(candidate_id: str, user: dict = Depends(current_user)) -> dict:
+def candidate_identity_documents(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
     """The Aadhaar and passport read out of this candidate's application.
 
     Numbers are masked unless the caller is an administrator. A recruiter needs
@@ -707,7 +734,7 @@ def download_identity_document(
     candidate_id: str,
     document_type: str,
     record_id: str,
-    user: dict = Depends(current_user),
+    user: dict = Depends(require_page("candidates")),
 ) -> Response:
     """The Aadhaar or passport scan itself, as a download.
 
@@ -768,7 +795,7 @@ def download_identity_document(
 
 
 @app.get("/ingest/workers")
-def ingest_workers(_user: dict = Depends(current_user)) -> dict:
+def ingest_workers(_user: dict = Depends(require_admin)) -> dict:
     """Lets the frontend pick the async path only when it will actually work."""
     from app.tasks.health import workers_online
 
@@ -776,7 +803,7 @@ def ingest_workers(_user: dict = Depends(current_user)) -> dict:
 
 
 @app.post("/ingest/poll/async")
-def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
+def trigger_poll_async(query: str | None = None, _user: dict = Depends(require_admin)) -> dict:
     """Queue a poll cycle on a worker and return immediately with its task id."""
     from app.tasks.health import reset_cache, workers_online
 
@@ -802,7 +829,7 @@ def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_u
 
 
 @app.get("/ingest/tasks/{task_id}")
-def ingest_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
+def ingest_task_status(task_id: str, _user: dict = Depends(require_admin)) -> dict:
     """Poll a queued cycle. `result` is the batch summary once state is SUCCESS."""
     try:
         from app.tasks.celery_app import celery_app
@@ -827,7 +854,7 @@ def ingest_task_status(task_id: str, _user: dict = Depends(current_user)) -> dic
 
 
 @app.put("/candidates/{candidate_id}")
-def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user: dict = Depends(current_user)) -> dict:
+def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user: dict = Depends(require_admin)) -> dict:
     """Update a candidate's structured profile (e.g. to correct fields during verification)."""
     repository = repo()
     record = repository.get(candidate_id)
@@ -839,7 +866,7 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
 
 
 @app.post("/candidates/{candidate_id}/verify")
-def verify_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> dict:
+def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
     """Verify a candidate's profile, marking their status as 'verified'."""
     repository = repo()
     record = repository.get(candidate_id)
@@ -852,7 +879,7 @@ def verify_candidate(candidate_id: str, _user: dict = Depends(current_user)) -> 
 
 # ---- Sourcing Clients DB Endpoints ---------------------------------------- #
 @app.get("/sourcing-clients")
-def list_sourcing_clients(_user: dict = Depends(current_user)) -> dict:
+def list_sourcing_clients(_user: dict = Depends(require_page("sourcing"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["sourcing_clients"]
     items = list(coll.find({}, {"_id": 0}))
@@ -860,7 +887,7 @@ def list_sourcing_clients(_user: dict = Depends(current_user)) -> dict:
 
 
 @app.post("/sourcing-clients")
-def create_sourcing_client(client_data: dict, _user: dict = Depends(current_user)) -> dict:
+def create_sourcing_client(client_data: dict, _user: dict = Depends(require_page("sourcing"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["sourcing_clients"]
     client_id = client_data.get("id")
@@ -872,7 +899,7 @@ def create_sourcing_client(client_data: dict, _user: dict = Depends(current_user
 
 
 @app.delete("/sourcing-clients/{client_id}")
-def delete_sourcing_client(client_id: str, _user: dict = Depends(current_user)) -> dict:
+def delete_sourcing_client(client_id: str, _user: dict = Depends(require_page("sourcing"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["sourcing_clients"]
     coll.delete_one({"id": client_id})
@@ -881,7 +908,7 @@ def delete_sourcing_client(client_id: str, _user: dict = Depends(current_user)) 
 
 # ---- Job Orders DB Endpoints --------------------------------------------- #
 @app.get("/job-orders")
-def list_job_orders(_user: dict = Depends(current_user)) -> dict:
+def list_job_orders(_user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]
     items = list(coll.find({}, {"_id": 0}))
@@ -889,7 +916,7 @@ def list_job_orders(_user: dict = Depends(current_user)) -> dict:
 
 
 @app.post("/job-orders")
-def create_job_order(order_data: dict, _user: dict = Depends(current_user)) -> dict:
+def create_job_order(order_data: dict, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]
     order_id = order_data.get("id")
@@ -901,7 +928,7 @@ def create_job_order(order_data: dict, _user: dict = Depends(current_user)) -> d
 
 
 @app.put("/job-orders/{order_id}")
-def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(current_user)) -> dict:
+def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]
     coll.replace_one({"id": order_id}, order_data, upsert=True)
@@ -909,7 +936,7 @@ def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(curr
 
 
 @app.delete("/job-orders/{order_id}")
-def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict:
+def delete_job_order(order_id: str, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]
     coll.delete_one({"id": order_id})
@@ -924,10 +951,9 @@ def delete_job_order(order_id: str, _user: dict = Depends(current_user)) -> dict
 #  the integration section; these are the endpoints the screen uses, and they
 #  take a staff session.
 #
-#  Admin-only, unlike the sourcing and job-order endpoints beside them. An
-#  enquiry carries a company's contact details and its hiring plans before the
-#  agency has agreed to anything, and a staff account exists to review the
-#  candidates allocated to it — there is no version of that job that needs this.
+#  Visible only to accounts explicitly granted the B2B Enquiries page. An
+#  enquiry carries a company's contact details and its hiring plans, so a user
+#  without that page receives the same 404 as an endpoint that does not exist.
 # --------------------------------------------------------------------------- #
 
 
@@ -1017,7 +1043,7 @@ class ConvertEnquiryIn(BaseModel):
 def list_b2b_enquiries(
     status: str | None = Query(default=None),
     limit: int = Query(default=500, ge=1, le=2000),
-    _user: dict = Depends(require_admin),
+    _user: dict = Depends(require_page("b2b-enquiries")),
 ) -> dict:
     """Every enquiry, newest first, with the per-state counts beside them.
 
@@ -1032,7 +1058,7 @@ def list_b2b_enquiries(
 
 
 @app.post("/b2b-enquiries/manual", status_code=201)
-def create_manual_b2b_enquiry(payload: EnquiryIn, user: dict = Depends(require_admin)) -> dict:
+def create_manual_b2b_enquiry(payload: EnquiryIn, user: dict = Depends(require_page("b2b-enquiries"))) -> dict:
     """Log an enquiry that arrived some other way — a phone call, an email.
 
     A separate path from the bot's POST /b2b-enquiries rather than a flag on
@@ -1049,7 +1075,7 @@ def create_manual_b2b_enquiry(payload: EnquiryIn, user: dict = Depends(require_a
 
 
 @app.get("/b2b-enquiries/{enquiry_id}")
-def get_b2b_enquiry(enquiry_id: str, _user: dict = Depends(require_admin)) -> dict:
+def get_b2b_enquiry(enquiry_id: str, _user: dict = Depends(require_page("b2b-enquiries"))) -> dict:
     from app.db.b2b_enquiries import get_enquiry
 
     doc = get_enquiry(enquiry_id)
@@ -1060,7 +1086,7 @@ def get_b2b_enquiry(enquiry_id: str, _user: dict = Depends(require_admin)) -> di
 
 @app.patch("/b2b-enquiries/{enquiry_id}")
 def update_b2b_enquiry(
-    enquiry_id: str, payload: EnquiryPatch, user: dict = Depends(require_admin)
+    enquiry_id: str, payload: EnquiryPatch, user: dict = Depends(require_page("b2b-enquiries"))
 ) -> dict:
     """Edit an enquiry, or move it along.
 
@@ -1088,7 +1114,7 @@ def update_b2b_enquiry(
 
 @app.post("/b2b-enquiries/{enquiry_id}/convert", status_code=201)
 def convert_b2b_enquiry(
-    enquiry_id: str, payload: ConvertEnquiryIn, user: dict = Depends(require_admin)
+    enquiry_id: str, payload: ConvertEnquiryIn, user: dict = Depends(require_page("b2b-enquiries"))
 ) -> dict:
     """Turn an enquiry into a job order the agency has committed to.
 
@@ -1156,7 +1182,7 @@ def convert_b2b_enquiry(
 
 
 @app.delete("/b2b-enquiries/{enquiry_id}")
-def delete_b2b_enquiry(enquiry_id: str, user: dict = Depends(require_admin)) -> dict:
+def delete_b2b_enquiry(enquiry_id: str, user: dict = Depends(require_page("b2b-enquiries"))) -> dict:
     """Remove an enquiry outright — a duplicate, or a wrong number.
 
     Deletion, not closure. `closed` is the answer for an enquiry that was real
@@ -1197,14 +1223,14 @@ class UpdateStaffRequest(BaseModel):
 @app.get("/staff")
 def list_staff(
     include_inactive: bool = Query(True),
-    _admin: dict = Depends(require_admin),
+    _admin: dict = Depends(require_page("staff")),
 ) -> dict:
     staff_items = users.list_staff(include_inactive=include_inactive)
     return {"count": len(staff_items), "items": [u.to_public() for u in staff_items]}
 
 
 @app.get("/staff/workload")
-def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
+def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     """The workload matrix: one row per staff member, plus the totals.
 
     Every account, deactivated ones included. It used to be the active roster
@@ -1257,7 +1283,7 @@ def staff_workload(_admin: dict = Depends(require_admin)) -> dict:
 
 @app.post("/staff")
 def create_staff(
-    payload: CreateStaffRequest, _admin: dict = Depends(require_admin)
+    payload: CreateStaffRequest, _admin: dict = Depends(require_page("staff"))
 ) -> dict:
     """Add a staff account to the roster. Nothing is reallocated.
 
@@ -1288,7 +1314,7 @@ def create_staff(
 
 @app.patch("/staff/{staff_id}")
 def update_staff(
-    staff_id: str, payload: UpdateStaffRequest, _admin: dict = Depends(require_admin)
+    staff_id: str, payload: UpdateStaffRequest, _admin: dict = Depends(require_page("staff"))
 ) -> dict:
     try:
         user = users.update_staff(
@@ -1316,7 +1342,7 @@ def update_staff(
 def delete_staff(
     staff_id: str,
     rebalance: bool = Query(True),
-    _admin: dict = Depends(require_admin),
+    _admin: dict = Depends(require_page("staff")),
 ) -> dict:
     """Remove a staff account and deal with the queue it leaves behind.
 
@@ -1354,7 +1380,7 @@ class AssignRequest(BaseModel):
 
 @app.post("/candidates/{candidate_id}/assign")
 def assign_candidate_route(
-    candidate_id: str, payload: AssignRequest, _admin: dict = Depends(require_admin)
+    candidate_id: str, payload: AssignRequest, _admin: dict = Depends(require_page("staff"))
 ) -> dict:
     member = users.get(payload.staff_id)
     if not member or member.role != STAFF_ROLE or not member.active:
@@ -1398,7 +1424,7 @@ def assign_candidate_route(
 
 
 @app.post("/candidates/{candidate_id}/auto-assign")
-def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_admin)) -> dict:
+def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_page("staff"))) -> dict:
     repository = repo()
     record = repository.get(candidate_id)
     if not record:
@@ -1417,7 +1443,7 @@ def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_admi
 
 
 @app.post("/candidates/rebalance")
-def rebalance_candidates(_admin: dict = Depends(require_admin)) -> dict:
+def rebalance_candidates(_admin: dict = Depends(require_page("staff"))) -> dict:
     """Level untouched profiles across the roster. Reviewed work stays put."""
     result = rebalance_all()
     if result.get("status") == "error":
@@ -1426,7 +1452,7 @@ def rebalance_candidates(_admin: dict = Depends(require_admin)) -> dict:
 
 
 @app.post("/candidates/rehome-orphans")
-def rehome_orphaned_candidates(_admin: dict = Depends(require_admin)) -> dict:
+def rehome_orphaned_candidates(_admin: dict = Depends(require_page("staff"))) -> dict:
     """Re-home profiles stranded on a deleted account, verdicts intact.
 
     Separate from `/candidates/rebalance` because it does the opposite thing to
@@ -1450,7 +1476,7 @@ class EvaluationRequest(BaseModel):
 
 
 @app.post("/candidates/{candidate_id}/view")
-def mark_candidate_viewed(candidate_id: str, user: dict = Depends(current_user)) -> dict:
+def mark_candidate_viewed(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
     _owned_or_404(candidate_id, user)
     stamped = repo().mark_viewed(candidate_id, staff_id=_staff_scope(user))
     return {"status": "ok", "candidate_id": candidate_id, "first_view": stamped}
@@ -1458,7 +1484,7 @@ def mark_candidate_viewed(candidate_id: str, user: dict = Depends(current_user))
 
 @app.post("/candidates/{candidate_id}/evaluate")
 def evaluate_candidate(
-    candidate_id: str, payload: EvaluationRequest, user: dict = Depends(current_user)
+    candidate_id: str, payload: EvaluationRequest, user: dict = Depends(require_page("candidates"))
 ) -> dict:
     if payload.status not in EVALUATION_STATUSES:
         raise HTTPException(
@@ -1519,32 +1545,32 @@ def mark_notifications_read(
 def list_sla_alerts(
     status: str = Query("active", pattern="^(active|resolved|all)$"),
     limit: int = Query(100, ge=1, le=500),
-    _admin: dict = Depends(require_admin),
+    _admin: dict = Depends(require_page("staff")),
 ) -> dict:
     items = sla_checker.list_alerts(status=None if status == "all" else status, limit=limit)
     return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
 
 
 @app.get("/sla/breaches")
-def current_sla_breaches(_admin: dict = Depends(require_admin)) -> dict:
+def current_sla_breaches(_admin: dict = Depends(require_page("staff"))) -> dict:
     items = sla_checker.find_breaches()
     return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
 
 
 @app.post("/sla/scan")
-def run_sla_scan(_admin: dict = Depends(require_admin)) -> dict:
+def run_sla_scan(_admin: dict = Depends(require_page("staff"))) -> dict:
     return sla_checker.scan()
 
 
 # ---- Background ingestion ------------------------------------------------- #
 @app.get("/ingest/workers")
-def ingest_workers(_user: dict = Depends(current_user)) -> dict:
+def ingest_workers(_user: dict = Depends(require_admin)) -> dict:
     from app.tasks.health import workers_online
     return {"available": workers_online()}
 
 
 @app.post("/ingest/poll/async")
-def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
+def trigger_poll_async(query: str | None = None, _user: dict = Depends(require_admin)) -> dict:
     from app.tasks.health import reset_cache, workers_online
 
     if not workers_online():
@@ -1566,7 +1592,7 @@ def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_u
 
 
 @app.get("/ingest/tasks/{task_id}")
-def poll_task_status(task_id: str, _user: dict = Depends(current_user)) -> dict:
+def poll_task_status(task_id: str, _user: dict = Depends(require_admin)) -> dict:
     from app.tasks.celery_app import celery_app
 
     result = celery_app.AsyncResult(task_id)
@@ -2363,14 +2389,14 @@ class JobQuestionIn(BaseModel):
 
 
 @app.get("/job-designations")
-def list_job_designations(_user: dict = Depends(require_admin)) -> dict:
+def list_job_designations(_user: dict = Depends(require_page("data-management"))) -> dict:
     from app.db.taxonomy import list_jobs
 
     return {"items": list_jobs()}
 
 
 @app.post("/job-designations")
-def save_job_designation(payload: JobDesignationIn, user: dict = Depends(require_admin)) -> dict:
+def save_job_designation(payload: JobDesignationIn, user: dict = Depends(require_page("data-management"))) -> dict:
     """Create a job, or edit one that exists.
 
     The id is generated from the title on creation and is immutable afterwards.
@@ -2427,7 +2453,7 @@ def save_job_designation(payload: JobDesignationIn, user: dict = Depends(require
 
 
 @app.delete("/job-designations/{job_id}")
-def retire_job_designation(job_id: str, _user: dict = Depends(require_admin)) -> dict:
+def retire_job_designation(job_id: str, _user: dict = Depends(require_page("data-management"))) -> dict:
     """Retire a job. It is deactivated, never erased — candidates point at it."""
     from app.db.taxonomy import delete_job
 
@@ -2437,14 +2463,14 @@ def retire_job_designation(job_id: str, _user: dict = Depends(require_admin)) ->
 
 
 @app.get("/countries")
-def list_country_rows(_user: dict = Depends(require_admin)) -> dict:
+def list_country_rows(_user: dict = Depends(require_page("data-management"))) -> dict:
     from app.db.taxonomy import list_countries
 
     return {"items": list_countries()}
 
 
 @app.post("/countries")
-def save_country(payload: CountryIn, user: dict = Depends(require_admin)) -> dict:
+def save_country(payload: CountryIn, user: dict = Depends(require_page("data-management"))) -> dict:
     from app.db.taxonomy import country_doc, slugify, upsert_country
 
     doc = country_doc(
@@ -2465,7 +2491,7 @@ def save_country(payload: CountryIn, user: dict = Depends(require_admin)) -> dic
 
 
 @app.delete("/countries/{country_id}")
-def retire_country(country_id: str, _user: dict = Depends(require_admin)) -> dict:
+def retire_country(country_id: str, _user: dict = Depends(require_page("data-management"))) -> dict:
     from app.db.taxonomy import delete_country
 
     if not delete_country(country_id):
@@ -2475,7 +2501,7 @@ def retire_country(country_id: str, _user: dict = Depends(require_admin)) -> dic
 
 @app.get("/job-questions")
 def list_all_job_questions(
-    job_id: str | None = Query(default=None), _user: dict = Depends(require_admin)
+    job_id: str | None = Query(default=None), _user: dict = Depends(require_page("data-management"))
 ) -> dict:
     from app.db.taxonomy import list_job_questions
 
@@ -2483,7 +2509,7 @@ def list_all_job_questions(
 
 
 @app.post("/job-questions")
-def save_job_question(payload: JobQuestionIn, user: dict = Depends(require_admin)) -> dict:
+def save_job_question(payload: JobQuestionIn, user: dict = Depends(require_page("data-management"))) -> dict:
     """A question the bot asks candidates who choose this job."""
     from app.db.taxonomy import get_job, question_doc, upsert_job_question
 
@@ -2506,7 +2532,7 @@ def save_job_question(payload: JobQuestionIn, user: dict = Depends(require_admin
 
 
 @app.delete("/job-questions/{question_id}")
-def remove_job_question(question_id: str, _user: dict = Depends(require_admin)) -> dict:
+def remove_job_question(question_id: str, _user: dict = Depends(require_page("data-management"))) -> dict:
     from app.db.taxonomy import delete_job_question
 
     if not delete_job_question(question_id):
@@ -2515,7 +2541,7 @@ def remove_job_question(question_id: str, _user: dict = Depends(require_admin)) 
 
 
 @app.get("/job-designations/{job_id}/cv-matrix")
-def job_cv_matrix(job_id: str, _user: dict = Depends(require_admin)) -> dict:
+def job_cv_matrix(job_id: str, _user: dict = Depends(require_page("data-management"))) -> dict:
     """What this job's rules actually resolve to, country by country.
 
     The admin form takes a default and a handful of exceptions; what a recruiter
@@ -2741,11 +2767,9 @@ def bot_assignment_summary(
 #  Accounts and what each of them may reach. Two things an admin does here:
 #  create a user, and decide which pages that user sees.
 #
-#  Permissions add; they never subtract. A grant puts a page on someone's rail,
-#  and it does not widen what they are allowed to see once they are on it — a
-#  staff member with the Candidates page still sees only the candidates
-#  allocated to them, because that restriction lives in the API's own scoping
-#  and not in the menu.
+#  A grant puts a page on someone's rail and unlocks that page's own API. It
+#  does not weaken record-level isolation: Candidates remains scoped to the
+#  staff member's allocated profiles.
 # --------------------------------------------------------------------------- #
 
 
@@ -2774,7 +2798,7 @@ class UserPatch(BaseModel):
 
 
 @app.get("/users")
-def list_users(_user: dict = Depends(require_admin)) -> dict:
+def list_users(_user: dict = Depends(require_page("users"))) -> dict:
     """Every account, and the pages each one reaches."""
     from app.db.users import PAGES
 
@@ -2787,7 +2811,7 @@ def list_users(_user: dict = Depends(require_admin)) -> dict:
 
 
 @app.post("/users", status_code=201)
-def create_user(payload: UserIn, admin: dict = Depends(require_admin)) -> dict:
+def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -> dict:
     from app.db.users import ADMIN_ROLE as _ADMIN, STAFF_ROLE as _STAFF
 
     role = payload.role if payload.role in (_ADMIN, _STAFF) else _STAFF
@@ -2812,7 +2836,7 @@ def create_user(payload: UserIn, admin: dict = Depends(require_admin)) -> dict:
 
 
 @app.patch("/users/{user_id}")
-def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_admin)) -> dict:
+def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_page("users"))) -> dict:
     """Edit an account, including which pages it reaches.
 
     Two guards, and both exist to stop an admin locking everybody out with one

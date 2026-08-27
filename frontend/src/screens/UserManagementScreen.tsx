@@ -42,9 +42,8 @@ import {
 /**
  * Human labels for the page ids the API hands back.
  *
- * Every id in `PAGES` in `app/db/users.py` needs an entry here. Two of them —
- * `visualizer` and `resume-parser` — had none, so the permission list was
- * printing the raw ids in among the labelled rows.
+ * Every id in `PAGES` in `app/db/users.py` needs an entry here. Keeping the
+ * vocabulary exact means an admin can never grant a page that has no screen.
  */
 const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
@@ -55,9 +54,19 @@ const PAGE_LABELS: Record<string, string> = {
   "b2b-enquiries": "B2B Enquiries",
   "data-management": "Data Management",
   users: "User Management",
-  visualizer: "Visualizer",
-  "resume-parser": "Résumé Parser",
   settings: "Settings",
+};
+
+const PAGE_DESCRIPTIONS: Record<string, string> = {
+  overview: "Pipeline summary and performance overview",
+  candidates: "Assigned candidate profiles and reviews",
+  staff: "Staff roster, workload and candidate assignment controls",
+  "job-orders": "View and manage client job orders",
+  sourcing: "View and manage sourcing clients",
+  "b2b-enquiries": "View and manage incoming business enquiries",
+  "data-management": "Manage jobs, countries and screening questions",
+  users: "Create accounts and change page access — high privilege",
+  settings: "Personal account details",
 };
 
 /**
@@ -82,8 +91,6 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
       "sourcing",
       "b2b-enquiries",
       "data-management",
-      "visualizer",
-      "resume-parser",
     ],
   },
   { label: "Support", pages: ["settings"] },
@@ -261,7 +268,7 @@ export default function UserManagementScreen({
           <div>
             <h3 className="db-card-title">Accounts matrix</h3>
             <p className="db-card-sub">
-              {users.length} total accounts. A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
+              {users.length} total accounts. Checked pages are visible; unchecked pages are completely hidden from that account.
             </p>
           </div>
         </header>
@@ -679,10 +686,9 @@ function EditUserModal({
 /**
  * The page checkboxes.
  *
- * A page the role already reaches is shown ticked and disabled rather than
- * hidden: an admin looking at a staff account needs to see that "My Candidates"
- * is there without being able to take it away, because taking it away is not
- * something this system can express — grants add.
+ * A page the role already reaches is shown ticked and locked. Staff always need
+ * their assigned Candidates and personal Settings; every other destination is
+ * controlled exactly by its checkbox.
  */
 function PagePicker({
   role,
@@ -725,7 +731,7 @@ function PagePicker({
           <p className="modal-hint">
             {isAdmin
               ? "A Super Admin reaches every page, including this one. Nothing to choose."
-              : "Ticking a page puts it on their rail. It does not change what the page shows them — a staff member still sees only the candidates allocated to them."}
+              : "Checked pages appear in their navigation after refresh. Unchecked pages are completely hidden. Candidates still shows only profiles assigned to that staff member."}
           </p>
         </div>
         {/* A running count, because the answer to "what does this account
@@ -745,14 +751,22 @@ function PagePicker({
                 <Checkbox
                   key={page}
                   checked={grants.includes(page)}
-                  // An admin reaches everything and a staff member always
-                  // reaches their own queue: both are "on because the role says
-                  // so", which is what `locked` draws — a padlock, not a greyed
-                  // tick that reads as unavailable.
+                  // Required role pages use a lock. Optional pages say exactly
+                  // whether the user will see or not see the destination.
                   locked={isAdmin || inFloor}
                   onChange={() => toggle(page)}
                   label={PAGE_LABELS[page] ?? page}
-                  hint={inFloor && !isAdmin ? "Always on their rail" : undefined}
+                  hint={
+                    <>
+                      {PAGE_DESCRIPTIONS[page] ?? "Application section"}
+                      {" · "}
+                      {inFloor && !isAdmin
+                        ? "Required for staff — always visible"
+                        : grants.includes(page)
+                          ? "Visible in this user’s navigation"
+                          : "Hidden completely from this user"}
+                    </>
+                  }
                 />
               );
             })}

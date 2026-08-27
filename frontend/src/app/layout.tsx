@@ -22,8 +22,8 @@ const display = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Adira",
-  description: "Candidate sourcing, email extraction, and resume parsing in one workspace.",
+  title: "ADIRA-Master CRM",
+  description: "ADIRA-Master CRM for candidate sourcing, recruitment operations, and review.",
 };
 
 export default function RootLayout({

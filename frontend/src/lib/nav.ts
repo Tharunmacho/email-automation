@@ -127,12 +127,9 @@ export const NAV_GROUPS: NavGroup[] = [
  * them, because that scoping lives in the API and not in this menu.
  */
 export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
-  const allowed = pages && pages.length
+  const allowed = pages
     ? new Set(pages.map((page) => (page === "my-queue" ? "candidates" : page)))
     : undefined;
-  // Every signed-in user owns an account page. Older sessions were issued
-  // before Settings became part of the staff floor, so include it here too.
-  allowed?.add("settings");
   return NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
@@ -148,9 +145,10 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
  * their first question is who is holding what and whether anyone has stalled,
  * and that screen is also where the SLA breaches are listed.
  */
-export function defaultNavFor(role: string | undefined): NavId {
-  void role;
-  return "candidates";
+export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
+  const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
+  if (visible.includes("candidates")) return "candidates";
+  return visible[0] ?? "settings";
 }
 
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */

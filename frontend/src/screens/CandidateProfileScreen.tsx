@@ -21,7 +21,6 @@ import {
 
 import {
   flattenExtras,
-  formatExtraValue,
   highestQualificationOf,
   humanizeKey,
   industryOf,
@@ -225,28 +224,6 @@ function expiryNotice(value?: string | null): { tone: "expired" | "soon"; text: 
   if (days <= 180) return { tone: "soon", text: `Expires in ${days} day${days === 1 ? "" : "s"}` };
   return null;
 }
-
-/**
- * Printed-page fields the MRZ has already supplied, under the names the OCR
- * service uses for them. Shown once, from the MRZ, which is the machine-read
- * half of the page and the half with check digits behind it.
- */
-const MRZ_FIELDS = new Set([
-  "passport_number",
-  "surname",
-  "given_names",
-  "name",
-  "nationality",
-  "issuing_country",
-  "country",
-  "date_of_birth",
-  "sex",
-  "gender",
-  "expiry_date",
-  "date_of_expiry",
-  "date_of_issue",
-  "personal_number",
-]);
 
 /**
  * One scanned document, exactly as the OCR read it.
@@ -754,7 +731,6 @@ export default function CandidateProfileScreen({
               <div className="cprof-docs">
                 {passports.map((passport, index) => {
                   const expiry = expiryNotice(passport.expiry_date);
-                  const printed = (passport.printed_fields ?? {}) as Record<string, unknown>;
                   return (
                     <DocumentCard
                       key={passport._id || index}
@@ -786,9 +762,6 @@ export default function CandidateProfileScreen({
                           />
                         ) : null
                       }
-                      warnings={passport.warnings}
-                      source={passport.source}
-                      readAt={passport.updated_at}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -799,17 +772,6 @@ export default function CandidateProfileScreen({
                       <Fact label="Sex" value={passport.sex} />
                       <Fact label="Date of issue" value={passport.date_of_issue} />
                       <Fact label="Date of expiry" value={passport.expiry_date} />
-                      <Fact label="Personal number" value={passport.personal_number} />
-                      {/* Read off the printed data page rather than the MRZ,
-                          which is where the place of issue lives and nowhere
-                          else. Anything the MRZ already gave is dropped: the
-                          two agree on most of the page, and a second "Passport
-                          number" row reads as a second passport. */}
-                      {Object.entries(printed)
-                        .filter(([key]) => !MRZ_FIELDS.has(key))
-                        .map(([key, value]) => (
-                          <Fact key={key} label={humanizeKey(key)} value={formatExtraValue(value)} />
-                        ))}
                     </DocumentCard>
                   );
                 })}

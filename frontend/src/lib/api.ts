@@ -439,7 +439,7 @@ export async function fetchHealth(): Promise<{ status: string; candidates: numbe
 }
 
 // --------------------------------------------------------------------------- //
-//  Staff administration (Super Admin only — the API answers 403 otherwise)
+//  Staff administration (requires the Staff page permission)
 // --------------------------------------------------------------------------- //
 export function listStaff(includeInactive = true): Promise<{ count: number; items: StaffMember[] }> {
   return request<{ count: number; items: StaffMember[] }>(
@@ -692,8 +692,8 @@ export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> 
 //
 // Manpower requirements raised by agents. The WhatsApp bot writes them through
 // its own service-key endpoint (`POST /b2b-enquiries`), which is not reachable
-// from here and is not meant to be — everything below takes the signed-in
-// recruiter's session and is refused for anyone who is not an admin.
+// from here and is not meant to be. Everything below uses the signed-in
+// recruiter's session and requires the B2B Enquiries page grant.
 
 export interface EnquiryListResponse {
   items: B2BEnquiryRecord[];
@@ -886,11 +886,9 @@ export function deleteJobQuestionAPI(questionId: string): Promise<{ status: stri
 
 // ---- User management ------------------------------------------------------ //
 //
-// Accounts, and which pages each one reaches. Permissions add and never
-// subtract: a grant puts a page on someone's rail and does not widen what they
-// may see once they are on it — a staff member with the Candidates page still
-// sees only the candidates allocated to them, because that restriction lives in
-// the API's own scoping rather than in the menu.
+// Accounts, and which pages each one reaches. A checked grant exposes the page
+// and its API; an unchecked page is absent. Candidate record isolation remains
+// separate, so staff still see only profiles allocated to them.
 
 export interface ManagedUser {
   id: string;
