@@ -269,14 +269,13 @@ export default function Home() {
     };
   }, []);
 
-  // `/` is the public sign-in address. If a valid session is restored there,
-  // move it to that account's canonical workspace URL instead of leaving the
-  // Overview screen mounted behind a root URL that cannot be shared clearly.
+  // Protected deep links never leave a signed-out visitor sitting on a CRM
+  // URL. Collapse them to the single login address; successful authentication
+  // then sends the account to its own permitted landing page.
   useEffect(() => {
-    if (!user || pathname !== "/") return;
-    const landing = defaultNavFor(user.role, user.pages);
-    window.history.replaceState(null, "", navPath(landing));
-  }, [pathname, user]);
+    if (checking || user || pathname === "/") return;
+    window.history.replaceState(null, "", "/");
+  }, [checking, pathname, user]);
 
   const handleSignOut = useCallback(() => {
     clearSession();
@@ -290,7 +289,7 @@ export default function Home() {
     // So the next session opens with its own connect banner.
     bootLoggedRef.current = false;
     setScreen(null);
-    window.history.replaceState(null, "", navPath("overview"));
+    window.history.replaceState(null, "", "/");
   }, []);
 
   // ---- bootstrap -------------------------------------------------------- //
@@ -898,7 +897,7 @@ export default function Home() {
   const ownsItsHeader =
     !screen && ["overview", "candidates", "staff", "users", "data-management"].includes(currentTab);
 
-  if (checking) {
+  if (checking && pathname !== "/") {
     return (
       <div className="app-boot">
         <span className="app-boot-spinner" />
@@ -906,7 +905,9 @@ export default function Home() {
     );
   }
 
-  if (!user) {
+  // `/` is always the sign-in screen, even when a previous session token is
+  // still valid. The CRM itself begins at `/overview` after authentication.
+  if (pathname === "/" || !user) {
     return (
       <LoginScreen
         onSuccess={(u) => {
