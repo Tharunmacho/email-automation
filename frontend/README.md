@@ -21,7 +21,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 Build and run the production frontend from this directory:
 
 ```bash
-docker build --build-arg NEXT_PUBLIC_API_BASE=http://localhost:8000 -t adira-master-crm-frontend .
+docker build --build-arg NEXT_PUBLIC_API_BASE=https://mount-road-wa-bot-adira-emailautomation--5c743a-200-234-35-6.sslip.io -t adira-master-crm-frontend .
 docker run --rm -p 3000:3000 adira-master-crm-frontend
 ```
 

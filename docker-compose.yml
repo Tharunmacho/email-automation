@@ -48,7 +48,7 @@ services:
       dockerfile: Dockerfile
       args:
         # This address is used by the browser, not from inside the container.
-        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE-https://mount-road-wa-bot-adira-emailautomation--5c743a-200-234-35-6.sslip.io}
     container_name: adira_master_crm_frontend
     restart: unless-stopped
     ports:
