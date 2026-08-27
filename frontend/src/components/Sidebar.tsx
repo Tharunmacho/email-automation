@@ -81,7 +81,7 @@ export default function Sidebar({
         <div className="rail-brand">
           <span className="rail-logo">
             {collapsed ? (
-              <Image src="/adira-logo-small.png" alt="Adira" width={50} height={80} preload />
+              <Image src="/adira-mark.png" alt="Adira" width={249} height={249} preload />
             ) : (
               <Image src="/adira-logo.png" alt="Adira" width={600} height={200} preload />
             )}

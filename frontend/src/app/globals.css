@@ -352,9 +352,12 @@
   justify-content: center;
 }
 
+/* Collapsed, the wordmark goes and only the triangle mark remains. It is
+   square, so the box it sits in is square too — a 48x60 slot would letterbox
+   the mark and float it off the vertical centre of the 68px stub. */
 .rail.is-collapsed .rail-logo {
-  width: 48px;
-  height: 60px;
+  width: 40px;
+  height: 40px;
   justify-content: center;
   margin: 0 auto;
 }
