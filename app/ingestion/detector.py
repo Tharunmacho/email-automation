@@ -40,7 +40,7 @@ _PROMO_SUBJECT = re.compile(
     r"\b(otp|one[-\s]?time\s*password|verify|verification code|newsletter|unsubscribe|"
     r"invoice|receipt|order|payment|sale|discount|promo|"
     r"notification|alert|reminder|statement|subscription|springboard|certificate|"
-    r"completion|course|learning)\b",
+    r"completion|course|learning|recommended match|naukri|job alert|match applicant)\b",
     re.IGNORECASE,
 )
 
