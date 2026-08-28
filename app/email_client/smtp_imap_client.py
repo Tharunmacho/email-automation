@@ -341,4 +341,28 @@ class SMTPIMAPClient:
             log.warning("IMAP apply_label '%s' failed for UID %s: %s", label_name, message_id, exc)
 
     def remove_label(self, message_id: str, label_name: str) -> None:
-        pass
+        try:
+            mail = self._connect_imap()
+            try:
+                target_folder = label_name.replace("/", ".")
+                candidate_folders = [target_folder, f"INBOX.{target_folder}"]
+                for folder in candidate_folders:
+                    try:
+                        res_sel, _ = mail.select(folder)
+                        if res_sel != "OK":
+                            continue
+                        st, fetch_d = mail.uid("fetch", message_id, "(FLAGS)")
+                        if st == "OK" and fetch_d and fetch_d[0] and isinstance(fetch_d[0], tuple):
+                            mail.uid("store", message_id, "+FLAGS", "(\\Deleted)")
+                            mail.expunge()
+                            log.info("Removed IMAP message UID %s from folder '%s'", message_id, folder)
+                            break
+                    except Exception:
+                        continue
+            finally:
+                try:
+                    mail.logout()
+                except Exception:
+                    pass
+        except Exception as exc:
+            log.warning("IMAP remove_label '%s' failed for UID %s: %s", label_name, message_id, exc)
