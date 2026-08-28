@@ -346,11 +346,37 @@ class SMTPIMAPClient:
             try:
                 target_folder = label_name.replace("/", ".")
                 candidate_folders = [target_folder, f"INBOX.{target_folder}"]
+                
+                header_msg_id = ""
+                header_subject = ""
+                header_from = ""
+                for check_f in [self.imap_folder, f"INBOX.{self.imap_folder}", "Resumes.Deleted", "INBOX.Resumes.Deleted"]:
+                    try:
+                        st_s, _ = mail.select(check_f)
+                        if st_s != "OK":
+                            continue
+                        st_f, fetch_d = mail.uid("fetch", message_id, "(BODY[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM)])")
+                        if st_f == "OK" and fetch_d and fetch_d[0] and isinstance(fetch_d[0], tuple):
+                            hdr_txt = fetch_d[0][1].decode(errors="ignore")
+                            for line in hdr_txt.splitlines():
+                                l_lower = line.lower()
+                                if l_lower.startswith("message-id:"):
+                                    header_msg_id = line.split(":", 1)[1].strip()
+                                elif l_lower.startswith("subject:"):
+                                    header_subject = line.split(":", 1)[1].strip()
+                                elif l_lower.startswith("from:"):
+                                    header_from = line.split(":", 1)[1].strip()
+                            if header_msg_id or header_subject:
+                                break
+                    except Exception:
+                        continue
+
                 for folder in candidate_folders:
                     try:
                         res_sel, _ = mail.select(folder)
                         if res_sel != "OK":
                             continue
+
                         st, fetch_d = mail.uid("fetch", message_id, "(FLAGS)")
                         if st == "OK" and fetch_d and fetch_d[0] and isinstance(fetch_d[0], tuple):
                             mail.uid("store", message_id, "+FLAGS", "(\\Deleted)")
@@ -362,10 +388,18 @@ class SMTPIMAPClient:
                         if st_all == "OK" and search_d and search_d[0]:
                             folder_uids = [u.decode() for u in search_d[0].split()]
                             for f_uid in folder_uids:
-                                st_hdr, fetch_hdr = mail.uid("fetch", f_uid, "(BODY[HEADER.FIELDS (MESSAGE-ID)])")
+                                st_hdr, fetch_hdr = mail.uid("fetch", f_uid, "(BODY[HEADER.FIELDS (MESSAGE-ID SUBJECT FROM)])")
                                 if st_hdr == "OK" and fetch_hdr and fetch_hdr[0] and isinstance(fetch_hdr[0], tuple):
                                     hdr_text = fetch_hdr[0][1].decode(errors="ignore")
-                                    if message_id in hdr_text:
+                                    match = False
+                                    if header_msg_id and header_msg_id in hdr_text:
+                                        match = True
+                                    elif header_subject and header_from and (header_subject in hdr_text and header_from in hdr_text):
+                                        match = True
+                                    elif message_id in hdr_text:
+                                        match = True
+
+                                    if match:
                                         mail.uid("store", f_uid, "+FLAGS", "(\\Deleted)")
                                         mail.expunge()
                                         log.info("Removed matching IMAP message UID %s (key=%s) from folder '%s'", f_uid, message_id, folder)
