@@ -87,6 +87,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Response headers are hidden from JavaScript unless they are named here,
+    # and `Content-Disposition` is where the server puts the filename. Without
+    # it every download is saved under the caller's fallback name — so a
+    # passport cut out of a bundle arrives as "resume.pdf".
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(websocket_router)
@@ -131,13 +136,54 @@ def _seed_admin() -> None:
             pass
 
 
+def _under_test() -> bool:
+    """True inside pytest.
+
+    The test suite builds a `TestClient`, which runs this startup — and a
+    background poller started there would reach the real mailboxes and the real
+    Veris account from a unit test. The check is explicit rather than clever
+    because the consequence of getting it wrong is billed work.
+    """
+    import sys
+
+    return "pytest" in sys.modules
+
+
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
+    import asyncio
+    import logging
+
+    logger = logging.getLogger("uvicorn.error")
     try:
         ensure_indexes()
     except Exception as exc:
-        import logging
-        logging.getLogger("uvicorn.error").warning("MongoDB index creation deferred: %s", exc)
+        logger.warning("MongoDB index creation deferred: %s", exc)
+
+    # Ingestion runs on worker threads and, when a worker is up, in a separate
+    # process. Neither has an event loop of its own, so the loop that owns the
+    # WebSockets has to be handed over here or nothing can ever be pushed to a
+    # browser — which is why an ingested candidate used to need a page reload.
+    from app.api import websocket as ws
+
+    ws.set_publisher_loop(asyncio.get_running_loop())
+    asyncio.create_task(ws.relay_redis_events())
+
+    # Nothing polled the mailboxes on a timer, so mail was only ever fetched
+    # when somebody pressed Sync. Beat now has a poll task for deployments with
+    # a worker; this covers the ones without.
+    if settings.mail_autopoll_enabled and not _under_test():
+        from app.ingestion import autopoll
+
+        asyncio.create_task(autopoll.run_forever())
+
+    try:
+        from app.tasks.locks import get_redis
+        client = get_redis()
+        client.ping()
+        logger.info("Redis connected successfully (%s)", settings.redis_url)
+    except Exception as err:
+        logger.info("Redis status: local direct execution mode active (Redis lock fallback: %s)", err)
 
 
 
@@ -347,28 +393,73 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
 
 
 def _fetch_resume_from_email(record: CandidateRecord) -> bytes | None:
-    if not record.source_email or not record.source_email.message_id:
+    """Last resort: go back to the mailbox for a file storage has lost.
+
+    Addressed by the RFC822 ``Message-ID`` rather than the UID recorded at
+    ingestion, because that UID stopped meaning anything the moment the mail was
+    filed into `Resumes/Processed` — re-fetching it either failed or, worse,
+    returned somebody else's message.
+
+    Whatever comes back is written to storage on the way out, so the next
+    download does not have to repeat this.
+    """
+    source = record.source_email
+    if not source or not source.message_id:
         return None
-    mid = record.source_email.message_id
+
+    mid = source.message_id
+    # `thread_id` is where the IMAP client keeps the Message-ID header.
+    rfc_id = getattr(source, "thread_id", "") or ""
+    wanted_hash = (record.resume.sha256 if record.resume else "") or ""
+
     try:
+        from app.db.dedup import sha256_hex
         from app.email_client.factory import get_all_email_clients
+
         for client in get_all_email_clients():
             try:
-                msg = client.get_message(mid)
-                if msg and msg.attachments:
-                    for att in msg.attachments:
-                        if att.data:
-                            if record.resume and record.resume.storage_key:
-                                try:
-                                    get_storage_backend().save(record.resume.storage_key, att.data, content_type=att.mime_type)
-                                except Exception:
-                                    pass
-                            return att.data
-            except Exception:
+                msg = None
+                finder = getattr(client, "get_message_by_rfc_id", None)
+                if rfc_id and callable(finder):
+                    msg = finder(rfc_id)
+                if msg is None:
+                    msg = client.get_message(mid)
+                if not msg or not msg.attachments:
+                    continue
+
+                loaded = [a for a in msg.attachments if a.data]
+                # The bundle can hold several files; the hash says which one
+                # became this candidate. Without it, a covering letter attached
+                # alongside the CV would be served as the résumé.
+                for att in loaded:
+                    if wanted_hash and sha256_hex(att.data) != wanted_hash:
+                        continue
+                    _restore_to_storage(record, att.data, att.mime_type)
+                    return att.data
+                if not wanted_hash and loaded:
+                    att = loaded[0]
+                    _restore_to_storage(record, att.data, att.mime_type)
+                    return att.data
+            except Exception as err:  # noqa: BLE001 — try the next account
+                log.debug("Could not re-fetch %s from %s: %s",
+                          rfc_id or mid, getattr(client, "imap_username", "client"), err)
                 continue
-    except Exception as err:
+    except Exception as err:  # noqa: BLE001
         log.warning("Live email fallback download failed for message %s: %s", mid, err)
     return None
+
+
+def _restore_to_storage(record: CandidateRecord, data: bytes, mime_type: str | None) -> None:
+    """Put a recovered file back where it should have been all along."""
+    if not (record.resume and record.resume.storage_key):
+        return
+    try:
+        backend = get_storage_backend()
+        backend.save(record.resume.storage_key, data, content_type=mime_type)
+        repo().set_storage_backend(record.id, backend.name)
+        log.info("Restored the résumé for %s into %s storage", record.id, backend.name)
+    except Exception as err:  # noqa: BLE001 — the download itself still succeeds
+        log.warning("Could not restore the résumé for %s: %s", record.id, err)
 
 
 @app.get("/candidates/{candidate_id}/resume")
@@ -403,7 +494,11 @@ def download_resume(candidate_id: str, user: dict = Depends(current_user)) -> Re
     )
 
 
-def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> None:
+def _post_delete_cleanup(
+    storage_key: str | None,
+    message_ids: list[str],
+    identity: dict | None = None,
+) -> None:
     """Slow, best-effort cleanup for a deleted candidate.
 
     Runs after the response is sent: building a Gmail service refreshes the
@@ -422,16 +517,47 @@ def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> Non
             from app.email_client import get_all_email_clients
 
             clients = get_all_email_clients()
-            for client in clients:
-                for message_id in message_ids:
-                    if settings.gmail_deleted_label:
-                        client.apply_label(message_id, settings.gmail_deleted_label)
-                    if settings.gmail_processed_label:
-                        client.remove_label(message_id, settings.gmail_processed_label)
-            log.info(
-                "Marked %d message(s) '%s' after candidate deletion",
-                len(message_ids), settings.gmail_deleted_label,
-            )
+            # Where the message can still be found once it has been filed: its
+            # UID died with the first move, so the Message-ID header (and the
+            # subject/sender pair behind it) is what locates it now.
+            where = {k: v for k, v in (identity or {}).items() if isinstance(v, str) and v.strip()}
+
+            filed = 0
+            for message_id in message_ids:
+                for client in clients:
+                    try:
+                        # Deleted first: on a folder-based account that single
+                        # move is both halves of the change — it takes the mail
+                        # out of Processed and puts it in Deleted at once, so it
+                        # can never be seen carrying both labels or neither.
+                        if settings.gmail_deleted_label:
+                            if client.apply_label(
+                                message_id, settings.gmail_deleted_label, **where
+                            ):
+                                filed += 1
+                        if settings.gmail_processed_label:
+                            client.remove_label(message_id, settings.gmail_processed_label, **where)
+                    except Exception as err:  # noqa: BLE001
+                        log.warning(
+                            "Error re-labeling message %s on client %s: %s",
+                            message_id, getattr(client, "imap_username", "client"), err,
+                        )
+
+            # The same résumé is usually delivered to every mailbox but ingested
+            # from one, so `filed` is normally lower than the message count.
+            # Zero is the case worth seeing: nothing was re-filed anywhere, and
+            # a copy is still sitting in Processed.
+            if filed:
+                log.info(
+                    "Filed %d message copy/copies as '%s' after candidate deletion",
+                    filed, settings.gmail_deleted_label,
+                )
+            else:
+                log.warning(
+                    "Deleted a candidate but found none of its %d message(s) on any "
+                    "configured account: %s",
+                    len(message_ids), where.get("rfc_message_id") or message_ids,
+                )
         except Exception as err:
             log.warning("Could not re-label messages %s: %s", message_ids, err)
 
@@ -480,7 +606,14 @@ def delete_candidate(
     cleared = ledger.retire_candidate(candidate_id, message_ids, resume_hash=res_hash)
 
     storage_key = rec.resume.storage_key if rec.resume else None
-    background.add_task(_post_delete_cleanup, storage_key, message_ids)
+    source = rec.source_email
+    identity = {
+        # `thread_id` is where the IMAP client stores the RFC822 Message-ID.
+        "rfc_message_id": getattr(source, "thread_id", "") or "",
+        "subject": getattr(source, "subject", "") or "",
+        "from_addr": getattr(source, "from_addr", "") or "",
+    } if source else {}
+    background.add_task(_post_delete_cleanup, storage_key, message_ids, identity)
 
     return {
         "status": "success",
@@ -523,6 +656,16 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(current_user)) 
         _inline_poll_lock.release()
 
 
+def _local_ocr_report() -> dict:
+    """Which OCR engines this host has, without letting a missing one 500 the page."""
+    try:
+        from app.extraction import local_ocr
+
+        return dict(local_ocr.engine_report())
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
 @app.get("/ingest/rules")
 def ingest_rules(_user: dict = Depends(current_user)) -> dict:
     """The rules the ingestion pipeline actually applies, for the Email Rules screen.
@@ -544,6 +687,16 @@ def ingest_rules(_user: dict = Depends(current_user)) -> dict:
             "deleted_folder": settings.imap_deleted_folder,
             "gmail_query": settings.gmail_query,
         },
+        # Whether anything reads the mailboxes without being asked. Worth
+        # stating on the rules screen: "no résumé has appeared" means something
+        # very different when the answer is "nothing has looked".
+        "polling": {
+            "automatic": settings.mail_autopoll_enabled,
+            "interval_seconds": (
+                settings.mail_poll_interval_seconds if settings.mail_autopoll_enabled else None
+            ),
+            "trigger": "timer" if settings.mail_autopoll_enabled else "manual sync only",
+        },
         "gates": {
             "detector_min_score": settings.detector_min_score,
             "inspect_all_documents": settings.inspect_all_documents,
@@ -554,12 +707,15 @@ def ingest_rules(_user: dict = Depends(current_user)) -> dict:
         "ignored_senders": settings.ignore_sender_fragments,
         "ocr": {
             "min_text_chars": settings.ocr_min_text_chars,
-            "dpi": settings.ocr_dpi,
-            "chunk_pages": settings.ocr_chunk_pages,
             "max_pages": settings.ocr_max_pages,
-            "give_up_pages": settings.ocr_give_up_pages,
-            "languages": settings.ocr_languages,
+            # Not a setting: every page is read, always. Stopping at the first
+            # résumé is what left the identity documents behind it unread.
+            "full_document": True,
             "provider_configured": bool(settings.veris_ocr_api_key),
+            "refine_resume_pages": settings.veris_refine_resume_pages,
+            # What this host can actually read with. The single most useful
+            # thing to check when a scanned résumé comes back empty.
+            "local": _local_ocr_report(),
         },
         "extraction": {
             "model": settings.anthropic_model,
@@ -801,15 +957,33 @@ def ingest_workers(_user: dict = Depends(current_user)) -> dict:
 
 @app.post("/ingest/poll/async")
 def trigger_poll_async(query: str | None = None, _user: dict = Depends(current_user)) -> dict:
-    """Queue a poll cycle on a worker and return immediately with its task id."""
+    """Queue a poll cycle on a worker, or run it here when there is no worker.
+
+    Two shapes come back, and the caller tells them apart by which fields are
+    present:
+
+    * queued — ``{"task_id": ..., "state": "PENDING"}``; ask
+      ``GET /ingest/tasks/{task_id}`` until it is ready;
+    * already done — ``{"state": "SUCCESS", "ready": true, "result": {...}}``,
+      the batch summary itself, because with no worker the cycle ran inside
+      this request and there is nothing left to wait for.
+
+    The second shape carries `result` deliberately. Returning the bare summary
+    here — which is what this did — looked like a queued response with no task
+    id, so the client polled ``/ingest/tasks/undefined`` every few seconds until
+    it timed out, while the cycle it was waiting for had already finished.
+    """
     from app.tasks.health import reset_cache, workers_online
 
     if not workers_online():
-        raise HTTPException(
-            status_code=503,
-            detail="No ingestion worker is running. Start one with: "
-                   "celery -A app.tasks.celery_app worker --loglevel=INFO --concurrency=4",
-        )
+        log.info("No ingestion worker is running; polling inline instead")
+        return {
+            "task_id": "",
+            "state": "SUCCESS",
+            "ready": True,
+            "mode": "inline",
+            "result": trigger_poll(query=query, _user=_user),
+        }
 
     from app.tasks.jobs import run_poll_cycle
 

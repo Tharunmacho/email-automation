@@ -302,8 +302,10 @@ class SourceEmail(BaseModel):
     thread_id: str
     from_addr: str
     from_name: Optional[str] = None
+    to_addr: Optional[str] = None
     subject: str = ""
     received_date: Optional[str] = None
+
 
 
 # The verdicts a reviewer can record. "pending" is the state every allocation

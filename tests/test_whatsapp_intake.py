@@ -144,6 +144,9 @@ class FakeStorage:
     def __init__(self):
         self.objects: dict[str, bytes] = {}
 
+    def exists(self, key: str) -> bool:
+        return key in self.objects
+
     def save(self, key: str, data: bytes, content_type=None) -> str:
         self.objects[key] = data
         return key

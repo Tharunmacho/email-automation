@@ -168,7 +168,17 @@ export default function AdminStaffManagement({
 
   // Narrowing the queue takes you back to its first page; keeping the old
   // offset would open a two-result filter on an empty page.
-  useEffect(() => setVisible(PAGE_SIZE), [filter, query]);
+  //
+  // Adjusted during render rather than in an effect. Resetting from an effect
+  // means React commits the long page first and only then re-renders the short
+  // one, so the list is briefly rendered at an offset the new filter cannot
+  // fill. Comparing against the last value it was paged for corrects the state
+  // before anything is painted.
+  const [pagedFor, setPagedFor] = useState({ filter, query });
+  if (pagedFor.filter !== filter || pagedFor.query !== query) {
+    setPagedFor({ filter, query });
+    setVisible(PAGE_SIZE);
+  }
 
   const staff = useMemo(() => workload?.items ?? [], [workload]);
   const activeStaff = useMemo(() => staff.filter((member) => member.active), [staff]);

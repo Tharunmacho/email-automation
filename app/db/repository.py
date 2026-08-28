@@ -85,6 +85,7 @@ LIST_PROJECTION = {
     # Who sent it — the fallback for a résumé with no name or address in it.
     "source_email.from_name": 1,
     "source_email.from_addr": 1,
+    "source_email.to_addr": 1,
     "source_email.subject": 1,
     # Allocation and verdict: the staff queue sorts and colours rows by these,
     # and the SLA countdown in the list is `assigned_at` against `viewed_at`.
@@ -353,6 +354,49 @@ class CandidateRepository:
             {"$set": update_dict},
         )
 
+    def replace_extraction(self, candidate_id: str, profile: CandidateProfile) -> bool:
+        """Overwrite the parsed profile *and* the verbatim payload behind it.
+
+        Deliberately not `update_profile`. That one is the human edit path and
+        protects `raw_ocr` from being overwritten, which is right: an edit
+        changes what a recruiter sees, never what the extractor said. This is
+        the opposite operation — the document has been read again, so both the
+        profile and the payload it was derived from are replaced together, and
+        leaving the old payload in place would make the record describe an
+        extraction that no longer produced it.
+
+        Used when a profile was built by a degraded path (a Veris outage
+        falling back to the heuristic parser) and the file can now be read
+        properly. The original upload is never touched.
+        """
+        from app.core.models import utcnow
+        from app.db.dedup import normalize_email, normalize_phone
+
+        for exp in profile.work_experience or []:
+            if exp.designation and not exp.title:
+                exp.title = exp.designation
+            elif exp.title and not exp.designation:
+                exp.designation = exp.title
+
+        payload = profile.model_dump(mode="python")
+        raw = payload.get("raw_ocr") if isinstance(payload.get("raw_ocr"), dict) else None
+
+        result = self._coll.update_one(
+            _id_filter(candidate_id),
+            {
+                "$set": {
+                    "profile": payload,
+                    "raw_ocr": raw,
+                    "email_key": normalize_email(profile.email),
+                    "phone_key": normalize_phone(profile.phone),
+                    "updated_at": utcnow(),
+                }
+            },
+        )
+        if result.matched_count:
+            log.info("Replaced the extraction for candidate %s", candidate_id)
+        return bool(result.matched_count)
+
     #: Profile fields a re-registration is allowed to refresh.
     #
     #: An allow-list, not a deny-list, and that direction is the whole point.
@@ -469,6 +513,20 @@ class CandidateRepository:
         self._coll.update_one(
             _id_filter(candidate_id),
             {"$set": {"auto_reply_sent": True, "updated_at": utcnow()}},
+        )
+
+    def set_storage_backend(self, candidate_id: str, backend: str) -> None:
+        """Record where this candidate's file now lives.
+
+        Written when a résumé is moved or recovered into a different backend, so
+        the download reaches for it in the right place first instead of
+        rediscovering the move on every click.
+        """
+        from app.core.models import utcnow
+
+        self._coll.update_one(
+            _id_filter(candidate_id),
+            {"$set": {"resume.storage_backend": backend, "updated_at": utcnow()}},
         )
 
 

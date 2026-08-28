@@ -39,7 +39,8 @@ _RESUME_KEYWORDS = re.compile(
 _PROMO_SUBJECT = re.compile(
     r"\b(otp|one[-\s]?time\s*password|verify|verification code|newsletter|unsubscribe|"
     r"invoice|receipt|order|payment|sale|discount|promo|"
-    r"notification|alert|reminder|statement|subscription|springboard|certificate|"
+    r"notification|alert|security alert|sign-in|2-step|privacy policy|updates to|"
+    r"reminder|statement|subscription|springboard|certificate|"
     r"completion|course|learning|recommended match|recommended|job alert|match applicant|"
     r"digest|weekly digest|daily digest|job matches|candidate recommendations|applicant match)\b",
     re.IGNORECASE,
@@ -71,6 +72,7 @@ def _sender_ignored(from_addr: str) -> bool:
         "mailer-daemon", "postmaster", "notifications@", "newsletter",
         "billing@", "invoice@", "receipts@", "support@", "alerts@",
         "digest@", "recommendations@", "jobboard", "job-alerts",
+        "google.com", "accounts.google.com", "openai.com", "canva.com",
     ]
     if any(frag in addr for frag in ignored_patterns):
         return True

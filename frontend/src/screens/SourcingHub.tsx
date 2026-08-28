@@ -31,7 +31,8 @@ import {
 import { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
-import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
+import { deriveStatus } from "@/screens/JobOrders";
+import type { JobOrderRecord, SourcingClientRecord, SourcingType } from "@/types";
 import {
   listSourcingClientsAPI,
   createSourcingClientAPI,
@@ -56,7 +57,7 @@ import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
  * `client` on the way in — see `normaliseType` — so nothing disappears from the
  * screen because a category was retired underneath it.
  */
-export type SourcingType = "agent" | "association" | "client";
+export type { SourcingType };
 
 /**
  * What the API hands back, mapped onto what this screen offers.
@@ -70,19 +71,10 @@ export function normaliseType(raw: string | undefined): SourcingType {
   return raw === "agent" || raw === "association" ? raw : "client";
 }
 
-export interface SourcingRecord {
-  id: string;
-  name: string;
-  type: SourcingType;
-  contact: string;
-  phone: string;
-  email: string;
-  date: string;
-  status: "ACTIVE" | "PENDING" | "INACTIVE";
-  industryOrCategory?: string;
-  regNo?: string;
-  address?: string;
-}
+// `SourcingClientRecord` in `@/types`, which is what `lib/api` sends and
+// receives. Aliased here because this screen has always called it a
+// SourcingRecord and several call sites read better that way.
+export type SourcingRecord = SourcingClientRecord;
 
 type TypeFilter = "all" | SourcingType;
 type SortKey = "recent" | "name" | "demand";

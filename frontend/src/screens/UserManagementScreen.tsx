@@ -170,7 +170,17 @@ export default function UserManagementScreen({
   }, []);
 
   useEffect(() => {
-    void load();
+    // Deferred into a microtask rather than called straight from the effect
+    // body: `load` sets state, and doing that synchronously while the effect
+    // runs makes React re-render on top of the render that scheduled it. The
+    // flag drops the result of a run whose dependencies have already changed.
+    let live = true;
+    void (async () => {
+      if (live) await load();
+    })();
+    return () => {
+      live = false;
+    };
   }, [load]);
 
   const activeAdmins = useMemo(
@@ -255,7 +265,7 @@ export default function UserManagementScreen({
           <div>
             <h3 className="db-card-title">Accounts matrix</h3>
             <p className="db-card-sub">
-              {users.length} total accounts. A grant puts a page on someone's rail. It does not widen the data behind it.
+              {users.length} total accounts. A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
             </p>
           </div>
         </header>

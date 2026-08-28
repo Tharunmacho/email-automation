@@ -1,17 +1,18 @@
-"""A résumé buried on page 25 of a 50-page bundle, read 10 pages at a time.
+"""A 50-page application bundle, read end to end.
 
-This is the case the whole progressive-OCR design exists for. A candidate
-scans everything they own into one PDF — certificates, marksheets, an ID page,
-then the CV, then more certificates — and the CV is the only part worth
-parsing. It cannot be found without reading, and reading all fifty pages of a
-scan is both slow enough to time out and expensive enough to notice.
+A candidate scans everything they own into one PDF — certificates, marksheets,
+an Aadhaar page, the CV, then more certificates — in whatever order the pages
+came off the scanner. Two things have to be true of that file:
 
-So the guarantees under test are:
+  * **every page is read.** The old pass stopped as soon as something scored as
+    a CV, which is exactly why the identity documents behind it were never
+    extracted, and why a CV sitting past the stopping point was missed outright.
+  * **only the CV is treated as the CV.** The LLM sees the résumé pages; the
+    certificates around them are kept in the full text and excluded from the
+    slice that becomes a candidate profile.
 
-  * every page inside a chunk is read individually — no page's text is lost;
-  * chunk boundaries are 10 pages, so pages 21-30 are read as one unit;
-  * once the CV is located on 25-26, the scan stops — 31-50 never reach OCR;
-  * only the CV's pages are handed to the LLM.
+Reading is local and therefore cheap in the only currency that matters here:
+nothing in this file is billed to an external API.
 """
 from __future__ import annotations
 
@@ -35,13 +36,13 @@ fitz = pytest.importorskip("fitz", reason="PyMuPDF is needed to build test PDFs"
 
 @pytest.fixture
 def scan(monkeypatch):
-    """Make every PDF look like a pure scan and record what OCR actually saw.
+    """Make every PDF look like a pure scan and record which pages were read.
 
-    Only the network is faked. The stand-in reads its text off whatever subset
-    PDF it is handed, so page carving and page numbering are exercised for real
-    — if the chunker asked for the wrong pages, the text would come back wrong.
+    Only Tesseract and the network are faked. The stand-in reader takes its text
+    off the real pages it is handed, so page numbering is exercised for real —
+    if the wrong pages were requested, the text would come back wrong.
 
-    Yields the list of 1-based page numbers sent to OCR, in order.
+    Yields the list of 1-based page numbers that were read.
     """
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
     monkeypatch.setattr(settings, "anthropic_api_key", "")
@@ -49,20 +50,19 @@ def scan(monkeypatch):
     monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "")
 
     seen_pages: list[int] = []
-    real_subset = tx.pdf_pages.subset_pdf
 
-    def spy_subset(data: bytes, pages):
-        wanted = sorted({int(p) for p in pages})
-        seen_pages.extend(wanted)
-        return real_subset(data, wanted)
+    def fake_local(data: bytes, dpi=None, pages=None, filename=""):
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            wanted = sorted(pages) if pages else list(range(1, doc.page_count + 1))
+            seen_pages.extend(wanted)
+            return {n: doc[n - 1].get_text() for n in wanted}
 
-    monkeypatch.setattr(tx.pdf_pages, "subset_pdf", spy_subset)
-
-    def fake_ocr(data: bytes, _filename: str) -> list[str]:
+    def fake_upload(data: bytes, _filename: str) -> list[str]:
         with fitz.open(stream=data, filetype="pdf") as doc:
             return [page.get_text() for page in doc]
 
-    monkeypatch.setattr(tx, "ocr_via_veris_pages", fake_ocr)
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_texts", fake_local)
+    monkeypatch.setattr(tx, "ocr_via_veris_pages", fake_upload)
     return seen_pages
 
 
@@ -78,40 +78,37 @@ def deep_bundle(total: int = 50, resume_at: int = 25) -> list[str]:
 # --------------------------------------------------------------------------- #
 #  The 50-page bundle
 # --------------------------------------------------------------------------- #
-def test_resume_on_page_25_is_found_and_the_tail_is_never_scanned(scan):
+def test_the_resume_is_found_and_the_tail_is_still_read(scan):
     doc = tx.extract_text(make_pdf(deep_bundle()), "Scan_2026.pdf")
 
     assert doc.is_resume is True
     assert doc.resume_pages == [25, 26]
+    # The tail is where the Aadhaar and the passport live. Finding the CV is not
+    # a reason to stop looking at the rest of the bundle.
+    assert max(scan) == 50, f"reading stopped at page {max(scan)}"
 
-    # The whole point: the scan stopped at the end of the chunk holding the CV.
-    assert max(scan) <= 30, f"OCR reached page {max(scan)}; pages 31-50 must be skipped"
-    assert not [p for p in scan if p > 30]
 
-
-def test_it_reads_in_ten_page_chunks(scan):
-    """Pages 1-10, 11-20, 21-30 — three chunks, in order, nothing in between."""
+def test_every_page_is_read_exactly_once(scan):
     tx.extract_text(make_pdf(deep_bundle()), "Scan_2026.pdf")
 
-    assert settings.ocr_chunk_pages == 10
-    assert scan == list(range(1, 31))
+    assert sorted(scan) == list(range(1, 51))
+    assert len(scan) == len(set(scan)), "a page was read twice"
 
 
-def test_every_page_in_a_chunk_is_read_individually(scan):
-    """Zero data loss: each of the 30 pages read comes back with its own text."""
+def test_every_page_comes_back_with_its_own_text(scan):
+    """Zero data loss: each of the 50 pages carries its own content."""
     doc = tx.extract_text(make_pdf(deep_bundle()), "Scan_2026.pdf")
 
-    read = [p for p in doc.pages if p.page_number <= 30]
-    assert len(read) == 30
-    assert all(p.text.strip() for p in read), (
-        "a page inside a chunk came back empty — its text was dropped"
+    assert len(doc.pages) == 50
+    assert all(p.text.strip() for p in doc.pages), (
+        "a page came back empty — its text was dropped"
     )
     # And each page was classified on its own evidence, not the bundle's.
-    assert {p.kind for p in read} > {pc.RESUME}
+    assert {p.kind for p in doc.pages} > {pc.RESUME}
 
 
 def test_only_the_resume_pages_go_to_the_llm(scan):
-    """The LLM sees pages 25-26 and nothing else — not the 28 pages around them."""
+    """The LLM sees pages 25-26 and nothing else — not the 48 pages around them."""
     doc = tx.extract_text(make_pdf(deep_bundle()), "Scan_2026.pdf")
 
     assert "EOT Crane Operator" in doc.resume_text
@@ -129,24 +126,38 @@ def test_nothing_read_is_thrown_away(scan):
     assert len(doc.text) > len(doc.resume_text)
 
 
+def test_the_identity_pages_behind_the_resume_survive_to_the_classifier(scan):
+    """The reason full coverage matters: multipass can only route what was read."""
+    doc = tx.extract_text(make_pdf(deep_bundle()), "Scan_2026.pdf")
+
+    found = pc.classify_multipass([p.text for p in doc.pages])
+    behind_the_cv = [n for n in found.passport_pages + found.foreign_passport_pages if n > 26]
+    assert behind_the_cv, "no identity page behind the CV was seen at all"
+
+
 # --------------------------------------------------------------------------- #
-#  The budget, and the other direction
+#  The safety ceiling, and the other direction
 # --------------------------------------------------------------------------- #
-def test_the_page_budget_supports_a_sixty_page_document():
-    assert settings.ocr_max_pages == 60
+def test_the_page_ceiling_is_a_safety_net_not_a_budget():
+    """Local reading is CPU, not billing, so the ceiling sits above real bundles."""
+    assert settings.ocr_max_pages >= 200
 
 
-def test_a_resume_past_the_budget_stops_at_the_budget(scan):
-    """A 200-page mis-send costs 60 pages, not 200 — and says so."""
-    tx.extract_text(make_pdf(deep_bundle(total=200, resume_at=150)), "huge.pdf")
+def test_a_document_past_the_ceiling_is_truncated_and_says_so(scan, monkeypatch, caplog):
+    monkeypatch.setattr(settings, "ocr_max_pages", 20)
 
-    assert max(scan) <= settings.ocr_max_pages
+    with caplog.at_level("WARNING"):
+        tx.extract_text(make_pdf(deep_bundle(total=60, resume_at=50)), "huge.pdf")
+
+    assert max(scan) == 20
+    assert any("safety ceiling" in record.message for record in caplog.records), (
+        "truncation must never be silent"
+    )
 
 
-def test_a_bundle_that_is_not_an_application_still_gives_up_early(scan):
-    """Ten-page chunks must not defeat the give-up: invoices lead nowhere."""
+def test_a_bundle_that_is_not_an_application_is_read_and_then_rejected(scan):
+    """No early give-up: the verdict is reached from the whole document."""
     doc = tx.extract_text(make_pdf([INVOICE_PAGE] * 50), "cv.pdf")
 
     assert doc.is_resume is False
-    # One chunk is the floor — nothing can be judged before it has been read.
-    assert max(scan) <= settings.ocr_chunk_pages
+    assert sorted(scan) == list(range(1, 51))

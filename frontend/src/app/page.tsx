@@ -432,15 +432,24 @@ export default function Home() {
    * Re-runs on `detailNonce`, which a save or a verify bumps: the id has not
    * changed, but what is stored under it has.
    */
+  // Clearing the last screen's error — and the record itself when nothing is
+  // open — is an adjustment to the id changing, not work to do afterwards.
+  // Done from the effect it cost a committed render still showing the previous
+  // state; done here the corrected values are what gets painted. The two
+  // clearings differ deliberately: closing a candidate empties the record,
+  // while opening a different one keeps the last one on screen until the new
+  // record arrives, which is what it did before.
+  const [detailFor, setDetailFor] = useState({ id: openCandidateId, nonce: detailNonce });
+  if (detailFor.id !== openCandidateId || detailFor.nonce !== detailNonce) {
+    setDetailFor({ id: openCandidateId, nonce: detailNonce });
+    setDetailError(null);
+    if (!openCandidateId) setDetail(null);
+  }
+
   useEffect(() => {
-    if (!openCandidateId) {
-      setDetail(null);
-      setDetailError(null);
-      return;
-    }
+    if (!openCandidateId) return;
 
     let active = true;
-    setDetailError(null);
 
     getCandidate(openCandidateId).then(
       (record) => active && setDetail(record),

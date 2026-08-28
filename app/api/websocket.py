@@ -97,13 +97,20 @@ def candidate_assigned_event(staff_id: str, candidate: dict) -> dict:
 
 def candidate_ingested_event(candidate: dict, staff_name: str | None = None) -> dict:
     name = candidate.get("full_name") or candidate.get("email") or "Unnamed candidate"
-    owner = staff_name or "staff"
+    # An unallocated candidate is a real state — no active staff, or the
+    # balancer is off — and saying it was "allocated to staff" when it was not
+    # sends an admin looking for an owner that does not exist.
+    message = (
+        f"{name} was ingested and allocated to {staff_name}."
+        if staff_name
+        else f"{name} was ingested and is waiting to be allocated."
+    )
     return {
         "type": "candidate_ingested",
         "channel": "admin",
         "target_role": ADMIN_ROLE,
         "candidate": candidate,
-        "message": f"{name} was ingested and allocated to {owner}.",
+        "message": message,
     }
 
 
@@ -134,24 +141,122 @@ def sla_alert_event(alerts: list, threshold_hours: float) -> dict:
     }
 
 
+#: The API process's event loop, captured at startup. Everything that ingests a
+#: résumé runs somewhere else — a worker thread in the poll batch, or a Celery
+#: process entirely — and `asyncio.get_running_loop()` raises in both. It
+#: raising was the whole bug: `publish_event` caught it, returned quietly, and
+#: nothing was ever pushed, so a newly ingested candidate only appeared when the
+#: operator reloaded the page by hand.
+_LOOP: "asyncio.AbstractEventLoop | None" = None
+
+#: Redis channel used to carry an event from a process that has no socket of its
+#: own (a Celery worker) to the API process that does.
+EVENT_CHANNEL = "crm:events"
+
+
+def set_publisher_loop(loop) -> None:
+    """Remember the loop that owns the WebSockets. Called once, at startup."""
+    global _LOOP
+    _LOOP = loop
+    log.info("WebSocket publisher bound to the API event loop")
+
+
+async def _dispatch(event: dict) -> None:
+    target_user_id = event.get("target_user_id")
+    target_role = event.get("target_role")
+    if target_user_id:
+        await manager.broadcast_to_user(target_user_id, event)
+    elif target_role:
+        await manager.broadcast_to_role(target_role, event)
+
+
+def _publish_via_redis(event: dict) -> bool:
+    """Hand the event to the API process, for callers that are not in it.
+
+    A Celery worker holds no WebSocket, so its only route to a browser is the
+    Redis both processes already share for the ingestion locks. Best-effort: a
+    deployment running without Redis simply falls back to nothing being pushed,
+    which is what it had before.
+    """
+    try:
+        from app.tasks.locks import get_redis
+
+        get_redis().publish(EVENT_CHANNEL, json.dumps(event, default=str))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Could not relay the event over Redis: %s", exc)
+        return False
+
+
 def publish_event(event: dict):
-    """Publish an event to open WebSockets (best-effort async schedule)."""
+    """Push an event to open WebSockets, from any thread or any process.
+
+    Three cases, in order:
+
+    1. Called *on* the API's event loop — schedule it directly.
+    2. Called from another thread of the API process (the ingestion runner's
+       worker pool, the inline poll) — hand it to the loop thread-safely.
+    3. Called from another process altogether (a Celery worker) — relay it
+       through Redis to whichever process is holding the sockets.
+    """
     import asyncio
 
     try:
-        loop = asyncio.get_running_loop()
+        running = asyncio.get_running_loop()
     except RuntimeError:
+        running = None
+
+    if running is not None:
+        running.create_task(_dispatch(event))
         return
 
-    async def _dispatch():
-        target_user_id = event.get("target_user_id")
-        target_role = event.get("target_role")
-        if target_user_id:
-            await manager.broadcast_to_user(target_user_id, event)
-        elif target_role:
-            await manager.broadcast_to_role(target_role, event)
+    loop = _LOOP
+    if loop is not None and not loop.is_closed():
+        try:
+            asyncio.run_coroutine_threadsafe(_dispatch(event), loop)
+            return
+        except Exception as exc:  # noqa: BLE001
+            log.debug("Could not schedule the event on the API loop: %s", exc)
 
-    loop.create_task(_dispatch())
+    _publish_via_redis(event)
+
+
+async def relay_redis_events() -> None:
+    """Deliver events other processes published, for as long as the API runs.
+
+    Started as a background task at startup. It is the receiving half of
+    `_publish_via_redis`; without it a Celery-driven ingestion reaches Redis and
+    stops there.
+    """
+    import asyncio
+
+    while True:
+        try:
+            from app.tasks.locks import get_redis
+
+            pubsub = get_redis().pubsub(ignore_subscribe_messages=True)
+            pubsub.subscribe(EVENT_CHANNEL)
+            log.info("Listening for cross-process events on '%s'", EVENT_CHANNEL)
+            while True:
+                # `get_message` is blocking, so it runs on a worker thread; the
+                # timeout is what lets the task notice cancellation at shutdown.
+                message = await asyncio.to_thread(pubsub.get_message, True, 1.0)
+                if not message:
+                    continue
+                data = message.get("data")
+                if isinstance(data, bytes):
+                    data = data.decode("utf-8", errors="replace")
+                try:
+                    await _dispatch(json.loads(data))
+                except Exception as exc:  # noqa: BLE001 — one bad payload, not the loop
+                    log.debug("Dropped an unreadable relayed event: %s", exc)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            # Redis is optional. Retry quietly rather than filling the log: a
+            # deployment without it is a supported configuration.
+            log.debug("Event relay unavailable (%s); retrying shortly", exc)
+            await asyncio.sleep(5)
 
 
 @router.websocket("/ws")

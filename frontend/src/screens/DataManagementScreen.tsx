@@ -19,13 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   Check,
   ChevronDown,
   Database,
   FileQuestion,
   Globe2,
-  Loader2,
   Pencil,
   Plus,
   RefreshCw,
@@ -108,7 +106,17 @@ export default function DataManagementScreen({ onActivity }: Props) {
   }, []);
 
   useEffect(() => {
-    void load();
+    // Deferred into a microtask rather than called straight from the effect
+    // body: `load` sets state, and doing that synchronously while the effect
+    // runs makes React re-render on top of the render that scheduled it. The
+    // flag drops the result of a run whose dependencies have already changed.
+    let live = true;
+    void (async () => {
+      if (live) await load();
+    })();
+    return () => {
+      live = false;
+    };
   }, [load]);
 
   /** Active jobs in the order the bot will show them. */

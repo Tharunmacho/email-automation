@@ -87,13 +87,34 @@ class JobContext:
     recorder: Optional[JobRecorder] = None
 
     def key_for(self, mode: str, fallback_digest: str = "") -> str:
+        """The idempotency key for one extraction of one document.
+
+        The digest of the bytes being uploaded is part of the key, and has to
+        be. The service treats a key as a promise that the same key means the
+        same upload, and rejects a second submission that breaks it —
+        ``Idempotency-Key was already used for a different OCR upload``.
+
+        A message-scoped key alone could not keep that promise: the pages sent
+        for a résumé are carved out of the bundle at submission time, and
+        PyMuPDF writes a fresh document id and timestamp into every carve, so
+        the identical page produces different bytes on every attempt. Two runs
+        over one email — a scheduled poll overlapping a manual sync, or a plain
+        retry — therefore collided, the submission was refused, and the pipeline
+        fell back to the heuristic parser and stored a far poorer profile.
+
+        With the digest in the key, identical bytes still re-attach to the
+        running job (nothing is billed twice) and different bytes are simply a
+        different job (nothing is refused).
+        """
+        digest = (fallback_digest or "")[:32]
         if self.message_id:
             handle = (self.attachment_id or "")[:64]
-            return f"{self.provider}/{self.account_id}/{self.message_id}/{handle}/{mode}"
+            scope = f"{self.provider}/{self.account_id}/{self.message_id}/{handle}/{mode}"
+            return f"{scope}/{digest}" if digest else scope
         # No mail context (a CLI parse, a manual re-run): the file's own content
         # is the next best identity, and re-reading the same bytes should still
         # re-attach rather than re-bill.
-        return f"content/{fallback_digest}/{mode}"
+        return f"content/{digest}/{mode}"
 
 
 _JOB_CONTEXT: ContextVar[Optional[JobContext]] = ContextVar("ocr_job_context", default=None)

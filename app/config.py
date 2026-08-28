@@ -223,29 +223,64 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     ocr_languages: str = "eng"
     ocr_min_text_chars: int = 120
-    # Quality pass, run only on the pages that hold the résumé.
+    # The DPI a page is first rendered at. Pages that read poorly are re-read at
+    # `ocr_escalate_dpi` — see `app/extraction/local_ocr.py`.
     ocr_dpi: int = 300
-    # How many pages go into one OCR call, and the granularity at which the
-    # scan stops. The cloud OCR takes a file, so this is the only lever on how
-    # long a single call can take: a 9-page 1.6 MB scan timed out at 180s as one
-    # request, while the same pages in chunks answer in seconds.
-    #
-    # It is also the *early-stopping* granularity. At 10, a bundle whose résumé
-    # sits on pages 25-26 is read as pages 1-10, 11-20, 21-30 and then stops —
-    # pages 31-50 are never rendered, never uploaded, never billed. Raising this
-    # buys fewer round trips at the cost of overshooting further past the CV.
-    ocr_chunk_pages: int = 10
+    ocr_escalate_dpi: int = 450
+    # Tesseract page-segmentation modes. 6 (one uniform block) is right for most
+    # pages; 4 (variable-width columns) and 3 (fully automatic) rescue the
+    # two-column résumés and the mixed certificate scans it gets wrong.
+    ocr_psm: int = 6
+    ocr_alternate_psms: List[int] = [4, 3]
+    # Below this reading-quality score a page is retried — a different
+    # segmentation, then a higher DPI, then a second engine. Roughly "fewer than
+    # a dozen real words on the page", which for a document page means the read
+    # failed rather than that the page was empty.
+    ocr_page_quality_floor: float = 12.0
+    # Pages are independent, and `pytesseract` shells out, so this scales close
+    # to linearly with cores. It is per document, not per batch.
+    ocr_local_workers: int = 4
+    # Try RapidOCR on pages Tesseract reads badly, when it is installed. A host
+    # without it is a supported configuration; this only decides whether we look.
+    ocr_secondary_engine_enabled: bool = True
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
     # resume can legitimately sit on page 25 of 50, and stopping early would
     # lose it. Truncation is always logged, never silent.
-    ocr_max_pages: int = 60
-    # Give up early on a scan that is plainly not an application at all: after
-    # this many pages with no resume *and* no supporting document (certificate,
-    # experience letter, ID) among them, there is no CV coming. Certificates do
-    # NOT trip this — a CV on page 15 behind fourteen of them is the case the
-    # whole page classifier exists for.
-    ocr_give_up_pages: int = 4
+    # A safety ceiling on one document, not a budget to be spent carefully:
+    # local OCR is CPU, not billing, so this exists only so a mis-sent
+    # thousand-page scan cannot occupy a worker indefinitely. Truncation is
+    # always logged with the page numbers that went unread — never silent.
+    ocr_max_pages: int = 300
+    # After the classifier has established which pages hold the résumé, send
+    # exactly those pages to the Veris résumé endpoint for a higher-quality
+    # read. This is the *only* route to that endpoint: nothing is uploaded
+    # before its content has been identified locally, which is what stopped
+    # invoices and job-board digests being billed as résumé extractions.
+    veris_refine_resume_pages: bool = True
+    # When Veris is configured, its answer is the *only* answer allowed to
+    # become a candidate profile.
+    #
+    # The local heuristic parser exists to read a résumé on a host with no OCR
+    # service at all, and it is far weaker: it produced a candidate called
+    # "Work history" whose designation was "SARAVANAN.A Role" and whose
+    # Projects section held a paragraph about languages. Storing that when the
+    # service was merely briefly unreachable is worse than storing nothing —
+    # the record looks complete, so nobody goes back to it, and the good
+    # extraction is never taken.
+    #
+    # With this on, a failed Veris call fails the attachment instead. The email
+    # is left unlabelled, so the next poll simply tries again. Turn it off only
+    # for a deployment that has no Veris key and must fall back to local
+    # parsing.
+    require_veris_resume: bool = True
+    # Above this, a payload is re-rendered as JPEG before it is uploaded. The
+    # page trim removes pages but not resolution, so one sheet of a phone-camera
+    # bundle can still be tens of megabytes — and that upload, not the
+    # extraction, is what pushes an identity job past its wait budget. Four
+    # megabytes comfortably holds a 300dpi A4 scan.
+    ocr_payload_max_bytes: int = 4_000_000
+    ocr_payload_dpi: int = 300
     veris_ocr_base_url: str = "https://veris.recursai.in"
     veris_ocr_api_key: str = ""
     # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume
@@ -303,18 +338,39 @@ class Settings(BaseSettings):
     # bounds Gmail and Mongo concurrency; `veris_max_inflight_jobs` bounds Veris.
     # Bound to a small number (3) by default because IMAP providers (like Hostinger)
     # strictly limit simultaneous connections per IP address.
-    ingestion_max_workers: int = 3
+    ingestion_max_workers: int = 8
+    # ---- Automatic polling ----
+    # Whether the mailboxes are drained on a timer.
+    #
+    # Off: extraction runs when somebody presses Sync, and at no other moment.
+    # That is a deliberate choice rather than a missing feature — a timer that
+    # reads mailboxes and runs OCR without anyone asking spends money on the
+    # extraction service, and it also puts a second poll cycle alongside a
+    # manual one, which is how two runs came to submit the same résumé at once.
+    #
+    # The screen still updates by itself: the live push is driven by what the
+    # ingestion *does*, not by what triggered it, so a manual sync fills the
+    # candidate list without a page reload exactly as a timed poll would.
+    #
+    # Turning it on is one flag, and two places honour it: Celery beat runs
+    # `poll_gmail` when a worker is up, and the API runs the same cycle
+    # in-process when one is not.
+    mail_autopoll_enabled: bool = False
+    # Only consulted when the poll above is enabled.
+    mail_poll_interval_seconds: int = 60
+    # Simultaneous IMAP connections held open *per account*. Connections are
+    # pooled and reused rather than opened per operation, so this is the cap on
+    # concurrency against one mailbox, not a count of how many are opened over a
+    # batch. Providers close the newest connection over their per-account limit
+    # — Hostinger's is small — and that failure surfaces as a random mid-batch
+    # timeout, so this stays comfortably underneath it while still letting the
+    # two mailboxes work in parallel with each other.
+    imap_max_connections: int = 4
 
     # ---- Multipass extraction ----
     # Route Aadhaar and passport pages out of the same bundle to their own OCR
     # endpoints, instead of dropping everything that is not the résumé.
     multipass_extraction_enabled: bool = True
-    # If True, sends the entire original PDF to the OCR extraction endpoints
-    # instead of cropping out just the pages where the document was detected.
-    # WARNING: Sending a 50MB 60-page PDF to Veris API may cause the connection to drop!
-    send_full_bundle_to_ocr: bool = False
-    # If True, ALWAYS prefers local Tesseract for the scanning phase to prevent cloud timeouts on huge files
-    prefer_local_ocr_for_scanning: bool = True
     mongo_aadhaar_collection: str = "aadhaar_records"
     mongo_passport_collection: str = "passport_records"
     mongo_document_collection: str = "document_records"
