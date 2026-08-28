@@ -179,7 +179,7 @@ export interface CandidateRecord {
    * WhatsApp integration, which are all email — read it as `"email"` when
    * missing rather than treating it as unknown.
    */
-  source?: "email" | "whatsapp";
+  source?: "email" | "whatsapp" | "manual";
   profile: CandidateProfile;
   /**
    * Optional, because a candidate may genuinely have no CV.

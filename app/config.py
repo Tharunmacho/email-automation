@@ -154,8 +154,6 @@ class Settings(BaseSettings):
     demo_accounts_enabled: bool = True
     demo_admin_email: str = "admin@gmail.com"
     demo_admin_password: str = "admin@123"
-    demo_staff_email: str = "staff@gmail.com"
-    demo_staff_password: str = "staff@123"
     # How long a profile may sit allocated-but-unresolved before the sweep calls
     # it a breach, measured from `assigned_at` (falling back to `ingested_at`)
     # until it is opened or judged.

@@ -526,10 +526,11 @@ export default function CandidateProfileScreen({
     candidate.resume?.storage_key || candidate.resume?.original_filename,
   );
   const fromWhatsApp = candidate.source === "whatsapp";
+  const sourceLabel = candidate.source === "manual" ? "Manual entry" : fromWhatsApp ? "WhatsApp" : "Email";
 
   /** Where they are, and where they want to go — shown as two separate facts. */
   const originLine = [
-    fromWhatsApp ? "WhatsApp" : "Email",
+    sourceLabel,
     candidate.profile?.country ? `from ${candidate.profile.country}` : null,
     candidate.profile?.destination_country
       ? `→ ${candidate.profile.destination_country}`

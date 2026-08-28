@@ -230,6 +230,7 @@ export default function PreviewPage() {
             {screen === "candidates" && (
               <CandidatesView
                 candidates={candidates}
+                onAddCandidate={noop}
                 onOpenCandidate={noop}
                 onEditCandidate={noop}
                 onDeleteCandidate={noop}

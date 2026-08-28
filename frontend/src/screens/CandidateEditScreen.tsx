@@ -18,7 +18,9 @@ import { initialsOf } from "@/lib/format";
 
 interface CandidateEditScreenProps {
   candidate: CandidateRecord;
+  mode?: "edit" | "create";
   saving: boolean;
+  error?: string | null;
   verifying?: boolean;
   onBack: () => void;
   onSave: (candidateId: string, profile: CandidateProfile) => void;
@@ -88,13 +90,16 @@ function SectionCard({
  */
 export default function CandidateEditScreen({
   candidate,
+  mode = "edit",
   saving,
+  error = null,
   verifying = false,
   onBack,
   onSave,
   onVerify,
 }: CandidateEditScreenProps) {
   const profile = candidate.profile ?? {};
+  const isCreating = mode === "create";
   const isVerified = candidate.status === "verified";
 
   // Seeded once per record. Re-deriving on every poll would overwrite whatever
@@ -138,7 +143,10 @@ export default function CandidateEditScreen({
     onBack();
   };
 
-  const handleSave = () => onSave(candidate.id, editableToProfile(profile, state));
+  const handleSave = () => {
+    if (isCreating && !state.full_name.trim()) return;
+    onSave(candidate.id, editableToProfile(profile, state));
+  };
 
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
@@ -153,7 +161,7 @@ export default function CandidateEditScreen({
           {/* Held shut while the form is dirty: verifying is a statement about
               the stored record, and what is on screen is not it yet. */}
           {/* Shown when onVerify is passed; hidden in StaffScreen view */}
-          {onVerify && (
+          {!isCreating && onVerify && (
             <button
               type="button"
               className={`cscreen-btn ${isVerified ? "is-verified" : ""}`}
@@ -170,8 +178,13 @@ export default function CandidateEditScreen({
             </button>
           )}
 
-          <button type="button" className="cscreen-btn is-primary" onClick={handleSave} disabled={saving}>
-            <Save size={15} /> {saving ? "Saving…" : "Save changes"}
+          <button
+            type="button"
+            className="cscreen-btn is-primary"
+            onClick={handleSave}
+            disabled={saving || (isCreating && !state.full_name.trim())}
+          >
+            <Save size={15} /> {saving ? "Saving…" : isCreating ? "Add candidate" : "Save changes"}
           </button>
         </div>
       </div>
@@ -181,18 +194,31 @@ export default function CandidateEditScreen({
           {initialsOf(state.full_name)}
         </span>
         <div>
-          <h2 className="cprof-name">Editing {state.full_name || "candidate"}</h2>
+          <h2 className="cprof-name">
+            {isCreating ? "Add a candidate" : `Editing ${state.full_name || "candidate"}`}
+          </h2>
           <p className="cprof-meta">
-            Changes are written to MongoDB Atlas when you save. Nothing is stored until then.
+            {isCreating
+              ? "Enter the candidate's details manually. Nothing is stored until you add them."
+              : "Changes are written to MongoDB Atlas when you save. Nothing is stored until then."}
           </p>
         </div>
       </header>
 
+      {error && <div className="cscreen-error" role="alert">{error}</div>}
+
       <div className="cedit-sections">
         <SectionCard title="Identity and contact">
           <div className="cedit-grid">
-            <Field label="Full name">
-              <input className="cedit-input" type="text" value={state.full_name} onChange={text("full_name")} />
+            <Field label="Full name" hint={isCreating ? "required" : undefined}>
+              <input
+                className="cedit-input"
+                type="text"
+                value={state.full_name}
+                onChange={text("full_name")}
+                required={isCreating}
+                autoFocus={isCreating}
+              />
             </Field>
             <Field label="Current designation">
               <input className="cedit-input" type="text" value={state.designation} onChange={text("designation")} />
@@ -734,14 +760,21 @@ export default function CandidateEditScreen({
 
       <div className="cedit-footer">
         <span className="cedit-footer-note">
-          {dirty ? "You have unsaved changes." : "Everything on this screen is saved."}
+          {isCreating
+            ? "The profile will be added to the candidate pool when you save."
+            : dirty ? "You have unsaved changes." : "Everything on this screen is saved."}
         </span>
         <div className="cscreen-topbar-actions">
           <button type="button" className="cscreen-btn" onClick={handleBack}>
             Cancel
           </button>
-          <button type="button" className="cscreen-btn is-primary" onClick={handleSave} disabled={saving}>
-            <Save size={15} /> {saving ? "Saving…" : "Save changes"}
+          <button
+            type="button"
+            className="cscreen-btn is-primary"
+            onClick={handleSave}
+            disabled={saving || (isCreating && !state.full_name.trim())}
+          >
+            <Save size={15} /> {saving ? "Saving…" : isCreating ? "Add candidate" : "Save changes"}
           </button>
         </div>
       </div>

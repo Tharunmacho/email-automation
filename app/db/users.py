@@ -23,6 +23,7 @@ log = get_logger(__name__)
 ADMIN_ROLE = "admin"
 STAFF_ROLE = "staff"
 USERS_COLLECTION = "users"
+LEGACY_DEMO_STAFF_EMAIL = "staff@gmail.com"
 
 #: Every page a permission can be granted for.
 #:
@@ -395,49 +396,52 @@ def ensure_seed_user(email: str, password: str, name: str = "Administrator") -> 
         else:
             repo.set_password(settings.demo_admin_email, settings.demo_admin_password)
 
-    if settings.demo_staff_email and settings.demo_staff_password:
-        existing_staff = repo.find_by_email(settings.demo_staff_email)
-        if not existing_staff:
-            repo.create_staff(
-                email=settings.demo_staff_email,
-                password=settings.demo_staff_password,
-                name="Staff Reviewer",
-                keywords=["Python", "React", "DevOps", "Java", "SQL"],
-            )
-            log.info("Seeded initial staff account: %s", settings.demo_staff_email)
-        else:
-            repo.set_password(settings.demo_staff_email, settings.demo_staff_password)
-
-
 def ensure_demo_accounts(
     admin_email: str,
     admin_password: str,
-    staff_email: str,
-    staff_password: str,
 ) -> list[str]:
-    """Create the two accounts the login screen advertises, once.
+    """Create the admin account the login screen advertises, once.
 
     Creates, never overwrites: an operator who changes a demo password keeps
-    that change across restarts. Both roles are seeded because the staff account
-    is the only thing that demonstrates the isolation — there is nothing to
-    isolate without one.
+    that change across restarts. Staff accounts are created only by an admin;
+    startup must never restore a staff member somebody deliberately removed.
 
     Returns the addresses actually created, so a boot log can say what it did.
     """
     repo = UserRepository()
     created: list[str] = []
-    for email, password, name, role in (
-        (admin_email, admin_password, "Super Admin", ADMIN_ROLE),
-        (staff_email, staff_password, "Staff Member", STAFF_ROLE),
-    ):
-        if not email or not password:
-            continue
-        if repo.find_by_email(email):
-            continue
-        repo.create(email=email, password=password, name=name, role=role)
-        created.append(email)
-        log.info("Seeded demo %s account: %s", role, email)
+    if admin_email and admin_password and not repo.find_by_email(admin_email):
+        repo.create(
+            email=admin_email,
+            password=admin_password,
+            name="Super Admin",
+            role=ADMIN_ROLE,
+        )
+        created.append(admin_email)
+        log.info("Seeded demo admin account: %s", admin_email)
     return created
+
+
+def remove_legacy_demo_staff() -> str | None:
+    """Remove the old auto-seeded Staff Reviewer account, once and for good.
+
+    The email and generated names identify only the historical demo account.
+    A real account that has been renamed or uses another address is untouched.
+    Returns its id so startup can safely redistribute any unread assignments.
+    """
+    repo = UserRepository()
+    existing = repo.find_by_email(LEGACY_DEMO_STAFF_EMAIL)
+    if not existing:
+        return None
+    if existing.get("role") != STAFF_ROLE:
+        return None
+    if existing.get("name") not in {"Staff Reviewer", "Staff Member"}:
+        return None
+    staff_id = str(existing["_id"])
+    if not repo.delete_staff(staff_id):
+        return None
+    log.info("Removed legacy demo staff account: %s", LEGACY_DEMO_STAFF_EMAIL)
+    return staff_id
 
 
 def ensure_user_indexes() -> None:

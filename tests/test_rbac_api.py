@@ -342,10 +342,9 @@ def test_demo_endpoint_goes_quiet_when_demo_mode_is_off(api, monkeypatch):
     assert body == {"enabled": False, "accounts": []}
 
 
-def test_demo_seeding_creates_one_account_per_role():
-    """Both roles have to exist, because the staff account is the only thing
-    that proves the isolation — there is nothing to isolate without one."""
-    from app.db.users import ADMIN_ROLE, STAFF_ROLE, ensure_demo_accounts
+def test_demo_seeding_creates_only_the_admin_account():
+    """Startup must not recreate a staff member an admin removed."""
+    from app.db.users import ADMIN_ROLE, ensure_demo_accounts
 
     created_docs = []
 
@@ -358,10 +357,10 @@ def test_demo_seeding_creates_one_account_per_role():
             return None
 
     with patch("app.db.users.UserRepository", FakeRepo):
-        created = ensure_demo_accounts("a@x.com", "pw1", "s@x.com", "pw2")
+        created = ensure_demo_accounts("a@x.com", "pw1")
 
-    assert created == ["a@x.com", "s@x.com"]
-    assert [d["role"] for d in created_docs] == [ADMIN_ROLE, STAFF_ROLE]
+    assert created == ["a@x.com"]
+    assert [d["role"] for d in created_docs] == [ADMIN_ROLE]
 
 
 def test_demo_seeding_never_resets_an_existing_account():
@@ -377,7 +376,36 @@ def test_demo_seeding_never_resets_an_existing_account():
             raise AssertionError("seeding overwrote an existing account")
 
     with patch("app.db.users.UserRepository", FakeRepo):
-        assert ensure_demo_accounts("a@x.com", "pw1", "s@x.com", "pw2") == []
+        assert ensure_demo_accounts("a@x.com", "pw1") == []
+
+
+def test_legacy_staff_reviewer_is_removed_but_a_real_account_is_not():
+    from app.db.users import remove_legacy_demo_staff
+
+    deleted = []
+
+    class LegacyRepo:
+        def find_by_email(self, email):
+            assert email == "staff@gmail.com"
+            return {"_id": "legacy-staff", "email": email, "role": "staff", "name": "Staff Reviewer"}
+
+        def delete_staff(self, staff_id):
+            deleted.append(staff_id)
+            return True
+
+    with patch("app.db.users.UserRepository", LegacyRepo):
+        assert remove_legacy_demo_staff() == "legacy-staff"
+    assert deleted == ["legacy-staff"]
+
+    class RealRepo(LegacyRepo):
+        def find_by_email(self, email):
+            return {"_id": "real-staff", "email": email, "role": "staff", "name": "Priya"}
+
+        def delete_staff(self, staff_id):  # pragma: no cover - must stay untouched
+            raise AssertionError("real staff account was deleted")
+
+    with patch("app.db.users.UserRepository", RealRepo):
+        assert remove_legacy_demo_staff() is None
 
 
 # --------------------------------------------------------------------------- #

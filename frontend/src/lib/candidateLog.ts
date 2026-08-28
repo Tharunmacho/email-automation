@@ -15,6 +15,7 @@
 
 /** Short verb shown in its own column, so the log reads as a table not prose. */
 export type CandidateLogAction =
+  | "Created"
   | "Viewed"
   | "Opened editor"
   | "Edited"
@@ -48,6 +49,7 @@ const STORAGE_KEY = "candidate_activity_logs";
 const MAX_STORED = 1000;
 
 const ACTIONS: CandidateLogAction[] = [
+  "Created",
   "Viewed",
   "Opened editor",
   "Edited",

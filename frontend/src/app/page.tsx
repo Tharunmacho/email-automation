@@ -36,6 +36,7 @@ import {
   dropCandidateLogs,
 } from "@/lib/candidateLog";
 import {
+  createManualCandidate,
   evaluateCandidate,
   fetchMe,
   getCandidate,
@@ -67,9 +68,18 @@ import type { Verdict } from "@/screens/CandidateProfileScreen";
  * record for that candidate alone.
  */
 interface CandidateScreen {
-  mode: "profile" | "edit";
+  mode: "profile" | "edit" | "create";
   candidateId: string;
 }
+
+const EMPTY_MANUAL_CANDIDATE: CandidateRecord = {
+  id: "new-manual-candidate",
+  source: "manual",
+  status: "ingested",
+  profile: { is_resume: false, confidence: 1 },
+  created_at: "",
+  updated_at: "",
+};
 
 /**
  * How often the directory refreshes itself with nothing else going on.
@@ -96,6 +106,11 @@ const CANDIDATE_SCREEN_META: Record<
     eyebrow: "Talent Pool",
     title: "Edit Candidate",
     subtitle: "Change the stored details. Only the fields you can edit are shown.",
+  },
+  create: {
+    eyebrow: "Talent Pool",
+    title: "Add Candidate",
+    subtitle: "Enter a candidate and their details directly into the CRM.",
   },
 };
 
@@ -147,6 +162,7 @@ export default function Home() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailNonce, setDetailNonce] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   /** A staff verdict in flight, which locks the review screen's own buttons. */
   const [evaluating, setEvaluating] = useState(false);
@@ -466,7 +482,7 @@ export default function Home() {
   const { status: realtimeStatus } = useRealtime(Boolean(user), handleRealtime);
 
   // ---- the open candidate ------------------------------------------------ //
-  const openCandidateId = screen?.candidateId ?? null;
+  const openCandidateId = screen && screen.mode !== "create" ? screen.candidateId : null;
 
   /**
    * Fetch the whole record for whichever candidate is open.
@@ -695,6 +711,32 @@ export default function Home() {
     }
   };
 
+  const handleCreateCandidate = async (profile: CandidateProfile) => {
+    setSaving(true);
+    setCreationError(null);
+    try {
+      const created = await createManualCandidate(profile);
+      await refreshCandidates();
+      appendCandidateLog(
+        created.id,
+        "Created",
+        "Candidate profile added manually.",
+        "success",
+        user?.email,
+      );
+      log(`Added candidate manually: ${candidateNameOf(created)}.`, "success");
+      showToast("Candidate added successfully.", "success");
+      setDetail(created);
+      setScreen({ mode: "profile", candidateId: created.id });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not add the candidate.";
+      setCreationError(message);
+      showToast(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleVerify = async (candidateId: string) => {
     setVerifying(true);
     const who = nameOf(candidateId);
@@ -800,6 +842,11 @@ export default function Home() {
     appendCandidateLog(candidate.id, "Opened editor", `Edit screen opened.`, "info", user?.email);
   };
 
+  const handleAddCandidate = () => {
+    setCreationError(null);
+    setScreen({ mode: "create", candidateId: EMPTY_MANUAL_CANDIDATE.id });
+  };
+
   const closeScreen = () => setScreen(null);
 
   /**
@@ -897,7 +944,9 @@ export default function Home() {
    * the previously open candidate, resolves to null and the screen waits.
    */
   const screenCandidate =
-    screen && detail && detail.id === screen.candidateId ? detail : null;
+    screen?.mode === "create"
+      ? EMPTY_MANUAL_CANDIDATE
+      : screen && detail && detail.id === screen.candidateId ? detail : null;
 
   const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
 
@@ -1035,6 +1084,17 @@ export default function Home() {
               />
             )}
 
+            {screenCandidate && screen?.mode === "create" && (
+              <CandidateEditScreen
+                candidate={screenCandidate}
+                mode="create"
+                saving={saving}
+                error={creationError}
+                onBack={closeScreen}
+                onSave={(_candidateId, profile) => void handleCreateCandidate(profile)}
+              />
+            )}
+
             {/* The record is fetched when the screen opens, so there is a
                 moment with nothing to show — and, if it cannot be fetched, no
                 screen to show at all. Neither may fall through to the
@@ -1094,6 +1154,7 @@ export default function Home() {
                   ) : (
                     <CandidatesView
                       candidates={candidates}
+                      onAddCandidate={handleAddCandidate}
                       onOpenCandidate={handleOpenCandidate}
                       onEditCandidate={handleEditCandidate}
                       onDeleteCandidate={handleDeleteCandidate}

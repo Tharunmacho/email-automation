@@ -34,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
-from app.core.models import EVALUATION_STATUSES, CandidateProfile
+from app.core.models import EVALUATION_STATUSES, CandidateProfile, CandidateRecord, utcnow
 from app.core.security import create_token, read_token, verify_service_key
 from app.assignment.balancer import (
     allocate_unassigned,
@@ -46,6 +46,7 @@ from app.assignment.balancer import (
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
+from app.db.dedup import normalize_email, normalize_phone
 from app.policy.cv_policy import (
     JOB_CATEGORIES,
     is_cv_required,
@@ -61,6 +62,7 @@ from app.db.users import (
     UserRepository,
     ensure_demo_accounts,
     ensure_seed_user,
+    remove_legacy_demo_staff,
 )
 from app.notifications import notify_candidate_assigned
 from app.storage.factory import get_storage_backend
@@ -116,7 +118,17 @@ def _seed_admin() -> None:
     except Exception:  # noqa: BLE001 — the API must still boot without it
         pass
 
-    # The accounts the login screen advertises. Separate from the operator's own
+    # Older releases recreated a "Staff Reviewer" demo account on every boot.
+    # Remove that exact legacy account and place any unread work with the real
+    # roster; reviewed work stays orphaned so its history is not destroyed.
+    try:
+        removed_staff_id = remove_legacy_demo_staff()
+        if removed_staff_id:
+            redistribute_from_staff(removed_staff_id, repo=repo(), users=users)
+    except Exception:  # noqa: BLE001 — account cleanup must not stop the API
+        pass
+
+    # The account the login screen advertises. Separate from the operator's own
     # admin above, and create-only: changing a demo password must survive a
     # restart.
     if settings.demo_accounts_enabled:
@@ -124,8 +136,6 @@ def _seed_admin() -> None:
             ensure_demo_accounts(
                 settings.demo_admin_email,
                 settings.demo_admin_password,
-                settings.demo_staff_email,
-                settings.demo_staff_password,
             )
         except Exception:  # noqa: BLE001
             pass
@@ -888,6 +898,70 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
     repository.update_profile(candidate_id, profile)
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
+
+
+@app.post("/candidates/manual", status_code=201)
+def create_manual_candidate(
+    profile: CandidateProfile,
+    _admin: dict = Depends(require_admin),
+) -> dict:
+    """Create a candidate typed directly into the CRM by an administrator.
+
+    This is deliberately separate from ``POST /candidates``, whose service-key
+    contract and idempotency rules belong to the WhatsApp bot. A manual record
+    has no invented source email, resume, OCR payload, or CV requirement.
+    """
+    full_name = (profile.full_name or "").strip()
+    if not full_name:
+        raise HTTPException(status_code=422, detail="Full name is required")
+
+    # These are facts about how the profile was created, not fields the browser
+    # gets to claim. Manual input is treated as confidently transcribed but is
+    # still left in the normal review workflow rather than auto-verified.
+    clean_profile = profile.model_copy(
+        update={
+            "full_name": full_name,
+            "is_resume": False,
+            "confidence": 1.0,
+            "raw_ocr": None,
+        }
+    )
+    now = utcnow()
+    record = CandidateRecord(
+        id=uuid.uuid4().hex,
+        source="manual",
+        profile=clean_profile,
+        email_key=normalize_email(clean_profile.email),
+        phone_key=normalize_phone(clean_profile.phone),
+        status="ingested",
+        cv_required=False,
+        created_at=now,
+        updated_at=now,
+    )
+
+    repository = repo()
+    candidate_id = repository.insert(record)
+
+    # Manual profiles enter the same least-loaded queue as every other new
+    # candidate. A missing roster or a failed notification must not roll back a
+    # valid profile that is already safely stored.
+    try:
+        assignment = assign_candidate(candidate_id, clean_profile, repo=repository)
+        if assignment.assigned:
+            notify_candidate_assigned(
+                assignment.staff_id or "",
+                {
+                    "id": candidate_id,
+                    "full_name": clean_profile.full_name,
+                    "email": clean_profile.email,
+                },
+                staff_name=assignment.staff_name,
+            )
+    except Exception as exc:  # noqa: BLE001 - creation must survive allocation outages
+        log.warning("Could not allocate manual candidate %s: %s", candidate_id, exc)
+
+    stored = repository.get(candidate_id)
+    return (stored or record).model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/verify")

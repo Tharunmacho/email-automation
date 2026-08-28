@@ -21,6 +21,10 @@ class MockRepository:
     def get(self, candidate_id: str):
         return self.candidates.get(candidate_id)
 
+    def insert(self, record: CandidateRecord):
+        self.candidates[record.id] = record
+        return record.id
+
     def update_profile(self, candidate_id: str, profile: CandidateProfile):
         if candidate_id in self.candidates:
             self.candidates[candidate_id].profile = profile
@@ -213,6 +217,42 @@ def test_update_candidate_profile(test_client):
     # Test updating non-existent candidate
     response = test_client.put("/candidates/non-existent", json=updated_profile)
     assert response.status_code == 404
+
+
+def test_create_manual_candidate_stores_typed_profile_without_fake_source_data(test_client):
+    with patch("app.api.routes.assign_candidate") as assign:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/manual",
+            json={
+                "full_name": "  Meera Nair  ",
+                "email": "Meera.Nair@Example.com ",
+                "phone": "+91 98765 43210",
+                "current_designation": "Electrician",
+                "skills": ["Wiring", "Maintenance"],
+                "work_experience": [],
+                "education": [],
+            },
+        )
+
+    assert response.status_code == 201
+    record = response.json()
+    assert record["source"] == "manual"
+    assert record["profile"]["full_name"] == "Meera Nair"
+    assert record["profile"]["is_resume"] is False
+    assert record["profile"]["confidence"] == 1.0
+    assert record["email_key"] == "meera.nair@example.com"
+    assert record["phone_key"] == "9876543210"
+    assert record["cv_required"] is False
+    assert record.get("resume") is None
+    assert record.get("source_email") is None
+    assign.assert_called_once()
+
+
+def test_create_manual_candidate_requires_a_name(test_client):
+    response = test_client.post("/candidates/manual", json={"email": "nobody@example.com"})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Full name is required"
 
 
 def test_verify_candidate(test_client):

@@ -42,6 +42,7 @@ const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
+  onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
   onDeleteCandidate: (candidateId: string) => void;
@@ -252,6 +253,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
  */
 export default function CandidatesView({
   candidates: allCandidates,
+  onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
   onDeleteCandidate,
@@ -515,7 +517,7 @@ export default function CandidatesView({
         </div>
 
         <div className="ds-head-actions">
-          <button type="button" className="ds-ghost-btn">
+          <button type="button" className="ds-ghost-btn" onClick={onAddCandidate}>
             <Plus size={15} /> Add candidate
           </button>
           <button type="button" className="ds-primary-btn">

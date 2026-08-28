@@ -351,6 +351,15 @@ export function updateCandidateProfile(
   });
 }
 
+/** Create a profile entered directly by an administrator in the CRM. */
+export function createManualCandidate(profile: CandidateProfile): Promise<CandidateRecord> {
+  return request<CandidateRecord>("/candidates/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(profile),
+  });
+}
+
 export function verifyCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}/verify`, { method: "POST" });
 }
