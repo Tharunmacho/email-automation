@@ -357,6 +357,19 @@ class SMTPIMAPClient:
                             mail.expunge()
                             log.info("Removed IMAP message UID %s from folder '%s'", message_id, folder)
                             break
+
+                        st_all, search_d = mail.uid("search", None, "ALL")
+                        if st_all == "OK" and search_d and search_d[0]:
+                            folder_uids = [u.decode() for u in search_d[0].split()]
+                            for f_uid in folder_uids:
+                                st_hdr, fetch_hdr = mail.uid("fetch", f_uid, "(BODY[HEADER.FIELDS (MESSAGE-ID)])")
+                                if st_hdr == "OK" and fetch_hdr and fetch_hdr[0] and isinstance(fetch_hdr[0], tuple):
+                                    hdr_text = fetch_hdr[0][1].decode(errors="ignore")
+                                    if message_id in hdr_text:
+                                        mail.uid("store", f_uid, "+FLAGS", "(\\Deleted)")
+                                        mail.expunge()
+                                        log.info("Removed matching IMAP message UID %s (key=%s) from folder '%s'", f_uid, message_id, folder)
+                                        break
                     except Exception:
                         continue
             finally:
@@ -365,4 +378,4 @@ class SMTPIMAPClient:
                 except Exception:
                     pass
         except Exception as exc:
-            log.warning("IMAP remove_label '%s' failed for UID %s: %s", label_name, message_id, exc)
+            log.warning("IMAP remove_label '%s' failed for key %s: %s", label_name, message_id, exc)
