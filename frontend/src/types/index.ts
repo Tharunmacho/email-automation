@@ -357,6 +357,45 @@ export interface IdentityDocuments {
   passport: PassportRecord[];
 }
 
+/** Identity facts an administrator may transcribe while adding a candidate. */
+export interface ManualPassportDetails {
+  passport_number?: string;
+  surname?: string;
+  given_names?: string;
+  nationality?: string;
+  issuing_country?: string;
+  date_of_birth?: string;
+  sex?: string;
+  date_of_issue?: string;
+  expiry_date?: string;
+  personal_number?: string;
+}
+
+export interface ManualAadhaarDetails {
+  aadhaar_number?: string;
+  name?: string;
+  date_of_birth?: string;
+  year_of_birth?: string;
+  gender?: string;
+  mobile_number?: string;
+  address?: string;
+  care_of?: string;
+  pincode?: string;
+  vid?: string;
+  enrollment_id?: string;
+}
+
+export interface ManualIdentityDetails {
+  passport?: ManualPassportDetails;
+  aadhaar?: ManualAadhaarDetails;
+}
+
+export interface ManualCandidateCreateResponse {
+  candidate: CandidateRecord;
+  identity_saved: Array<"passport" | "aadhaar">;
+  identity_errors: string[];
+}
+
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */
 export type EvaluationStatus =
   | "pending"

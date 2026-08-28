@@ -43,6 +43,10 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  ManualIdentityDetails,
+  ManualAadhaarDetails,
+  ManualPassportDetails,
+  ManualCandidateCreateResponse,
 } from "@/types";
 
 export type {
@@ -75,6 +79,10 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  ManualIdentityDetails,
+  ManualAadhaarDetails,
+  ManualPassportDetails,
+  ManualCandidateCreateResponse,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -352,11 +360,14 @@ export function updateCandidateProfile(
 }
 
 /** Create a profile entered directly by an administrator in the CRM. */
-export function createManualCandidate(profile: CandidateProfile): Promise<CandidateRecord> {
-  return request<CandidateRecord>("/candidates/manual", {
+export function createManualCandidate(
+  profile: CandidateProfile,
+  identity?: ManualIdentityDetails,
+): Promise<ManualCandidateCreateResponse> {
+  return request<ManualCandidateCreateResponse>("/candidates/manual", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profile),
+    body: JSON.stringify({ profile, identity }),
   });
 }
 

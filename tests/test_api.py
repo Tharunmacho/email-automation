@@ -225,18 +225,21 @@ def test_create_manual_candidate_stores_typed_profile_without_fake_source_data(t
         response = test_client.post(
             "/candidates/manual",
             json={
-                "full_name": "  Meera Nair  ",
-                "email": "Meera.Nair@Example.com ",
-                "phone": "+91 98765 43210",
-                "current_designation": "Electrician",
-                "skills": ["Wiring", "Maintenance"],
-                "work_experience": [],
-                "education": [],
+                "profile": {
+                    "full_name": "  Meera Nair  ",
+                    "email": "Meera.Nair@Example.com ",
+                    "phone": "+91 98765 43210",
+                    "current_designation": "Electrician",
+                    "skills": ["Wiring", "Maintenance"],
+                    "work_experience": [],
+                    "education": [],
+                }
             },
         )
 
     assert response.status_code == 201
-    record = response.json()
+    body = response.json()
+    record = body["candidate"]
     assert record["source"] == "manual"
     assert record["profile"]["full_name"] == "Meera Nair"
     assert record["profile"]["is_resume"] is False
@@ -246,13 +249,79 @@ def test_create_manual_candidate_stores_typed_profile_without_fake_source_data(t
     assert record["cv_required"] is False
     assert record.get("resume") is None
     assert record.get("source_email") is None
+    assert body["identity_saved"] == []
+    assert body["identity_errors"] == []
     assign.assert_called_once()
 
 
 def test_create_manual_candidate_requires_a_name(test_client):
-    response = test_client.post("/candidates/manual", json={"email": "nobody@example.com"})
+    response = test_client.post(
+        "/candidates/manual",
+        json={"profile": {"email": "nobody@example.com"}},
+    )
     assert response.status_code == 422
     assert response.json()["detail"] == "Full name is required"
+
+
+def test_create_manual_candidate_files_passport_and_aadhaar_details(test_client):
+    with patch("app.api.routes.assign_candidate") as assign, \
+         patch("app.db.identity_records.store_passport_record") as store_passport, \
+         patch("app.db.identity_records.store_aadhaar_record") as store_aadhaar:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/manual",
+            json={
+                "profile": {"full_name": "Meera Nair"},
+                "identity": {
+                    "passport": {
+                        "passport_number": " z-1234567 ",
+                        "given_names": "Meera",
+                        "surname": "Nair",
+                        "nationality": "IND",
+                        "expiry_date": "2034-05-01",
+                    },
+                    "aadhaar": {
+                        "aadhaar_number": "1234 1234 9017",
+                        "date_of_birth": "1992-02-03",
+                        "address": "Kochi, Kerala",
+                        "pincode": "682001",
+                    },
+                },
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    record = body["candidate"]
+    assert record["profile"]["passport_number"] == "z-1234567"
+    assert record["profile"]["passport_expiry"] == "2034-05-01"
+    assert record["passport_key"] == "Z1234567"
+    assert record["passport_key_source"] == "manual"
+    assert body["identity_saved"] == ["passport", "aadhaar"]
+    assert body["identity_errors"] == []
+
+    passport_result = store_passport.call_args.args[1]
+    assert passport_result["mrz"]["passport_number"] == "z-1234567"
+    assert passport_result["mrz"]["all_check_digits_valid"] is None
+    assert store_passport.call_args.kwargs["provider"] == "manual"
+
+    aadhaar_result = store_aadhaar.call_args.args[1]
+    assert aadhaar_result["aadhaar"]["aadhaar_number"] == "123412349017"
+    assert aadhaar_result["aadhaar"]["name"] == "Meera Nair"
+    assert aadhaar_result["aadhaar"]["aadhaar_number_valid"] is None
+    assert store_aadhaar.call_args.kwargs["provider"] == "manual"
+
+
+def test_create_manual_candidate_rejects_an_invalid_aadhaar_number(test_client):
+    response = test_client.post(
+        "/candidates/manual",
+        json={
+            "profile": {"full_name": "Meera Nair"},
+            "identity": {"aadhaar": {"aadhaar_number": "1234"}},
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Aadhaar number must contain 12 digits"
 
 
 def test_verify_candidate(test_client):

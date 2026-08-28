@@ -51,6 +51,7 @@ import {
   type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
+  type ManualIdentityDetails,
   type SlaAlert,
 } from "@/lib/api";
 import type { Verdict } from "@/screens/CandidateProfileScreen";
@@ -711,11 +712,15 @@ export default function Home() {
     }
   };
 
-  const handleCreateCandidate = async (profile: CandidateProfile) => {
+  const handleCreateCandidate = async (
+    profile: CandidateProfile,
+    identity?: ManualIdentityDetails,
+  ) => {
     setSaving(true);
     setCreationError(null);
     try {
-      const created = await createManualCandidate(profile);
+      const result = await createManualCandidate(profile, identity);
+      const created = result.candidate;
       await refreshCandidates();
       appendCandidateLog(
         created.id,
@@ -725,7 +730,14 @@ export default function Home() {
         user?.email,
       );
       log(`Added candidate manually: ${candidateNameOf(created)}.`, "success");
-      showToast("Candidate added successfully.", "success");
+      if (result.identity_errors.length > 0) {
+        showToast(`Candidate added. ${result.identity_errors.join(" ")}`, "error");
+      } else {
+        const identityCopy = result.identity_saved.length
+          ? ` ${result.identity_saved.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} details saved.`
+          : "";
+        showToast(`Candidate added successfully.${identityCopy}`, "success");
+      }
       setDetail(created);
       setScreen({ mode: "profile", candidateId: created.id });
     } catch (err) {
@@ -1091,7 +1103,9 @@ export default function Home() {
                 saving={saving}
                 error={creationError}
                 onBack={closeScreen}
-                onSave={(_candidateId, profile) => void handleCreateCandidate(profile)}
+                onSave={(_candidateId, profile, identity) =>
+                  void handleCreateCandidate(profile, identity)
+                }
               />
             )}
 
