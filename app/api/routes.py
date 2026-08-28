@@ -419,23 +419,21 @@ def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> Non
 
     if message_ids:
         try:
-            from app.email_client import get_email_client
+            from app.email_client import get_all_email_clients
 
-            gmail = get_email_client()
-            for message_id in message_ids:
-                # Retire rather than free: the search excludes both labels, so
-                # these emails never come back, while a *new* email carrying the
-                # same resume arrives unlabelled and ingests as a new candidate.
-                if settings.gmail_deleted_label:
-                    gmail.apply_label(message_id, settings.gmail_deleted_label)
-                if settings.gmail_processed_label:
-                    gmail.remove_label(message_id, settings.gmail_processed_label)
+            clients = get_all_email_clients()
+            for client in clients:
+                for message_id in message_ids:
+                    if settings.gmail_deleted_label:
+                        client.apply_label(message_id, settings.gmail_deleted_label)
+                    if settings.gmail_processed_label:
+                        client.remove_label(message_id, settings.gmail_processed_label)
             log.info(
                 "Marked %d message(s) '%s' after candidate deletion",
                 len(message_ids), settings.gmail_deleted_label,
             )
         except Exception as err:
-            log.warning("Could not re-label Gmail messages %s: %s", message_ids, err)
+            log.warning("Could not re-label messages %s: %s", message_ids, err)
 
 
 @app.delete("/candidates/{candidate_id}")
