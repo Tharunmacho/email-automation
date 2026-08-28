@@ -27,6 +27,90 @@ services:
     # has no password. Nothing off this machine needs to reach it.
     ports:
       - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Full backend stack. Start with:
+  #   docker compose --profile app up -d --build api worker beat
+  # The three services share the same code, environment, persistent files and
+  # Redis broker; only their process command differs.
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./secrets:/app/secrets
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_worker
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - worker
+      - --loglevel=INFO
+      - --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    volumes:
+      - ./secrets:/app/secrets
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  beat:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_beat
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/var/lib/resume-ingest/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    volumes:
+      - celerybeat_data:/var/lib/resume-ingest
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # Optional web UI to browse MongoDB at http://localhost:8081
   mongo-express:
@@ -70,3 +154,5 @@ services:
 
 volumes:
   mongo_data:
+  app_data:
+  celerybeat_data:

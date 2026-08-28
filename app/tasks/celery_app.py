@@ -42,6 +42,16 @@ celery_app.conf.update(
     # the answer. It is single-flighted on a Redis lock, so a tick landing on
     # top of a slow sweep is a no-op rather than a double submission.
     beat_schedule={
+        **(
+            {
+                "poll-gmail": {
+                    "task": "app.tasks.jobs.poll_gmail",
+                    "schedule": float(settings.gmail_poll_interval_seconds),
+                },
+            }
+            if settings.gmail_poll_interval_seconds > 0
+            else {}
+        ),
         "reconcile-ocr-jobs": {
             "task": "app.tasks.reconciler.reconcile_ocr_jobs",
             "schedule": float(settings.reconciler_interval_seconds),

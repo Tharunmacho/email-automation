@@ -335,6 +335,12 @@ class Settings(BaseSettings):
     # strict "confirmed Indian or nothing" policy.
     passport_allow_undetermined_nationality: bool = False
 
+    # ---- Scheduled ingestion ----
+    # Celery beat searches every configured mailbox at this interval and
+    # fans each message out to a worker task. Set to 0 to leave ingestion
+    # manual while retaining the worker for CRM-triggered syncs.
+    gmail_poll_interval_seconds: int = 30
+
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last
     # update rather than from arrival, so a healthy long-running job — which

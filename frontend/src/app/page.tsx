@@ -217,6 +217,22 @@ export default function Home() {
     setToast({ message, type, key: Date.now() });
   }, []);
 
+  /**
+   * Record a user action in the dashboard trace and acknowledge it immediately.
+   * Screens that already describe their create, update, delete and failure
+   * outcomes through `onActivity` can therefore share the same popup feedback
+   * without maintaining a second set of messages. A warning is an expected
+   * destructive outcome (for example, "job order deleted"), not a failed
+   * operation, so it uses the neutral toast treatment.
+   */
+  const announceActivity = useCallback(
+    (message: string, type: LogEntry["type"] = "info") => {
+      log(message, type);
+      showToast(message, type === "warn" ? "info" : type);
+    },
+    [log, showToast],
+  );
+
   /** Resolve an id to the person's name so the log reads like a sentence. */
   const nameOf = useCallback(
     (candidateId: string) => candidateNameOf(candidates.find((c) => c.id === candidateId)),
@@ -1051,15 +1067,15 @@ export default function Home() {
                   />
                 )}
 
-                {currentTab === "sourcing" && <SourcingHub onActivity={log} />}
+                {currentTab === "sourcing" && <SourcingHub onActivity={announceActivity} />}
 
-                {currentTab === "b2b-enquiries" && <B2BEnquiries onActivity={log} />}
+                {currentTab === "b2b-enquiries" && <B2BEnquiries onActivity={announceActivity} />}
 
-                {currentTab === "data-management" && <DataManagementScreen onActivity={log} />}
+                {currentTab === "data-management" && <DataManagementScreen onActivity={announceActivity} />}
 
                 {currentTab === "users" && (
                   <UserManagementScreen
-                    onActivity={log}
+                    onActivity={announceActivity}
                     currentUserId={user?.id}
                     openCreate={usersOpenCreate}
                   />
@@ -1101,7 +1117,7 @@ export default function Home() {
                 )}
 
                 {currentTab === "job-orders" && (
-                  <JobOrders candidates={candidates} onActivity={log} />
+                  <JobOrders candidates={candidates} onActivity={announceActivity} />
                 )}
 
                 {currentTab === "settings" && (
