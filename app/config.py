@@ -333,7 +333,7 @@ class Settings(BaseSettings):
     # silently lost. Defaulting to True keeps the Indian ones, which are the
     # overwhelming majority of what this mailbox receives. Set False for a
     # strict "confirmed Indian or nothing" policy.
-    passport_allow_undetermined_nationality: bool = True
+    passport_allow_undetermined_nationality: bool = False
 
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last
