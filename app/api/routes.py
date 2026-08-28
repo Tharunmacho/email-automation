@@ -905,7 +905,7 @@ def create_candidate_from_uploads(
     resume: UploadFile = File(...),
     aadhaar: UploadFile | None = File(default=None),
     passport: UploadFile | None = File(default=None),
-    admin: dict = Depends(require_admin),
+    uploader: dict = Depends(require_page("candidate-entry")),
 ) -> dict:
     """Create a candidate from files whose facts are extracted by VeriIS.
 
@@ -933,24 +933,43 @@ def create_candidate_from_uploads(
             aadhaar=uploaded(aadhaar, "aadhaar.jpg") if aadhaar else None,
             passport=uploaded(passport, "passport.jpg") if passport else None,
             repository=repository,
-            admin_id=str(admin.get("id") or ""),
+            uploader_id=str(uploader.get("id") or ""),
         )
     except CandidateUploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
-    # Uploaded candidates join the same least-loaded review queue as mailbox
-    # candidates.  Allocation failure cannot invalidate completed OCR/storage.
+    # A staff member entering a candidate owns that review. Admin uploads join
+    # the normal least-loaded queue. Allocation failure cannot invalidate
+    # completed OCR/storage.
     try:
-        assignment = assign_candidate(result.candidate.id, result.candidate.profile, repo=repository)
-        if assignment.assigned:
+        assigned_staff_id = ""
+        assigned_staff_name = ""
+        if uploader.get("role") == STAFF_ROLE:
+            assigned_staff_id = str(uploader.get("id") or "")
+            assigned_staff_name = str(
+                uploader.get("name") or uploader.get("email") or "Staff"
+            )
+            repository.assign(
+                result.candidate.id,
+                assigned_staff_id,
+                assigned_staff_name,
+            )
+        else:
+            assignment = assign_candidate(
+                result.candidate.id, result.candidate.profile, repo=repository
+            )
+            if assignment.assigned:
+                assigned_staff_id = assignment.staff_id or ""
+                assigned_staff_name = assignment.staff_name or ""
+        if assigned_staff_id:
             notify_candidate_assigned(
-                assignment.staff_id or "",
+                assigned_staff_id,
                 {
                     "id": result.candidate.id,
                     "full_name": result.candidate.profile.full_name,
                     "email": result.candidate.profile.email,
                 },
-                staff_name=assignment.staff_name,
+                staff_name=assigned_staff_name,
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not allocate uploaded candidate %s: %s", result.candidate.id, exc)

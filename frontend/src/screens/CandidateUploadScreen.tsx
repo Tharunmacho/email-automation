@@ -22,7 +22,7 @@ export interface CandidateUploadFiles {
 interface CandidateUploadScreenProps {
   saving: boolean;
   error?: string | null;
-  onBack: () => void;
+  onBack?: () => void;
   onSubmit: (files: CandidateUploadFiles) => void;
 }
 
@@ -148,10 +148,16 @@ export default function CandidateUploadScreen({
 
   return (
     <form className="cscreen cupload" onSubmit={submit} style={{ animation: "fadeIn 0.3s ease" }}>
-      <div className="cscreen-topbar">
-        <button type="button" className="jod-back" onClick={onBack} disabled={saving}>
-          <ArrowLeft size={15} /> Back to candidates
-        </button>
+      <div className={`cscreen-topbar ${onBack ? "" : "cupload-toolbar"}`}>
+        {onBack ? (
+          <button type="button" className="jod-back" onClick={onBack} disabled={saving}>
+            <ArrowLeft size={15} /> Back to candidates
+          </button>
+        ) : (
+          <span className="cupload-toolbar-note">
+            {saving ? "Extraction continues if you leave this section." : "One candidate per submission."}
+          </span>
+        )}
         <button type="submit" className="cscreen-btn is-primary" disabled={!resume || saving}>
           {saving ? <LoaderCircle className="cupload-spin" size={16} /> : <ScanLine size={16} />}
           {saving ? "VeriIS is extracting…" : "Extract and add candidate"}
@@ -169,6 +175,15 @@ export default function CandidateUploadScreen({
       </header>
 
       {error && <div className="cscreen-error" role="alert">{error}</div>}
+      {saving && (
+        <div className="cupload-active" role="status">
+          <LoaderCircle className="cupload-spin" size={18} />
+          <div>
+            <strong>VeriIS is reading the uploaded documents</strong>
+            <span>You can open another section. The top bar will notify you when extraction finishes.</span>
+          </div>
+        </div>
+      )}
 
       <div className="cupload-grid">
         <UploadSlot

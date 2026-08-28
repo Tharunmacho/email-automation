@@ -1,4 +1,4 @@
-"""Administrator candidate intake driven entirely by uploaded documents.
+"""Candidate intake driven entirely by recruiter-uploaded documents.
 
 The browser supplies files, never extracted identity/profile values.  Resume,
 passport and Aadhaar bytes are sent through the same VeriIS modes used by the
@@ -167,7 +167,15 @@ def _extract_identity(document_type: str, upload: UploadedDocument) -> Extracted
 def _public_identity(extracted: ExtractedIdentity) -> Dict[str, Any]:
     if extracted.document_type == "aadhaar":
         facts = dict(extracted.result.get("aadhaar") or {})
-        return {key: facts.get(key) for key in _AADHAAR_FIELDS if facts.get(key) is not None}
+        # Upload is available to staff. The response follows the same boundary
+        # as the identity profile endpoint: no full Aadhaar number or VID ever
+        # rides back to a staff browser. Administrators can inspect the full
+        # protected record from the candidate profile afterward.
+        return {
+            key: facts.get(key)
+            for key in _AADHAAR_FIELDS
+            if key not in {"aadhaar_number", "vid"} and facts.get(key) is not None
+        }
 
     mrz = dict(extracted.result.get("mrz") or {})
     public = {key: mrz.get(key) for key in _PASSPORT_FIELDS if mrz.get(key) is not None}
@@ -213,7 +221,7 @@ def intake_uploaded_candidate(
     *,
     resume: UploadedDocument,
     repository,
-    admin_id: str,
+    uploader_id: str,
     aadhaar: UploadedDocument | None = None,
     passport: UploadedDocument | None = None,
     parser: ResumeParser | None = None,
@@ -371,7 +379,7 @@ def intake_uploaded_candidate(
                 item.result,
                 candidate_id=candidate_id,
                 provider="manual_upload",
-                account_id=admin_id,
+                account_id=uploader_id,
                 message_id=f"manual-upload/{candidate_id}",
                 attachment_id=record_id,
                 filename=item.upload.filename,

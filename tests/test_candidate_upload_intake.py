@@ -118,7 +118,7 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
             aadhaar=upload("aadhaar.jpg", b"aadhaar", "image/jpeg"),
             passport=upload("passport.jpg", b"passport", "image/jpeg"),
             repository=repository,
-            admin_id="admin-1",
+            uploader_id="admin-1",
             parser=ParsedResume(),
         )
 
@@ -135,6 +135,9 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
 
     assert set(result.identity) == {"aadhaar", "passport"}
     assert "provider_debug" not in result.identity["aadhaar"][0]
+    assert "aadhaar_number" not in result.identity["aadhaar"][0]
+    assert "vid" not in result.identity["aadhaar"][0]
+    assert result.identity["aadhaar"][0]["masked_aadhaar_number"] == "XXXXXXXX9017"
     assert "raw_mrz" not in result.identity["passport"][0]
     assert result.identity["passport"][0]["check_digits_valid"] is True
     assert store_aadhaar.call_args.kwargs["provider"] == "manual_upload"
@@ -148,7 +151,7 @@ def test_upload_intake_refuses_resume_parser_fallback_instead_of_saving_lower_qu
             intake_uploaded_candidate(
                 resume=upload("meera.pdf", b"resume"),
                 repository=repository,
-                admin_id="admin-1",
+                uploader_id="admin-1",
                 parser=ParsedResume(source="heuristic_fallback"),
             )
 
@@ -177,7 +180,7 @@ def test_upload_intake_rejects_failed_passport_checksum_before_creating_candidat
                 resume=upload("meera.pdf", b"resume"),
                 passport=upload("passport.jpg", b"passport", "image/jpeg"),
                 repository=repository,
-                admin_id="admin-1",
+                uploader_id="admin-1",
                 parser=ParsedResume(),
             )
 
@@ -217,7 +220,7 @@ def test_upload_intake_rolls_back_candidate_and_files_when_identity_filing_fails
                 resume=upload("meera.pdf", b"resume"),
                 passport=upload("passport.jpg", b"passport", "image/jpeg"),
                 repository=repository,
-                admin_id="admin-1",
+                uploader_id="admin-1",
                 parser=ParsedResume(),
             )
 

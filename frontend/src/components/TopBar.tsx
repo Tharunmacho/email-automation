@@ -1,10 +1,26 @@
 "use client";
 
-import { Menu, RefreshCw, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  LoaderCircle,
+  Menu,
+  RefreshCw,
+  ScanLine,
+  Search,
+  X,
+} from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
 import NotificationBell from "@/components/NotificationBell";
 import type { AuthUser } from "@/lib/api";
+
+export interface CandidateExtractionNotice {
+  status: "extracting" | "complete" | "error";
+  filename: string;
+  title: string;
+  detail: string;
+}
 
 interface TopBarProps {
   user: AuthUser;
@@ -14,6 +30,9 @@ interface TopBarProps {
   /** Bumped on every realtime event, so the bell re-reads its feed at once. */
   realtimeNonce?: number;
   onOpenCandidate?: (candidateId: string) => void;
+  candidateExtraction?: CandidateExtractionNotice | null;
+  onOpenCandidateExtraction?: () => void;
+  onDismissCandidateExtraction?: () => void;
   /** Whether this session has a navigation rail, which owns the menu toggle. */
   hasRail?: boolean;
   onSync: () => void;
@@ -38,8 +57,9 @@ interface TopBarProps {
  *
  * What remains is the state of the system rather than a set of controls: is
  * push connected, is anything waiting for you, and — for an admin — is a sync
- * running. A staff member sees exactly the first two, which is the entire bar
- * for the review workspace.
+ * running. Candidate extraction also lives here while it is active or waiting
+ * for acknowledgement, so staff can leave the entry screen without losing its
+ * outcome.
  */
 export default function TopBar({
   user,
@@ -48,6 +68,9 @@ export default function TopBar({
   realtimeNonce = 0,
   hasRail = true,
   onOpenCandidate,
+  candidateExtraction = null,
+  onOpenCandidateExtraction,
+  onDismissCandidateExtraction,
   onSync,
   onToggleRail,
 }: TopBarProps) {
@@ -77,6 +100,52 @@ export default function TopBar({
       </label>
 
       <div className="topbar-actions">
+        {candidateExtraction && (
+          <div
+            className={`topbar-extraction is-${candidateExtraction.status}`}
+            role="status"
+            aria-live="polite"
+          >
+            <button
+              type="button"
+              className="topbar-extraction-main"
+              onClick={onOpenCandidateExtraction}
+              disabled={!onOpenCandidateExtraction || candidateExtraction.status === "extracting"}
+              title={candidateExtraction.detail}
+            >
+              <span className="topbar-extraction-icon" aria-hidden="true">
+                {candidateExtraction.status === "extracting" ? (
+                  <LoaderCircle size={16} />
+                ) : candidateExtraction.status === "complete" ? (
+                  <CheckCircle2 size={16} />
+                ) : (
+                  <AlertTriangle size={16} />
+                )}
+              </span>
+              <span className="topbar-extraction-copy">
+                <strong>{candidateExtraction.title}</strong>
+                <small>{candidateExtraction.filename}</small>
+              </span>
+              {candidateExtraction.status === "extracting" && (
+                <ScanLine className="topbar-extraction-scan" size={15} aria-hidden="true" />
+              )}
+            </button>
+            {candidateExtraction.status !== "extracting" && onDismissCandidateExtraction && (
+              <button
+                type="button"
+                className="topbar-extraction-dismiss"
+                onClick={onDismissCandidateExtraction}
+                aria-label="Dismiss candidate extraction notification"
+              >
+                <X size={13} />
+              </button>
+            )}
+            {candidateExtraction.status === "extracting" && (
+              <span className="topbar-extraction-progress" aria-hidden="true" />
+            )}
+          </div>
+        )}
+
         {/* The dot reports the real socket state. A badge that always reads
             "live" would be worse than none — the one thing it has to be able
             to say is that push has stopped working. */}

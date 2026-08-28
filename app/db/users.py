@@ -35,6 +35,7 @@ LEGACY_DEMO_STAFF_EMAIL = "staff@gmail.com"
 PAGES = (
     "overview",
     "candidates",
+    "candidate-entry",
     "staff",
     "job-orders",
     "sourcing",
@@ -50,8 +51,8 @@ PAGES = (
 #: and an admin who can lock themselves out of the page where permissions are
 #: edited is a support call with no answer.
 #:
-#: A staff member reaches their own queue and their own account settings. Every
-#: *other* page is a grant, and
+#: A staff member reaches their own queue, document entry, and account settings.
+#: Every *other* page is a grant, and
 #: grants only ever add. This is the load-bearing decision in the whole
 #: permission model: a grant cannot widen what a staff member is allowed to
 #: *see* — `_staff_scope` in the API still restricts them to candidates
@@ -59,7 +60,7 @@ PAGES = (
 #: their own work in a different screen, not the whole database's PII.
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
-    STAFF_ROLE: {"candidates", "settings"},
+    STAFF_ROLE: {"candidates", "candidate-entry", "settings"},
 }
 
 

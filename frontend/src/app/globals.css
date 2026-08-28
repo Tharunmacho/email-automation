@@ -11277,6 +11277,149 @@ body {
   background: var(--text-light);
 }
 
+/* ---- Candidate extraction status ---- */
+.topbar-extraction {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 210px;
+  max-width: 300px;
+  overflow: hidden;
+  border: 1px solid var(--border-blue-strong);
+  border-radius: 11px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.topbar-extraction-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  color: var(--text-main);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+}
+
+.topbar-extraction-main:not(:disabled) {
+  cursor: pointer;
+}
+
+.topbar-extraction-main:not(:disabled):hover {
+  background: var(--tint-1);
+}
+
+.topbar-extraction-icon {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+}
+
+.topbar-extraction.is-extracting .topbar-extraction-icon svg {
+  animation: topbar-extraction-spin 0.9s linear infinite;
+}
+
+.topbar-extraction.is-complete {
+  border-color: var(--success-edge);
+  background: var(--success-fill);
+}
+
+.topbar-extraction.is-complete .topbar-extraction-icon {
+  color: var(--success-ink);
+}
+
+.topbar-extraction.is-error {
+  border-color: rgba(239, 68, 68, 0.38);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.topbar-extraction.is-error .topbar-extraction-icon {
+  color: var(--error-ink);
+}
+
+.topbar-extraction-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.topbar-extraction-copy strong,
+.topbar-extraction-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-extraction-copy strong {
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.topbar-extraction-copy small {
+  margin-top: 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+}
+
+.topbar-extraction-scan {
+  color: var(--primary);
+  animation: topbar-extraction-scan 1.4s ease-in-out infinite;
+}
+
+.topbar-extraction-dismiss {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  border: 0;
+  border-left: 1px solid rgba(var(--primary-rgb), 0.1);
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.topbar-extraction-dismiss:hover {
+  color: var(--text-main);
+  background: rgba(var(--primary-rgb), 0.07);
+}
+
+.topbar-extraction-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgba(var(--primary-rgb), 0.12);
+}
+
+.topbar-extraction-progress::after {
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  content: "";
+  background: var(--primary);
+  animation: topbar-extraction-progress 1.25s ease-in-out infinite;
+}
+
+@keyframes topbar-extraction-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes topbar-extraction-scan {
+  50% { opacity: 0.35; transform: translateX(2px); }
+}
+
+@keyframes topbar-extraction-progress {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(260%); }
+}
+
 /* ---- Live connection badge ---- */
 .ws-pulse {
   display: inline-flex;
@@ -11331,8 +11474,30 @@ body {
 @media (prefers-reduced-motion: reduce) {
 
   .ws-pulse .ws-pulse-dot,
+  .topbar-extraction-icon svg,
+  .topbar-extraction-scan,
+  .topbar-extraction-progress::after,
   .eval-drawer {
     animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar-extraction {
+    min-width: 42px;
+    max-width: 42px;
+  }
+
+  .topbar-extraction-main {
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+
+  .topbar-extraction-copy,
+  .topbar-extraction-scan,
+  .topbar-extraction-dismiss {
+    display: none;
   }
 }
 
@@ -11791,6 +11956,39 @@ body {
 .cupload-hero .cprof-monogram {
   display: grid;
   place-items: center;
+}
+
+.cupload-toolbar-note {
+  color: var(--dash-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.cupload-active {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 14px;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(var(--primary-rgb), 0.22);
+  border-radius: 12px;
+  color: var(--primary-hover);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.cupload-active > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.cupload-active strong {
+  font-size: 0.82rem;
+}
+
+.cupload-active span {
+  color: var(--dash-muted);
+  font-size: 0.73rem;
 }
 
 .cupload-grid {

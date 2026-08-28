@@ -69,8 +69,16 @@ import type { Verdict } from "@/screens/CandidateProfileScreen";
  * record for that candidate alone.
  */
 interface CandidateScreen {
-  mode: "profile" | "edit" | "create";
+  mode: "profile" | "edit";
   candidateId: string;
+}
+
+interface CandidateExtractionState {
+  status: "extracting" | "complete" | "error";
+  filename: string;
+  title: string;
+  detail: string;
+  candidateId?: string;
 }
 
 /**
@@ -98,11 +106,6 @@ const CANDIDATE_SCREEN_META: Record<
     eyebrow: "Talent Pool",
     title: "Edit Candidate",
     subtitle: "Change the stored details. Only the fields you can edit are shown.",
-  },
-  create: {
-    eyebrow: "Talent Pool",
-    title: "Add Candidate",
-    subtitle: "Upload the documents and let VeriIS create the candidate profile.",
   },
 };
 
@@ -155,6 +158,11 @@ export default function Home() {
   const [detailNonce, setDetailNonce] = useState(0);
   const [saving, setSaving] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
+  const [candidateExtraction, setCandidateExtraction] = useState<CandidateExtractionState | null>(null);
+  const [candidateEntryReset, setCandidateEntryReset] = useState(0);
+  // Identifies the upload owned by the current signed-in session. Signing out
+  // invalidates the id so a slow VeriIS response cannot notify the next user.
+  const candidateExtractionRunRef = useRef(0);
   const [verifying, setVerifying] = useState(false);
   /** A staff verdict in flight, which locks the review screen's own buttons. */
   const [evaluating, setEvaluating] = useState(false);
@@ -302,11 +310,14 @@ export default function Home() {
   }, [checking, pathname, user]);
 
   const handleSignOut = useCallback(() => {
+    candidateExtractionRunRef.current += 1;
     clearSession();
     setUser(null);
     setCandidates([]);
     setTotal(0);
     setLogs([]);
+    setCandidateExtraction(null);
+    setCreationError(null);
     // Candidate history is deliberately NOT cleared: it is the record's audit
     // trail, not this session's scratch state, and the next sign-in should find
     // it intact.
@@ -474,7 +485,7 @@ export default function Home() {
   const { status: realtimeStatus } = useRealtime(Boolean(user), handleRealtime);
 
   // ---- the open candidate ------------------------------------------------ //
-  const openCandidateId = screen && screen.mode !== "create" ? screen.candidateId : null;
+  const openCandidateId = screen?.candidateId ?? null;
 
   /**
    * Fetch the whole record for whichever candidate is open.
@@ -704,12 +715,31 @@ export default function Home() {
   };
 
   const handleCreateCandidate = async (files: CandidateUploadFiles) => {
-    setSaving(true);
+    if (candidateExtraction?.status === "extracting") return;
+    const runId = candidateExtractionRunRef.current + 1;
+    candidateExtractionRunRef.current = runId;
     setCreationError(null);
+    setCandidateExtraction({
+      status: "extracting",
+      filename: files.resume.name,
+      title: "VeriIS extracting",
+      detail: "The documents are queued or being extracted. You can continue working.",
+    });
+    showToast("Candidate extraction started. You can continue working.", "info");
     try {
       const result = await uploadCandidateDocuments(files);
+      if (candidateExtractionRunRef.current !== runId) return;
       const created = result.candidate;
-      await refreshCandidates();
+      setCandidateExtraction({
+        status: "complete",
+        filename: files.resume.name,
+        title: `${candidateNameOf(created)} is ready`,
+        detail: "Extraction finished. Open the completed candidate profile.",
+        candidateId: created.id,
+      });
+      setCandidateEntryReset((nonce) => nonce + 1);
+      setRealtimeNonce((nonce) => nonce + 1);
+      void refreshCandidates();
       appendCandidateLog(
         created.id,
         "Created",
@@ -723,14 +753,17 @@ export default function Home() {
         ? ` ${identityNames.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} extracted.`
         : "";
       showToast(`Candidate extracted successfully.${identityCopy}`, "success");
-      setDetail(created);
-      setScreen({ mode: "profile", candidateId: created.id });
     } catch (err) {
+      if (candidateExtractionRunRef.current !== runId) return;
       const message = err instanceof Error ? err.message : "Could not add the candidate.";
       setCreationError(message);
+      setCandidateExtraction({
+        status: "error",
+        filename: files.resume.name,
+        title: "Extraction needs attention",
+        detail: message,
+      });
       showToast(message, "error");
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -841,7 +874,7 @@ export default function Home() {
 
   const handleAddCandidate = () => {
     setCreationError(null);
-    setScreen({ mode: "create", candidateId: "new-upload" });
+    handleNavigate("candidate-entry");
   };
 
   const closeScreen = () => setScreen(null);
@@ -941,7 +974,7 @@ export default function Home() {
    * the previously open candidate, resolves to null and the screen waits.
    */
   const screenCandidate =
-    screen && screen.mode !== "create" && detail && detail.id === screen.candidateId
+    screen && detail && detail.id === screen.candidateId
       ? detail
       : null;
 
@@ -957,7 +990,10 @@ export default function Home() {
   // would be a second heading for the same page, and the one without the
   // controls.
   const ownsItsHeader =
-    !screen && ["overview", "candidates", "staff", "users", "data-management"].includes(currentTab);
+    !screen &&
+    ["overview", "candidates", "candidate-entry", "staff", "users", "data-management"].includes(
+      currentTab,
+    );
 
   if (checking && pathname !== "/") {
     return (
@@ -992,15 +1028,22 @@ export default function Home() {
         realtimeNonce={realtimeNonce}
         hasRail={hasRail}
         onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
+        candidateExtraction={candidateExtraction}
+        onOpenCandidateExtraction={
+          candidateExtraction?.status === "complete" && candidateExtraction.candidateId
+            ? () => handleOpenCandidateById(candidateExtraction.candidateId as string)
+            : candidateExtraction?.status === "error"
+              ? () => handleNavigate("candidate-entry")
+              : undefined
+        }
+        onDismissCandidateExtraction={() => setCandidateExtraction(null)}
         onSync={runPipeline}
         onToggleRail={() => setMobileOpen((open) => !open)}
       />
 
       <div className="app-body">
-        {/* The staff workspace is one screen, so it has no rail at all: a
-            navigation column offering a single destination is a column that
-            only ever tells you where you already are. Identity and sign-out
-            move into the bar above instead. */}
+        {/* Accounts with more than one reachable destination keep the rail;
+            a tightly restricted account can still use the compact top bar. */}
         {hasRail && (
           <Sidebar
             activeId={currentTab}
@@ -1081,20 +1124,11 @@ export default function Home() {
               />
             )}
 
-            {screen?.mode === "create" && (
-              <CandidateUploadScreen
-                saving={saving}
-                error={creationError}
-                onBack={closeScreen}
-                onSubmit={(files) => void handleCreateCandidate(files)}
-              />
-            )}
-
             {/* The record is fetched when the screen opens, so there is a
                 moment with nothing to show — and, if it cannot be fetched, no
                 screen to show at all. Neither may fall through to the
                 directory: that would read as "the candidate is gone". */}
-            {screen && screen.mode !== "create" && !screenCandidate && (
+            {screen && !screenCandidate && (
               <section className="db-card">
                 {detailError ? (
                   <>
@@ -1127,6 +1161,15 @@ export default function Home() {
                 {currentTab === "b2b-enquiries" && <B2BEnquiries onActivity={announceActivity} />}
 
                 {currentTab === "data-management" && <DataManagementScreen onActivity={announceActivity} />}
+
+                {currentTab === "candidate-entry" && (
+                  <CandidateUploadScreen
+                    key={candidateEntryReset}
+                    saving={candidateExtraction?.status === "extracting"}
+                    error={creationError}
+                    onSubmit={(files) => void handleCreateCandidate(files)}
+                  />
+                )}
 
                 {currentTab === "users" && (
                   <UserManagementScreen

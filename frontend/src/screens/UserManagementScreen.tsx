@@ -48,6 +48,7 @@ import {
 const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
   candidates: "Candidates",
+  "candidate-entry": "Candidate Entry",
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
   sourcing: "Sourcing Hub",
@@ -60,6 +61,7 @@ const PAGE_LABELS: Record<string, string> = {
 const PAGE_DESCRIPTIONS: Record<string, string> = {
   overview: "Pipeline summary and performance overview",
   candidates: "Assigned candidate profiles and reviews",
+  "candidate-entry": "Upload candidate documents for VeriIS extraction",
   staff: "Staff roster, workload and candidate assignment controls",
   "job-orders": "View and manage client job orders",
   sourcing: "View and manage sourcing clients",
@@ -83,7 +85,7 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
  * ungrouped row.
  */
 const PAGE_GROUPS: { label: string; pages: string[] }[] = [
-  { label: "General", pages: ["overview", "candidates", "staff", "users"] },
+  { label: "General", pages: ["overview", "candidates", "candidate-entry", "staff", "users"] },
   {
     label: "Tools",
     pages: [
@@ -119,7 +121,7 @@ const ROLE_OPTIONS = [
  */
 const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
-  staff: ["candidates", "settings"],
+  staff: ["candidates", "candidate-entry", "settings"],
 };
 
 type Section = "create" | "manage";

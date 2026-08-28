@@ -20,6 +20,7 @@ import {
   Database,
   Handshake,
   LayoutDashboard,
+  FilePlus2,
   Settings as SettingsIcon,
   ShieldCheck,
   UserCog,
@@ -30,6 +31,7 @@ import {
 export const NAV_IDS = [
   "overview",
   "candidates",
+  "candidate-entry",
   "staff",
   "job-orders",
   "sourcing",
@@ -79,14 +81,14 @@ export interface NavGroup {
 /**
  * Two products behind one sign-in.
  *
- * A staff account reaches exactly one destination: the candidates allocated to
- * them. Everything else in this list is the Super Admin's. That is not a
+ * A staff account reaches allocated candidates, candidate document entry, and
+ * account settings. Everything else in this list is the Super Admin's. That is not a
  * simplification of the rail — it is the whole difference between the two
  * roles, so it is expressed here as data rather than as conditionals scattered
  * through the shell.
  *
  * Sign-out and the theme switch live on the rail's account card, not in this
- * list, so a one-item rail still gives a staff member everything they need.
+ * list, so the rail still gives a staff member everything they need.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -102,6 +104,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "General",
     items: [
       { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "staff"] },
+      { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "staff"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],
@@ -221,5 +224,10 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Support",
     title: "Settings",
     subtitle: "Account details and configured communication channels.",
+  },
+  "candidate-entry": {
+    eyebrow: "General",
+    title: "Candidate Entry",
+    subtitle: "Upload a resume and identity documents for VeriIS extraction.",
   },
 };

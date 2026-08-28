@@ -41,6 +41,14 @@ class MockRepository:
     def delete(self, candidate_id: str) -> bool:
         return self.candidates.pop(candidate_id, None) is not None
 
+    def assign(self, candidate_id: str, staff_id: str, staff_name=None) -> bool:
+        record = self.candidates.get(candidate_id)
+        if not record:
+            return False
+        record.assigned_staff_id = staff_id
+        record.assigned_staff_name = staff_name
+        return True
+
     def count(self, query=None, staff_id=None):
         return len(self._scoped(staff_id))
 
@@ -287,8 +295,41 @@ def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_res
     assert sent["resume"].data == b"resume-bytes"
     assert sent["aadhaar"].data == b"aadhaar-bytes"
     assert sent["passport"].data == b"passport-bytes"
-    assert sent["admin_id"] == "test-user"
+    assert sent["uploader_id"] == "test-user"
     assign.assert_called_once()
+
+
+def test_staff_upload_is_assigned_to_the_uploader(test_client):
+    result = _uploaded_candidate_result()
+
+    def persist_result(*, repository, **_kwargs):
+        repository.insert(result.candidate)
+        return result
+
+    previous_user = app.dependency_overrides[current_user]
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "staff-7",
+        "email": "recruiter@example.com",
+        "name": "Recruiter Seven",
+        "role": "staff",
+        "pages": ["candidates", "candidate-entry", "settings"],
+    }
+    try:
+        with patch(
+            "app.services.candidate_upload_intake.intake_uploaded_candidate",
+            side_effect=persist_result,
+        ), patch("app.api.routes.assign_candidate") as balance:
+            response = test_client.post(
+                "/candidates/upload",
+                files={"resume": ("meera.pdf", b"resume-bytes", "application/pdf")},
+            )
+    finally:
+        app.dependency_overrides[current_user] = previous_user
+
+    assert response.status_code == 201
+    assert response.json()["candidate"]["assigned_staff_id"] == "staff-7"
+    assert response.json()["candidate"]["assigned_staff_name"] == "Recruiter Seven"
+    balance.assert_not_called()
 
 
 def test_upload_candidate_requires_a_resume(test_client):
@@ -458,6 +499,4 @@ def test_delete_candidate_survives_a_concurrent_delete(test_client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-
-
 
