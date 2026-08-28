@@ -459,7 +459,8 @@ def test_delete_candidate_retires_every_message_carrying_the_resume(test_client)
          patch("app.db.ledger.IngestLedger.message_ids_for_candidate",
                return_value=sorted(every_message)), \
          patch("app.db.ledger.IngestLedger.retire_candidate", return_value=3), \
-         patch("app.email_client.get_email_client", return_value=gmail):
+         patch("app.email_client.get_email_client", return_value=gmail), \
+         patch("app.email_client.get_all_email_clients", return_value=[gmail]):
         response = test_client.delete("/api/v1/candidates/candidate-alice")
 
     assert response.status_code == 200

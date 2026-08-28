@@ -48,27 +48,14 @@ import {
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
-export interface JobOrderRecord {
-  id: string;
-  title: string;
-  client: string;
-  headcount: number;
-  salary: string;
-  skills: string[];
-  description?: string;
-  dueDate: string;
-  status: "OPEN" | "IN PROGRESS" | "FILLED" | "CLOSED";
-  minExperience?: string;
-  industry?: string;
-  designation?: string;
-  fulfilledCount?: number;
-  shortlistedCandidateIds?: string[];
-  rejectedCandidateIds?: string[];
-}
+// Defined in `@/types` so `lib/api` and `SourcingHub` share one definition of
+// what a job order is; re-exported here because both already import it by this
+// path.
+import type { JobOrderRecord, JobOrderStatus } from "@/types";
+
+export type { JobOrderRecord, JobOrderStatus };
 
 const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
-
-export type JobOrderStatus = JobOrderRecord["status"];
 
 const STATUS_TONE: Record<JobOrderStatus, StatTone> = {
   OPEN: "blue",

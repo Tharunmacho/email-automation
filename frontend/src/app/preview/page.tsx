@@ -27,6 +27,7 @@ import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import { NAV_META, type NavId } from "@/lib/nav";
 import { setTheme } from "@/lib/theme";
+import { useIsMounted } from "@/lib/useIsMounted";
 import { setToken, type AuthUser, type CandidateRecord } from "@/lib/api";
 
 const USER: AuthUser = {
@@ -148,21 +149,26 @@ const noop = () => {};
 
 export default function PreviewPage() {
   const [collapsed, setCollapsed] = useState(false);
-  const [ready, setReady] = useState(false);
 
   const params = useMemo(
     () => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search)),
     [],
   );
 
+  // Two external systems, which is what an effect is for: the document's theme
+  // attribute and the token in storage. Neither is React state — so nothing
+  // here re-renders, and the mount gate below no longer costs a render of its
+  // own the way a `useState` flag set from this effect did.
   useEffect(() => {
     const theme = params?.get("theme");
     if (theme === "dark" || theme === "light") setTheme(theme);
     const token = params?.get("token");
     if (token) setToken(token);
-    const timer = window.setTimeout(() => setReady(true), 0);
-    return () => window.clearTimeout(timer);
   }, [params]);
+
+  // False on the server and through hydration, true immediately after — so the
+  // token has been written by the time anything below is allowed to mount.
+  const ready = useIsMounted();
 
   const candidates = useMemo(() => buildCandidates(240), []);
   // The raw parameter, because the harness offers one view that is not a nav

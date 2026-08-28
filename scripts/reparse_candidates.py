@@ -1,183 +1,141 @@
-"""Re-run extraction for candidates whose resume file is still on disk.
+"""Read a stored résumé again and replace the profile built from it.
 
-Sends each stored resume back through the Veris OCR/LLM endpoint and rewrites
-the profile with the current mapper. Existing profiles are written to a JSON
-backup first, so a bad run can be rolled back.
+Why this exists
+---------------
+A candidate's profile is only as good as the extraction that was available the
+moment their email arrived. When the Veris résumé API could not be reached, the
+pipeline fell back to a local heuristic parser and recorded that fact on the
+record as ``additional_info.extraction_source = "heuristic_fallback"``. Those
+profiles are visibly poorer — a designation of "SARAVANAN.A Role", a Projects
+section holding a paragraph about languages, no skills, no dated employment
+history — and nothing fixes itself, because the email has long since been filed
+and will never be polled again.
 
-    python scripts/reparse_candidates.py                      # dry run, shows the diff
-    python scripts/reparse_candidates.py --apply              # write to MongoDB
-    python scripts/reparse_candidates.py --apply --replace    # drop stored entries
-                                                              # the new mapper no
-                                                              # longer produces
+The original file is kept, so the document can simply be read again. This walks
+the candidates, re-runs the full parser over the stored bytes, and replaces the
+profile *and* the verbatim payload behind it.
+
+The stored upload is never modified, and neither is anything a person entered:
+allocation, verdicts, and the identity records extracted from the same bundle
+are all untouched.
+
+    python scripts/reparse_candidates.py --dry-run
+    python scripts/reparse_candidates.py                 # degraded profiles only
+    python scripts/reparse_candidates.py --all
+    python scripts/reparse_candidates.py --id 45389d48...
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.ai.resume_parser import map_veris_to_profile  # noqa: E402
-from app.config import settings  # noqa: E402
-from app.core.models import CandidateProfile  # noqa: E402
-from app.db.mongo import get_candidates_collection  # noqa: E402
+from app.ai.resume_parser import ResumeParser  # noqa: E402
 from app.db.repository import CandidateRepository  # noqa: E402
+from app.storage.factory import get_storage_backend  # noqa: E402
 
-RESUME_ROOT = Path("data/resumes")
-
-# Fields worth counting when reporting what changed.
-LIST_FIELDS = [
-    "skills", "technical_skills", "languages", "certifications",
-    "achievements", "education", "projects", "work_experience",
-]
-SCALAR_FIELDS = [
-    "full_name", "email", "phone", "location",
-    "current_designation", "current_company", "total_experience_years",
-]
+#: Extraction sources worth redoing. Anything that is not the résumé API is a
+#: profile built from less than the document actually holds.
+DEGRADED = {"heuristic_fallback", "", None}
 
 
-def _merge(before: CandidateProfile, after: CandidateProfile) -> CandidateProfile:
-    """Union the two profiles so a re-parse can only ever add information.
-
-    The extractor is not guaranteed to return everything it returned last time
-    (a different OCR pass, a section it no longer detects), so replacing
-    wholesale would silently delete real data the operator already has.
-    """
-    merged = after.model_copy(deep=True)
-
-    for field in LIST_FIELDS:
-        old_items = list(getattr(before, field, []) or [])
-        new_items = list(getattr(merged, field, []) or [])
-        seen = set()
-        combined = []
-        for item in new_items + old_items:
-            fingerprint = json.dumps(
-                item.model_dump() if hasattr(item, "model_dump") else item,
-                sort_keys=True, default=str,
-            ).lower()
-            if fingerprint in seen:
-                continue
-            seen.add(fingerprint)
-            combined.append(item)
-        setattr(merged, field, combined)
-
-    # Keep an old scalar when the new pass came back empty.
-    for field in SCALAR_FIELDS:
-        if getattr(merged, field, None) in (None, "") and getattr(before, field, None):
-            setattr(merged, field, getattr(before, field))
-
-    combined_info = dict(before.additional_info or {})
-    combined_info.update(after.additional_info or {})
-    merged.additional_info = combined_info or None
-    return merged
+def _source_of(record) -> str | None:
+    info = getattr(record.profile, "additional_info", None) or {}
+    return info.get("extraction_source")
 
 
-def _populated(profile: CandidateProfile) -> int:
-    """How many fields actually carry data — the headline quality signal."""
-    n = sum(1 for f in SCALAR_FIELDS if getattr(profile, f, None) not in (None, ""))
-    n += sum(1 for f in LIST_FIELDS if getattr(profile, f, None))
-    if profile.additional_info:
-        n += 1
-    return n
+def _load(record) -> bytes | None:
+    """The original upload, from whichever backend is actually holding it."""
+    key = record.resume.storage_key if record.resume else None
+    if not key:
+        return None
+    declared = (record.resume.storage_backend or "").lower()
+    for backend in (declared, "gridfs", "local"):
+        if not backend:
+            continue
+        try:
+            store = get_storage_backend(backend)
+            if store.exists(key):
+                return store.load(key)
+        except Exception:
+            continue
+    return None
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--apply", action="store_true", help="write results to MongoDB")
-    ap.add_argument(
-        "--replace",
-        action="store_true",
-        help=(
-            "take the new profile wholesale instead of unioning it with the stored "
-            "one. Needed to clear entries the old mapper invented — a union can only "
-            "add, so it keeps them forever. Restore from the backup to undo."
-        ),
-    )
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    parser.add_argument("--all", action="store_true",
+                        help="re-read every candidate, not only the degraded ones")
+    parser.add_argument("--id", default="", help="one candidate id")
+    args = parser.parse_args()
 
-    if not settings.veris_ocr_api_key:
-        print("VERIS_OCR_API_KEY is not set — nothing to re-parse with.")
-        return 1
-
-    coll = get_candidates_collection()
     repo = CandidateRepository()
-    docs = list(coll.find({}))
+    resume_parser = ResumeParser()
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    backup = Path(f"data/profile-backup-{stamp}.json")
-    backup.parent.mkdir(parents=True, exist_ok=True)
-    backup.write_text(
-        json.dumps(
-            {d["_id"]: d.get("profile") for d in docs}, indent=2, default=str, ensure_ascii=False
-        ),
-        encoding="utf-8",
-    )
-    print(f"backed up {len(docs)} profile(s) -> {backup}\n")
-
-    from recursai.veris_ocr import VerisOCR
-
-    updated = skipped = failed = 0
-    print(f"{'candidate':26} {'before':>7} {'after':>7}   result")
-    print("-" * 78)
-
-    for d in docs:
-        resume = d.get("resume") or {}
-        key = resume.get("storage_key")
-        name = (d.get("profile") or {}).get("full_name") or "—"
-        path = RESUME_ROOT / key if key else None
-
-        if not path or not path.exists():
-            print(f"{name[:24]:26} {'':>7} {'':>7}   skipped — file missing")
-            skipped += 1
-            continue
-
-        before = CandidateProfile.model_validate(d.get("profile") or {})
-        try:
-            with VerisOCR(
-                api_key=settings.veris_ocr_api_key, base_url=settings.veris_ocr_base_url
-            ) as client:
-                res = client.resume.extract(str(path.resolve()))
-            after = map_veris_to_profile(res, veris_text="")
-        except Exception as exc:  # noqa: BLE001
-            print(f"{name[:24]:26} {'':>7} {'':>7}   FAILED — {type(exc).__name__}: {exc}")
-            failed += 1
-            continue
-
-        if not (after.full_name or after.email or after.phone):
-            print(f"{name[:24]:26} {'':>7} {'':>7}   skipped — extraction returned nothing usable")
-            skipped += 1
-            continue
-
-        if not args.replace:
-            after = _merge(before, after)
-
-        b, a = _populated(before), _populated(after)
-        gained = [f for f in LIST_FIELDS if not getattr(before, f) and getattr(after, f)]
-        lost = [f for f in LIST_FIELDS if getattr(before, f) and not getattr(after, f)]
-
-        note = ""
-        if gained:
-            note += " +" + ",".join(gained)
-        if lost:
-            note += " -" + ",".join(lost)
-
-        if args.apply:
-            repo.update_profile(d["_id"], after)
-            updated += 1
-            print(f"{(after.full_name or name)[:24]:26} {b:>7} {a:>7}   updated{note}")
-        else:
-            print(f"{(after.full_name or name)[:24]:26} {b:>7} {a:>7}   would update{note}")
-
-    print("-" * 78)
-    verb = "updated" if args.apply else "would update"
-    print(f"{verb}: {updated if args.apply else len(docs) - skipped - failed}   skipped: {skipped}   failed: {failed}")
-    if not args.apply:
-        print("\ndry run — re-run with --apply to write these to MongoDB")
+    if args.id:
+        record = repo.get(args.id)
+        records = [record] if record else []
+        if not records:
+            print(f"No candidate {args.id}")
+            return 1
     else:
-        print(f"\nrollback: restore profiles from {backup}")
+        records = repo.list_candidates(limit=1000)
+
+    todo = [r for r in records if args.all or args.id or _source_of(r) in DEGRADED]
+    print(f"{len(records)} candidate(s); {len(todo)} to re-read\n")
+
+    fixed = unchanged = no_file = failed = 0
+
+    for record in todo:
+        who = record.profile.full_name or record.id
+        before = _source_of(record)
+
+        data = _load(record)
+        if not data:
+            no_file += 1
+            print(f"  NO FILE   {who}: the original upload is not in storage")
+            continue
+
+        name = record.resume.original_filename if record.resume else "resume.pdf"
+        try:
+            profile, _extracted = resume_parser.parse_file(data, name)
+        except Exception as exc:  # noqa: BLE001 — one bad file is not the run
+            failed += 1
+            print(f"  FAILED    {who}: {type(exc).__name__}: {exc}")
+            continue
+
+        after = (profile.additional_info or {}).get("extraction_source")
+        if after in DEGRADED:
+            unchanged += 1
+            print(f"  STILL POOR {who}: {before} -> {after} (the API is still unreachable)")
+            continue
+
+        summary = (
+            f"{after} | {profile.current_designation or 'no designation'} | "
+            f"{len(profile.skills)} skill(s), {len(profile.work_experience)} job(s), "
+            f"{len(profile.education)} qualification(s)"
+        )
+        if args.dry_run:
+            print(f"  would fix {who}: {before} -> {summary}")
+            fixed += 1
+            continue
+
+        if repo.replace_extraction(record.id, profile):
+            fixed += 1
+            print(f"  fixed     {who}: {before} -> {summary}")
+        else:
+            failed += 1
+            print(f"  FAILED    {who}: the record could not be updated")
+
+    print(
+        f"\n{'would fix' if args.dry_run else 'fixed'}: {fixed}\n"
+        f"still degraded: {unchanged}\n"
+        f"original file missing: {no_file}\n"
+        f"errors: {failed}"
+    )
     return 0
 
 

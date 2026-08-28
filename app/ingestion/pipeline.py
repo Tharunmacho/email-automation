@@ -262,7 +262,8 @@ class IngestionPipeline:
             )
 
             # (5.5) Auto-assign candidate to active staff & trigger push notifications
-            self._allocate(candidate_id, profile)
+            if not self._allocate(candidate_id, profile):
+                self._announce(candidate_id, profile)
 
             # (6) Contextual Auto-Reply if enabled.
             reply_sent = False
@@ -374,9 +375,10 @@ class IngestionPipeline:
             )
             return f"identity extraction failed: {exc}"
 
-    def _allocate(self, candidate_id: str, profile: CandidateProfile) -> None:
+    def _allocate(self, candidate_id: str, profile: CandidateProfile) -> bool:
+        """Assign the new candidate. Returns whether anyone was told about it."""
         if not settings.auto_assign_enabled:
-            return
+            return False
         try:
             import app.assignment
             from app.notifications import notify_candidate_assigned
@@ -392,8 +394,35 @@ class IngestionPipeline:
                     },
                     staff_name=getattr(result, "staff_name", None),
                 )
+                return True
         except Exception as exc:  # noqa: BLE001
             log.warning("Auto-allocation step failed for candidate %s: %s", candidate_id, exc)
+        return False
+
+    def _announce(self, candidate_id: str, profile: CandidateProfile) -> None:
+        """Tell the open dashboards that a candidate just landed.
+
+        The allocation notification already carries this for the usual path, so
+        this is the case where nothing was allocated — no active staff, auto
+        assignment switched off, the balancer erroring. The candidate is in
+        Mongo either way, and the queue on screen has to say so without anybody
+        pressing reload.
+        """
+        try:
+            from app.api import websocket as ws
+
+            ws.publish_event(
+                ws.candidate_ingested_event(
+                    {
+                        "id": candidate_id,
+                        "full_name": profile.full_name,
+                        "email": profile.email,
+                    },
+                    staff_name=None,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — a missed toast is not an error
+            log.debug("Could not announce candidate %s: %s", candidate_id, exc)
 
     # ---------------------------------------------------------------- #
     def _build_record(
@@ -425,6 +454,7 @@ class IngestionPipeline:
             thread_id=email.thread_id,
             from_addr=email.from_addr,
             from_name=email.from_name,
+            to_addr=email.to_addr,
             subject=email.subject,
             received_date=email.date,
         )
@@ -451,4 +481,24 @@ class IngestionPipeline:
         return f"{now:%Y/%m}/{candidate_id}_{safe}"
 
     def _store_file(self, record: CandidateRecord, data: bytes, att: Attachment) -> None:
-        self.storage.save(record.resume.storage_key, data, content_type=att.mime_type)
+        """Store the original upload, and confirm it is really there.
+
+        The file the candidate sent is the one artefact of this whole pipeline
+        that cannot be recreated: the parsed profile can be re-derived, the OCR
+        can be re-run, but a résumé nobody kept is gone the moment the mail is
+        filed. A save that quietly did nothing — a full disk, a GridFS write
+        rejected — would otherwise produce a candidate record whose download
+        button can only fail, which is exactly what a recruiter discovers at the
+        moment they need the file.
+
+        So the write is read back. Failing here aborts the ingestion, and the
+        message is left unlabelled for the next poll to retry.
+        """
+        key = record.resume.storage_key
+        self.storage.save(key, data, content_type=att.mime_type)
+
+        if not self.storage.exists(key):
+            raise PipelineError(
+                f"Stored '{att.filename}' to {self.storage.name}:{key} but it is not "
+                f"there when read back — refusing to create a candidate with no file."
+            )

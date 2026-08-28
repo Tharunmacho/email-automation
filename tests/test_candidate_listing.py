@@ -113,6 +113,7 @@ DOC = {
         "thread_id": "thread-1",
         "from_addr": "alice@example.com",
         "from_name": "Alice Smith",
+        "to_addr": "recruitment@agency.com",
         "subject": "Resume",
     },
 }
@@ -147,6 +148,7 @@ def test_a_list_row_still_carries_what_the_directory_shows():
     assert row["profile"]["skills"] == ["Python"]
     assert row["resume"]["original_filename"] == "alice.pdf"
     assert row["source_email"]["from_addr"] == "alice@example.com"
+    assert row["source_email"]["to_addr"] == "recruitment@agency.com"
     assert row["status"] == "ingested"
 
 

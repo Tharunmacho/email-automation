@@ -1,80 +1,42 @@
-"""OCR helpers for scanned PDFs and image resumes.
+"""The Veris OCR endpoints, and the local reader they fall back to.
 
-Uses Tesseract via ``pytesseract``. The Tesseract *binary* must be installed on
-the host (it is not a pip package). If it is missing we raise a clear error so
-the operator knows exactly what to install, rather than failing cryptically.
+Local reading itself lives in `app.extraction.local_ocr`; this module is about
+the *cloud* passes and when they are worth making. The order matters and it is
+the opposite of what it used to be: a document is now read locally and
+classified first, and only pages already established to be a resume are sent to
+the resume endpoint. Nothing is uploaded to find out what it is.
 """
 from __future__ import annotations
 
-import io
-import shutil
-
 from app.config import settings
-from app.core.exceptions import TextExtractionError
+from app.extraction import local_ocr
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
 
 
-def _ensure_tesseract():
-    import pytesseract
-
-    if settings.tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
-        return pytesseract
-    if shutil.which("tesseract") is None:
-        raise TextExtractionError(
-            "Tesseract OCR is required for scanned/image resumes but was not found. "
-            "Install it (https://github.com/tesseract-ocr/tesseract) and either add it "
-            "to PATH or set TESSERACT_CMD in your .env."
-        )
-    return pytesseract
+# Reading a page is `local_ocr`'s job — preprocessing, several segmentation
+# modes, DPI escalation, an optional second engine and a page cache all live
+# there. These three names stay because the reconciler and a handful of
+# operational scripts import them, and they now forward rather than keeping a
+# second, weaker copy of the same logic.
 
 
 def ocr_image_bytes(data: bytes) -> str:
     """Run OCR on a single raster image given as bytes."""
-    pytesseract = _ensure_tesseract()
-    from PIL import Image
-
-    with Image.open(io.BytesIO(data)) as img:
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        return pytesseract.image_to_string(img, lang=settings.ocr_languages)
+    return local_ocr.ocr_image_bytes(data)
 
 
 def ocr_pdf_page_texts(
     pdf_data: bytes, dpi: int = 150, pages: "set[int] | None" = None
 ) -> "dict[int, str]":
-    """OCR a PDF page by page, returning ``{1-based page number: text}``.
-
-    ``pages`` restricts the work to those page numbers. On a 30-page application
-    bundle whose résumé is two pages, that is the difference between 30 OCR
-    passes and 2 — which is the whole point of classifying pages first.
-    """
-    pytesseract = _ensure_tesseract()
-    import fitz  # PyMuPDF
-    from PIL import Image
-
-    out: dict[int, str] = {}
-    zoom = dpi / 72.0
-    matrix = fitz.Matrix(zoom, zoom)
-    with fitz.open(stream=pdf_data, filetype="pdf") as doc:
-        for page_index, page in enumerate(doc):
-            page_number = page_index + 1
-            if pages is not None and page_number not in pages:
-                continue
-            pix = page.get_pixmap(matrix=matrix)
-            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            page_text = pytesseract.image_to_string(img, lang=settings.ocr_languages)
-            out[page_number] = page_text
-            log.debug("OCR page %d @%ddpi → %d chars", page_number, dpi, len(page_text))
-    return out
+    """OCR a PDF page by page, returning ``{1-based page number: text}``."""
+    return local_ocr.ocr_pdf_page_texts(pdf_data, dpi=dpi, pages=pages)
 
 
 def ocr_pdf_pages(pdf_data: bytes, dpi: int = 150) -> str:
-    """Render each PDF page to an image and OCR it. Used when a PDF has no text layer."""
-    texts = ocr_pdf_page_texts(pdf_data, dpi=dpi)
-    return "\n".join(texts[n] for n in sorted(texts))
+    """Every page of a PDF as one string. Used when a PDF has no text layer."""
+    return local_ocr.ocr_pdf_pages(pdf_data, dpi=dpi)
 
 
 def ocr_via_veris(file_data: bytes, filename: str) -> str:

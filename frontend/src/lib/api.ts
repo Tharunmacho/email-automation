@@ -251,6 +251,13 @@ export function triggerPoll(): Promise<PollSummary> {
 interface QueuedPoll {
   task_id: string;
   state: string;
+  /**
+   * Present only when there was no worker to queue on, in which case the API
+   * ran the cycle inside the request and this is its summary — there is no
+   * task to wait for. Without reading it, a client sees a 200 with no task id
+   * and asks after `/ingest/tasks/undefined` until it times out.
+   */
+  result?: PollSummary;
 }
 
 interface PollTaskStatus {
@@ -296,6 +303,12 @@ export async function runPollCycle(): Promise<PollSummary> {
     if (err instanceof UnauthorizedError) throw err;
     return triggerPoll();
   }
+
+  // No worker was running, so the API polled inline and this is the finished
+  // batch. Nothing to wait for — and nothing to re-run: asking for another
+  // cycle here would put every message through OCR a second time.
+  if (queued.result) return queued.result;
+  if (!queued.task_id) return triggerPoll();
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let consecutiveErrors = 0;
@@ -665,12 +678,14 @@ export function runSlaScan(): Promise<{ in_breach: number; new_alerts: number; r
 }
 
 // ---- Sourcing Clients DB API ----
-export function listSourcingClientsAPI(): Promise<{ items: any[] }> {
-  return request<{ items: any[] }>("/sourcing-clients");
+export function listSourcingClientsAPI(): Promise<{ items: SourcingClientRecord[] }> {
+  return request<{ items: SourcingClientRecord[] }>("/sourcing-clients");
 }
 
-export function createSourcingClientAPI(record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>("/sourcing-clients", {
+export function createSourcingClientAPI(
+  record: SourcingClientRecord,
+): Promise<{ status: string; record: SourcingClientRecord }> {
+  return request<{ status: string; record: SourcingClientRecord }>("/sourcing-clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),
@@ -682,20 +697,25 @@ export function deleteSourcingClientAPI(clientId: string): Promise<{ status: str
 }
 
 // ---- Job Orders DB API ----
-export function listJobOrdersAPI(): Promise<{ items: any[] }> {
-  return request<{ items: any[] }>("/job-orders");
+export function listJobOrdersAPI(): Promise<{ items: JobOrderRecord[] }> {
+  return request<{ items: JobOrderRecord[] }>("/job-orders");
 }
 
-export function createJobOrderAPI(record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>("/job-orders", {
+export function createJobOrderAPI(
+  record: JobOrderRecord,
+): Promise<{ status: string; record: JobOrderRecord }> {
+  return request<{ status: string; record: JobOrderRecord }>("/job-orders", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),
   });
 }
 
-export function updateJobOrderAPI(orderId: string, record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>(`/job-orders/${orderId}`, {
+export function updateJobOrderAPI(
+  orderId: string,
+  record: JobOrderRecord,
+): Promise<{ status: string; record: JobOrderRecord }> {
+  return request<{ status: string; record: JobOrderRecord }>(`/job-orders/${orderId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),

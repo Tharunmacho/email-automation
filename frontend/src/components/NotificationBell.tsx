@@ -60,7 +60,13 @@ export default function NotificationBell({ nonce, onOpenCandidate }: Notificatio
   }, []);
 
   useEffect(() => {
-    void load();
+    let live = true;
+    void (async () => {
+      if (live) await load();
+    })();
+    return () => {
+      live = false;
+    };
   }, [load, nonce]);
 
   useEffect(() => {

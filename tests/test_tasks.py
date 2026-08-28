@@ -269,7 +269,9 @@ def _stub_mailbox(monkeypatch, message_ids):
         def search_message_ids(self, query=None):
             return list(message_ids)
 
-    monkeypatch.setattr(jobs, "get_email_client", lambda: StubClient())
+    client = StubClient()
+    monkeypatch.setattr(jobs, "get_email_client", lambda: client)
+    monkeypatch.setattr(jobs, "get_all_email_clients", lambda: [client])
     queue = StubTask()
     monkeypatch.setattr(jobs, "process_message", queue)
     return queue
@@ -310,7 +312,9 @@ def test_poll_gmail_holds_the_lock_for_a_search_not_for_a_batch(fake_redis, monk
             held_for["ttl"] = fake_redis.expiries["lock:" + locks.POLL_LOCK]
             return []
 
-    monkeypatch.setattr(jobs, "get_email_client", lambda: WatchingClient())
+    watching = WatchingClient()
+    monkeypatch.setattr(jobs, "get_email_client", lambda: watching)
+    monkeypatch.setattr(jobs, "get_all_email_clients", lambda: [watching])
 
     jobs.poll_gmail()
 
@@ -358,6 +362,7 @@ def _stub_pipeline(monkeypatch, result):
 
     gmail = StubGmail()
     monkeypatch.setattr(jobs, "get_email_client", lambda: gmail)
+    monkeypatch.setattr(jobs, "get_all_email_clients", lambda: [gmail])
     monkeypatch.setattr(
         jobs, "IngestionPipeline",
         lambda: type("P", (), {"process_email": lambda self, email, gmail=None: result})(),
@@ -424,7 +429,9 @@ def test_process_message_drops_a_message_another_worker_already_has(fake_redis, 
             ran.append(email)
             return ProcessResult("msg-1", "processed")
 
-    monkeypatch.setattr(jobs, "get_email_client", lambda: StubGmail())
+    stub = StubGmail()
+    monkeypatch.setattr(jobs, "get_email_client", lambda: stub)
+    monkeypatch.setattr(jobs, "get_all_email_clients", lambda: [stub])
     monkeypatch.setattr(jobs, "IngestionPipeline", lambda: Watching())
     fake_redis.store[f"lock:{locks.MESSAGE_LOCK_PREFIX}:msg-1"] = "the-other-worker"
 

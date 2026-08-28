@@ -133,7 +133,7 @@ export interface CandidateProfile {
   summary?: string | null;
   resume_summary?: string | null;
   additional_info?: Record<string, unknown>;
-  raw_ocr?: Record<string, any> | null;
+  raw_ocr?: Record<string, unknown> | null;
 }
 
 /**
@@ -157,6 +157,7 @@ export interface SourceEmail {
   thread_id?: string;
   from_addr?: string;
   from_name?: string | null;
+  to_addr?: string | null;
   subject?: string;
   received_date?: string | null;
 }
@@ -201,7 +202,7 @@ export interface CandidateRecord {
   resume_hash?: string | null;
   status: string;
   duplicate_of?: string | null;
-  raw_ocr?: Record<string, any> | null;
+  raw_ocr?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 
@@ -563,16 +564,28 @@ export interface AuthUser {
   page_grants?: string[];
 }
 
+/** Who a sourcing relationship is with. */
+export type SourcingType = "agent" | "association" | "client";
+
+/**
+ * One party in the sourcing network, as it round-trips through the API.
+ *
+ * Same story as `JobOrderRecord`: `POST /sourcing-clients` stores what it is
+ * given, so the screen's shape is the contract. The snake-case interface that
+ * used to stand here described a record the app has never written.
+ */
 export interface SourcingClientRecord {
   id: string;
   name: string;
-  client_type: string;
-  email?: string | null;
-  phone?: string | null;
-  location?: string | null;
-  status?: string;
-  notes?: string | null;
-  created_at?: string;
+  type: SourcingType;
+  contact: string;
+  phone: string;
+  email: string;
+  date: string;
+  status: "ACTIVE" | "PENDING" | "INACTIVE";
+  industryOrCategory?: string;
+  regNo?: string;
+  address?: string;
 }
 
 /**
@@ -628,16 +641,31 @@ export interface B2BEnquiryRecord {
   updated_at?: string;
 }
 
+/**
+ * A vacancy the agency is working, exactly as it round-trips through the API.
+ *
+ * `POST /job-orders` stores the object it is given and returns it unchanged, so
+ * this shape is the contract — there is no server-side model to disagree with.
+ * It lived in `screens/JobOrders.tsx` while a *different*, unused definition sat
+ * here claiming snake-case fields the app never wrote; the two could not both
+ * be right, and the one the screens actually use is this one.
+ */
 export interface JobOrderRecord {
   id: string;
   title: string;
-  client_name?: string | null;
-  client_id?: string | null;
-  skills_required?: string[];
-  experience_required_years?: number | null;
-  location?: string | null;
-  status?: string;
-  salary_range?: string | null;
-  description?: string | null;
-  created_at?: string;
+  client: string;
+  headcount: number;
+  salary: string;
+  skills: string[];
+  description?: string;
+  dueDate: string;
+  status: "OPEN" | "IN PROGRESS" | "FILLED" | "CLOSED";
+  minExperience?: string;
+  industry?: string;
+  designation?: string;
+  fulfilledCount?: number;
+  shortlistedCandidateIds?: string[];
+  rejectedCandidateIds?: string[];
 }
+
+export type JobOrderStatus = JobOrderRecord["status"];

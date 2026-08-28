@@ -21,6 +21,7 @@ import {
 
 import {
   flattenExtras,
+  formatExtraValue,
   highestQualificationOf,
   humanizeKey,
   industryOf,
@@ -30,7 +31,6 @@ import {
 } from "@/lib/candidateProfile";
 import {
   getCandidateIdentity,
-  getToken,
   identityFileUrl,
   resumeDownloadUrl,
   type AadhaarRecord,
@@ -42,19 +42,33 @@ import {
 import { formatDateFull, initialsOf } from "@/lib/format";
 
 /**
- * Fetch a protected file and hand it to the browser as a download.
+ * Download a protected file without leaving the page.
  *
- * `fetch` rather than an `<a href>`, because the token has to travel in the
- * `Authorization` header: a link puts it in the URL, where it lands in the
- * browser history and in every access log between here and the server. The
- * object URL is revoked straight after the click — the blob is the whole file
- * and holding it costs the tab that much memory for as long as it lives.
+ * The request deliberately carries **no `Authorization` header**. That header
+ * is what made this a "non-simple" cross-origin request, and a non-simple
+ * request needs a CORS preflight — which is precisely what was being dropped
+ * in the field, producing "Failed to fetch" with nothing at all in the server
+ * log. Authorisation instead rides in the URL's `token` query parameter, which
+ * the API accepts (see `current_user`) and which `resumeDownloadUrl` and
+ * `identityFileUrl` already put there. A plain GET with no custom headers is a
+ * simple request: no preflight, nothing for an extension or proxy to refuse.
+ *
+ * The bytes then become a blob URL, which is same-origin, so the `download`
+ * attribute is honoured and the file saves in place — no new tab, no
+ * navigation away from the profile.
  */
 async function saveFile(url: string, fallbackName: string): Promise<void> {
-  const token = getToken();
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch {
+    // The request never became an HTTP exchange. Nothing here can say why, and
+    // the file is very probably fine — so fall back to letting the browser
+    // fetch it itself, in a hidden frame so the page still does not move.
+    downloadInBackground(url);
+    return;
+  }
+
   if (!response.ok) {
     let detail = `Server replied ${response.status}`;
     try {
@@ -66,15 +80,32 @@ async function saveFile(url: string, fallbackName: string): Promise<void> {
     throw new Error(detail);
   }
 
-  const blob = await response.blob();
-  const objectUrl = window.URL.createObjectURL(blob);
+  const objectUrl = window.URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
   anchor.href = objectUrl;
   anchor.download = nameFromDisposition(response) || fallbackName;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  window.URL.revokeObjectURL(objectUrl);
+  // Not revoked on this tick: the click is handled asynchronously, and tearing
+  // the object URL down straight away cancels the save of a large file before
+  // the browser has finished reading it.
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+/**
+ * Let the browser fetch a file itself, in a frame nobody sees.
+ *
+ * A response carrying `Content-Disposition: attachment` is downloaded rather
+ * than rendered, so the frame stays blank and the page it sits on never moves.
+ * The last resort, for when `fetch` itself is blocked.
+ */
+function downloadInBackground(url: string): void {
+  const frame = document.createElement("iframe");
+  frame.style.display = "none";
+  frame.src = url;
+  document.body.appendChild(frame);
+  window.setTimeout(() => frame.remove(), 120_000);
 }
 
 /**
@@ -84,6 +115,9 @@ async function saveFile(url: string, fallbackName: string): Promise<void> {
  * out of an application bundle only the server knows which pages it took, and
  * `application_passport_p55.pdf` is the difference between four downloads a
  * recruiter can tell apart and four called `passport.pdf`.
+ *
+ * Readable only because the API lists `Content-Disposition` in its CORS
+ * `expose_headers`; without that the browser hides it from JavaScript.
  */
 function nameFromDisposition(response: Response): string | null {
   const header = response.headers.get("content-disposition") || "";
@@ -94,9 +128,9 @@ function nameFromDisposition(response: Response): string | null {
 /**
  * "Download scan" on one identity row.
  *
- * Its own component because its own state: two passports and an Aadhaar on one
- * profile are three independent downloads, and a single spinner shared between
- * them would report the wrong one as busy and the wrong one as failed.
+ * A profile can carry two passports and an Aadhaar, so each row gets its own
+ * button bound to its own record id — the id is what decides which document
+ * the API serves.
  *
  * Rendered only when the server said `file_available`. That flag is not a
  * cosmetic hint — an Aadhaar scan is refused outright to anyone who is not an
@@ -226,6 +260,42 @@ function expiryNotice(value?: string | null): { tone: "expired" | "soon"; text: 
 }
 
 /**
+ * Printed-page fields the MRZ has already supplied. Shown once, from the MRZ,
+ * which is the machine-read half of the page and the half with check digits
+ * behind it.
+ *
+ * Compared after `mrzKey` normalises the name, because the two halves of the
+ * response label the same field differently: the MRZ block uses `given_names`
+ * and the printed-field list says "Given Names". Matching the raw strings let
+ * every one of them through, so the card repeated the whole passport under
+ * itself.
+ */
+const MRZ_FIELDS = new Set([
+  "passport_number",
+  "surname",
+  "given_names",
+  "name",
+  "nationality",
+  "issuing_country",
+  "country",
+  "date_of_birth",
+  "sex",
+  "gender",
+  "expiry_date",
+  "date_of_expiry",
+  "date_of_issue",
+  "personal_number",
+  // Labels the printed-field list uses that the MRZ answers under another name.
+  "document_type",
+  "type",
+]);
+
+/** "Given Names" and "given_names" are the same field. */
+function mrzKey(label: string): string {
+  return label.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+/**
  * One scanned document, exactly as the OCR read it.
  *
  * Read-only with no edit path anywhere near it, and that is the point: this is
@@ -240,7 +310,6 @@ function DocumentCard({
   icon,
   badges,
   action,
-  warnings,
   source,
   readAt,
   children,
@@ -250,7 +319,6 @@ function DocumentCard({
   badges?: React.ReactNode;
   /** Sits at the far end of the heading. The download, where there is one. */
   action?: React.ReactNode;
-  warnings?: string[];
   source?: { filename?: string; pages?: number[] };
   readAt?: string;
   children: React.ReactNode;
@@ -276,16 +344,6 @@ function DocumentCard({
       </div>
 
       <div className="cprof-facts">{children}</div>
-
-      {/* {(warnings ?? []).length > 0 && (
-        <ul className="cprof-doc-warnings">
-          {(warnings ?? []).map((warning, index) => (
-            <li key={index}>
-              <AlertTriangle size={13} /> {warning}
-            </li>
-          ))}
-        </ul>
-      )} */}
 
       {provenance && <p className="cprof-doc-source">{provenance}</p>}
     </article>
@@ -332,8 +390,6 @@ export default function CandidateProfileScreen({
   onVerify,
   evaluation,
 }: CandidateProfileScreenProps) {
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   /**
    * The Aadhaar and passport scans, fetched separately because they are stored
@@ -362,6 +418,8 @@ export default function CandidateProfileScreen({
   // candidate id so a different candidate is a different component instance.
   // Resetting these in an effect instead would render the previous reviewer's
   // notes for a frame before correcting itself.
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [score, setScore] = useState(candidate.evaluation_score ?? 0);
   const [status, setStatus] = useState<EvaluationStatus>(
     candidate.evaluation_status && candidate.evaluation_status !== "pending"
@@ -673,6 +731,7 @@ export default function CandidateProfileScreen({
             <Fact label="Total experience" value={view.experience ? `${view.experience} year(s)` : ""} />
             <Fact label="Languages" value={view.languages} />
             <Fact label="Email" value={view.email} />
+            <Fact label="Received at (To email)" value={candidate.source_email?.to_addr} />
             <Fact label="Phone" value={view.phone} />
             <Fact label="LinkedIn" value={view.linkedin} />
             <Fact label="GitHub" value={view.github} />
@@ -737,6 +796,7 @@ export default function CandidateProfileScreen({
               <div className="cprof-docs">
                 {passports.map((passport, index) => {
                   const expiry = expiryNotice(passport.expiry_date);
+                  const printed = (passport.printed_fields ?? {}) as Record<string, unknown>;
                   return (
                     <DocumentCard
                       key={passport._id || index}
@@ -768,6 +828,8 @@ export default function CandidateProfileScreen({
                           />
                         ) : null
                       }
+                      source={passport.source}
+                      readAt={passport.updated_at}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -778,6 +840,17 @@ export default function CandidateProfileScreen({
                       <Fact label="Sex" value={passport.sex} />
                       <Fact label="Date of issue" value={passport.date_of_issue} />
                       <Fact label="Date of expiry" value={passport.expiry_date} />
+                      <Fact label="Personal number" value={passport.personal_number} />
+                      {/* Read off the printed data page rather than the MRZ,
+                          which is where the place of issue lives and nowhere
+                          else. Anything the MRZ already gave is dropped: the
+                          two agree on most of the page, and a second "Passport
+                          number" row reads as a second passport. */}
+                      {Object.entries(printed)
+                        .filter(([key]) => !MRZ_FIELDS.has(mrzKey(key)))
+                        .map(([key, value]) => (
+                          <Fact key={key} label={humanizeKey(key)} value={formatExtraValue(value)} />
+                        ))}
                     </DocumentCard>
                   );
                 })}
@@ -833,7 +906,6 @@ export default function CandidateProfileScreen({
                       />
                     ) : null
                   }
-                  warnings={aadhaar.warnings}
                   source={aadhaar.source}
                   readAt={aadhaar.updated_at}
                 >

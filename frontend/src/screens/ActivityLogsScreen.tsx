@@ -27,7 +27,6 @@ type Tab = "system" | "records";
 /** Build 24 hourly buckets from log timestamps (system logs) */
 function buildHourlyBuckets(logs: LogEntry[]): number[] {
   const buckets = new Array(24).fill(0);
-  const now = new Date();
   for (const log of logs) {
     if (!log.time) continue;
     // log.time is a display string like "12:34:56" — use today's date

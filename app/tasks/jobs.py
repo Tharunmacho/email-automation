@@ -183,7 +183,7 @@ def _process_one(task, message_id: str) -> dict:
         # candidate is already in Mongo, so a Gmail hiccup here must not turn a
         # successful ingestion into a retry that ingests it all over again.
         try:
-            mark_message_done(working_client, message_id, result.status)
+            mark_message_done(working_client, message_id, result.status, email=email)
         except Exception as err:  # noqa: BLE001
             log.warning(
                 "Processed %s but could not mark it done in Gmail (%s); "

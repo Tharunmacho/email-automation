@@ -317,6 +317,7 @@ export default function CandidatesView({
         (profile.skills ?? []).join(" "),
         getContact(c),
         getEmail(c),
+        c.source_email?.to_addr ?? "",
         getReference(c),
       ]
         .join(" ")

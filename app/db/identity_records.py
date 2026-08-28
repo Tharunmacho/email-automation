@@ -70,6 +70,43 @@ def _mask_aadhaar(number: Optional[str]) -> str:
     return "X" * (len(digits) - 4) + digits[-4:]
 
 
+def printed_fields_from(fields: Any) -> Optional[Dict[str, str]]:
+    """``{label: value}`` for what is printed on the data page.
+
+    The service returns these as a *list* of records — each carrying the label,
+    the value, and how it was read: ``{"label": "Place of Issue", "value":
+    "MADURAI", "category": "Document", "page": 1, "source": "vision-llm",
+    "confidence": 0.95}``. Stored in that shape, a screen showing "the printed
+    fields" has a list of objects where it expects named values, and renders
+
+        0   Label: Surname Value: ANGURAJ Category: Personal Page: 1 …
+
+    which is the extraction's working notes, not the passport. A recruiter needs
+    the place of issue; how confident the reader was, and which pass produced
+    it, are answers to a question nobody asked — and `raw` keeps every one of
+    them for the case where somebody does.
+
+    Later entries win, so a page listing a label twice keeps the last reading —
+    which on a passport data page is the printed value rather than a header.
+    """
+    if isinstance(fields, dict):
+        # Already a mapping (an older record, or a service that sends one).
+        return {str(k): str(v) for k, v in fields.items() if v not in (None, "")} or None
+    if not isinstance(fields, list):
+        return None
+
+    found: Dict[str, str] = {}
+    for entry in fields:
+        if not isinstance(entry, dict):
+            continue
+        label = str(entry.get("label") or "").strip()
+        value = entry.get("value")
+        if not label or value in (None, ""):
+            continue
+        found[label] = str(value).strip()
+    return found or None
+
+
 def _base_document(
     record_id: str,
     *,
@@ -205,7 +242,7 @@ def store_passport_record(
     """Upsert one passport extraction. Returns the record id."""
     coll = collection if collection is not None else get_passport_collection()
     mrz = result.get("mrz") or {}
-    fields = result.get("fields")
+    fields = printed_fields_from(result.get("fields"))
 
     doc = _base_document(
         record_id,

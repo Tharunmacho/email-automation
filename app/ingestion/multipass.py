@@ -48,7 +48,7 @@ from app.db.ingestion_state import (
 )
 from app.extraction import page_classifier as pc
 from app.extraction import pdf_pages
-from app.extraction.jobs import AsyncOCRJobClient, OCRJobError
+from app.extraction.jobs import AsyncOCRJobClient, OCRJobError, content_key
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -364,6 +364,12 @@ class MultipassExtractor:
             )
 
         payload, payload_name = self._payload_for(data, pages, filename, mode)
+        # The row's key names the mail; the digest names the upload. Both are
+        # needed: carving page 54 out of a bundle twice does not produce
+        # identical bytes (PyMuPDF stamps a fresh document id into each carve),
+        # and the service refuses a key it has already seen against different
+        # bytes — which is how a retry turned a good extraction into a failure.
+        submit_key = f"{row.idempotency_key}/{content_key(payload)}"
         try:
             # The gateway holds one in-flight slot for the submit-and-wait, and
             # gives it back the moment the job is terminal — so an identity pass
@@ -375,7 +381,7 @@ class MultipassExtractor:
                 payload,
                 payload_name,
                 mode,
-                row.idempotency_key,
+                submit_key,
                 budget_seconds=settings.identity_job_wait_seconds,
                 on_submitted=lambda h: self.state.mark_submitted(row.id, h.job_id),
             )
@@ -460,16 +466,28 @@ class MultipassExtractor:
     def _payload_for(
         data: bytes, pages: List[int], filename: str, mode: str
     ) -> tuple[bytes, str]:
-        """The bytes to upload: the named pages alone where that is possible.
+        """The bytes to upload: the named pages alone, at a sane size.
 
         Uploading a 60-page bundle to the Aadhaar endpoint to read page 54 wastes
         the upload, wastes the OCR, and gives the extractor fifty-nine pages of
         certificates to be confused by. `subset_pdf` returns None for images and
         for anything it cannot carve — the original bytes are then correct, and
         for a single-page image they are also already minimal.
+
+        The page trim is then followed by a *size* trim, because the two are not
+        the same thing: one sheet of a phone-camera scan carries the resolution
+        the camera used, and an eleven-megabyte upload is most of what an
+        identity job spends its wait budget on.
         """
         subset = pdf_pages.subset_pdf(data, pages)
         if subset is None:
-            return data, filename or f"{mode}.pdf"
+            payload = pdf_pages.compact_pdf(
+                data, settings.ocr_payload_max_bytes, settings.ocr_payload_dpi,
+            )
+            return payload, filename or f"{mode}.pdf"
+
+        payload = pdf_pages.compact_pdf(
+            subset, settings.ocr_payload_max_bytes, settings.ocr_payload_dpi,
+        )
         stem = (filename or "attachment").rsplit(".", 1)[0]
-        return subset, f"{stem}_{mode}_p{'-'.join(str(n) for n in pages)}.pdf"
+        return payload, f"{stem}_{mode}_p{'-'.join(str(n) for n in pages)}.pdf"

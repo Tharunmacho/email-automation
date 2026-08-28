@@ -274,13 +274,39 @@ class GmailClient:
             userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}
         ).execute()
 
-    def apply_label(self, message_id: str, label_name: str) -> None:
+    def apply_label(
+        self,
+        message_id: str,
+        label_name: str,
+        rfc_message_id: str = "",
+        subject: str = "",
+        from_addr: str = "",
+    ) -> None:
+        """Label the message and take it out of the inbox in the same call.
+
+        Adding a label leaves `INBOX` in place, so a processed résumé stayed in
+        the recruiter's inbox wearing a label nobody looks at. Archiving is the
+        visible half of "this one is handled".
+
+        The three trailing arguments exist for the IMAP client, which needs the
+        Message-ID header to find a message it has already filed. Gmail's own
+        ids never move, so they are accepted and ignored here — the two clients
+        are called through the same signature.
+        """
         label_id = self._ensure_label(label_name)
         self._service.users().messages().modify(
-            userId="me", id=message_id, body={"addLabelIds": [label_id]}
+            userId="me", id=message_id,
+            body={"addLabelIds": [label_id], "removeLabelIds": ["INBOX"]},
         ).execute()
 
-    def remove_label(self, message_id: str, label_name: str) -> None:
+    def remove_label(
+        self,
+        message_id: str,
+        label_name: str,
+        rfc_message_id: str = "",
+        subject: str = "",
+        from_addr: str = "",
+    ) -> None:
         try:
             label_id = self._ensure_label(label_name)
             self._service.users().messages().modify(

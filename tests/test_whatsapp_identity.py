@@ -135,6 +135,9 @@ class FakeStorage:
         self.objects: dict[str, bytes] = {}
         self.writes: list[str] = []
 
+    def exists(self, key: str) -> bool:
+        return key in self.objects
+
     def save(self, key: str, data: bytes, content_type=None) -> str:
         self.objects[key] = data
         self.writes.append(key)
@@ -248,6 +251,7 @@ def api():
     storage = FakeStorage()
     aadhaar = FakeCollection()
     passport = FakeCollection()
+    doc_coll = FakeCollection()
 
     def sign_in_as(role: str, user_id: str = "staff-1"):
         fastapi_app.dependency_overrides[current_user] = lambda: {
@@ -267,6 +271,8 @@ def api():
         "app.db.identity_records.get_aadhaar_collection", return_value=aadhaar
     ), patch(
         "app.db.identity_records.get_passport_collection", return_value=passport
+    ), patch(
+        "app.db.identity_records.get_document_collection", return_value=doc_coll
     ), patch(
         "app.services.candidate_intake.assign_candidate"
     ):
