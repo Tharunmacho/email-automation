@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+import React, { useState, useSyncExternalStore } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
-import { fetchDemoAccounts, login, type AuthUser, type DemoAccount } from "@/lib/api";
+import { login, type AuthUser } from "@/lib/api";
 import {
   getThemeServerSnapshot,
   getThemeSnapshot,
@@ -42,39 +42,6 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [demoAccounts, setDemoAccounts] = useState<DemoAccount[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchDemoAccounts().then((accounts) => {
-      if (!cancelled) setDemoAccounts(accounts);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const signInWithDemo = async (account: DemoAccount) => {
-    if (busy) return;
-    setEmail(account.email);
-    setPassword(account.password);
-    setError(null);
-    setBusy(true);
-    try {
-      const { user } = await login(account.email, account.password, remember);
-      onSuccess(user);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? `${account.label} demo sign-in failed: ${err.message}`
-          : "Could not sign in with the demo account.",
-      );
-      setPassword("");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy) return;
@@ -233,33 +200,6 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
               </button>
             </form>
 
-            {demoAccounts.length > 0 && (
-              <div className="auth-demo">
-                <div className="auth-divider">
-                  <span>Demo access</span>
-                </div>
-                <div className="auth-demo-grid">
-                  {demoAccounts.map((account) => (
-                    <button
-                      key={account.email}
-                      type="button"
-                      className="auth-demo-button"
-                      onClick={() => void signInWithDemo(account)}
-                      disabled={busy}
-                    >
-                      <span className="auth-demo-icon">
-                        <ShieldCheck size={17} />
-                      </span>
-                      <span className="auth-demo-copy">
-                        <strong>{account.label}</strong>
-                        <small>{account.description}</small>
-                      </span>
-                      <ArrowRight size={16} className="auth-demo-arrow" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </section>
 
           <p className="auth-access-foot">Protected workspace · Authorised access only</p>
