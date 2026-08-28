@@ -90,10 +90,10 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
         </defs>
 
         {/* Gridlines, drawn behind everything and labelled down the left. */}
-        {ticks.map((tick) => {
+        {ticks.map((tick, index) => {
           const y = TOP_BAND + HEIGHT - (tick / ceiling) * HEIGHT;
           return (
-            <g key={tick}>
+            <g key={`tick-${index}-${tick}`}>
               <line x1={AXIS_W} y1={y} x2={width} y2={y} className="ds-flow-grid" />
               <text x={AXIS_W - 8} y={y + 4} textAnchor="end" className="ds-flow-tick">
                 {tick}

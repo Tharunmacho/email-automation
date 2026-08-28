@@ -277,7 +277,7 @@ function DocumentCard({
 
       <div className="cprof-facts">{children}</div>
 
-      {(warnings ?? []).length > 0 && (
+      {/* {(warnings ?? []).length > 0 && (
         <ul className="cprof-doc-warnings">
           {(warnings ?? []).map((warning, index) => (
             <li key={index}>
@@ -285,7 +285,7 @@ function DocumentCard({
             </li>
           ))}
         </ul>
-      )}
+      )} */}
 
       {provenance && <p className="cprof-doc-source">{provenance}</p>}
     </article>

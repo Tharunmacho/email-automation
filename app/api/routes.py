@@ -373,6 +373,31 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
     )
 
 
+def _fetch_resume_from_email(record: CandidateRecord) -> bytes | None:
+    if not record.source_email or not record.source_email.message_id:
+        return None
+    mid = record.source_email.message_id
+    try:
+        from app.email_client.factory import get_all_email_clients
+        for client in get_all_email_clients():
+            try:
+                msg = client.get_message(mid)
+                if msg and msg.attachments:
+                    for att in msg.attachments:
+                        if att.data:
+                            if record.resume and record.resume.storage_key:
+                                try:
+                                    get_storage_backend().save(record.resume.storage_key, att.data, content_type=att.mime_type)
+                                except Exception:
+                                    pass
+                            return att.data
+            except Exception:
+                continue
+    except Exception as err:
+        log.warning("Live email fallback download failed for message %s: %s", mid, err)
+    return None
+
+
 @app.get("/candidates/{candidate_id}/resume")
 def download_resume(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> Response:
     record = _owned_or_404(candidate_id, user)
@@ -380,6 +405,7 @@ def download_resume(candidate_id: str, user: dict = Depends(require_page("candid
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
     backend_name = record.resume.storage_backend or settings.storage_backend
+    data = None
     try:
         data = get_storage_backend(backend_name).load(record.resume.storage_key)
     except Exception as e1:
@@ -388,13 +414,14 @@ def download_resume(candidate_id: str, user: dict = Depends(require_page("candid
             alt_backend = "local" if backend_name == "gridfs" else "gridfs"
             data = get_storage_backend(alt_backend).load(record.resume.storage_key)
         except Exception as e2:
-            import logging
-            logging.error(f"Failed to load resume. e1={e1}, e2={e2}")
-            filename = record.resume.original_filename or "resume.pdf"
-            raise HTTPException(
-                status_code=404,
-                detail=f"Resume file '{filename}' is missing from server storage."
-            )
+            # Fallback 2: dynamically download attachment straight from the email mailbox
+            data = _fetch_resume_from_email(record)
+            if not data:
+                filename = record.resume.original_filename or "resume.pdf"
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Resume file '{filename}' is missing from server storage."
+                )
     
     return _attachment_response(
         data,
@@ -419,23 +446,21 @@ def _post_delete_cleanup(storage_key: str | None, message_ids: list[str]) -> Non
 
     if message_ids:
         try:
-            from app.email_client import get_email_client
+            from app.email_client import get_all_email_clients
 
-            gmail = get_email_client()
-            for message_id in message_ids:
-                # Retire rather than free: the search excludes both labels, so
-                # these emails never come back, while a *new* email carrying the
-                # same resume arrives unlabelled and ingests as a new candidate.
-                if settings.gmail_deleted_label:
-                    gmail.apply_label(message_id, settings.gmail_deleted_label)
-                if settings.gmail_processed_label:
-                    gmail.remove_label(message_id, settings.gmail_processed_label)
+            clients = get_all_email_clients()
+            for client in clients:
+                for message_id in message_ids:
+                    if settings.gmail_deleted_label:
+                        client.apply_label(message_id, settings.gmail_deleted_label)
+                    if settings.gmail_processed_label:
+                        client.remove_label(message_id, settings.gmail_processed_label)
             log.info(
                 "Marked %d message(s) '%s' after candidate deletion",
                 len(message_ids), settings.gmail_deleted_label,
             )
         except Exception as err:
-            log.warning("Could not re-label Gmail messages %s: %s", message_ids, err)
+            log.warning("Could not re-label messages %s: %s", message_ids, err)
 
 
 @app.delete("/candidates/{candidate_id}")

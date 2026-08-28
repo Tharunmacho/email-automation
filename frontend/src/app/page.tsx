@@ -558,7 +558,7 @@ export default function Home() {
           if ((msgRes.reason ?? "").startsWith("already processed")) alreadyHandled += 1;
           else {
             ignoredEmails += 1;
-            log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
+            // log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
           }
           continue;
         }
@@ -569,13 +569,13 @@ export default function Home() {
               log(`[SUCCESS] '${att.filename}': parsed and saved to MongoDB Atlas${why}.`, "success");
               break;
             case "duplicate":
-              log(`[NOTICE] '${att.filename}': skipped${why || " — already ingested"}.`, "warn");
+              // log(`[NOTICE] '${att.filename}': skipped${why || " — already ingested"}.`, "warn");
               break;
             case "suppressed":
-              log(`[NOTICE] '${att.filename}': skipped — previously deleted by a user.`, "warn");
+              // log(`[NOTICE] '${att.filename}': skipped — previously deleted by a user.`, "warn");
               break;
             case "not_resume":
-              log(`[NOTICE] '${att.filename}': not usable as a resume${why}.`, "warn");
+              // log(`[NOTICE] '${att.filename}': not usable as a resume${why}.`, "warn");
               break;
             case "error":
               log(`[ERROR] '${att.filename}': extraction failed${why}.`, "error");
