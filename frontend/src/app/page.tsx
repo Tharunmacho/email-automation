@@ -15,6 +15,7 @@ import JobOrders from "@/screens/JobOrders";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import CandidateEditScreen from "@/screens/CandidateEditScreen";
+import CandidateUploadScreen, { type CandidateUploadFiles } from "@/screens/CandidateUploadScreen";
 import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
@@ -36,7 +37,7 @@ import {
   dropCandidateLogs,
 } from "@/lib/candidateLog";
 import {
-  createManualCandidate,
+  uploadCandidateDocuments,
   evaluateCandidate,
   fetchMe,
   getCandidate,
@@ -51,7 +52,6 @@ import {
   type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
-  type ManualIdentityDetails,
   type SlaAlert,
 } from "@/lib/api";
 import type { Verdict } from "@/screens/CandidateProfileScreen";
@@ -72,15 +72,6 @@ interface CandidateScreen {
   mode: "profile" | "edit" | "create";
   candidateId: string;
 }
-
-const EMPTY_MANUAL_CANDIDATE: CandidateRecord = {
-  id: "new-manual-candidate",
-  source: "manual",
-  status: "ingested",
-  profile: { is_resume: false, confidence: 1 },
-  created_at: "",
-  updated_at: "",
-};
 
 /**
  * How often the directory refreshes itself with nothing else going on.
@@ -111,7 +102,7 @@ const CANDIDATE_SCREEN_META: Record<
   create: {
     eyebrow: "Talent Pool",
     title: "Add Candidate",
-    subtitle: "Enter a candidate and their details directly into the CRM.",
+    subtitle: "Upload the documents and let VeriIS create the candidate profile.",
   },
 };
 
@@ -712,32 +703,26 @@ export default function Home() {
     }
   };
 
-  const handleCreateCandidate = async (
-    profile: CandidateProfile,
-    identity?: ManualIdentityDetails,
-  ) => {
+  const handleCreateCandidate = async (files: CandidateUploadFiles) => {
     setSaving(true);
     setCreationError(null);
     try {
-      const result = await createManualCandidate(profile, identity);
+      const result = await uploadCandidateDocuments(files);
       const created = result.candidate;
       await refreshCandidates();
       appendCandidateLog(
         created.id,
         "Created",
-        "Candidate profile added manually.",
+        `Candidate extracted from ${result.processed.join(", ")} by VeriIS.`,
         "success",
         user?.email,
       );
-      log(`Added candidate manually: ${candidateNameOf(created)}.`, "success");
-      if (result.identity_errors.length > 0) {
-        showToast(`Candidate added. ${result.identity_errors.join(" ")}`, "error");
-      } else {
-        const identityCopy = result.identity_saved.length
-          ? ` ${result.identity_saved.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} details saved.`
-          : "";
-        showToast(`Candidate added successfully.${identityCopy}`, "success");
-      }
+      log(`Added candidate from document upload: ${candidateNameOf(created)}.`, "success");
+      const identityNames = result.processed.filter((item) => item !== "resume");
+      const identityCopy = identityNames.length
+        ? ` ${identityNames.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} extracted.`
+        : "";
+      showToast(`Candidate extracted successfully.${identityCopy}`, "success");
       setDetail(created);
       setScreen({ mode: "profile", candidateId: created.id });
     } catch (err) {
@@ -856,7 +841,7 @@ export default function Home() {
 
   const handleAddCandidate = () => {
     setCreationError(null);
-    setScreen({ mode: "create", candidateId: EMPTY_MANUAL_CANDIDATE.id });
+    setScreen({ mode: "create", candidateId: "new-upload" });
   };
 
   const closeScreen = () => setScreen(null);
@@ -956,9 +941,9 @@ export default function Home() {
    * the previously open candidate, resolves to null and the screen waits.
    */
   const screenCandidate =
-    screen?.mode === "create"
-      ? EMPTY_MANUAL_CANDIDATE
-      : screen && detail && detail.id === screen.candidateId ? detail : null;
+    screen && screen.mode !== "create" && detail && detail.id === screen.candidateId
+      ? detail
+      : null;
 
   const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
 
@@ -1096,16 +1081,12 @@ export default function Home() {
               />
             )}
 
-            {screenCandidate && screen?.mode === "create" && (
-              <CandidateEditScreen
-                candidate={screenCandidate}
-                mode="create"
+            {screen?.mode === "create" && (
+              <CandidateUploadScreen
                 saving={saving}
                 error={creationError}
                 onBack={closeScreen}
-                onSave={(_candidateId, profile, identity) =>
-                  void handleCreateCandidate(profile, identity)
-                }
+                onSubmit={(files) => void handleCreateCandidate(files)}
               />
             )}
 
@@ -1113,7 +1094,7 @@ export default function Home() {
                 moment with nothing to show — and, if it cannot be fetched, no
                 screen to show at all. Neither may fall through to the
                 directory: that would read as "the candidate is gone". */}
-            {screen && !screenCandidate && (
+            {screen && screen.mode !== "create" && !screenCandidate && (
               <section className="db-card">
                 {detailError ? (
                   <>

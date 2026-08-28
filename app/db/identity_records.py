@@ -313,6 +313,18 @@ def find_for_candidate(candidate_id: str) -> Dict[str, List[Dict[str, Any]]]:
     }
 
 
+def delete_for_candidate(candidate_id: str) -> int:
+    """Remove identity rows belonging to a candidate being transactionally rolled back."""
+    deleted = 0
+    for collection in (
+        get_aadhaar_collection(),
+        get_passport_collection(),
+        get_document_collection(),
+    ):
+        deleted += collection.delete_many({"candidate_id": candidate_id}).deleted_count
+    return deleted
+
+
 def find_one(
     candidate_id: str, document_type: str, record_id: str
 ) -> Optional[Dict[str, Any]]:

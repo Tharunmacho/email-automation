@@ -43,10 +43,7 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  ManualIdentityDetails,
-  ManualAadhaarDetails,
-  ManualPassportDetails,
-  ManualCandidateCreateResponse,
+  CandidateUploadResponse,
 } from "@/types";
 
 export type {
@@ -79,10 +76,7 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  ManualIdentityDetails,
-  ManualAadhaarDetails,
-  ManualPassportDetails,
-  ManualCandidateCreateResponse,
+  CandidateUploadResponse,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -359,15 +353,19 @@ export function updateCandidateProfile(
   });
 }
 
-/** Create a profile entered directly by an administrator in the CRM. */
-export function createManualCandidate(
-  profile: CandidateProfile,
-  identity?: ManualIdentityDetails,
-): Promise<ManualCandidateCreateResponse> {
-  return request<ManualCandidateCreateResponse>("/candidates/manual", {
+/** Upload documents and let VeriIS create the structured candidate profile. */
+export function uploadCandidateDocuments(files: {
+  resume: File;
+  aadhaar?: File | null;
+  passport?: File | null;
+}): Promise<CandidateUploadResponse> {
+  const body = new FormData();
+  body.append("resume", files.resume);
+  if (files.aadhaar) body.append("aadhaar", files.aadhaar);
+  if (files.passport) body.append("passport", files.passport);
+  return request<CandidateUploadResponse>("/candidates/upload", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ profile, identity }),
+    body,
   });
 }
 

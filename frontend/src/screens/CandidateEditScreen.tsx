@@ -13,27 +13,15 @@ import {
   type EditableState,
   type EditableWorkExp,
 } from "@/lib/candidateProfile";
-import type {
-  CandidateProfile,
-  CandidateRecord,
-  ManualAadhaarDetails,
-  ManualIdentityDetails,
-  ManualPassportDetails,
-} from "@/lib/api";
+import type { CandidateProfile, CandidateRecord } from "@/lib/api";
 import { initialsOf } from "@/lib/format";
 
 interface CandidateEditScreenProps {
   candidate: CandidateRecord;
-  mode?: "edit" | "create";
   saving: boolean;
-  error?: string | null;
   verifying?: boolean;
   onBack: () => void;
-  onSave: (
-    candidateId: string,
-    profile: CandidateProfile,
-    identity?: ManualIdentityDetails,
-  ) => void;
+  onSave: (candidateId: string, profile: CandidateProfile) => void;
   /**
    * Sign the record off without leaving the editor.
    *
@@ -100,16 +88,13 @@ function SectionCard({
  */
 export default function CandidateEditScreen({
   candidate,
-  mode = "edit",
   saving,
-  error = null,
   verifying = false,
   onBack,
   onSave,
   onVerify,
 }: CandidateEditScreenProps) {
   const profile = candidate.profile ?? {};
-  const isCreating = mode === "create";
   const isVerified = candidate.status === "verified";
 
   // Seeded once per record. Re-deriving on every poll would overwrite whatever
@@ -120,20 +105,8 @@ export default function CandidateEditScreen({
     [candidate.id],
   );
   const [state, setState] = useState<EditableState>(initial);
-  const [manualIdentity, setManualIdentity] = useState<ManualIdentityDetails>({
-    passport: {},
-    aadhaar: {},
-  });
 
-  const identityDirty = useMemo(
-    () => Object.values(manualIdentity.passport ?? {}).some((value) => value?.trim()) ||
-      Object.values(manualIdentity.aadhaar ?? {}).some((value) => value?.trim()),
-    [manualIdentity],
-  );
-  const dirty = useMemo(
-    () => JSON.stringify(state) !== JSON.stringify(initial) || identityDirty,
-    [state, initial, identityDirty],
-  );
+  const dirty = useMemo(() => JSON.stringify(state) !== JSON.stringify(initial), [state, initial]);
 
   const set = <K extends keyof EditableState>(key: K, value: EditableState[K]) =>
     setState((prev) => ({ ...prev, [key]: value }));
@@ -141,20 +114,6 @@ export default function CandidateEditScreen({
   const text = (key: keyof EditableState) => (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => setState((prev) => ({ ...prev, [key]: event.target.value }));
-
-  const passportText = (key: keyof ManualPassportDetails) => (
-    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => setManualIdentity((prev) => ({
-    ...prev,
-    passport: { ...prev.passport, [key]: event.target.value },
-  }));
-
-  const aadhaarText = (key: keyof ManualAadhaarDetails) => (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
-  ) => setManualIdentity((prev) => ({
-    ...prev,
-    aadhaar: { ...prev.aadhaar, [key]: event.target.value },
-  }));
 
   // ---- repeatable rows --------------------------------------------------- //
   const updateAt = <T,>(list: T[], index: number, patch: Partial<T>): T[] =>
@@ -179,14 +138,7 @@ export default function CandidateEditScreen({
     onBack();
   };
 
-  const handleSave = () => {
-    if (isCreating && !state.full_name.trim()) return;
-    onSave(
-      candidate.id,
-      editableToProfile(profile, state),
-      isCreating ? manualIdentity : undefined,
-    );
-  };
+  const handleSave = () => onSave(candidate.id, editableToProfile(profile, state));
 
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
@@ -201,7 +153,7 @@ export default function CandidateEditScreen({
           {/* Held shut while the form is dirty: verifying is a statement about
               the stored record, and what is on screen is not it yet. */}
           {/* Shown when onVerify is passed; hidden in StaffScreen view */}
-          {!isCreating && onVerify && (
+          {onVerify && (
             <button
               type="button"
               className={`cscreen-btn ${isVerified ? "is-verified" : ""}`}
@@ -218,13 +170,8 @@ export default function CandidateEditScreen({
             </button>
           )}
 
-          <button
-            type="button"
-            className="cscreen-btn is-primary"
-            onClick={handleSave}
-            disabled={saving || (isCreating && !state.full_name.trim())}
-          >
-            <Save size={15} /> {saving ? "Saving…" : isCreating ? "Add candidate" : "Save changes"}
+          <button type="button" className="cscreen-btn is-primary" onClick={handleSave} disabled={saving}>
+            <Save size={15} /> {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
       </div>
@@ -234,31 +181,18 @@ export default function CandidateEditScreen({
           {initialsOf(state.full_name)}
         </span>
         <div>
-          <h2 className="cprof-name">
-            {isCreating ? "Add a candidate" : `Editing ${state.full_name || "candidate"}`}
-          </h2>
+          <h2 className="cprof-name">Editing {state.full_name || "candidate"}</h2>
           <p className="cprof-meta">
-            {isCreating
-              ? "Enter the candidate's details manually. Nothing is stored until you add them."
-              : "Changes are written to MongoDB Atlas when you save. Nothing is stored until then."}
+            Changes are written to MongoDB Atlas when you save. Nothing is stored until then.
           </p>
         </div>
       </header>
 
-      {error && <div className="cscreen-error" role="alert">{error}</div>}
-
       <div className="cedit-sections">
         <SectionCard title="Identity and contact">
           <div className="cedit-grid">
-            <Field label="Full name" hint={isCreating ? "required" : undefined}>
-              <input
-                className="cedit-input"
-                type="text"
-                value={state.full_name}
-                onChange={text("full_name")}
-                required={isCreating}
-                autoFocus={isCreating}
-              />
+            <Field label="Full name">
+              <input className="cedit-input" type="text" value={state.full_name} onChange={text("full_name")} />
             </Field>
             <Field label="Current designation">
               <input className="cedit-input" type="text" value={state.designation} onChange={text("designation")} />
@@ -293,216 +227,6 @@ export default function CandidateEditScreen({
             </Field>
           </div>
         </SectionCard>
-
-        {isCreating && (
-          <SectionCard title="Passport details">
-            <div className="cedit-grid">
-              <Field label="Passport number">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.passport_number ?? ""}
-                  onChange={passportText("passport_number")}
-                  autoComplete="off"
-                />
-              </Field>
-              <Field label="Given names">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.given_names ?? ""}
-                  onChange={passportText("given_names")}
-                />
-              </Field>
-              <Field label="Surname">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.surname ?? ""}
-                  onChange={passportText("surname")}
-                />
-              </Field>
-              <Field label="Nationality">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.nationality ?? ""}
-                  onChange={passportText("nationality")}
-                />
-              </Field>
-              <Field label="Issuing country">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.issuing_country ?? ""}
-                  onChange={passportText("issuing_country")}
-                />
-              </Field>
-              <Field label="Date of birth">
-                <input
-                  className="cedit-input"
-                  type="date"
-                  value={manualIdentity.passport?.date_of_birth ?? ""}
-                  onChange={passportText("date_of_birth")}
-                />
-              </Field>
-              <Field label="Sex">
-                <select
-                  className="cedit-input"
-                  value={manualIdentity.passport?.sex ?? ""}
-                  onChange={passportText("sex")}
-                >
-                  <option value="">Select</option>
-                  <option value="M">Male</option>
-                  <option value="F">Female</option>
-                  <option value="X">Other / unspecified</option>
-                </select>
-              </Field>
-              <Field label="Date of issue">
-                <input
-                  className="cedit-input"
-                  type="date"
-                  value={manualIdentity.passport?.date_of_issue ?? ""}
-                  onChange={passportText("date_of_issue")}
-                />
-              </Field>
-              <Field label="Date of expiry">
-                <input
-                  className="cedit-input"
-                  type="date"
-                  value={manualIdentity.passport?.expiry_date ?? ""}
-                  onChange={passportText("expiry_date")}
-                />
-              </Field>
-              <Field label="Personal number">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.passport?.personal_number ?? ""}
-                  onChange={passportText("personal_number")}
-                  autoComplete="off"
-                />
-              </Field>
-            </div>
-            <p className="cedit-note">
-              Leave this section empty when no passport is available. Manually entered details
-              are recorded without claiming that MRZ checks were performed.
-            </p>
-          </SectionCard>
-        )}
-
-        {isCreating && (
-          <SectionCard title="Aadhaar details">
-            <div className="cedit-grid">
-              <Field label="Aadhaar number" hint="12 digits">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={16}
-                  value={manualIdentity.aadhaar?.aadhaar_number ?? ""}
-                  onChange={aadhaarText("aadhaar_number")}
-                  autoComplete="off"
-                />
-              </Field>
-              <Field label="Name on Aadhaar">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.aadhaar?.name ?? ""}
-                  placeholder={state.full_name || "Candidate name"}
-                  onChange={aadhaarText("name")}
-                />
-              </Field>
-              <Field label="Date of birth">
-                <input
-                  className="cedit-input"
-                  type="date"
-                  value={manualIdentity.aadhaar?.date_of_birth ?? ""}
-                  onChange={aadhaarText("date_of_birth")}
-                />
-              </Field>
-              <Field label="Year of birth">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={4}
-                  value={manualIdentity.aadhaar?.year_of_birth ?? ""}
-                  onChange={aadhaarText("year_of_birth")}
-                />
-              </Field>
-              <Field label="Gender">
-                <select
-                  className="cedit-input"
-                  value={manualIdentity.aadhaar?.gender ?? ""}
-                  onChange={aadhaarText("gender")}
-                >
-                  <option value="">Select</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other</option>
-                </select>
-              </Field>
-              <Field label="Mobile number">
-                <input
-                  className="cedit-input"
-                  type="tel"
-                  value={manualIdentity.aadhaar?.mobile_number ?? ""}
-                  onChange={aadhaarText("mobile_number")}
-                />
-              </Field>
-              <Field label="Care of">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.aadhaar?.care_of ?? ""}
-                  onChange={aadhaarText("care_of")}
-                />
-              </Field>
-              <Field label="Pincode">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={manualIdentity.aadhaar?.pincode ?? ""}
-                  onChange={aadhaarText("pincode")}
-                />
-              </Field>
-              <Field label="VID">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.aadhaar?.vid ?? ""}
-                  onChange={aadhaarText("vid")}
-                  autoComplete="off"
-                />
-              </Field>
-              <Field label="Enrolment ID">
-                <input
-                  className="cedit-input"
-                  type="text"
-                  value={manualIdentity.aadhaar?.enrollment_id ?? ""}
-                  onChange={aadhaarText("enrollment_id")}
-                  autoComplete="off"
-                />
-              </Field>
-            </div>
-            <Field label="Address">
-              <textarea
-                className="cedit-input cedit-textarea"
-                rows={3}
-                value={manualIdentity.aadhaar?.address ?? ""}
-                onChange={aadhaarText("address")}
-              />
-            </Field>
-            <p className="cedit-note">
-              Aadhaar data is stored separately from the candidate profile. The full number is
-              available only to administrators and remains masked for staff.
-            </p>
-          </SectionCard>
-        )}
 
         {/* What they applied for, kept apart from who they are.
 
@@ -1010,21 +734,14 @@ export default function CandidateEditScreen({
 
       <div className="cedit-footer">
         <span className="cedit-footer-note">
-          {isCreating
-            ? "The profile will be added to the candidate pool when you save."
-            : dirty ? "You have unsaved changes." : "Everything on this screen is saved."}
+          {dirty ? "You have unsaved changes." : "Everything on this screen is saved."}
         </span>
         <div className="cscreen-topbar-actions">
           <button type="button" className="cscreen-btn" onClick={handleBack}>
             Cancel
           </button>
-          <button
-            type="button"
-            className="cscreen-btn is-primary"
-            onClick={handleSave}
-            disabled={saving || (isCreating && !state.full_name.trim())}
-          >
-            <Save size={15} /> {saving ? "Saving…" : isCreating ? "Add candidate" : "Save changes"}
+          <button type="button" className="cscreen-btn is-primary" onClick={handleSave} disabled={saving}>
+            <Save size={15} /> {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
       </div>

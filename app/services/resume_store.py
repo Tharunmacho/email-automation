@@ -66,6 +66,25 @@ class ResumeRejected(Exception):
         self.code = code
 
 
+def validate_resume(data: bytes, mime_type: Optional[str]) -> str:
+    """Validate upload bytes without writing them and return the media type."""
+    if not data:
+        raise ResumeRejected("the resume file is empty", "empty_resume")
+    if len(data) > MAX_RESUME_BYTES:
+        raise ResumeRejected(
+            f"the resume is {len(data) // (1024 * 1024)} MB; the limit is "
+            f"{MAX_RESUME_BYTES // (1024 * 1024)} MB",
+            "resume_too_large",
+        )
+
+    content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
+    if content_type not in ALLOWED_RESUME_TYPES:
+        raise ResumeRejected(
+            f"{content_type} is not an accepted resume type", "unsupported_resume_type"
+        )
+    return content_type
+
+
 def _safe_name(filename: Optional[str]) -> str:
     """A filename that cannot escape the key it is embedded in.
 
@@ -105,20 +124,7 @@ def store_resume(
     handed over by the bot has been read by nobody here, and claiming a method
     would be a fact about a process that never ran.
     """
-    if not data:
-        raise ResumeRejected("the resume file is empty", "empty_resume")
-    if len(data) > MAX_RESUME_BYTES:
-        raise ResumeRejected(
-            f"the resume is {len(data) // (1024 * 1024)} MB; the limit is "
-            f"{MAX_RESUME_BYTES // (1024 * 1024)} MB",
-            "resume_too_large",
-        )
-
-    content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
-    if content_type not in ALLOWED_RESUME_TYPES:
-        raise ResumeRejected(
-            f"{content_type} is not an accepted resume type", "unsupported_resume_type"
-        )
+    content_type = validate_resume(data, mime_type)
 
     digest = sha256_hex(data)
     key = storage_key_for(candidate_id, filename)

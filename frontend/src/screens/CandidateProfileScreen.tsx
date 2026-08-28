@@ -526,7 +526,9 @@ export default function CandidateProfileScreen({
     candidate.resume?.storage_key || candidate.resume?.original_filename,
   );
   const fromWhatsApp = candidate.source === "whatsapp";
-  const sourceLabel = candidate.source === "manual" ? "Manual entry" : fromWhatsApp ? "WhatsApp" : "Email";
+  const sourceLabel = candidate.source === "upload"
+    ? "Admin upload"
+    : candidate.source === "manual" ? "Legacy manual entry" : fromWhatsApp ? "WhatsApp" : "Email";
 
   /** Where they are, and where they want to go — shown as two separate facts. */
   const originLine = [

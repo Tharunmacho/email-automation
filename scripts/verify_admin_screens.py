@@ -40,7 +40,7 @@ def call(method, path, body=None, token=None):
             return e.code, {}
 
 
-status, body = call("POST", "/auth/login", {"email": "admin@gmail.com", "password": "admin@123"})
+status, body = call("POST", "/auth/login", {"email": "adira@gmail.com", "password": "adira@2026"})
 token = body.get("token", "")
 user = body.get("user", {})
 

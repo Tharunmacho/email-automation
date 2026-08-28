@@ -11782,6 +11782,232 @@ body {
   padding-top: 0.75rem;
 }
 
+/* Document-first candidate intake --------------------------------------- */
+.cupload {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.cupload-hero .cprof-monogram {
+  display: grid;
+  place-items: center;
+}
+
+.cupload-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.cupload-slot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 112px;
+  padding: 20px;
+  border: 1px dashed rgba(148, 163, 184, 0.55);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.cupload-slot.is-dragging {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.06);
+  transform: translateY(-1px);
+}
+
+.cupload-slot.has-file {
+  border-style: solid;
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(236, 253, 245, 0.7);
+}
+
+.cupload-native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.cupload-slot-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.cupload-slot.has-file .cupload-slot-icon {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.cupload-slot-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cupload-slot-title span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #64748b;
+  background: #f1f5f9;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cupload-slot-title span.is-required {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.cupload-slot-copy p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.cupload-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin-top: 7px;
+  color: #047857;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.cupload-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cupload-file small {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.cupload-remove {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cupload-remove:hover:not(:disabled) {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.cupload-process {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #e2e8f0;
+}
+
+.cupload-process > div {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  column-gap: 10px;
+  padding: 16px;
+  background: #fff;
+}
+
+.cupload-process span {
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  background: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cupload-process strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.cupload-process small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cupload-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  color: #475569;
+  background: #f8fafc;
+}
+
+.cupload-notice svg {
+  flex: 0 0 auto;
+  color: #0f766e;
+}
+
+.cupload-notice p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.cupload-spin {
+  animation: cupload-spin 0.9s linear infinite;
+}
+
+@keyframes cupload-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 760px) {
+  .cupload-slot {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .cupload-slot > button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .cupload-process {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Data Management is an operational register, so its overview and its rows
    use the same visual hierarchy as the CRM dashboard: readings first, then a
    clearly labelled working surface. */

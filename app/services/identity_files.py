@@ -74,6 +74,26 @@ class IdentityFileMissing(Exception):
     """
 
 
+def validate_identity(data: bytes, mime_type: Optional[str]) -> str:
+    """Validate an identity scan before OCR or storage and return its media type."""
+    if not data:
+        raise IdentityRejected("the document file is empty", "empty_identity_document")
+    if len(data) > MAX_IDENTITY_BYTES:
+        raise IdentityRejected(
+            f"the document is {len(data) // (1024 * 1024)} MB; the limit is "
+            f"{MAX_IDENTITY_BYTES // (1024 * 1024)} MB",
+            "identity_document_too_large",
+        )
+
+    content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
+    if content_type not in ALLOWED_IDENTITY_TYPES:
+        raise IdentityRejected(
+            f"{content_type} is not an accepted identity document type",
+            "unsupported_identity_document_type",
+        )
+    return content_type
+
+
 @dataclass(frozen=True)
 class IdentityFile:
     data: bytes
@@ -261,21 +281,7 @@ def store(
       and the identity record points at the copy that is already there. Nothing
       here needs its own copy to serve it — `load` reads whatever key it is given.
     """
-    if not data:
-        raise IdentityRejected("the document file is empty", "empty_identity_document")
-    if len(data) > MAX_IDENTITY_BYTES:
-        raise IdentityRejected(
-            f"the document is {len(data) // (1024 * 1024)} MB; the limit is "
-            f"{MAX_IDENTITY_BYTES // (1024 * 1024)} MB",
-            "identity_document_too_large",
-        )
-
-    content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
-    if content_type not in ALLOWED_IDENTITY_TYPES:
-        raise IdentityRejected(
-            f"{content_type} is not an accepted identity document type",
-            "unsupported_identity_document_type",
-        )
+    content_type = validate_identity(data, mime_type)
 
     digest = sha256_hex(data)
     name = _safe_name(filename, document_type)

@@ -219,109 +219,113 @@ def test_update_candidate_profile(test_client):
     assert response.status_code == 404
 
 
-def test_create_manual_candidate_stores_typed_profile_without_fake_source_data(test_client):
-    with patch("app.api.routes.assign_candidate") as assign:
+def _uploaded_candidate_result():
+    from app.services.candidate_upload_intake import CandidateUploadResult
+
+    profile = CandidateProfile(
+        is_resume=True,
+        confidence=0.94,
+        full_name="Meera Nair",
+        email="meera@example.com",
+        phone="+91 98765 43210",
+    )
+    record = CandidateRecord(
+        id="candidate-uploaded",
+        source="upload",
+        profile=profile,
+        resume=StoredResume(
+            original_filename="meera.pdf",
+            mime_type="application/pdf",
+            size=12,
+            sha256="uploaded-hash",
+            storage_backend="local",
+            storage_key="2026/08/candidate-uploaded_meera.pdf",
+            extraction_method="veris_resume_api",
+            ocr_used=True,
+        ),
+        resume_hash="uploaded-hash",
+        email_key="meera@example.com",
+        phone_key="9876543210",
+        cv_required=True,
+    )
+    return CandidateUploadResult(
+        candidate=record,
+        identity={
+            "aadhaar": [{"name": "Meera Nair", "masked_aadhaar_number": "XXXXXXXX9017"}],
+            "passport": [{"passport_number": "Z1234567", "check_digits_valid": True}],
+        },
+    )
+
+
+def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_result(test_client):
+    result = _uploaded_candidate_result()
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        return_value=result,
+    ) as intake, patch("app.api.routes.assign_candidate") as assign:
         assign.return_value = MagicMock(assigned=False)
         response = test_client.post(
-            "/candidates/manual",
-            json={
-                "profile": {
-                    "full_name": "  Meera Nair  ",
-                    "email": "Meera.Nair@Example.com ",
-                    "phone": "+91 98765 43210",
-                    "current_designation": "Electrician",
-                    "skills": ["Wiring", "Maintenance"],
-                    "work_experience": [],
-                    "education": [],
-                }
+            "/candidates/upload",
+            files={
+                "resume": ("meera.pdf", b"resume-bytes", "application/pdf"),
+                "aadhaar": ("aadhaar.jpg", b"aadhaar-bytes", "image/jpeg"),
+                "passport": ("passport.png", b"passport-bytes", "image/png"),
             },
         )
 
     assert response.status_code == 201
     body = response.json()
-    record = body["candidate"]
-    assert record["source"] == "manual"
-    assert record["profile"]["full_name"] == "Meera Nair"
-    assert record["profile"]["is_resume"] is False
-    assert record["profile"]["confidence"] == 1.0
-    assert record["email_key"] == "meera.nair@example.com"
-    assert record["phone_key"] == "9876543210"
-    assert record["cv_required"] is False
-    assert record.get("resume") is None
-    assert record.get("source_email") is None
-    assert body["identity_saved"] == []
-    assert body["identity_errors"] == []
+    assert body["candidate"]["profile"]["full_name"] == "Meera Nair"
+    assert "raw_ocr" not in body["candidate"]
+    assert "raw_ocr" not in body["candidate"]["profile"]
+    assert body["identity"]["aadhaar"][0]["masked_aadhaar_number"] == "XXXXXXXX9017"
+    assert body["identity"]["passport"][0]["passport_number"] == "Z1234567"
+    assert body["processed"] == ["resume", "aadhaar", "passport"]
+    assert body["ocr_provider"] == "VeriIS"
+
+    sent = intake.call_args.kwargs
+    assert sent["resume"].data == b"resume-bytes"
+    assert sent["aadhaar"].data == b"aadhaar-bytes"
+    assert sent["passport"].data == b"passport-bytes"
+    assert sent["admin_id"] == "test-user"
     assign.assert_called_once()
 
 
-def test_create_manual_candidate_requires_a_name(test_client):
+def test_upload_candidate_requires_a_resume(test_client):
     response = test_client.post(
-        "/candidates/manual",
-        json={"profile": {"email": "nobody@example.com"}},
+        "/candidates/upload",
+        files={"passport": ("passport.jpg", b"passport", "image/jpeg")},
     )
     assert response.status_code == 422
-    assert response.json()["detail"] == "Full name is required"
 
 
-def test_create_manual_candidate_files_passport_and_aadhaar_details(test_client):
-    with patch("app.api.routes.assign_candidate") as assign, \
-         patch("app.db.identity_records.store_passport_record") as store_passport, \
-         patch("app.db.identity_records.store_aadhaar_record") as store_aadhaar:
-        assign.return_value = MagicMock(assigned=False)
+def test_upload_candidate_translates_intake_refusal(test_client):
+    from app.services.candidate_upload_intake import CandidateUploadError
+
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        side_effect=CandidateUploadError(
+            "The passport MRZ checksum failed. Upload a clearer passport scan.",
+            status_code=422,
+        ),
+    ):
         response = test_client.post(
-            "/candidates/manual",
-            json={
-                "profile": {"full_name": "Meera Nair"},
-                "identity": {
-                    "passport": {
-                        "passport_number": " z-1234567 ",
-                        "given_names": "Meera",
-                        "surname": "Nair",
-                        "nationality": "IND",
-                        "expiry_date": "2034-05-01",
-                    },
-                    "aadhaar": {
-                        "aadhaar_number": "1234 1234 9017",
-                        "date_of_birth": "1992-02-03",
-                        "address": "Kochi, Kerala",
-                        "pincode": "682001",
-                    },
-                },
-            },
+            "/candidates/upload",
+            files={"resume": ("meera.pdf", b"resume", "application/pdf")},
         )
 
-    assert response.status_code == 201
-    body = response.json()
-    record = body["candidate"]
-    assert record["profile"]["passport_number"] == "z-1234567"
-    assert record["profile"]["passport_expiry"] == "2034-05-01"
-    assert record["passport_key"] == "Z1234567"
-    assert record["passport_key_source"] == "manual"
-    assert body["identity_saved"] == ["passport", "aadhaar"]
-    assert body["identity_errors"] == []
-
-    passport_result = store_passport.call_args.args[1]
-    assert passport_result["mrz"]["passport_number"] == "z-1234567"
-    assert passport_result["mrz"]["all_check_digits_valid"] is None
-    assert store_passport.call_args.kwargs["provider"] == "manual"
-
-    aadhaar_result = store_aadhaar.call_args.args[1]
-    assert aadhaar_result["aadhaar"]["aadhaar_number"] == "123412349017"
-    assert aadhaar_result["aadhaar"]["name"] == "Meera Nair"
-    assert aadhaar_result["aadhaar"]["aadhaar_number_valid"] is None
-    assert store_aadhaar.call_args.kwargs["provider"] == "manual"
+    assert response.status_code == 422
+    assert "passport MRZ checksum failed" in response.json()["detail"]
 
 
-def test_create_manual_candidate_rejects_an_invalid_aadhaar_number(test_client):
+def test_manual_candidate_json_endpoint_is_removed(test_client):
     response = test_client.post(
         "/candidates/manual",
-        json={
-            "profile": {"full_name": "Meera Nair"},
-            "identity": {"aadhaar": {"aadhaar_number": "1234"}},
-        },
+        json={"profile": {"full_name": "Meera Nair"}},
     )
-    assert response.status_code == 422
-    assert response.json()["detail"] == "Aadhaar number must contain 12 digits"
+    # The dynamic candidate-id route can make FastAPI report 405 for this
+    # obsolete path; either result confirms there is no writable manual API.
+    assert response.status_code in {404, 405}
 
 
 def test_verify_candidate(test_client):

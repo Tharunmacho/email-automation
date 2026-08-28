@@ -179,7 +179,7 @@ export interface CandidateRecord {
    * WhatsApp integration, which are all email — read it as `"email"` when
    * missing rather than treating it as unknown.
    */
-  source?: "email" | "whatsapp" | "manual";
+  source?: "email" | "whatsapp" | "manual" | "upload";
   profile: CandidateProfile;
   /**
    * Optional, because a candidate may genuinely have no CV.
@@ -357,43 +357,15 @@ export interface IdentityDocuments {
   passport: PassportRecord[];
 }
 
-/** Identity facts an administrator may transcribe while adding a candidate. */
-export interface ManualPassportDetails {
-  passport_number?: string;
-  surname?: string;
-  given_names?: string;
-  nationality?: string;
-  issuing_country?: string;
-  date_of_birth?: string;
-  sex?: string;
-  date_of_issue?: string;
-  expiry_date?: string;
-  personal_number?: string;
-}
-
-export interface ManualAadhaarDetails {
-  aadhaar_number?: string;
-  name?: string;
-  date_of_birth?: string;
-  year_of_birth?: string;
-  gender?: string;
-  mobile_number?: string;
-  address?: string;
-  care_of?: string;
-  pincode?: string;
-  vid?: string;
-  enrollment_id?: string;
-}
-
-export interface ManualIdentityDetails {
-  passport?: ManualPassportDetails;
-  aadhaar?: ManualAadhaarDetails;
-}
-
-export interface ManualCandidateCreateResponse {
+/** Curated result returned after VeriIS processes candidate uploads. */
+export interface CandidateUploadResponse {
   candidate: CandidateRecord;
-  identity_saved: Array<"passport" | "aadhaar">;
-  identity_errors: string[];
+  identity: {
+    aadhaar: AadhaarRecord[];
+    passport: PassportRecord[];
+  };
+  processed: Array<"resume" | "aadhaar" | "passport">;
+  ocr_provider: "VeriIS";
 }
 
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */

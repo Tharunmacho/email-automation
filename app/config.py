@@ -144,16 +144,16 @@ class Settings(BaseSettings):
     auth_secret: str = "dev-only-change-me"
     auth_token_ttl_hours: int = 12
     # Seed account, created once on startup if it does not already exist.
-    admin_email: str = "admin@gmail.com"
-    admin_password: str = "admin@123"
+    admin_email: str = "adira@gmail.com"
+    admin_password: str = "adira@2026"
 
     # ---- Demo Accounts & SLA ----
     # Seeded on startup and published by /auth/demo-accounts, which is
     # unauthenticated — only the admin account is advertised, and turning this
     # off silences the endpoint entirely.
     demo_accounts_enabled: bool = True
-    demo_admin_email: str = "admin@gmail.com"
-    demo_admin_password: str = "admin@123"
+    demo_admin_email: str = "adira@gmail.com"
+    demo_admin_password: str = "adira@2026"
     # How long a profile may sit allocated-but-unresolved before the sweep calls
     # it a breach, measured from `assigned_at` (falling back to `ingested_at`)
     # until it is opened or judged.

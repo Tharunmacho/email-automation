@@ -326,7 +326,7 @@ EVALUATION_STATUSES = (
 # "whatsapp" is the recruitment bot, where a CV is required for some
 # destination/job combinations and not for others — a question the CV policy
 # answers, not the caller.
-CANDIDATE_SOURCES = ("email", "whatsapp", "manual")
+CANDIDATE_SOURCES = ("email", "whatsapp", "manual", "upload")
 
 
 #: Where a contact number came from. Not a preference order — a WhatsApp number
@@ -400,7 +400,7 @@ class CandidateRecord(BaseModel):
 
     # Defaulted to "email" so every document written before this field existed
     # reads back as what it actually is. There is no backfill to run.
-    source: Literal["email", "whatsapp", "manual"] = "email"
+    source: Literal["email", "whatsapp", "manual", "upload"] = "email"
 
     profile: CandidateProfile
     # Optional on the type, conditional in practice — see `_check_source_rules`
@@ -555,10 +555,14 @@ class CandidateRecord(BaseModel):
                 raise ValueError("an email candidate must have source_email")
             return self
 
-        # A manually entered profile has no source email or mandatory CV.
-        if self.source == "manual":
+        # Administrator-created records never invent an email source. Legacy
+        # manual records remain readable; the current upload path requires the
+        # document it was extracted from.
+        if self.source in ("manual", "upload"):
             if self.source_email is not None:
-                raise ValueError("a manual candidate cannot have source_email")
+                raise ValueError("an administrator-uploaded candidate cannot have source_email")
+            if self.source == "upload" and self.resume is None:
+                raise ValueError("an uploaded candidate must have a resume")
             return self
 
         # WhatsApp. No source_email is expected, and inventing one would be a

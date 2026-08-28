@@ -46,7 +46,7 @@ from app.assignment.balancer import (
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
 from app.db.repository import CandidateRepository
-from app.db.dedup import normalize_email, normalize_passport, normalize_phone
+from app.db.dedup import normalize_email, normalize_phone
 from app.policy.cv_policy import (
     JOB_CATEGORIES,
     is_cv_required,
@@ -900,213 +900,75 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
     return updated_record.model_dump(mode="json")
 
 
-class ManualPassportIn(BaseModel):
-    """Passport facts copied by an administrator from the document."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    passport_number: str | None = Field(default=None, max_length=32)
-    surname: str | None = Field(default=None, max_length=120)
-    given_names: str | None = Field(default=None, max_length=180)
-    nationality: str | None = Field(default=None, max_length=80)
-    issuing_country: str | None = Field(default=None, max_length=80)
-    date_of_birth: str | None = Field(default=None, max_length=32)
-    sex: str | None = Field(default=None, max_length=32)
-    date_of_issue: str | None = Field(default=None, max_length=32)
-    expiry_date: str | None = Field(default=None, max_length=32)
-    personal_number: str | None = Field(default=None, max_length=64)
-
-
-class ManualAadhaarIn(BaseModel):
-    """Aadhaar facts copied by an administrator from the card."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    aadhaar_number: str | None = Field(default=None, max_length=32)
-    name: str | None = Field(default=None, max_length=180)
-    date_of_birth: str | None = Field(default=None, max_length=32)
-    year_of_birth: str | None = Field(default=None, max_length=4)
-    gender: str | None = Field(default=None, max_length=32)
-    mobile_number: str | None = Field(default=None, max_length=32)
-    address: str | None = Field(default=None, max_length=1000)
-    care_of: str | None = Field(default=None, max_length=180)
-    pincode: str | None = Field(default=None, max_length=12)
-    vid: str | None = Field(default=None, max_length=32)
-    enrollment_id: str | None = Field(default=None, max_length=64)
-
-
-class ManualIdentityIn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    passport: ManualPassportIn | None = None
-    aadhaar: ManualAadhaarIn | None = None
-
-
-class ManualCandidateIn(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    profile: CandidateProfile
-    identity: ManualIdentityIn | None = None
-
-
-def _manual_section_has_values(section: BaseModel | None) -> bool:
-    if section is None:
-        return False
-    return any(str(value).strip() for value in section.model_dump().values() if value is not None)
-
-
-@app.post("/candidates/manual", status_code=201)
-def create_manual_candidate(
-    payload: ManualCandidateIn,
-    _admin: dict = Depends(require_admin),
+@app.post("/candidates/upload", status_code=201)
+def create_candidate_from_uploads(
+    resume: UploadFile = File(...),
+    aadhaar: UploadFile | None = File(default=None),
+    passport: UploadFile | None = File(default=None),
+    admin: dict = Depends(require_admin),
 ) -> dict:
-    """Create a candidate typed directly into the CRM by an administrator.
+    """Create a candidate from files whose facts are extracted by VeriIS.
 
-    This is deliberately separate from ``POST /candidates``, whose service-key
-    contract and idempotency rules belong to the WhatsApp bot. A manual record
-    has no invented source email, resume, OCR payload, or CV requirement.
+    The route intentionally accepts no profile JSON.  Candidate, passport and
+    Aadhaar fields originate from the uploaded documents and the API response
+    contains only their curated projections, never VeriIS' raw payload.
     """
-    profile = payload.profile
-    identity = payload.identity or ManualIdentityIn()
-    passport = identity.passport if _manual_section_has_values(identity.passport) else None
-    aadhaar = identity.aadhaar if _manual_section_has_values(identity.aadhaar) else None
-
-    full_name = (profile.full_name or "").strip()
-    if not full_name:
-        raise HTTPException(status_code=422, detail="Full name is required")
-
-    passport_number = (passport.passport_number or "").strip() if passport else ""
-    passport_key = normalize_passport(passport_number)
-    if passport_number and not passport_key:
-        raise HTTPException(status_code=422, detail="Enter a valid passport number")
-
-    aadhaar_number = ""
-    if aadhaar and aadhaar.aadhaar_number:
-        aadhaar_number = "".join(ch for ch in aadhaar.aadhaar_number if ch.isdigit())
-        if len(aadhaar_number) != 12:
-            raise HTTPException(status_code=422, detail="Aadhaar number must contain 12 digits")
-
-    # These are facts about how the profile was created, not fields the browser
-    # gets to claim. Manual input is treated as confidently transcribed but is
-    # still left in the normal review workflow rather than auto-verified.
-    clean_profile = profile.model_copy(
-        update={
-            "full_name": full_name,
-            "is_resume": False,
-            "confidence": 1.0,
-            "raw_ocr": None,
-            "passport_number": passport_number or profile.passport_number,
-            "passport_expiry": (
-                (passport.expiry_date or "").strip() if passport else ""
-            ) or profile.passport_expiry,
-        }
+    from app.services.candidate_upload_intake import (
+        CandidateUploadError,
+        UploadedDocument,
+        intake_uploaded_candidate,
     )
-    now = utcnow()
-    record = CandidateRecord(
-        id=uuid.uuid4().hex,
-        source="manual",
-        profile=clean_profile,
-        email_key=normalize_email(clean_profile.email),
-        phone_key=normalize_phone(clean_profile.phone),
-        passport_key=passport_key or normalize_passport(clean_profile.passport_number),
-        passport_key_source="manual" if passport_key else None,
-        status="ingested",
-        cv_required=False,
-        created_at=now,
-        updated_at=now,
-    )
+
+    def uploaded(file: UploadFile, fallback: str) -> UploadedDocument:
+        return UploadedDocument(
+            data=file.file.read(),
+            filename=file.filename or fallback,
+            mime_type=file.content_type or "application/octet-stream",
+        )
 
     repository = repo()
-    candidate_id = repository.insert(record)
-
-    identity_saved: list[str] = []
-    identity_errors: list[str] = []
-    from app.db import identity_records
-
-    if passport:
-        try:
-            record_id = f"manual-passport-{uuid.uuid4().hex}"
-            identity_records.store_passport_record(
-                record_id,
-                {
-                    "mrz": {
-                        "passport_number": passport_number or None,
-                        "surname": passport.surname,
-                        "given_names": passport.given_names,
-                        "nationality": passport.nationality,
-                        "issuing_country": passport.issuing_country,
-                        "date_of_birth": passport.date_of_birth,
-                        "sex": passport.sex,
-                        "expiry_date": passport.expiry_date,
-                        "date_of_issue": passport.date_of_issue,
-                        "personal_number": passport.personal_number,
-                        # No MRZ was parsed. A manual transcription must not be
-                        # presented as having passed the document's checksum.
-                        "all_check_digits_valid": None,
-                    },
-                    "mrz_source": "manual",
-                    "confidence": None,
-                },
-                candidate_id=candidate_id,
-                provider="manual",
-                account_id=str(_admin.get("id") or ""),
-                message_id=f"manual/{candidate_id}",
-                attachment_id=record_id,
-            )
-            identity_saved.append("passport")
-        except Exception as exc:  # noqa: BLE001 - preserve the candidate and report the failed section
-            log.exception("Could not store manual passport for candidate %s", candidate_id)
-            identity_errors.append(f"Passport details were not saved: {exc}")
-
-    if aadhaar:
-        try:
-            record_id = f"manual-aadhaar-{uuid.uuid4().hex}"
-            identity_records.store_aadhaar_record(
-                record_id,
-                {
-                    "aadhaar": {
-                        **aadhaar.model_dump(),
-                        "aadhaar_number": aadhaar_number or None,
-                        "name": (aadhaar.name or "").strip() or full_name,
-                        # This value was transcribed rather than checksum-tested
-                        # by OCR, so the UI correctly renders an unknown check.
-                        "aadhaar_number_valid": None,
-                    }
-                },
-                candidate_id=candidate_id,
-                provider="manual",
-                account_id=str(_admin.get("id") or ""),
-                message_id=f"manual/{candidate_id}",
-                attachment_id=record_id,
-            )
-            identity_saved.append("aadhaar")
-        except Exception as exc:  # noqa: BLE001 - preserve the candidate and report the failed section
-            log.exception("Could not store manual Aadhaar for candidate %s", candidate_id)
-            identity_errors.append(f"Aadhaar details were not saved: {exc}")
-
-    # Manual profiles enter the same least-loaded queue as every other new
-    # candidate. A missing roster or a failed notification must not roll back a
-    # valid profile that is already safely stored.
     try:
-        assignment = assign_candidate(candidate_id, clean_profile, repo=repository)
+        result = intake_uploaded_candidate(
+            resume=uploaded(resume, "resume.pdf"),
+            aadhaar=uploaded(aadhaar, "aadhaar.jpg") if aadhaar else None,
+            passport=uploaded(passport, "passport.jpg") if passport else None,
+            repository=repository,
+            admin_id=str(admin.get("id") or ""),
+        )
+    except CandidateUploadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    # Uploaded candidates join the same least-loaded review queue as mailbox
+    # candidates.  Allocation failure cannot invalidate completed OCR/storage.
+    try:
+        assignment = assign_candidate(result.candidate.id, result.candidate.profile, repo=repository)
         if assignment.assigned:
             notify_candidate_assigned(
                 assignment.staff_id or "",
                 {
-                    "id": candidate_id,
-                    "full_name": clean_profile.full_name,
-                    "email": clean_profile.email,
+                    "id": result.candidate.id,
+                    "full_name": result.candidate.profile.full_name,
+                    "email": result.candidate.profile.email,
                 },
                 staff_name=assignment.staff_name,
             )
-    except Exception as exc:  # noqa: BLE001 - creation must survive allocation outages
-        log.warning("Could not allocate manual candidate %s: %s", candidate_id, exc)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not allocate uploaded candidate %s: %s", result.candidate.id, exc)
 
-    stored = repository.get(candidate_id)
+    stored = repository.get(result.candidate.id) or result.candidate
+    candidate = stored.model_dump(mode="json", exclude={"raw_ocr"})
+    if isinstance(candidate.get("profile"), dict):
+        candidate["profile"].pop("raw_ocr", None)
+        candidate["profile"].pop("additional_info", None)
     return {
-        "candidate": (stored or record).model_dump(mode="json"),
-        "identity_saved": identity_saved,
-        "identity_errors": identity_errors,
+        "candidate": candidate,
+        "identity": result.identity,
+        "processed": [
+            "resume",
+            *(["aadhaar"] if aadhaar else []),
+            *(["passport"] if passport else []),
+        ],
+        "ocr_provider": "VeriIS",
     }
 
 
