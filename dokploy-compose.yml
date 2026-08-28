@@ -1,0 +1,46 @@
+# Background services for Dokploy. The API, Redis and MongoDB are managed
+# separately in Dokploy, so this file adds only the worker and scheduler.
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - worker
+      - --loglevel=INFO
+      - --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+    env_file:
+      - .env
+    networks:
+      - dokploy-network
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/var/lib/resume-ingest/celerybeat-schedule
+    env_file:
+      - .env
+    volumes:
+      - celerybeat_data:/var/lib/resume-ingest
+    networks:
+      - dokploy-network
+
+volumes:
+  celerybeat_data:
+
+networks:
+  dokploy-network:
+    external: true

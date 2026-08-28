@@ -53,10 +53,21 @@ In the server's `.env`:
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/1
 REDIS_URL=redis://localhost:6379/0
+GMAIL_POLL_INTERVAL_SECONDS=30
+CELERY_WORKER_CONCURRENCY=4
 POLL_LOCK_TTL_SECONDS=1800
 POLL_DISPATCH_LOCK_TTL_SECONDS=120
 MESSAGE_LOCK_TTL_SECONDS=900
 ```
+
+`GMAIL_POLL_INTERVAL_SECONDS` is the delay between automatic mailbox searches.
+Thirty seconds keeps new resumes moving quickly without holding an IMAP
+connection open continuously. Set it to `0` when ingestion must be manual.
+
+`CELERY_WORKER_CONCURRENCY` controls how many messages are processed together
+by the Docker worker. Four is a safe initial value for a small server. Increase
+it gradually only after checking RAM and the mailbox provider's connection
+limit.
 
 `POLL_LOCK_TTL_SECONDS` is how long a *batch* cycle (`run_poll_cycle`, used by
 the manual sync in the UI) may hold the poll lock before it is presumed dead. It
@@ -76,6 +87,56 @@ skipped rather than enforced: ingestion continues, and the ledger plus the
 resume-hash unique index still keep duplicate records out.
 
 ## 4. Services
+
+Choose Docker Compose or systemd. Do not run both sets of workers, and run only
+one beat scheduler.
+
+### Dokploy
+
+When the API and Redis are already deployed in Dokploy, deploy
+`dokploy-compose.yml` as a second Docker Compose service. It adds only `worker`
+and `beat`; it does not create another API, Redis, or MongoDB container. Give
+the existing API application the same three Redis URLs so its worker-health
+probe and manual asynchronous sync use the same broker.
+
+In the Dokploy Compose environment, use the Redis database's **Internal
+Connection URL** for all task processes:
+
+```env
+REDIS_URL=redis://default:PASSWORD@INTERNAL_REDIS_HOST:6379/0
+CELERY_BROKER_URL=redis://default:PASSWORD@INTERNAL_REDIS_HOST:6379/0
+CELERY_RESULT_BACKEND=redis://default:PASSWORD@INTERNAL_REDIS_HOST:6379/1
+GMAIL_POLL_INTERVAL_SECONDS=30
+CELERY_WORKER_CONCURRENCY=4
+```
+
+Keep Redis's external port disabled. The Compose services join Dokploy's
+internal network and need no public Redis endpoint. Worker and beat expose no
+ports and need no domain.
+
+### Docker Compose
+
+The API, worker, beat scheduler and Redis are defined in the root Compose file:
+
+```bash
+docker compose --profile app up -d --build api worker beat
+docker compose logs -f worker beat
+```
+
+For a Redis service outside this Compose project, set its internal connection
+URLs before starting the stack:
+
+```env
+TASK_REDIS_URL=redis://default:PASSWORD@REDIS_HOST:6379/0
+TASK_REDIS_RESULT_URL=redis://default:PASSWORD@REDIS_HOST:6379/1
+```
+
+Use `rediss://` when the provider requires TLS. The API, worker and beat all
+receive these same URLs. Gmail credentials are mounted from `./secrets`, local
+resume files use a shared volume, and the beat schedule has its own persistent
+volume.
+
+### systemd
 
 ```bash
 sudo mkdir -p /var/lib/resume-ingest

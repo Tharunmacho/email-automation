@@ -4,6 +4,7 @@
 #
 # The Python app runs on your host (so the OAuth browser flow + Tesseract work
 # naturally). These containers just provide the datastores.
+# The frontend is opt-in: `docker compose --profile frontend up --build frontend`.
 #
 # This file is for local dev only — server deployment runs Redis and the Celery
 # services natively under systemd. See deploy/README.md.
@@ -26,6 +27,90 @@ services:
     # has no password. Nothing off this machine needs to reach it.
     ports:
       - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Full backend stack. Start with:
+  #   docker compose --profile app up -d --build api worker beat
+  # The three services share the same code, environment, persistent files and
+  # Redis broker; only their process command differs.
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./secrets:/app/secrets
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_worker
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - worker
+      - --loglevel=INFO
+      - --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    volumes:
+      - ./secrets:/app/secrets
+      - app_data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  beat:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume_beat
+    restart: unless-stopped
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/var/lib/resume-ingest/celerybeat-schedule
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${TASK_REDIS_RESULT_URL:-redis://redis:6379/1}
+    volumes:
+      - celerybeat_data:/var/lib/resume-ingest
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # Optional web UI to browse MongoDB at http://localhost:8081
   mongo-express:
@@ -40,5 +125,34 @@ services:
     depends_on:
       - mongo
 
+  frontend:
+    profiles: ["frontend"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # This address is used by the browser, not from inside the container.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE-https://mount-road-wa-bot-adira-emailautomation--5c743a-200-234-35-6.sslip.io}
+    container_name: adira_master_crm_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 volumes:
   mongo_data:
+  app_data:
+  celerybeat_data:
