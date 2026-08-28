@@ -119,7 +119,7 @@ def claim_message(message_id: str, ttl_seconds: int | None = None) -> Iterator[b
         client = get_redis()
         acquired = bool(client.set(key, token, nx=True, ex=ttl))
     except redis.RedisError as err:
-        log.warning("Could not claim message %s (%s); processing it anyway", message_id, err)
+        log.debug("Redis unavailable for message claim %s (%s); processing directly", message_id, err)
         yield True
         return
 
