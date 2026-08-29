@@ -235,9 +235,41 @@ class Settings(BaseSettings):
     # a dozen real words on the page", which for a document page means the read
     # failed rather than that the page was empty.
     ocr_page_quality_floor: float = 12.0
+    # Scanned booklets — passports above all — come off the scanner on their
+    # side, and a sideways page does not read badly. It reads as confident
+    # nonsense that clears every quality gate, which is exactly how a real
+    # passport data page went unseen. Pages are turned and re-read when
+    # Tesseract's own confidence in the upright read falls below the floor.
+    ocr_detect_rotation: bool = True
+    # A page that reads as language upright is left alone: the résumé in the
+    # bundle that prompted this yields 17 recognisable words the right way up
+    # and its certificates 9, so an ordinary page costs one small probe and no
+    # extra OCR. The passport pages yielded none upright — and 8 and 12 once
+    # turned, which is what makes the decision safe.
+    ocr_rotation_word_floor: int = 6
+    # Send the visa and immigration pages of a passport booklet along with the
+    # pages that identify it.
+    #
+    # OFF, on evidence. Those pages are found correctly — they lie between two
+    # confirmed passport pages and read as nothing — but the passport endpoint
+    # extracts passport *fields*, and the fields live on the data page and the
+    # back page. A visa sticker adds none of them. What it does add is payload:
+    # sending eighteen pages instead of three pushed one real job past the
+    # `identity_job_wait_seconds` budget, so it came back "pending" and the
+    # passport was not stored at all. Better data on three pages beats no data
+    # on eighteen.
+    #
+    # Turn it on if the extractor is ever taught to read visas, and raise
+    # `identity_job_wait_seconds` with it.
+    passport_include_booklet_interior: bool = False
+    passport_booklet_max_words: int = 4
     # Pages are independent, and `pytesseract` shells out, so this scales close
     # to linearly with cores. It is per document, not per batch.
-    ocr_local_workers: int = 4
+    #
+    # 0 means "size it from the host" — see `local_ocr.local_worker_count`. The
+    # old flat 4 left most of a modern machine idle: a 30-page bundle took 28
+    # seconds on an 8-core host. Set a positive number to pin it.
+    ocr_local_workers: int = 0
     # Try RapidOCR on pages Tesseract reads badly, when it is installed. A host
     # without it is a supported configuration; this only decides whether we look.
     ocr_secondary_engine_enabled: bool = True
@@ -301,6 +333,15 @@ class Settings(BaseSettings):
     # the job id, so anything unfinished is collected by the reconciler rather
     # than holding a Gmail message open.
     identity_job_wait_seconds: float = 45.0
+    # How long the inline poll keeps sweeping for identity jobs it had to leave
+    # running. Only used when there is no Celery worker — with one, beat's
+    # reconciler does this and this budget is never spent. Generous, because it
+    # runs on a background thread nobody is waiting on, and the alternative is a
+    # passport that was successfully extracted and never stored.
+    inline_reconcile_budget_seconds: float = 300.0
+    # Gap between sweeps, widening as it goes. The job is already running at
+    # the service; asking more often does not make it finish sooner.
+    inline_reconcile_interval_seconds: float = 5.0
     # Poll backoff. Base doubles per attempt, capped, and jittered across the
     # whole interval so a batch submitted together does not come back in
     # lockstep. A `Retry-After` from the service overrides both.

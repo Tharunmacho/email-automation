@@ -8,6 +8,8 @@ the resume endpoint. Nothing is uploaded to find out what it is.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from app.config import settings
 from app.extraction import local_ocr
 from app.logging_config import get_logger
@@ -44,7 +46,33 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
     return "\n".join(ocr_via_veris_pages(file_data, filename))
 
 
+@dataclass
+class VerisRead:
+    """One résumé pass, and everything it came back with.
+
+    `pages` is the per-page text; `result` is the untouched job payload the
+    service returned, which carries the *structured* résumé fields alongside
+    that text. Both used to be fetched separately — the text here and the
+    fields again from `resume_parser`, two jobs against the same endpoint over
+    the same pages, differing only in idempotency key. The second was pure
+    duplication: same upload, same extraction, billed twice and waited for
+    twice. Keeping the payload lets one call answer both.
+
+    `result` is None when the answer did not come from the job queue — a
+    synchronous call or a local fallback — and the caller then does what it
+    always did.
+    """
+
+    pages: "list[str]"
+    result: "dict | None" = None
+
+
 def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
+    """Page text only. Kept for callers with no use for the structured fields."""
+    return ocr_via_veris_read(file_data, filename).pages
+
+
+def ocr_via_veris_read(file_data: bytes, filename: str) -> "VerisRead":
     """Run OCR via the Veris OCR cloud API, one string per page.
 
     Page boundaries have to survive: the classifier needs them to tell the CV
@@ -64,23 +92,23 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
 
     suffix = Path(filename).suffix or ".pdf"
 
-    def _local() -> "list[str]":
+    def _local() -> "VerisRead":
         try:
             if suffix.lower() == ".pdf":
                 texts = ocr_pdf_page_texts(file_data)
-                return [texts[n] for n in sorted(texts)]
-            return [ocr_image_bytes(file_data)]
+                return VerisRead([texts[n] for n in sorted(texts)])
+            return VerisRead([ocr_image_bytes(file_data)])
         except Exception as fallback_err:  # noqa: BLE001
             log.warning("Local OCR skipped/failed: %s", fallback_err)
-            return []
+            return VerisRead([])
 
     if not settings.veris_ocr_api_key:
         return _local()
 
     if settings.ocr_async_jobs_enabled:
-        pages = _veris_pages_via_job(file_data, filename)
-        if pages is not None:
-            return pages
+        read = _veris_read_via_job(file_data, filename)
+        if read is not None:
+            return read
         log.info("Falling back to the synchronous Veris endpoint for %s", filename)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -106,7 +134,7 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
                     "Veris OCR successfully processed file; extracted %d chars over %d page(s)",
                     sum(len(p) for p in page_texts), len(page_texts),
                 )
-                return page_texts
+                return VerisRead(page_texts)
         except Exception as e:
             log.warning("Veris OCR API failed (%s). Falling back to local OCR if available.", e)
             return _local()
@@ -129,10 +157,10 @@ def _page_texts_from(pages) -> "list[str]":
     return out
 
 
-def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
+def _veris_read_via_job(file_data: bytes, filename: str) -> "VerisRead | None":
     """The résumé pass, through the job queue.
 
-    Returns None — not an empty list — when the queue could not be used at all,
+    Returns None — not an empty read — when the queue could not be used at all,
     because "no job" and "a job that found no text" have to route differently:
     the first falls back to the synchronous endpoint, the second is an answer.
     """
@@ -184,7 +212,9 @@ def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
                 "Veris job %s extracted %d chars over %d page(s) from %s",
                 handle.job_id, sum(len(p) for p in page_texts), len(page_texts), filename,
             )
-            return page_texts
+            # The payload goes back whole. The structured fields are already in
+            # it, and fetching them again is a second job for the same answer.
+            return VerisRead(page_texts, outcome.result or None)
 
         if outcome.pending:
             # Still running, and the job id is recorded. Reading the file

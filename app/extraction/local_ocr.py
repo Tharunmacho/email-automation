@@ -49,6 +49,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import io
+import os
 import re
 import shutil
 import threading
@@ -232,6 +233,170 @@ def _remember(key: str, text: str) -> None:
 
 # --------------------------------------------------------------------------- #
 #  Reading one image
+#: Words a document page actually contains, in any orientation-independent
+#: sense: ordinary English glue words plus the field labels that appear on the
+#: identity papers and certificates this pipeline meets. Small on purpose — it
+#: is not a dictionary, it is a test for "did this come out as language at all".
+_KNOWN_WORDS = frozenset("""
+the of and to in is for on with as by at from or an be this that are was were it
+name date birth place issue expiry expire nationality type code country passport
+republic india indian father mother spouse guardian legal holder signature
+address police station file number sex male female given surname authority
+government valid until observations emigration check required
+certificate education board school college university degree diploma marks
+experience company employee employer salary designation department position
+work skills project training course years year month present
+""".split())
+_WORD_TOKEN = re.compile(r"[A-Za-z]{3,}")
+
+
+def word_evidence(text: str) -> int:
+    """How many real words came out of this read.
+
+    The measure that decides which way up a page goes, and the only one tried
+    that is not fooled. Confidence is not enough: on the back page of a real
+    passport it preferred 180° by two points, and 180° was upside down. Turned
+    the right way that page yields twelve recognisable words and every other
+    orientation yields none — a margin wide enough to be a decision rather than
+    a coin flip.
+
+    `text_quality` cannot do this job either. It scores the *shape* of the
+    output, so a page of scanner speckle that segments into hundreds of little
+    tokens beats real text; it rates this bundle's résumé higher upside down
+    than the right way up.
+    """
+    tokens = [t.lower() for t in _WORD_TOKEN.findall(text or "")]
+    return sum(1 for t in tokens if t in _KNOWN_WORDS)
+
+
+#: Wide enough that Tesseract can still segment lines and score its own
+#: confidence, narrow enough that four probes cost a fraction of one real read.
+#: Measured, not guessed: at 1000 the probe picks the wrong way up and the
+#: passport data page is lost again. 1400 and above all decide correctly on
+#: the bundle this was built from, and they cost the same; 1600 keeps the
+#: margin without paying for it.
+_PROBE_WIDTH = 1600
+
+
+def _thumbnail(image):
+    """A small copy, for deciding which way up a page goes."""
+    if image.width <= _PROBE_WIDTH:
+        return image
+    from PIL import Image
+
+    scale = _PROBE_WIDTH / image.width
+    return image.resize((_PROBE_WIDTH, max(1, int(image.height * scale))), Image.LANCZOS)
+
+
+def _scored_read(image, psm: int) -> "Tuple[str, float]":
+    """One read, with Tesseract's own mean confidence in it.
+
+    Text and confidence come out of the same pass because they cost the same
+    pass. Measuring orientation with `image_to_data` and then re-reading the
+    winner with `image_to_string` runs the engine over every page twice, which
+    is most of a minute on a thirty-page bundle for an answer already in hand.
+
+    Not the same judgement as `text_quality`, and the difference is the point.
+    `text_quality` asks "does this output look like language", which noise can
+    fake — a page of scanner speckle segments into hundreds of plausible little
+    tokens and scores well. Confidence asks Tesseract how sure it was of each
+    character it committed to, and it is not fooled the same way.
+    """
+    pytesseract = _tesseract()
+    try:
+        data = pytesseract.image_to_data(
+            image, config=f"--oem 1 --psm {psm}", output_type=pytesseract.Output.DICT
+        )
+    except Exception:  # noqa: BLE001 — no confidence is not an orientation verdict
+        return "", 0.0
+
+    lines: List[str] = []
+    current: List[str] = []
+    key = None
+    scores: List[int] = []
+    for index, word in enumerate(data["text"]):
+        if not str(word).strip():
+            continue
+        here = (data["block_num"][index], data["par_num"][index], data["line_num"][index])
+        if key is not None and here != key:
+            lines.append(" ".join(current))
+            current = []
+        key = here
+        current.append(str(word))
+        confidence = int(data["conf"][index])
+        if confidence >= 0:
+            scores.append(confidence)
+    if current:
+        lines.append(" ".join(current))
+
+    return "\n".join(lines), (sum(scores) / len(scores) if scores else 0.0)
+
+
+def _upright(prepared, original, page_number: int):
+    """The page the right way up, and how far it had to be turned to get there.
+
+    A booklet does not lie flat, so its pages come off the scanner on their
+    side — and Tesseract reading a sideways page does not fail loudly. It
+    returns *confident nonsense*: the data page of a real Indian passport read
+    as "os | ne ee Ue rz sae =, 3 o o ry c =z 735", scored 24.9 on quality,
+    cleared the quality floor, and was then judged — reasonably, on the evidence
+    it had — to contain no passport at all. Turned a quarter turn the same page
+    reads "Type / Code / Nationality" and carries the full machine-readable zone.
+
+    Orientation is chosen on confidence and never on `text_quality`, because
+    quality picks the wrong way up: it scores this bundle's résumé higher upside
+    down than the right way up, and its certificates too. Confidence gets every
+    one of them right.
+
+    Confidence also decides whether to look at all. A page read cleanly upright
+    scores far above anything a rotation could reach — the résumé here comes in
+    at 88 and the certificates at 60 — so the common case pays one extra
+    measurement and no extra OCR, and only a page that already looks doubtful
+    is turned.
+    """
+    if not settings.ocr_detect_rotation:
+        return prepared, 0, ""
+
+    # Probed small, read big.
+    #
+    # Which way up a page goes is a coarse property — it is legible at a
+    # fraction of the resolution the words themselves need — so the four probes
+    # run on a thumbnail and only the winner is read at full size. Probing at
+    # full resolution means four real reads of every doubtful page, which took
+    # one thirty-page bundle from 28 seconds to 63 for the same answer.
+    probe = _thumbnail(prepared)
+    text, confidence = _scored_read(probe, settings.ocr_psm)
+    words = word_evidence(text)
+    if words >= settings.ocr_rotation_word_floor:
+        return prepared, 0, ""
+
+    # A turn has to *prove* itself, in words, or the page stays as it is.
+    #
+    # Confidence must not be allowed to break the tie. On a page of visa stamps
+    # where no orientation yields a single recognisable word, confidence still
+    # names a winner — by half a point, on noise — and turning that page threw
+    # away a legible "KINGDOM OF CAMBODIA" that the upright read had. A rotation
+    # that cannot show more words than upright is not evidence of anything.
+    best_image, best_angle, best_words = prepared, 0, words
+    for angle in (90, 270, 180):
+        try:
+            candidate = _prepare(original.rotate(angle, expand=True))
+        except Exception:  # noqa: BLE001 — a page that will not turn is not fatal
+            break
+        turned, _confidence = _scored_read(_thumbnail(candidate), settings.ocr_psm)
+        turned_words = word_evidence(turned)
+        if turned_words > best_words:
+            best_image, best_angle, best_words = candidate, angle, turned_words
+
+    if best_angle:
+        log.info(
+            "Page %d was scanned sideways; read at %d° instead — %d recognisable "
+            "word(s) there against %d upright",
+            page_number, best_angle, best_words, words,
+        )
+    return best_image, best_angle, ""
+
+
 # --------------------------------------------------------------------------- #
 def read_image(image, *, dpi: int, page_number: int = 1, escalated: bool = False) -> PageRead:
     """Read one already-rendered page, trying harder while the result is poor.
@@ -239,11 +404,15 @@ def read_image(image, *, dpi: int, page_number: int = 1, escalated: bool = False
     The passes are ordered by cost. Most pages are answered by the first one;
     the rest are the reason the others exist.
     """
-    prepared = _prepare(image)
+    prepared, turned_by, best_text = _upright(_prepare(image), image, page_number)
 
-    best_text = _tesseract_read(prepared, settings.ocr_psm)
+    # Already read, by the pass that chose which way up the page goes.
+    if not best_text:
+        best_text = _tesseract_read(prepared, settings.ocr_psm)
     best_quality = text_quality(best_text)
     best_engine = f"tesseract:psm{settings.ocr_psm}"
+    if turned_by:
+        best_engine += f"+rot{turned_by}"
 
     if best_quality < settings.ocr_page_quality_floor:
         # A different segmentation, not a different picture. Columnar résumés
@@ -357,13 +526,35 @@ def _read_pdf_page(data: bytes, page_number: int) -> PageRead:
     return read
 
 
-def ocr_pdf_page_texts(
+def local_worker_count() -> int:
+    """How many pages to read at once.
+
+    `OCR_LOCAL_WORKERS` was a flat 4, which left most of a modern host idle: a
+    30-page bundle spent 28 seconds in Tesseract on an 8-core machine that could
+    have done it in under half that. Zero (the new default) means "size it from
+    the host". `pytesseract` shells out, so the GIL is not the limit — the cores
+    are — and the cap keeps a big scan from starving the web workers sharing the
+    process.
+    """
+    configured = int(getattr(settings, "ocr_local_workers", 0) or 0)
+    if configured > 0:
+        return configured
+    return max(2, min(8, os.cpu_count() or 4))
+
+
+def ocr_pdf_page_reads(
     data: bytes,
     dpi: int | None = None,
     pages: "set[int] | None" = None,
     filename: str = "",
-) -> Dict[int, str]:
-    """``{page number: text}`` for every page asked for, read in parallel.
+) -> Dict[int, PageRead]:
+    """``{page number: PageRead}`` for every page asked for, read in parallel.
+
+    The full read is returned, not just the text, because *how badly* a page
+    read is the only signal there is that the text is not to be trusted. A
+    passport photographed under a desk lamp comes back as sixty characters of
+    noise, which scores as confidently-not-an-ID rather than as unreadable —
+    and the caller cannot tell those apart from the text alone.
 
     ``dpi`` is accepted for callers that predate the escalation logic and is
     otherwise ignored — the DPI a page needs is decided per page, from how well
@@ -388,8 +579,8 @@ def ocr_pdf_page_texts(
         )
         wanted = wanted[:ceiling]
 
-    workers = max(1, min(settings.ocr_local_workers, len(wanted)))
-    out: Dict[int, str] = {}
+    workers = max(1, min(local_worker_count(), len(wanted)))
+    out: Dict[int, PageRead] = {}
 
     def _one(number: int) -> Tuple[int, PageRead | None]:
         try:
@@ -403,14 +594,34 @@ def ocr_pdf_page_texts(
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for number, read in pool.map(_one, wanted):
             if read is not None:
-                out[number] = read.text
+                out[number] = read
 
-    read_chars = sum(len(t) for t in out.values())
+    read_chars = sum(len(r.text) for r in out.values())
     log.info(
         "Local OCR read %d/%d page(s) of '%s' across %d worker(s): %d chars",
         len(out), total, filename or "attachment", workers, read_chars,
     )
+    # Named explicitly, because "this page was read badly" is the whole basis on
+    # which it is later offered to the cloud reader. A page that fails here and
+    # is never mentioned again is how a passport goes missing.
+    weak = sorted(n for n, r in out.items() if r.quality < settings.ocr_page_quality_floor)
+    if weak:
+        log.info(
+            "Local OCR could not bring page(s) %s of '%s' up to the quality floor (%.1f)",
+            weak, filename or "attachment", settings.ocr_page_quality_floor,
+        )
     return out
+
+
+def ocr_pdf_page_texts(
+    data: bytes,
+    dpi: int | None = None,
+    pages: "set[int] | None" = None,
+    filename: str = "",
+) -> Dict[int, str]:
+    """``{page number: text}``, for callers with no use for the read quality."""
+    reads = ocr_pdf_page_reads(data, dpi=dpi, pages=pages, filename=filename)
+    return {number: read.text for number, read in reads.items()}
 
 
 def ocr_pdf_pages(data: bytes, dpi: int | None = None) -> str:
@@ -433,7 +644,7 @@ def engine_report() -> Dict[str, object]:
         "languages": settings.ocr_languages,
         "base_dpi": settings.ocr_dpi,
         "escalate_dpi": settings.ocr_escalate_dpi,
-        "workers": settings.ocr_local_workers,
+        "workers": local_worker_count(),
         "secondary_engine": "rapidocr" if _secondary() is not None else "none",
         "cached_pages": len(_CACHE),
     }

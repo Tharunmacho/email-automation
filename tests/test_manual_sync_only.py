@@ -81,31 +81,98 @@ def test_the_in_process_poller_is_gated_on_the_same_flag():
 # --------------------------------------------------------------------------- #
 #  What the Sync button gets back
 # --------------------------------------------------------------------------- #
-def test_a_sync_with_no_worker_returns_the_finished_batch(test_client, monkeypatch):
-    """With nothing to queue on, the API runs the cycle inside the request — so
-    the reply is the summary, not a ticket for a job that was never created.
+def test_a_sync_with_no_worker_does_not_hold_the_request_open(test_client, monkeypatch):
+    """With nothing to queue on, the cycle runs on a thread in this process and
+    the reply is a task id to follow — the same shape a worker would give.
 
-    Returning the bare summary instead looked to the client like a queued
-    response whose `task_id` happened to be missing, and it spent ten minutes
-    asking after `/ingest/tasks/undefined` while the work it was waiting for had
-    already finished.
+    It used to run the whole batch inside the request: IMAP, the attachment
+    download, OCR of every page, two Veris round trips and the LLM, with the
+    browser blocked on one request for all of it — close to three minutes on a
+    thirty-page bundle. The work still costs what it costs; it must not cost it
+    in front of the user.
+
+    The one shape that must never come back is a queued-looking reply with no
+    task id. That is what once had the client asking after
+    `/ingest/tasks/undefined` for ten minutes while the batch it was waiting for
+    had already finished.
     """
-    from app.api import routes
+    import threading
+    import time
 
     monkeypatch.setattr("app.tasks.health.workers_online", lambda: False)
+
+    started, release = threading.Event(), threading.Event()
+
+    class BlockingRunner:
+        def run_once(self, query=None):
+            started.set()
+            release.wait(10)
+            return "summary"
+
+    monkeypatch.setattr("app.ingestion.runner.IngestionRunner", BlockingRunner)
     monkeypatch.setattr(
-        routes, "trigger_poll",
-        lambda query=None, _user=None: {"fetched": 2, "processed": 1, "skipped": 1,
-                                        "suppressed": 0, "errors": 0,
-                                        "ingested_candidates": 1, "results": []},
+        "app.tasks.jobs.summary_to_dict",
+        lambda _summary: {"fetched": 2, "processed": 1, "skipped": 1, "suppressed": 0,
+                          "errors": 0, "ingested_candidates": 1, "results": []},
     )
 
-    body = test_client.post("/ingest/poll/async").json()
+    try:
+        body = test_client.post("/ingest/poll/async").json()
 
-    assert body["ready"] is True
-    assert body["state"] == "SUCCESS"
-    assert body["result"]["ingested_candidates"] == 1
-    assert not body["task_id"], "there is no task to ask after"
+        # The batch is still inside `run_once` — so the POST plainly did not
+        # wait for it, which is the whole point of the change.
+        assert started.wait(5), "the cycle never started"
+        assert body["task_id"], "the client needs something to ask after"
+        assert body["state"] == "PENDING"
+        assert "result" not in body, "nothing has finished yet"
+
+        pending = test_client.get(f"/ingest/tasks/{body['task_id']}").json()
+        assert pending["ready"] is False
+
+        release.set()
+        for _ in range(200):
+            status = test_client.get(f"/ingest/tasks/{body['task_id']}").json()
+            if status["ready"]:
+                break
+            time.sleep(0.05)
+
+        assert status["state"] == "SUCCESS"
+        assert status["result"]["ingested_candidates"] == 1
+    finally:
+        release.set()
+
+
+def test_a_second_sync_cannot_start_while_one_is_running(test_client, monkeypatch):
+    """Overlapping inline cycles would run the same messages twice.
+
+    Reported as a finished cycle that did nothing rather than as a failure: the
+    client answers a FAILURE by running the batch inline itself, which is the
+    one thing that must not happen while a batch is already in flight.
+    """
+    import threading
+
+    monkeypatch.setattr("app.tasks.health.workers_online", lambda: False)
+
+    started, release = threading.Event(), threading.Event()
+
+    class BlockingRunner:
+        def run_once(self, query=None):
+            started.set()
+            release.wait(10)
+            return "summary"
+
+    monkeypatch.setattr("app.ingestion.runner.IngestionRunner", BlockingRunner)
+    monkeypatch.setattr("app.tasks.jobs.summary_to_dict", lambda _s: {})
+
+    try:
+        test_client.post("/ingest/poll/async")
+        assert started.wait(5)
+
+        second = test_client.post("/ingest/poll/async").json()
+        assert second["state"] == "SUCCESS", "a decline must not read as a failure"
+        assert "already running" in second["result"]["skipped_reason"]
+    finally:
+        release.set()
 
 
 def test_a_sync_with_a_worker_hands_back_a_task_to_follow(test_client, monkeypatch):

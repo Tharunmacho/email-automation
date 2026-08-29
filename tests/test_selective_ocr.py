@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import settings
+from app.extraction import local_ocr
 from app.extraction import text_extractor as tx
 from tests.test_page_classifier import (
     CERTIFICATE_PAGE,
@@ -51,15 +52,31 @@ def scanned(monkeypatch):
         with fitz.open(stream=data, filetype="pdf") as doc:
             wanted = sorted(pages) if pages else list(range(1, doc.page_count + 1))
             read_locally.extend(wanted)
-            return {n: doc[n - 1].get_text() for n in wanted}
+            texts = {n: doc[n - 1].get_text() for n in wanted}
+        # The real reading quality, so pages that read cleanly are not offered
+        # to the escalation pass. A stub reporting a flattering constant would
+        # hide an escalation that should not have happened, and this fixture is
+        # what counts the uploads.
+        return {
+            n: local_ocr.PageRead(
+                page_number=n,
+                text=text,
+                dpi=settings.ocr_dpi,
+                engine="test",
+                quality=local_ocr.text_quality(text),
+            )
+            for n, text in texts.items()
+        }
 
-    def fake_upload(data: bytes, _filename: str) -> list[str]:
+    def fake_upload(data: bytes, _filename: str):
+        from app.extraction.ocr import VerisRead
+
         with fitz.open(stream=data, filetype="pdf") as doc:
             uploaded.append(doc.page_count)
-            return [page.get_text() for page in doc]
+            return VerisRead([page.get_text() for page in doc])
 
-    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_texts", fake_local)
-    monkeypatch.setattr(tx, "ocr_via_veris_pages", fake_upload)
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_reads", fake_local)
+    monkeypatch.setattr(tx, "ocr_via_veris_read", fake_upload)
     return read_locally, uploaded
 
 
@@ -129,8 +146,9 @@ def test_a_readable_pdf_is_never_sent_to_ocr_at_all(monkeypatch):
     def explode(*_a, **_k):
         raise AssertionError("a PDF with a good text layer must not be sent to OCR")
 
-    monkeypatch.setattr(tx, "ocr_via_veris_pages", explode)
+    monkeypatch.setattr(tx, "ocr_via_veris_read", explode)
     monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_texts", explode)
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_reads", explode)
 
     doc = tx.extract_text(make_pdf([RESUME_PAGE, RESUME_PAGE_TWO]), "cv.pdf")
     assert doc.is_resume is True

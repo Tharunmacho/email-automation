@@ -14,7 +14,9 @@ import binascii
 import hashlib
 import os
 import threading
+import time
 import uuid
+from collections import OrderedDict
 from typing import Any
 
 from fastapi import (
@@ -120,7 +122,7 @@ def _seed_admin() -> None:
     """Create the initial admin account once. Never resets an existing one."""
     try:
         ensure_seed_user(settings.admin_email, settings.admin_password)
-    except Exception:  # noqa: BLE001 — the API must still boot without it
+    except Exception:  # noqa: BLE001
         pass
 
     # Older releases recreated a "Staff Reviewer" demo account on every boot.
@@ -165,10 +167,20 @@ async def _startup() -> None:
     import logging
 
     logger = logging.getLogger("uvicorn.error")
-    try:
-        ensure_indexes()
-    except Exception as exc:
-        logger.warning("MongoDB index creation deferred: %s", exc)
+
+    # Run ensure_indexes() in a daemon thread so the port opens immediately.
+    # The database is remote, and this costs ~10 round-trips — one per index
+    # across several collections — which under --reload was enough to push
+    # startup past 30 s, holding ERR_CONNECTION_REFUSED open the whole time.
+    # A warning on failure is still emitted; startup itself never blocks.
+    def _run_indexes() -> None:
+        try:
+            ensure_indexes()
+        except Exception as exc:
+            logger.warning("MongoDB index creation deferred: %s", exc)
+
+    t = threading.Thread(target=_run_indexes, daemon=True, name="index-bootstrap")
+    t.start()
 
     # Ingestion runs on worker threads and, when a worker is up, in a separate
     # process. Neither has an event loop of its own, so the loop that owns the
@@ -664,8 +676,143 @@ def delete_candidate(
 # same messages. Both would miss the dedup check, one would ingest, and the
 # other — finishing later — reported the candidate as an existing duplicate. The
 # UI showed that second summary: "Ingested=0" for a poll that had just added a
-# profile. A plain lock is enough because this endpoint runs the batch in-process.
-_inline_poll_lock = threading.Lock()
+# profile.
+#
+# The guard is Redis-backed, because a `threading.Lock` only ever covered one
+# process: two API containers behind a load balancer both drained the same
+# mailbox and both paid for the same extraction. It falls back to an in-process
+# lock when Redis does not answer — see `locks.claim_inline_poll`.
+
+# Inline cycles, run on a thread and tracked here so the request that starts one
+# can hand back a task id instead of holding the socket open.
+#
+# Without a worker, "sync" ran the whole batch inside the POST: IMAP login, the
+# attachment download, local OCR of every page, two Veris round trips and the
+# LLM — nearly three minutes on one real bundle, with the browser blocked on a
+# single request for all of it. The work takes as long as it takes; what it must
+# not do is take that long *in front of the user*. The frontend already knows
+# how to wait on a task id, so this reuses that path exactly.
+#
+# Bounded, because a session that syncs all afternoon must not grow it forever.
+_inline_tasks: "OrderedDict[str, dict]" = OrderedDict()
+_inline_tasks_lock = threading.Lock()
+_INLINE_TASK_HISTORY = 32
+
+
+def _inline_task_set(task_id: str, payload: dict) -> None:
+    with _inline_tasks_lock:
+        _inline_tasks[task_id] = payload
+        _inline_tasks.move_to_end(task_id)
+        while len(_inline_tasks) > _INLINE_TASK_HISTORY:
+            _inline_tasks.popitem(last=False)
+
+
+def _inline_task_get(task_id: str) -> dict | None:
+    with _inline_tasks_lock:
+        found = _inline_tasks.get(task_id)
+        return dict(found) if found else None
+
+
+def _collect_pending_identity_jobs() -> None:
+    """Finish the extractions the batch could not wait out.
+
+    An identity job that outlives `identity_job_wait_seconds` is not lost: it is
+    left "pending" with its job id recorded, and the beat reconciler collects it
+    on the next sweep. That is the whole design — except that beat runs on a
+    Celery worker, and this code path exists precisely because there is no
+    worker. So nothing ever swept, and a passport whose extraction had succeeded
+    at the service was never written to the record.
+
+    A real bundle showed it exactly: an eighteen-page passport submitted at
+    12:45:19, given up on at 12:46:02 as "still running", and then never
+    collected by anything.
+
+    So the inline path runs the sweep itself, with a budget of its own and
+    widening gaps between passes — the job is already running, and asking more
+    often does not make it finish sooner.
+    """
+    from app.tasks.reconciler import reconcile_once
+
+    deadline = time.monotonic() + settings.inline_reconcile_budget_seconds
+    wait = max(0.0, settings.inline_reconcile_interval_seconds)
+    while True:
+        # Swept first, waited after. Nothing is pending on the great majority of
+        # cycles, and those must not be charged a delay to discover it.
+        try:
+            report = reconcile_once()
+        except Exception as exc:  # noqa: BLE001 — a failed sweep is not a failed batch
+            log.warning("Inline reconciler sweep failed: %s", exc)
+            return
+        if report.get("completed") or report.get("failed") or report.get("abandoned"):
+            log.info("Inline reconciler collected: %s", {
+                k: v for k, v in report.items() if k != "details" and v
+            })
+        if not report.get("still_running"):
+            return
+        if time.monotonic() + wait >= deadline:
+            break
+        time.sleep(wait)
+        wait = min(wait * 1.5, 30.0)
+
+    log.info(
+        "Identity job(s) still running after %.0fs; they keep their job id and "
+        "will be collected by the next sweep",
+        settings.inline_reconcile_budget_seconds,
+    )
+
+
+def _start_inline_poll(query: str | None) -> dict:
+    """Run one cycle on a background thread and return its task id at once."""
+    from app.ingestion.runner import IngestionRunner
+    from app.tasks.jobs import summary_to_dict
+
+    task_id = f"inline-{uuid.uuid4().hex}"
+
+    from app.tasks.locks import claim_inline_poll
+
+    claim = claim_inline_poll()
+    if claim is None:
+        # Already running, here or on another server. Reported as a finished
+        # cycle that did nothing rather than as a failure: the frontend retries
+        # a FAILURE by running the batch again inline, which is the one thing
+        # that must not happen while a batch is in flight over the same messages.
+        log.info("Inline poll declined: another cycle is already running")
+        _inline_task_set(task_id, {
+            "task_id": task_id, "state": "SUCCESS", "ready": True, "mode": "inline",
+            "result": {
+                "fetched": 0, "processed": 0, "skipped": 0, "suppressed": 0,
+                "errors": 0, "ingested_candidates": 0, "results": [],
+                "skipped_reason": "Another poll cycle is already running.",
+            },
+        })
+        return _inline_task_get(task_id) or {}
+
+    _inline_task_set(task_id, {
+        "task_id": task_id, "state": "PENDING", "ready": False, "mode": "inline",
+    })
+
+    def _run() -> None:
+        try:
+            summary = summary_to_dict(IngestionRunner().run_once(query=query))
+            # Before reporting the cycle done: with no worker there is no beat,
+            # so this is the only thing that will ever collect an identity job
+            # the batch had to leave running.
+            _collect_pending_identity_jobs()
+            _inline_task_set(task_id, {
+                "task_id": task_id, "state": "SUCCESS", "ready": True,
+                "mode": "inline", "result": summary,
+            })
+        except Exception as exc:  # noqa: BLE001 — reported, never raised into the thread
+            log.exception("Inline poll cycle failed")
+            _inline_task_set(task_id, {
+                "task_id": task_id, "state": "FAILURE", "ready": True,
+                "mode": "inline", "error": str(exc),
+            })
+        finally:
+            claim.release()
+
+    threading.Thread(target=_run, name=f"inline-poll-{task_id[-8:]}", daemon=True).start()
+    return {"task_id": task_id, "state": "PENDING", "mode": "inline"}
 
 
 @app.post("/ingest/poll")
@@ -679,7 +826,10 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(require_admin))
     from app.ingestion.runner import IngestionRunner
     from app.tasks.jobs import summary_to_dict
 
-    if not _inline_poll_lock.acquire(blocking=False):
+    from app.tasks.locks import claim_inline_poll
+
+    claim = claim_inline_poll()
+    if claim is None:
         log.info("Inline poll declined: another cycle is already running")
         return {
             "fetched": 0, "processed": 0, "skipped": 0, "suppressed": 0,
@@ -690,7 +840,7 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(require_admin))
     try:
         return summary_to_dict(IngestionRunner().run_once(query=query))
     finally:
-        _inline_poll_lock.release()
+        claim.release()
 
 
 def _local_ocr_report() -> dict:
@@ -1000,28 +1150,22 @@ def trigger_poll_async(query: str | None = None, _user: dict = Depends(require_a
     Two shapes come back, and the caller tells them apart by which fields are
     present:
 
-    * queued — ``{"task_id": ..., "state": "PENDING"}``; ask
-      ``GET /ingest/tasks/{task_id}`` until it is ready;
-    * already done — ``{"state": "SUCCESS", "ready": true, "result": {...}}``,
-      the batch summary itself, because with no worker the cycle ran inside
-      this request and there is nothing left to wait for.
+    Either way the answer is ``{"task_id": ..., "state": "PENDING"}`` and the
+    caller asks ``GET /ingest/tasks/{task_id}`` until it is ready. With a worker
+    the cycle runs there; without one it runs on a thread in this process, and
+    ``mode: "inline"`` says which — but the client does not have to care.
 
-    The second shape carries `result` deliberately. Returning the bare summary
-    here — which is what this did — looked like a queued response with no task
-    id, so the client polled ``/ingest/tasks/undefined`` every few seconds until
-    it timed out, while the cycle it was waiting for had already finished.
+    It used to run the whole batch inside this request when there was no worker
+    and return the finished summary. That is why pressing Sync appeared to hang:
+    the browser held one request open through IMAP, OCR, Veris and the LLM —
+    close to three minutes on a thirty-page bundle. The work still takes as long
+    as it takes; it no longer takes that long in front of the user.
     """
     from app.tasks.health import reset_cache, workers_online
 
     if not workers_online():
-        log.info("No ingestion worker is running; polling inline instead")
-        return {
-            "task_id": "",
-            "state": "SUCCESS",
-            "ready": True,
-            "mode": "inline",
-            "result": trigger_poll(query=query, _user=_user),
-        }
+        log.info("No ingestion worker is running; polling inline on a background thread")
+        return _start_inline_poll(query)
 
     from app.tasks.jobs import run_poll_cycle
 
@@ -1039,7 +1183,25 @@ def trigger_poll_async(query: str | None = None, _user: dict = Depends(require_a
 
 @app.get("/ingest/tasks/{task_id}")
 def ingest_task_status(task_id: str, _user: dict = Depends(require_admin)) -> dict:
-    """Poll a queued cycle. `result` is the batch summary once state is SUCCESS."""
+    """Poll a queued cycle. `result` is the batch summary once state is SUCCESS.
+
+    Inline cycles are answered from this process and never reach Celery — which
+    is the point: with no worker there is no result backend to ask, and that is
+    exactly when the inline path is in use.
+    """
+    inline = _inline_task_get(task_id)
+    if inline is not None:
+        return inline
+    if task_id.startswith("inline-"):
+        # The process that ran it has been restarted, or it aged out of the
+        # ring. Either way there is no answer coming, and saying so beats
+        # letting the client wait out its ten-minute deadline.
+        raise HTTPException(
+            status_code=404,
+            detail="That poll ran in a server process that has since restarted. "
+                   "Refresh to see what was ingested.",
+        )
+
     try:
         from app.tasks.celery_app import celery_app
 

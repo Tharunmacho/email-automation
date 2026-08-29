@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 
 from app.config import settings
+from app.extraction import local_ocr
 from app.extraction import page_classifier as pc
 from app.extraction import text_extractor as tx
 from tests.test_page_classifier import (
@@ -55,14 +56,29 @@ def scan(monkeypatch):
         with fitz.open(stream=data, filetype="pdf") as doc:
             wanted = sorted(pages) if pages else list(range(1, doc.page_count + 1))
             seen_pages.extend(wanted)
-            return {n: doc[n - 1].get_text() for n in wanted}
+            texts = {n: doc[n - 1].get_text() for n in wanted}
+        # The real reading quality, not a flattering constant: these pages read
+        # cleanly, so none of them should qualify for the escalation pass, and a
+        # stub that claimed otherwise would hide it if one did.
+        return {
+            n: local_ocr.PageRead(
+                page_number=n,
+                text=text,
+                dpi=settings.ocr_dpi,
+                engine="test",
+                quality=local_ocr.text_quality(text),
+            )
+            for n, text in texts.items()
+        }
 
-    def fake_upload(data: bytes, _filename: str) -> list[str]:
+    def fake_upload(data: bytes, _filename: str):
+        from app.extraction.ocr import VerisRead
+
         with fitz.open(stream=data, filetype="pdf") as doc:
-            return [page.get_text() for page in doc]
+            return VerisRead([page.get_text() for page in doc])
 
-    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_texts", fake_local)
-    monkeypatch.setattr(tx, "ocr_via_veris_pages", fake_upload)
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_reads", fake_local)
+    monkeypatch.setattr(tx, "ocr_via_veris_read", fake_upload)
     return seen_pages
 
 
