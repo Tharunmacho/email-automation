@@ -3338,12 +3338,57 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
     return {"status": "ok", "user": updated.to_public()}
 
 
-# Serve the static files from the Next.js export.
-# This must be mounted AFTER all other routes so it acts as a fallback.
+# Serve the static files from the Next.js export, when the build produced any.
+#
+# Two frontend layouts are supported and which one is in play is decided here,
+# by whether the directory exists:
+#
+#   output: "export"      -> frontend/out, served from this process, same-origin
+#   output: "standalone"  -> a Node server the frontend container runs itself,
+#                            and nothing for FastAPI to serve
+#
+# The mount must come after every other route, so it acts as a fallback rather
+# than shadowing the API.
 frontend_out_dir = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "out")
 )
+
 if os.path.exists(frontend_out_dir):
     app.mount("/", StaticFiles(directory=frontend_out_dir, html=True), name="frontend")
+else:
+    @app.get("/", include_in_schema=False)
+    def service_root() -> dict:
+        """What this process is, answered without touching anything that can be down.
+
+        `/` was a bare 404 whenever the UI was not built into the image — which,
+        under `output: "standalone"`, is always. A 404 says nothing about whether
+        the API is up, where the UI went, or why ingestion is running inline, so
+        each of those had to be dug out of container logs instead.
+
+        Deliberately dependency-free: no database call, no auth, no request body.
+        This is the endpoint that has to answer when the database is the thing
+        that is down — `/health` counts candidates and so fails with it.
+        """
+        from app.tasks.health import workers_online
+
+        try:
+            # Memoised for 10s (60s when the answer is "no"), so this stays
+            # cheap even if something polls it.
+            queued = workers_online()
+        except Exception:  # noqa: BLE001 — a broker that will not answer *is* the answer
+            queued = False
+
+        return {
+            "service": app.title,
+            "version": app.version,
+            "status": "ok",
+            "ui": "not served here — the frontend runs as its own service",
+            "ingestion": (
+                "queued on a Celery worker" if queued
+                else "inline, in this process — no Celery worker is reachable"
+            ),
+            "health": "/health",
+            "docs": "/docs",
+        }
 
 
