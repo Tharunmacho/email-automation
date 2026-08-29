@@ -6,12 +6,17 @@ singleton so the ``.env`` is parsed only once per process.
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+#: The value `.env.example` ships and a container can never reach.
+_LOCAL_REDIS = "redis://localhost:6379/0"
 
 
 class Settings(BaseSettings):
@@ -526,6 +531,49 @@ class Settings(BaseSettings):
     @property
     def storage_dir(self) -> Path:
         return Path(self.storage_local_dir)
+
+    @model_validator(mode="after")
+    def _redis_url_follows_the_broker(self) -> "Settings":
+        """One Redis, configured once.
+
+        `REDIS_URL` drives the distributed locks; `CELERY_BROKER_URL` drives the
+        queue. They address the same server in every deployment that has one —
+        but they are separate settings with the same localhost default, so a
+        deployment that pointed the broker at its real Redis and left `REDIS_URL`
+        alone got a worker that connected and a lock that did not:
+
+            Redis lock fallback: Error 111 connecting to localhost:6379
+
+        which degrades silently to a per-process lock that cannot see the other
+        containers. That is the failure this exists to prevent, and it is worth
+        preventing because nothing about it is visible until two servers both
+        drain the same mailbox.
+
+        So a `REDIS_URL` that was never set adopts the broker's host instead of a
+        default that is correct only on a developer's laptop. Setting it
+        explicitly still wins, for the deployment that really does keep the two
+        apart.
+        """
+        broker = (self.celery_broker_url or "").strip()
+        if not broker or broker == _LOCAL_REDIS or broker == self.redis_url:
+            return self
+
+        # Two ways `REDIS_URL` ends up wrong, and the second is the common one:
+        # it is not missing from the deployment's environment, it is *present
+        # and still carrying the value copied from `.env.example`*. Inside a
+        # container `localhost` is that container, so this exact string next to
+        # a broker on a real host is never what anyone meant.
+        untouched = "redis_url" not in self.model_fields_set
+        if untouched or self.redis_url == _LOCAL_REDIS:
+            object.__setattr__(self, "redis_url", broker)
+            if not untouched:
+                logging.getLogger(__name__).warning(
+                    "REDIS_URL was %s while the Celery broker points elsewhere; "
+                    "using the broker's Redis for locks too. Set REDIS_URL "
+                    "explicitly to something other than the default to keep them "
+                    "apart.", _LOCAL_REDIS,
+                )
+        return self
 
 
 def get_settings() -> Settings:
