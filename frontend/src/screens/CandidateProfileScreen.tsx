@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   Download,
+  Edit3,
   FolderGit2,
   IdCard,
   Link as LinkIcon,
@@ -211,6 +212,8 @@ interface CandidateProfileScreenProps {
   candidate: CandidateRecord;
   verifying?: boolean;
   onBack?: () => void;
+  /** Opens the separate edit screen; the profile itself remains read-only. */
+  onEdit?: () => void;
   onVerify?: (candidateId: string) => void;
   /** Supplied by the staff workspace; omitted everywhere else. */
   evaluation?: EvaluationSuite;
@@ -475,16 +478,15 @@ function IdentityCard({ document }: { document: IdentityDocument }) {
 /**
  * The executive profile, read-only by construction.
  *
- * There is no edit control anywhere on this screen and no editable state behind
- * it — changing a candidate is a different screen with a different job. That
- * separation is the point: this one can be read, scrolled and shown to someone
- * without any risk that a stray click alters the record. Verifying is the one
- * exception, and it changes a status rather than any of the parsed fields.
+ * There is no editable state behind this screen — changing a candidate opens a
+ * separate editor with a different job. That separation means this profile can
+ * be read and scrolled without a stray click altering the record.
  */
 export default function CandidateProfileScreen({
   candidate,
   verifying = false,
   onBack,
+  onEdit,
   onVerify,
   evaluation,
 }: CandidateProfileScreenProps) {
@@ -753,6 +755,12 @@ export default function CandidateProfileScreen({
         )}
 
         <div className="cscreen-topbar-actions">
+          {onEdit && (
+            <button type="button" className="cscreen-btn" onClick={onEdit}>
+              <Edit3 size={15} /> Edit details
+            </button>
+          )}
+
           {/* Only offered when a file exists. See `hasResume`. */}
           {hasResume && (
             <button

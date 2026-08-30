@@ -1108,6 +1108,7 @@ export default function Home() {
                 candidate={screenCandidate}
                 verifying={verifying}
                 onBack={closeScreen}
+                onEdit={() => handleEditCandidate(screenCandidate)}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
                 evaluation={
                   user?.role === "staff"

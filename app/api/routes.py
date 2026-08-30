@@ -1307,12 +1307,18 @@ def ingest_task_status(task_id: str, _user: dict = Depends(require_admin)) -> di
 
 
 @app.put("/candidates/{candidate_id}")
-def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user: dict = Depends(require_admin)) -> dict:
-    """Update a candidate's structured profile (e.g. to correct fields during verification)."""
+def update_candidate_profile(
+    candidate_id: str,
+    profile: CandidateProfile,
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Update a candidate profile within the caller's candidate scope.
+
+    Administrators may edit any candidate. Staff may edit only the candidates
+    assigned to them, using the same 404 isolation as profile viewing.
+    """
     repository = repo()
-    record = repository.get(candidate_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    _owned_or_404(candidate_id, user)
     repository.update_profile(candidate_id, profile)
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")

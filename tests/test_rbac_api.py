@@ -52,6 +52,11 @@ class ScopedRepo:
     def get(self, candidate_id):
         return self.records.get(candidate_id)
 
+    def update_profile(self, candidate_id, profile):
+        record = self.records.get(candidate_id)
+        if record:
+            record.profile = profile
+
     def count(self, query=None, staff_id=None):
         return len(self._scope(staff_id))
 
@@ -133,6 +138,32 @@ def test_staff_gets_404_not_403_for_someone_elses_candidate(api):
     response = api.get("/candidates/cand-theirs")
     assert response.status_code == 404
     assert api.get("/candidates/does-not-exist").status_code == 404
+
+
+def test_staff_can_edit_their_own_candidate_with_optional_details(api):
+    api.sign_in_as("staff", "staff-1")
+
+    response = api.put(
+        "/candidates/cand-mine",
+        json={"is_resume": False, "confidence": 0, "full_name": "Updated by owner"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["profile"]["full_name"] == "Updated by owner"
+    assert response.json()["profile"]["email"] is None
+    assert response.json()["profile"]["phone"] is None
+
+
+def test_staff_cannot_edit_someone_elses_candidate(api):
+    api.sign_in_as("staff", "staff-1")
+
+    response = api.put(
+        "/candidates/cand-theirs",
+        json={"is_resume": False, "confidence": 0, "full_name": "Not allowed"},
+    )
+
+    assert response.status_code == 404
+    assert api.repo.get("cand-theirs").profile.full_name == "Their Candidate"
 
 
 def test_staff_cannot_download_someone_elses_resume(api):
