@@ -1440,7 +1440,7 @@ def consolidate_legacy_database(
     confirm: str = Form(...),
     _user: dict = Depends(require_admin),
 ) -> dict:
-    """Move the legacy ``adira`` database into canonical ``resume_ats``.
+    """Move the legacy ``Adira`` database into canonical ``resume_ats``.
 
     The confirmation phrase is deliberately specific because a successful
     verified merge drops the legacy database. The operation is idempotent: if

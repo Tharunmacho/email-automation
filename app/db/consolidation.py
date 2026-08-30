@@ -1,4 +1,4 @@
-"""One-time consolidation of the legacy ``adira`` database into ``resume_ats``.
+"""One-time consolidation of the legacy ``Adira`` database into ``resume_ats``.
 
 The two databases live on the same MongoDB server.  Every collection is
 copied, including GridFS ``.files`` and ``.chunks`` collections.  Documents
@@ -13,7 +13,11 @@ from typing import Any
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
 
-LEGACY_DATABASE = "adira"
+# MongoDB database names are case-sensitive.  The legacy production database
+# is named exactly ``Adira`` (capital A), as shown by the server's database
+# browser.  Using lowercase here silently addressed a different, empty
+# database and made a no-op migration look successful.
+LEGACY_DATABASE = "Adira"
 CANONICAL_DATABASE = "resume_ats"
 _MISSING = object()
 
@@ -71,6 +75,20 @@ def consolidate_adira_into_resume_ats(client, *, drop_legacy: bool = False) -> d
     """Merge every legacy collection and optionally drop it after verification."""
     if LEGACY_DATABASE == CANONICAL_DATABASE:  # defensive guard around drop_database
         raise RuntimeError("Legacy and canonical MongoDB databases must be different")
+
+    # Do not let a capitalization typo (or a repeated request after completion)
+    # masquerade as a successful zero-document migration.
+    if LEGACY_DATABASE not in client.list_database_names():
+        return {
+            "source_database": LEGACY_DATABASE,
+            "target_database": CANONICAL_DATABASE,
+            "source_found": False,
+            "source_documents": 0,
+            "missing_documents": 0,
+            "verified": False,
+            "legacy_dropped": False,
+            "collections": {},
+        }
 
     source = client[LEGACY_DATABASE]
     target = client[CANONICAL_DATABASE]
@@ -136,6 +154,7 @@ def consolidate_adira_into_resume_ats(client, *, drop_legacy: bool = False) -> d
     return {
         "source_database": LEGACY_DATABASE,
         "target_database": CANONICAL_DATABASE,
+        "source_found": True,
         "source_documents": total_source,
         "missing_documents": total_missing,
         "verified": verified,

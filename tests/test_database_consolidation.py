@@ -13,7 +13,9 @@ def test_adira_environment_value_is_redirected_to_resume_ats():
 
 def test_every_collection_is_merged_verified_and_legacy_database_is_dropped():
     client = mongomock.MongoClient()
-    legacy = client["adira"]
+    # Match the exact case used by the production MongoDB database. MongoDB
+    # treats ``Adira`` and ``adira`` as different database names.
+    legacy = client["Adira"]
     canonical = client["resume_ats"]
 
     legacy["candidates"].insert_many([
@@ -41,12 +43,25 @@ def test_every_collection_is_merged_verified_and_legacy_database_is_dropped():
 
     result = consolidate_adira_into_resume_ats(client, drop_legacy=True)
 
+    assert result["source_found"] is True
     assert result["verified"] is True
     assert result["missing_documents"] == 0
     assert result["legacy_dropped"] is True
-    assert "adira" not in client.list_database_names()
+    assert "Adira" not in client.list_database_names()
     assert canonical["candidates"].find_one({"_id": "legacy-candidate"})
     assert canonical["candidates"].find_one({"_id": "shared-candidate"})["name"] == "Newer source value"
     assert canonical["users"].find_one({"_id": "canonical-admin"})["name"] == "Legacy Admin"
     assert canonical["resumes.files"].find_one({"_id": "resume-key"})
     assert canonical["resumes.chunks"].find_one({"files_id": "resume-key"})["data"] == b"data"
+
+
+def test_missing_exact_case_source_is_not_reported_as_a_success():
+    client = mongomock.MongoClient()
+    client["resume_ats"]["candidates"].insert_one({"_id": "existing"})
+
+    result = consolidate_adira_into_resume_ats(client, drop_legacy=True)
+
+    assert result["source_database"] == "Adira"
+    assert result["source_found"] is False
+    assert result["verified"] is False
+    assert result["legacy_dropped"] is False
