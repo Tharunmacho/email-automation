@@ -258,7 +258,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
       <div className="cupload-grid">
         <UploadSlot id="candidate-resume" title="Resume" copy="PDF, Word, text or a clear image. Maximum 20 MB." accept={RESUME_ACCEPT} files={resume} icon={<FileText size={22} />} disabled={saving} onChange={setResume} />
         <UploadSlot id="candidate-aadhaar" title="Aadhaar" copy="Add the front and back as two images, or upload one PDF containing both sides." accept={IDENTITY_ACCEPT} files={aadhaar} maxFiles={2} icon={<Fingerprint size={22} />} disabled={saving} onChange={setAadhaar} />
-        <UploadSlot id="candidate-passport" title="Passport" copy="Add up to two clear passport images, including the data page with a readable MRZ." accept={IDENTITY_ACCEPT} files={passport} maxFiles={2} icon={<ShieldCheck size={22} />} disabled={saving} onChange={setPassport} />
+        <UploadSlot id="candidate-passport" title="Passport" copy="Add the front and back as two images, including a readable data page, or upload one PDF containing both sides." accept={IDENTITY_ACCEPT} files={passport} maxFiles={2} icon={<ShieldCheck size={22} />} disabled={saving} onChange={setPassport} />
       </div>
 
       <section className="cupload-process" aria-label="Candidate creation process">
