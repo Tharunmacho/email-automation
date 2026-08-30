@@ -38,6 +38,11 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  RegistrationState,
+  AnsweredQuestion,
+  JobSection,
+  IdentityDocument,
+  IdentityDocuments,
 } from "@/types";
 
 export type {
@@ -65,6 +70,11 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  RegistrationState,
+  AnsweredQuestion,
+  JobSection,
+  IdentityDocument,
+  IdentityDocuments,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -211,6 +221,31 @@ export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResp
 /** The complete record for one candidate — every field, OCR payload included. */
 export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
+}
+
+/**
+ * The Aadhaar and passport read out of this candidate's application.
+ *
+ * Its own request rather than part of the candidate, because these live in
+ * their own collections on purpose: the reads that populate the candidate list
+ * project the candidate document wholesale, and an identity number stored there
+ * would reach a browser the first time somebody added a column. Numbers come
+ * back masked unless the caller is an administrator.
+ *
+ * Returns empty lists rather than throwing when there are none — most
+ * candidates have none, and an error state for the ordinary case would put a
+ * red box on almost every profile.
+ */
+export async function fetchIdentityDocuments(
+  candidateId: string,
+): Promise<IdentityDocuments> {
+  try {
+    return await request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
+      cache: "no-store",
+    });
+  } catch {
+    return { candidate_id: candidateId, aadhaar: [], passport: [] };
+  }
 }
 
 /** Runs the poll inline; the request is held open for the whole batch. */

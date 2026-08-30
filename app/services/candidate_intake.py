@@ -24,8 +24,17 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
+from typing import Any, Dict, List
+
 from app.assignment.balancer import assign_candidate
-from app.core.models import CandidateProfile, CandidateRecord, StoredResume, utcnow
+from app.core.models import (
+    CandidateProfile,
+    CandidateRecord,
+    JobSection,
+    RegistrationState,
+    StoredResume,
+    utcnow,
+)
 from app.db.dedup import normalize_phone
 from app.db.repository import CandidateRepository
 from app.logging_config import get_logger
@@ -62,6 +71,9 @@ def intake_whatsapp_candidate(
     idempotency_key: str,
     cv_required_claim: Optional[bool] = None,
     resume: Optional[StoredResume] = None,
+    registration: Optional[RegistrationState] = None,
+    job: Optional[JobSection] = None,
+    identity: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     repo: Optional[CandidateRepository] = None,
 ) -> IntakeResult:
     """Create or refresh one WhatsApp candidate.
@@ -84,13 +96,108 @@ def intake_whatsapp_candidate(
         raise IntakeError("idempotency_key is required", 400, "missing_idempotency_key")
     idempotency_key = idempotency_key.strip()
 
+    #: Whether the caller is telling us about a finished registration or one
+    #: still being answered. Absent means finished — every submission that
+    #: predates mid-conversation delivery was, by definition, a finished one.
+    complete = registration.complete if registration is not None else True
+
     # ---- 1. Has this exact submission already been accepted? --------------- #
     #
-    # Before anything else, and before any policy work: a retry must be cheap
-    # and must not re-run decisions that were already made and recorded.
+    # Before anything else, and before any policy work.
+    #
+    # This used to return here and do nothing else, which was right when a
+    # submission arrived once. It is wrong now: the bot delivers a registration
+    # while it is still being answered, under the same key each time, precisely
+    # so the record fills in as the candidate answers. Returning early would
+    # have made every delivery after the first a no-op — the CRM would hold
+    # whatever the candidate had said in their first ten seconds and nothing
+    # after it, and it would look like it was working.
+    #
+    # So a replay refreshes. What it refreshes is the same allow-list a
+    # returning candidate's does — profile facts and the conversation's own
+    # sections, never anything the agency decided — so a recruiter's assessment
+    # is no more disturbed by the eleventh delivery than by the second
+    # registration.
     existing = repo.find_by_idempotency_key(idempotency_key)
     if existing:
-        log.info("Idempotent replay of %s -> candidate %s", idempotency_key, existing.id)
+        # Read before anything is written. `refresh_whatsapp_sections` replaces
+        # the stored registration with the incoming one, so asking afterwards
+        # whether this candidate *was* finished returns whether they are
+        # finished now — which is always yes on the delivery that finishes them,
+        # and would mean nobody was ever allocated.
+        was_complete = (
+            existing.registration.complete if existing.registration is not None else True
+        )
+
+        # The CV policy, applied to the delivery that says the registration is
+        # over.
+        #
+        # This is the moment the rule bites for every candidate the bot now
+        # syncs as it goes, and it is the whole reason it is checked here as
+        # well as on creation: a candidate created halfway through their
+        # conversation was created without the CV check, and if completion did
+        # not re-run it the policy would have been bypassed for everybody — the
+        # first delivery too early to apply it and every later one waved through
+        # as a replay.
+        policy = get_policy()
+        cv_required = policy.is_cv_required(
+            profile.destination_country, profile.job_category
+        )
+        holds_cv = resume is not None or existing.resume is not None
+        refusing = complete and cv_required and not holds_cv
+
+        # Everything the candidate said is kept either way. It is good data, it
+        # was already accepted at partial level, and throwing it away because
+        # the last delivery was missing a file would lose answers nobody
+        # disputes. What the refusal changes is the *claim* that the
+        # registration is finished: it is not, as far as this system is
+        # concerned, until the CV the policy asks for is here.
+        repo.refresh_whatsapp_profile(existing.id, profile)
+        repo.refresh_whatsapp_sections(
+            existing.id,
+            registration=(
+                registration.model_copy(update={"complete": False})
+                if refusing and registration is not None
+                else registration
+            ),
+            job=job,
+        )
+        _store_identity_documents(existing.id, identity)
+
+        # A CV from somebody who had none is new information and is kept. One
+        # who already has a résumé keeps the one on file: a recruiter may have
+        # read it and formed a view, and quietly swapping the document
+        # underneath that view is not a refresh, it is a substitution.
+        if resume is not None and existing.resume is None:
+            repo.attach_resume(existing.id, resume)
+
+        if refusing:
+            raise IntakeError(
+                "the CV policy requires a resume for this destination and job category",
+                422,
+                "CV_REQUIRED",
+            )
+
+        # Allocated on the delivery that *finishes* the registration, and on no
+        # other.
+        #
+        # The transition is what is tested, not the end state. A record created
+        # complete was allocated when it was created; a record created while the
+        # candidate was still answering was deliberately not, because allocation
+        # starts an SLA clock and puts a name in a recruiter's queue — so the
+        # delivery that completes it is the one that places it. Every delivery
+        # after that finds a registration that was already complete and does
+        # nothing, which is what stops a re-registration moving somebody to a
+        # different desk.
+        if complete and not was_complete:
+            _allocate(existing.id, profile, repo)
+
+        log.info(
+            "Replay of %s refreshed candidate %s (complete=%s)",
+            idempotency_key,
+            existing.id,
+            complete,
+        )
         return IntakeResult(
             candidate_id=existing.id,
             created=False,
@@ -133,6 +240,8 @@ def intake_whatsapp_candidate(
         # See `refresh_whatsapp_profile` — the allow-list there is what stops a
         # re-registration reopening a closed assessment.
         repo.refresh_whatsapp_profile(duplicate.id, profile)
+        repo.refresh_whatsapp_sections(duplicate.id, registration=registration, job=job)
+        _store_identity_documents(duplicate.id, identity)
 
         # A CV sent by someone we already know, who had none, is new information
         # and is kept. One who already has a résumé keeps the one on file: a
@@ -170,7 +279,15 @@ def intake_whatsapp_candidate(
     # The model validator still runs a few lines below and still enforces the
     # same rule. It is the backstop for every other way a record can be built —
     # this is the one that produces a usable answer.
-    if cv_required and resume is None:
+    #
+    # Not applied to a registration still in progress. The candidate has not yet
+    # reached the question that would have produced a CV, so refusing them is
+    # refusing somebody for not having answered a question nobody has asked —
+    # and the effect would be that a half-finished registration only ever
+    # appears here once it is finished, which is exactly the candidate a
+    # recruiter never needed help remembering. The rule bites in full on the
+    # delivery that says the registration is complete.
+    if complete and cv_required and resume is None:
         raise IntakeError(
             "the CV policy requires a resume for this destination and job category",
             422,
@@ -204,6 +321,8 @@ def intake_whatsapp_candidate(
         status="ingested",
         ingested_at=now,
         processed_at=now,
+        registration=registration,
+        job=job,
     )
 
     # ---- 6. Insert ---------------------------------------------------------- #
@@ -220,11 +339,17 @@ def intake_whatsapp_candidate(
     # undo an intake that has already succeeded — `assign_candidate` returns a
     # `no_staff` result rather than raising, and anything unexpected is logged
     # and swallowed for the same reason.
-    if created:
-        try:
-            assign_candidate(candidate_id, profile, repo=repo)
-        except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
-            log.error("Allocation failed for candidate %s: %s", candidate_id, exc)
+    #
+    # Only once the registration is finished. Allocation starts an SLA clock and
+    # puts a name in a recruiter's queue, and doing that to somebody three
+    # questions into a conversation would have the clock running against a
+    # profile there is nothing yet to assess. The delivery that completes the
+    # registration allocates them — see the replay branch above, which is the
+    # path a candidate created mid-conversation actually takes.
+    if created and complete:
+        _allocate(candidate_id, profile, repo)
+
+    _store_identity_documents(candidate_id, identity)
 
     return IntakeResult(
         candidate_id=candidate_id,
@@ -233,6 +358,86 @@ def intake_whatsapp_candidate(
         cv_policy_version=policy.version,
         policy_overrode_claim=overrode,
     )
+
+
+def _allocate(candidate_id: str, profile: CandidateProfile, repo: CandidateRepository) -> None:
+    """Places a candidate through the existing balancer.
+
+    Failing to place someone must not undo an intake that has already
+    succeeded — `assign_candidate` returns a `no_staff` result rather than
+    raising, and anything unexpected is logged and swallowed for the same
+    reason.
+    """
+    try:
+        assign_candidate(candidate_id, profile, repo=repo)
+    except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
+        log.error("Allocation failed for candidate %s: %s", candidate_id, exc)
+
+
+def _store_identity_documents(
+    candidate_id: str,
+    identity: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> None:
+    """Files an Aadhaar or a passport the bot read, where the email pipeline files them.
+
+    Not on the candidate record, and that is the whole point. These are
+    government identity numbers, and the reads that populate a recruiter's list
+    project the candidate document wholesale — so a number stored there is a
+    number that reaches a browser the first time somebody adds a field to a
+    listing. Their own collections keep them out of that path, and
+    `GET /candidates/{id}/identity` is the one endpoint that serves them, masked
+    for everybody but an administrator.
+
+    The bot sends each extractor's answer verbatim, which is the same shape the
+    email pipeline hands these functions — so the projection that has been in
+    front of recruiters for months is the projection that runs, rather than a
+    second one written here that would drift from it.
+
+    `record_id` is the bot's upload id, used as the natural key exactly as the
+    email side uses the message and attachment it came off. A registration is
+    delivered many times as it fills in and the same document arrives with each
+    of them; keyed this way, it overwrites its own row instead of accumulating a
+    copy per delivery.
+
+    Best-effort on purpose. A candidate who reached the CRM without their
+    Aadhaar filed is a far better outcome than one who did not reach it at all,
+    and the next delivery carries the same documents again.
+    """
+    if not identity:
+        return
+
+    from app.db.identity_records import store_aadhaar_record, store_passport_record
+
+    handlers = {"aadhaar": store_aadhaar_record, "passport": store_passport_record}
+
+    for kind, store in handlers.items():
+        for document in identity.get(kind) or []:
+            record_id = (document.get("record_id") or "").strip()
+            result = document.get("result")
+            if not record_id or not isinstance(result, dict):
+                continue
+
+            try:
+                store(
+                    f"whatsapp:{record_id}",
+                    result,
+                    candidate_id=candidate_id,
+                    provider="whatsapp",
+                    # No mailbox and no message. The bot's slot is the nearest
+                    # equivalent — which of its questions the file answered —
+                    # and it is what tells a reader that this Aadhaar is the
+                    # back of the card rather than a second card.
+                    account_id="",
+                    message_id=document.get("slot") or kind,
+                    attachment_id=record_id,
+                    filename=document.get("filename") or "",
+                    sha256=document.get("sha256") or "",
+                    ocr_job_id=None,
+                )
+            except Exception as exc:  # noqa: BLE001 — never fail an intake over this
+                log.error(
+                    "Could not file the %s read for candidate %s: %s", kind, candidate_id, exc
+                )
 
 
 def _find_existing_person(

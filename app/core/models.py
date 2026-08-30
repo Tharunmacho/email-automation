@@ -238,6 +238,140 @@ class CandidateProfile(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+#  What the WhatsApp conversation establishes
+#
+#  Three things the mailbox pipeline has no equivalent of, because a résumé
+#  arriving by email is a document and a registration arriving by WhatsApp is a
+#  conversation.
+#
+#   RegistrationState  how far through that conversation the candidate got. It
+#                      exists because a registration now reaches this system
+#                      while it is still happening, and a recruiter opening a
+#                      half-filled record has to be able to tell that from a
+#                      finished one — otherwise "no passport on file" reads as
+#                      "this candidate has no passport" when it means "we have
+#                      not asked yet".
+#   AnsweredQuestion   a question and its answer, together. Some of the bot's
+#                      questions are written per candidate for a trade no
+#                      standard pack covers, so their text exists nowhere but on
+#                      that one record: an answer arriving without its question
+#                      would be a value with no meaning.
+#   JobSection         what the agency actually decides on — what the candidate
+#                      can do, where they will go and whether that is
+#                      negotiable, what they are applying for, and when they can
+#                      start.
+# --------------------------------------------------------------------------- #
+class RegistrationState(BaseModel):
+    """Where the bot's conversation with this candidate has got to."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: False while the candidate is still answering. The field every reader
+    #: should consult before treating a blank as an answer.
+    complete: bool = False
+    #: The bot's own conversation stage, for the audit trail rather than for a
+    #: decision — the vocabulary is the bot's and it is free to change.
+    stage: Optional[str] = None
+    #: The bot's candidate status.
+    status: Optional[str] = None
+    #: The Application ID the candidate was read out and can quote back.
+    application_id: Optional[str] = None
+    language: Optional[str] = None
+    consent_at: Optional[str] = None
+    started_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    #: Which documents the bot is still waiting for, so a panel can say what is
+    #: missing rather than leaving a recruiter to infer it from what is absent.
+    outstanding_documents: List[str] = Field(default_factory=list)
+
+
+class AnsweredQuestion(BaseModel):
+    """One question the bot asked, and the answer it got."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    question: str
+    answer: str
+    #: The candidate's own wording, where they typed rather than tapped. Kept
+    #: beside the standardised answer, never instead of it.
+    raw: Optional[str] = None
+
+
+class JobCourseOrTrade(BaseModel):
+    """What the candidate trained in and what they can actually do."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    education: Optional[str] = None
+    #: The course or trade itself — "ITI Welder", "Diploma in Mechanical".
+    course: Optional[str] = None
+    primary_trade: Optional[str] = None
+    primary_trade_title: Optional[str] = None
+    trade_packs: List[str] = Field(default_factory=list)
+    #: Every trade question put to them, standard or written for them, with its
+    #: answer.
+    questions: List[AnsweredQuestion] = Field(default_factory=list)
+
+
+class JobCountry(BaseModel):
+    """Where they want to go, and how strictly they mean it."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: The option they chose. May be a region ("gcc") rather than a country.
+    preference: Optional[str] = None
+    #: One actual country, where the answer named one. Never a region, because
+    #: the CV policy keys on it and a policy that cannot tell Singapore from
+    #: Malaysia cannot express a rule about either.
+    destination_country: Optional[str] = None
+    selected: List[str] = Field(default_factory=list)
+    selected_names: List[str] = Field(default_factory=list)
+    strictness: Optional[str] = None
+    #: Hoisted out of `strictness` rather than left to be parsed, because it is
+    #: the one thing on this panel that constrains what may be done with the
+    #: candidate: a strict candidate must never be shortlisted outside their
+    #: list without being asked first. A rule that important should not depend
+    #: on matching a string.
+    strict: bool = False
+
+
+class JobAvailability(BaseModel):
+    """When they can start."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    band: Optional[str] = None
+    date: Optional[str] = None
+    note: Optional[str] = None
+
+
+class JobSection(BaseModel):
+    """Everything the conversation established about the work.
+
+    Its own object rather than more fields on `CandidateProfile`, because a
+    profile is what is true about a person and this is what is true about their
+    application. The same person can apply twice for different jobs; they do not
+    become two people.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: The job they want, in their own words.
+    job: Optional[str] = None
+    #: The same thing as a controlled value, which the CV policy keys on.
+    job_category: Optional[str] = None
+    job_category_title: Optional[str] = None
+
+    course_or_trade: Optional[JobCourseOrTrade] = None
+    country: Optional[JobCountry] = None
+    #: The job-preference questions, in the order they were asked.
+    questions: List[AnsweredQuestion] = Field(default_factory=list)
+    availability: Optional[JobAvailability] = None
+
+
+# --------------------------------------------------------------------------- #
 #  Persistence
 # --------------------------------------------------------------------------- #
 class StoredResume(BaseModel):
@@ -322,6 +456,14 @@ class CandidateRecord(BaseModel):
     duplicate_of: Optional[str] = None
     auto_reply_sent: bool = False
     raw_ocr: Optional[Dict[str, Any]] = None
+
+    # ---- the WhatsApp conversation ---------------------------------------- #
+    # Absent on every email candidate and on every WhatsApp candidate written
+    # before registrations were delivered mid-conversation. A reader that finds
+    # neither is looking at a record that was only ever written when it was
+    # finished, which is what a missing `registration` means.
+    registration: Optional[RegistrationState] = None
+    job: Optional[JobSection] = None
 
     # ---- CV requirement --------------------------------------------------- #
     # What the policy said when this candidate registered, and which version of
@@ -413,6 +555,19 @@ class CandidateRecord(BaseModel):
 
         # WhatsApp. No source_email is expected, and inventing one would be a
         # lie on the record about where this person came from.
+        #
+        # The CV rule applies to a *finished* registration and not before. A
+        # candidate who has answered four questions has not yet reached the one
+        # that would have produced a CV, and refusing to file them for not
+        # having sent it is not a policy, it is a race — they would exist in the
+        # CRM only after they had already finished, which is precisely the
+        # candidate nobody needed reminding about. The rule is unchanged for
+        # everybody it was written for: the moment `registration.complete` is
+        # true, or there is no registration state at all (every record written
+        # before this existed), the requirement bites exactly as it did.
+        if self.registration is not None and not self.registration.complete:
+            return self
+
         if self.cv_required and self.resume is None:
             raise ValueError(
                 "the CV policy requires a resume for this destination and job category"

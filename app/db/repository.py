@@ -297,6 +297,31 @@ class CandidateRepository:
         "total_experience_years",
         "passport_number",
         "passport_expiry",
+        # ---- read off the CV -------------------------------------------- #
+        # A résumé sent over WhatsApp is parsed into the same shape a résumé
+        # sent by email is, and until these were listed here that parse was
+        # arriving and being dropped: the candidate's employers, their
+        # education and their certificates were all in the submission and none
+        # of them were written. A recruiter opening a WhatsApp candidate saw
+        # six fields where an emailed one showed a career.
+        #
+        # `education` is not repeated here: it is already listed above, where it
+        # has always been, and the field is the same one.
+        "work_experience",
+        "certifications",
+        "licenses",
+        "projects",
+        "achievements",
+        "technical_skills",
+        "phone_numbers",
+        "current_company",
+        "current_designation",
+        "resume_summary",
+        "linkedin_url",
+        "github_url",
+        "portfolio_url",
+        "additional_info",
+        "raw_ocr",
     )
 
     def refresh_whatsapp_profile(self, candidate_id: str, profile: CandidateProfile) -> None:
@@ -343,6 +368,46 @@ class CandidateRepository:
         updates["updated_at"] = utcnow()
         self._coll.update_one({"_id": candidate_id}, {"$set": updates})
         log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
+
+    def refresh_whatsapp_sections(
+        self,
+        candidate_id: str,
+        *,
+        registration=None,
+        job=None,
+    ) -> None:
+        """Update the two sections the conversation owns, and nothing else.
+
+        The same rule `refresh_whatsapp_profile` follows, for the same reason:
+        what the candidate says about themselves may be restated as often as
+        they like, and what the agency decided about them may not be touched
+        from here at all. These two objects are entirely the bot's — a
+        registration's progress and the answers it collected about the job — so
+        they are replaced wholesale rather than merged field by field. Merging
+        would make an answer the candidate changed impossible to unset: someone
+        who corrects "strict" to "any country" would keep the strict flag
+        forever.
+
+        Absent means "not sent", never "cleared". A caller that has nothing to
+        say about a section leaves it exactly as it was, which is what lets an
+        older bot — or a delivery built before these sections existed — go on
+        working against this endpoint without erasing what a newer one wrote.
+        """
+        from app.core.models import utcnow
+
+        updates: dict = {}
+        if registration is not None:
+            updates["registration"] = registration.model_dump(mode="python")
+        if job is not None:
+            updates["job"] = job.model_dump(mode="python")
+
+        if not updates:
+            return
+
+        updates["updated_at"] = utcnow()
+        self._coll.update_one({"_id": candidate_id}, {"$set": updates})
+        log.info("Refreshed WhatsApp sections on candidate %s: %s",
+                 candidate_id, ", ".join(k for k in updates if k != "updated_at"))
 
     def attach_resume(self, candidate_id: str, resume: "StoredResume") -> bool:
         """Hang a stored résumé on a candidate that already exists.

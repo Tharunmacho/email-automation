@@ -32,7 +32,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import settings
-from app.core.models import EVALUATION_STATUSES, CandidateProfile
+from app.core.models import (
+    EVALUATION_STATUSES,
+    CandidateProfile,
+    JobSection,
+    RegistrationState,
+)
 from app.core.security import create_token, read_token, verify_service_key
 from app.assignment.balancer import (
     allocate_unassigned,
@@ -1265,16 +1270,137 @@ class WhatsAppProfileIn(BaseModel):
     passport_expiry: str | None = None
 
 
+class WhatsAppCvIn(BaseModel):
+    """A CV as the bot's extractor read it.
+
+    The same field names this system's own résumé parser produces, because they
+    end up in the same place: a WhatsApp candidate's CV is written into
+    `CandidateProfile` exactly as an emailed one is, so a recruiter opening
+    either is reading one screen rather than two that happen to be about the
+    same thing.
+
+    Nothing here is required. A CV that arrived and could not be read still
+    sends its filename and its digest, and a panel that says "CV received, not
+    yet readable" is worth more than no panel at all.
+
+    `extra="ignore"` for the same reason it is on the profile: an allow-list at
+    the door, so a field added on the bot's side appears here deliberately or
+    not at all.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    filename: str | None = None
+    mime_type: str | None = None
+    sha256: str | None = None
+    uploaded_at: str | None = None
+    extracted_at: str | None = None
+    #: The résumé extractor reports no confidence at all, so this is usually
+    #: absent — left absent rather than defaulted, because an unscored
+    #: extraction must never read as a verified one.
+    confidence: float | None = None
+    needs_review: bool | None = None
+
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    phone_numbers: list[str] = Field(default_factory=list)
+    location: str | None = None
+    current_company: str | None = None
+    current_designation: str | None = None
+    industry: str | None = None
+    resume_summary: str | None = None
+
+    skills: list[str] = Field(default_factory=list)
+    technical_skills: list[str] = Field(default_factory=list)
+    trade_skills: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    achievements: list[str] = Field(default_factory=list)
+
+    #: Left as dicts and validated by `CandidateProfile` itself, which already
+    #: owns the shapes. Re-declaring `WorkExperience` here would be a second
+    #: definition of one thing, and the two would drift.
+    work_experience: list[dict] = Field(default_factory=list)
+    education: list[dict] = Field(default_factory=list)
+    licenses: list[dict] = Field(default_factory=list)
+    projects: list[dict] = Field(default_factory=list)
+
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    portfolio_url: str | None = None
+
+    total_experience_years: float | None = None
+    total_experience_band: str | None = None
+
+    #: Anything read off the CV that has no field of its own — a date of birth,
+    #: a father's name, the human-readable experience totals.
+    additional_info: dict | None = None
+    #: The extractor's answer, verbatim, so a mapping mistake on either side is
+    #: recoverable without asking the candidate for their CV again.
+    raw_ocr: dict | None = None
+
+
+class WhatsAppIdentityDocumentIn(BaseModel):
+    """One Aadhaar or passport, as its own extractor read it.
+
+    `result` is the extractor's payload untouched, because `store_aadhaar_record`
+    and `store_passport_record` already project these — the mailbox pipeline
+    feeds them the same shape. Re-declaring the fields here would be a second
+    implementation of one projection, and the one those functions do is the one
+    that has been in front of recruiters.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    #: The bot's upload id, used as this record's natural key. A registration is
+    #: delivered many times as it fills in and the same document comes with each
+    #: delivery; keyed this way it overwrites its own row rather than leaving a
+    #: copy per delivery.
+    record_id: str = Field(min_length=1)
+    #: Which of the bot's questions the file answered — `aadhaar`,
+    #: `aadhaar_back`, `passport`. What tells a reader that this is the back of
+    #: a card rather than a second card.
+    slot: str | None = None
+    filename: str | None = None
+    mime_type: str | None = None
+    sha256: str | None = None
+    uploaded_at: str | None = None
+    extracted_at: str | None = None
+    result: dict
+
+
+class WhatsAppIdentityIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    aadhaar: list[WhatsAppIdentityDocumentIn] = Field(default_factory=list)
+    passport: list[WhatsAppIdentityDocumentIn] = Field(default_factory=list)
+
+
 class WhatsAppCandidateIn(BaseModel):
     source: str = "whatsapp"
     profile: WhatsAppProfileIn
     #: Stable per candidate: `whatsapp/{phone_number_id}/{wa_user_id}`. The
-    #: unique index on it is what makes a retry idempotent.
+    #: unique index on it is what makes a retry idempotent — and, now that a
+    #: registration is delivered while it is still being answered, what makes
+    #: the tenth delivery fill the same record in rather than create a tenth.
     idempotency_key: str = Field(min_length=1)
     #: What the bot believes about the CV requirement. Recorded and compared,
     #: never trusted — the CRM derives its own answer from the policy table.
     cv_required_claim: bool | None = None
     resume: WhatsAppResumeIn | None = None
+
+    #: How far through the conversation the candidate is. Absent means finished:
+    #: every submission that predates mid-conversation delivery was one.
+    registration: RegistrationState | None = None
+    #: The CV as the extractor read it. Merged into the profile, so a WhatsApp
+    #: candidate's résumé shows the way an emailed one does.
+    cv: WhatsAppCvIn | None = None
+    #: The Aadhaar and the passport, filed in their own collections and never on
+    #: the candidate document — see `_store_identity_documents`.
+    identity: WhatsAppIdentityIn | None = None
+    #: What the conversation established about the work.
+    job: JobSection | None = None
 
 
 def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
@@ -1364,12 +1490,39 @@ def create_whatsapp_candidate(
             },
         )
 
+    # The profile the candidate answered, and then the CV they sent, in that
+    # order.
+    #
+    # The order is the point. Both describe the same person and they disagree
+    # constantly — a CV two years old names an employer the candidate has since
+    # left. What the candidate typed into the bot is what they say about
+    # themselves *today*, and a résumé is a document about their past, so an
+    # answer is never overwritten by an extraction. What the CV supplies is
+    # everything the questions never asked for: the employment history, the
+    # education, the certificates.
+    #
+    # The overlay drops empty values as well as absent ones, and that is not a
+    # nicety. `skills`, `certifications`, `languages` and `trade_skills` all
+    # default to `[]` on the profile model, so an unconditional overlay would
+    # have every CV's certificate list wiped out by the empty list the profile
+    # carries — the data would arrive, be parsed, and be overwritten with
+    # nothing in the same request.
+    fields: dict = {}
+    if payload.cv is not None:
+        fields.update(_cv_profile_fields(payload.cv))
+
+    for key, value in payload.profile.model_dump(exclude_none=True).items():
+        if value in (None, "", [], {}):
+            continue
+        fields[key] = value
+
     profile = CandidateProfile(
-        # Nothing here was parsed out of a résumé, and saying otherwise would
-        # put a confidence score on a form somebody filled in by tapping.
-        is_resume=False,
-        confidence=0.0,
-        **payload.profile.model_dump(exclude_none=True),
+        # True only when a résumé was actually read. A profile assembled from
+        # tapped answers is not a parsed résumé, and saying otherwise would put
+        # a confidence score on a form somebody filled in by tapping.
+        is_resume=payload.cv is not None,
+        confidence=payload.cv.confidence or 0.0 if payload.cv is not None else 0.0,
+        **fields,
     )
 
     repository = repo()
@@ -1405,6 +1558,11 @@ def create_whatsapp_candidate(
             idempotency_key=payload.idempotency_key,
             cv_required_claim=payload.cv_required_claim,
             resume=stored_resume,
+            registration=payload.registration,
+            job=payload.job,
+            identity=(
+                payload.identity.model_dump(mode="python") if payload.identity else None
+            ),
             repo=repository,
         )
     except IntakeError as exc:
@@ -1435,6 +1593,54 @@ def create_whatsapp_candidate(
         "cv_policy_version": result.cv_policy_version,
         "policy_overrode_claim": result.policy_overrode_claim,
     }
+
+
+def _cv_profile_fields(cv: "WhatsAppCvIn") -> dict:
+    """The parts of a read CV that belong on the profile.
+
+    A rename layer and nothing more: the bot already sends these under this
+    system's own names, so what this does is drop the fields that describe the
+    *file* — its name, its digest, when it was read — from the fields that
+    describe the *person*. Those belong in `additional_info`, where a recruiter
+    can see which document a value came off without them cluttering the profile.
+
+    Empty values are dropped rather than sent as blanks. A CV that named no
+    employers must not overwrite an employer the candidate typed in, and on this
+    path an empty list would do exactly that.
+    """
+    ABOUT_THE_FILE = {
+        "filename",
+        "mime_type",
+        "sha256",
+        "uploaded_at",
+        "extracted_at",
+        "confidence",
+        "needs_review",
+        "industry",
+        "additional_info",
+    }
+
+    values = cv.model_dump(exclude_none=True)
+    fields = {
+        key: value
+        for key, value in values.items()
+        if key not in ABOUT_THE_FILE and value not in (None, "", [], {})
+    }
+
+    # Where the CV came from, kept with whatever else had no field of its own.
+    # A recruiter looking at an employment history needs to be able to ask
+    # "off which document?", and this is the answer.
+    extra = dict(cv.additional_info or {})
+    for key in ("filename", "sha256", "uploaded_at", "extracted_at", "industry"):
+        value = values.get(key)
+        if value:
+            extra[f"cv_{key}" if key != "industry" else "industry"] = value
+    if cv.needs_review is not None:
+        extra["cv_needs_review"] = cv.needs_review
+    if extra:
+        fields["additional_info"] = extra
+
+    return fields
 
 
 def _resume_owner_hint(idempotency_key: str) -> str:

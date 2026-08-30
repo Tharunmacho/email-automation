@@ -110,6 +110,16 @@ class FakeRepo:
                 continue
             setattr(record.profile, field, value)
 
+    def refresh_whatsapp_sections(self, candidate_id: str, *, registration=None, job=None):
+        record = self.candidates[candidate_id]
+        # Replaced wholesale, exactly as the repository does it: these two
+        # objects are entirely the bot's, and merging them would make an answer
+        # the candidate changed impossible to unset.
+        if registration is not None:
+            record.registration = registration
+        if job is not None:
+            record.job = job
+
     def attach_resume(self, candidate_id: str, resume: StoredResume) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:
@@ -188,7 +198,14 @@ def client():
         yield c
 
 
-def post_candidate(client, *, key="whatsapp/111/919876543210", claim=None, **profile_over):
+def post_candidate(
+    client,
+    *,
+    key="whatsapp/111/919876543210",
+    claim=None,
+    sections=None,
+    **profile_over,
+):
     body = {
         "source": "whatsapp",
         "profile": {
@@ -206,7 +223,21 @@ def post_candidate(client, *, key="whatsapp/111/919876543210", claim=None, **pro
     body["profile"].update(profile_over)
     if claim is not None:
         body["cv_required_claim"] = claim
+    # `registration`, `cv`, `identity`, `job` — the four sections a submission
+    # can carry beyond the profile. Passed as a dict so a test can send one, or
+    # several, without a keyword per section.
+    if sections:
+        body.update(sections)
     return client.post("/candidates", json=body, headers={"X-Service-Key": SERVICE_KEY})
+
+
+def in_progress(stage="JOB_PREFERENCE_PENDING", **over) -> dict:
+    """A `registration` block for a candidate who is still answering."""
+    return {"registration": {"complete": False, "stage": stage, **over}}
+
+
+def finished(**over) -> dict:
+    return {"registration": {"complete": True, "stage": "REGISTRATION_COMPLETED", **over}}
 
 
 #: Small enough to inline, structurally real enough that a type check passes it.
@@ -873,3 +904,286 @@ def test_the_historical_cv_decision_survives_a_policy_change(client):
         assert record.cv_required is False
         assert record.cv_policy_version == version_at_registration
     reset_policy_cache()
+
+
+# --------------------------------------------------------------------------- #
+#  A registration that arrives while it is still being answered
+#
+#  The bot now delivers a candidate as they answer rather than only once they
+#  have finished, because someone who stops halfway is still someone worth
+#  ringing - and under the old arrangement they did not exist here at all.
+#
+#  Four things have to hold for that to be safe, and each is a way it could
+#  quietly go wrong:
+#
+#   * the CV policy must not refuse somebody for not having answered a question
+#     nobody has asked them yet;
+#   * the second delivery must fill the record in, not be swallowed as a
+#     duplicate - the failure mode there is a CRM that holds the first ten
+#     seconds of every conversation and looks like it is working;
+#   * nobody may be put in a recruiter's queue, with an SLA clock running,
+#     before there is anything to assess;
+#   * and the record has to say plainly that it is unfinished, or a blank reads
+#     as an answer.
+# --------------------------------------------------------------------------- #
+def test_an_unfinished_registration_is_accepted_without_the_cv_its_policy_demands(client):
+    """The policy applies to a finished registration, not to a conversation."""
+    strict = {
+        "version": "test-strict",
+        "default_cv_required": True,
+        "rules": [
+            {
+                "destination_country": "Malaysia",
+                "job_category": "general_worker",
+                "cv_required": True,
+            }
+        ],
+    }
+    with patch("app.policy.cv_policy.DEFAULT_POLICY", strict):
+        reset_policy_cache()
+        assert is_cv_required("Malaysia", "general_worker") is True
+
+        partial = post_candidate(client, sections=in_progress())
+        assert partial.status_code == 201, partial.text
+        assert len(client.fake_repo.candidates) == 1
+
+        # And the moment it is finished, the rule bites exactly as it always did.
+        completing = post_candidate(client, sections=finished())
+        assert completing.status_code == 422
+        assert completing.json()["code"] == "CV_REQUIRED"
+    reset_policy_cache()
+
+
+def test_a_later_delivery_fills_the_record_in_rather_than_being_swallowed(client):
+    """The bug this whole path would have if a replay stayed a no-op."""
+    key = "whatsapp/111/919876543210"
+    post_candidate(client, key=key, sections=in_progress(), full_name="Ravi Kumar")
+
+    record = next(iter(client.fake_repo.candidates.values()))
+    assert record.profile.city is None
+
+    post_candidate(
+        client,
+        key=key,
+        sections=in_progress(stage="DOCUMENTS_PENDING"),
+        city="Tiruchirappalli",
+    )
+
+    assert len(client.fake_repo.candidates) == 1
+    assert record.profile.city == "Tiruchirappalli"
+    assert record.registration.stage == "DOCUMENTS_PENDING"
+    assert record.registration.complete is False
+
+
+def test_an_unfinished_registration_is_not_put_in_anybodys_queue(client):
+    """An SLA clock must not start against a profile there is nothing to assess."""
+    key = "whatsapp/111/919876543210"
+    post_candidate(client, key=key, sections=in_progress())
+    assert client.assign_mock.call_count == 0
+
+    post_candidate(client, key=key, sections=in_progress(stage="DOCUMENTS_PENDING"))
+    assert client.assign_mock.call_count == 0
+
+    # The delivery that finishes it is the one that places them, and only that
+    # one - a further delivery afterwards must not move them to another desk.
+    post_candidate(client, key=key, sections=finished())
+    assert client.assign_mock.call_count == 1
+    post_candidate(client, key=key, sections=finished())
+    assert client.assign_mock.call_count == 1
+
+
+def test_an_unfinished_record_says_so(client):
+    """A blank on a half-filled record must not read as an answer."""
+    post_candidate(
+        client,
+        sections=in_progress(outstanding_documents=["passport", "aadhaar"]),
+    )
+    record = next(iter(client.fake_repo.candidates.values()))
+
+    assert record.registration is not None
+    assert record.registration.complete is False
+    assert record.registration.outstanding_documents == ["passport", "aadhaar"]
+
+
+# --------------------------------------------------------------------------- #
+#  The CV, the job answers and the identity documents
+# --------------------------------------------------------------------------- #
+CV_SECTION = {
+    "filename": "ravi-cv.pdf",
+    "sha256": "abc123",
+    "full_name": "Ravi Kumar",
+    "current_designation": "Senior Welder",
+    "industry": "Construction & Engineering",
+    "skills": ["SMAW", "GTAW"],
+    "trade_skills": ["TIG welding", "Pipe welding"],
+    "certifications": ["6G welder certificate"],
+    "work_experience": [
+        {
+            "company": "Larsen and Toubro",
+            "designation": "Senior Welder",
+            "start_date": "2019-01",
+            "country": "India",
+        },
+        {
+            "company": "Gulf Steel Works",
+            "title": "Welder",
+            "country": "UAE",
+            "is_overseas": True,
+        },
+    ],
+    "education": [
+        {
+            "institution": "Government Polytechnic",
+            "degree": "Diploma in Mechanical Engineering",
+            "passing_year": "2015",
+        }
+    ],
+    "raw_ocr": {"name": "Ravi Kumar"},
+}
+
+
+def test_a_cv_read_over_whatsapp_is_stored_the_way_an_emailed_one_is(client):
+    """The employment history and the education, not six flattened fields."""
+    post_candidate(client, sections={"cv": CV_SECTION, **in_progress()})
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+
+    assert [w.company for w in profile.work_experience] == [
+        "Larsen and Toubro",
+        "Gulf Steel Works",
+    ]
+    assert profile.work_experience[1].is_overseas is True
+    assert profile.education[0].degree == "Diploma in Mechanical Engineering"
+    assert profile.certifications == ["6G welder certificate"]
+    assert profile.trade_skills == ["TIG welding", "Pipe welding"]
+    assert profile.current_designation == "Senior Welder"
+    # Which document it came off, for a recruiter asking exactly that.
+    assert profile.additional_info["cv_filename"] == "ravi-cv.pdf"
+    assert profile.raw_ocr == {"name": "Ravi Kumar"}
+
+
+def test_what_the_candidate_typed_outranks_what_their_cv_says(client):
+    """A CV is a document about someone's past; an answer is about today."""
+    post_candidate(
+        client,
+        full_name="Ravi Kumar",
+        sections={"cv": {**CV_SECTION, "full_name": "R. KUMAR", "phone": "+910000000000"}},
+    )
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+
+    assert profile.full_name == "Ravi Kumar"
+    assert profile.phone == "+919876543210"
+
+
+JOB_SECTION = {
+    "job": "TIG welder",
+    "job_category": "general_worker",
+    "job_category_title": "General Worker",
+    "course_or_trade": {
+        "education": "diploma",
+        "course": "Mechanical Engineering",
+        "primary_trade": "fabrication_welding",
+        "questions": [
+            {
+                "id": "trade:welder:processes",
+                "question": "Which welding processes have you worked with?",
+                "answer": "TIG, MIG",
+            }
+        ],
+    },
+    "country": {
+        "preference": "malaysia",
+        "destination_country": "Malaysia",
+        "selected": ["malaysia", "singapore"],
+        "strictness": "strict",
+        "strict": True,
+    },
+    "questions": [
+        {
+            "id": "availability",
+            "question": "When can you join?",
+            "answer": "Within 15 days",
+        }
+    ],
+    "availability": {"band": "within_15"},
+}
+
+
+def test_the_job_section_is_stored_with_its_questions(client):
+    """An answer arriving without its question is a value with no meaning."""
+    post_candidate(client, sections={"job": JOB_SECTION, **in_progress()})
+    record = next(iter(client.fake_repo.candidates.values()))
+
+    assert record.job is not None
+    assert record.job.job == "TIG welder"
+    assert record.job.course_or_trade.course == "Mechanical Engineering"
+    assert (
+        record.job.course_or_trade.questions[0].question
+        == "Which welding processes have you worked with?"
+    )
+    assert record.job.country.selected == ["malaysia", "singapore"]
+    # The one field on this panel that constrains what may be done with them.
+    assert record.job.country.strict is True
+    assert record.job.availability.band == "within_15"
+
+
+def test_a_changed_answer_replaces_the_job_section_rather_than_merging_into_it(client):
+    """Someone who stops being strict must actually stop being strict."""
+    key = "whatsapp/111/919876543210"
+    post_candidate(client, key=key, sections={"job": JOB_SECTION, **in_progress()})
+
+    relaxed = {
+        **JOB_SECTION,
+        "country": {"preference": "any", "strictness": "any", "strict": False},
+    }
+    post_candidate(client, key=key, sections={"job": relaxed, **in_progress()})
+
+    record = next(iter(client.fake_repo.candidates.values()))
+    assert record.job.country.strict is False
+    assert record.job.country.selected == []
+
+
+def test_identity_documents_are_filed_apart_from_the_candidate(client):
+    """Government identity numbers never reach the document a listing projects."""
+    identity = {
+        "aadhaar": [
+            {
+                "record_id": "6512ab00000000000000aa01",
+                "slot": "aadhaar",
+                "filename": "aadhaar.jpg",
+                "sha256": "sha-aadhaar",
+                "result": {"aadhaar": {"name": "Ravi Kumar", "aadhaar_number": "234567890123"}},
+            }
+        ],
+        "passport": [
+            {
+                "record_id": "6512ab00000000000000aa02",
+                "slot": "passport",
+                "result": {"mrz": {"passport_number": "Z1234567", "expiry_date": "310511"}},
+            }
+        ],
+    }
+
+    filed = []
+    with patch(
+        "app.db.identity_records.store_aadhaar_record",
+        side_effect=lambda rid, result, **kw: filed.append(("aadhaar", rid, result, kw)),
+    ), patch(
+        "app.db.identity_records.store_passport_record",
+        side_effect=lambda rid, result, **kw: filed.append(("passport", rid, result, kw)),
+    ):
+        response = post_candidate(client, sections={"identity": identity, **in_progress()})
+        assert response.status_code == 201, response.text
+
+    kinds = {entry[0] for entry in filed}
+    assert kinds == {"aadhaar", "passport"}
+
+    aadhaar = next(entry for entry in filed if entry[0] == "aadhaar")
+    # Keyed on the bot's upload id, so the same card arriving with every
+    # delivery overwrites its own row rather than accumulating a copy per one.
+    assert aadhaar[1] == "whatsapp:6512ab00000000000000aa01"
+    assert aadhaar[3]["provider"] == "whatsapp"
+    assert aadhaar[3]["candidate_id"] == next(iter(client.fake_repo.candidates))
+
+    # And nothing of it on the candidate document.
+    record = next(iter(client.fake_repo.candidates.values()))
+    assert "234567890123" not in str(record.model_dump(mode="json"))

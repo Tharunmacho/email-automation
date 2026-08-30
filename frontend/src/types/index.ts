@@ -126,6 +126,120 @@ export interface SourceEmail {
  * anything outside the list projection as possibly missing, and never write a
  * list row back through `updateCandidateProfile`.
  */
+/**
+ * How far through the WhatsApp conversation a candidate got.
+ *
+ * Absent on every email candidate, and on WhatsApp candidates written before
+ * registrations were delivered mid-conversation. Absent means finished — a
+ * record that only ever existed once it was complete.
+ *
+ * `complete` is the field every reader should consult before treating a blank
+ * as an answer. Without it, "no passport on file" reads as "this candidate has
+ * no passport" when it means "we have not asked yet".
+ */
+export interface RegistrationState {
+  complete: boolean;
+  stage?: string | null;
+  status?: string | null;
+  application_id?: string | null;
+  language?: string | null;
+  consent_at?: string | null;
+  started_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+  outstanding_documents?: string[];
+}
+
+/** One question the bot asked, and the answer it got. */
+export interface AnsweredQuestion {
+  id: string;
+  question: string;
+  answer: string;
+  /** The candidate's own wording, where they typed rather than tapped. */
+  raw?: string | null;
+}
+
+export interface JobSection {
+  /** The job they want, in their own words. */
+  job?: string | null;
+  job_category?: string | null;
+  job_category_title?: string | null;
+  course_or_trade?: {
+    education?: string | null;
+    course?: string | null;
+    primary_trade?: string | null;
+    primary_trade_title?: string | null;
+    trade_packs?: string[];
+    questions?: AnsweredQuestion[];
+  } | null;
+  country?: {
+    preference?: string | null;
+    destination_country?: string | null;
+    selected?: string[];
+    selected_names?: string[];
+    strictness?: string | null;
+    /**
+     * True when the candidate said they will only go to the countries they
+     * listed. The one field here that constrains what may be done with them:
+     * they must not be shortlisted outside that list without being asked.
+     */
+    strict?: boolean;
+  } | null;
+  questions?: AnsweredQuestion[];
+  availability?: {
+    band?: string | null;
+    date?: string | null;
+    note?: string | null;
+  } | null;
+}
+
+/**
+ * One identity document as `GET /candidates/{id}/identity` serves it.
+ *
+ * The number is present only for an administrator — the endpoint drops
+ * `aadhaar_number`, `vid` and `raw_mrz` for everybody else and leaves the
+ * masked form, which is what a recruiter needs: enough to recognise the card,
+ * not enough to use it.
+ */
+export interface IdentityDocument {
+  _id?: string;
+  document_type?: string;
+  name?: string | null;
+  aadhaar_number?: string | null;
+  masked_aadhaar_number?: string | null;
+  aadhaar_number_valid?: boolean | null;
+  date_of_birth?: string | null;
+  year_of_birth?: number | null;
+  gender?: string | null;
+  mobile_number?: string | null;
+  address?: string | null;
+  care_of?: string | null;
+  pincode?: string | null;
+  document_side?: string | null;
+
+  passport_number?: string | null;
+  surname?: string | null;
+  given_names?: string | null;
+  nationality?: string | null;
+  issuing_country?: string | null;
+  sex?: string | null;
+  expiry_date?: string | null;
+  date_of_issue?: string | null;
+  /** The passport's own integrity test. False means the OCR misread a character. */
+  check_digits_valid?: boolean | null;
+  confidence?: number | null;
+
+  source?: { filename?: string | null; message_id?: string | null };
+  warnings?: string[];
+  updated_at?: string | null;
+}
+
+export interface IdentityDocuments {
+  candidate_id: string;
+  aadhaar: IdentityDocument[];
+  passport: IdentityDocument[];
+}
+
 export interface CandidateRecord {
   id: string;
   /**
@@ -180,6 +294,17 @@ export interface CandidateRecord {
   evaluation_score?: number | null;
   evaluation_notes?: string | null;
   evaluated_at?: string | null;
+
+  /**
+   * The WhatsApp conversation's own two sections.
+   *
+   * `job` is what the agency decides on — what the candidate can do, where they
+   * will go and whether that is negotiable, and when they can start. It is
+   * separate from `profile` because a profile is what is true about a person
+   * and this is what is true about their application.
+   */
+  registration?: RegistrationState | null;
+  job?: JobSection | null;
 }
 
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */
