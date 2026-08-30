@@ -23,7 +23,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
+
+from app.config import settings
+from app.extraction import passport_nationality as pn
+from app.logging_config import get_logger
+
+log = get_logger(__name__)
 
 # --------------------------------------------------------------------------- #
 #  Page kinds
@@ -38,6 +44,7 @@ ID_DOCUMENT = "id_document"
 # document-level evidence (see `classify_multipass`).
 AADHAAR = "aadhaar"
 PASSPORT = "passport"
+DOCUMENT = "document"    # generic ID documents (CNIC, Iqama, etc)
 OTHER = "other"          # invoice, hall ticket, receipt — the reject bucket
 UNKNOWN = "unknown"      # has content, commits to nothing — never a rejection
 BLANK = "blank"
@@ -180,7 +187,10 @@ _DOC_MARKERS: Dict[str, Dict[str, Sequence[str]]] = {
         # not the same as being it.
         "strong": (
             r"republic\s+of\s+\w+", r"government\s+of\s+\w+", r"identity\s+card",
-            r"emirates\s+id\s+card", r"labour\s+card", r"resident\s+identity",
+            r"emirates\s+id", r"labour\s+card", r"resident\s+identity",
+            r"id\s+card", r"\bid\s+no\b", r"computerized\s+national",
+            r"\bcnic\b", r"kingdom\s+of\s+saudi\s+arabia", r"\biqama\b",
+            r"state\s+of\s+qatar", r"civil\s+id", r"ministry\s+of\s+interior",
         ),
         # "Nationality", "Blood group", "Date of expiry" and "Place of issue"
         # were weak markers here until a real CV lost a page to them: Indian and
@@ -190,7 +200,8 @@ _DOC_MARKERS: Dict[str, Dict[str, Sequence[str]]] = {
         "weak": (
             r"holder'?s\s+signature", r"machine\s+readable\s+zone",
             r"see\s+reverse\s+of\s+this\s+card", r"driving\s+licen[cs]e",
-            r"aadhaar", r"passport\s+no\.?",
+            r"aadhaar", r"passport\s+no\.?", r"\bid\b", r"identification",
+            r"card\s+number", r"national\s+no",
         ),
     },
     OTHER: {
@@ -639,6 +650,11 @@ _ID_SEED_SCORE = 3.0
 # the issuing authority — outranks the résumé reading.
 _ID_OVERRIDE_SCORE = 5.0
 
+#: The seed score, published for the extractor's escalation pass. A page that
+#: scores near this but not over it is the case where a better read decides the
+#: outcome, and the extractor needs the number to recognise one.
+ID_SEED_SCORE = _ID_SEED_SCORE
+
 _AADHAAR_MARKERS = {
     "strong": (
         r"unique\s+identification\s+authority\s+of\s+india",
@@ -680,6 +696,18 @@ _PASSPORT_MARKERS = {
         r"type\s*/\s*type[\s\S]{0,80}?country\s+code",
         r"country\s+code\s*/\s*code\s+du\s+pays",
         r"republic\s+of\s+india[\s\S]{0,120}?passport",
+        # The request page, printed inside every Indian passport and on no other
+        # document in the world. It was missing, and its absence is what lost a
+        # real passport: the page read at *ten times* the OCR quality floor, in
+        # clean English, and still scored 0.0 for every kind because the only
+        # "republic of india" marker above also demanded the literal word
+        # "passport" within 120 characters — which sits on the cover, a
+        # different page, and which OCR had rendered as "PAS 5 sf CO @ tT".
+        #
+        # The lesson is in where the bug was. It was never the reader; the text
+        # was perfect. Nothing was looking for it.
+        r"these\s+are\s+to\s+request\s+and\s+require",
+        r"president\s+of\s+the\s+republic\s+of\s+india",
         r"machine\s+readable\s+zone",
         r"holder.?s\s+signature",
         r"place\s+of\s+issue[\s\S]{0,240}?date\s+of\s+expiry",
@@ -703,6 +731,11 @@ _PASSPORT_MARKERS = {
     ),
     "weak": (
         r"passport\s+no\.?",
+        # Weak on its own — it is printed on the passport cover and the request
+        # page, but also crops up in citations on other Indian paperwork. It
+        # earns its half point next to a strong marker rather than deciding
+        # anything by itself.
+        r"republic\s+of\s+india",
         r"date\s+of\s+expiry",
         r"place\s+of\s+issue",
         r"place\s+of\s+birth",
@@ -721,6 +754,45 @@ _PASSPORT_MARKERS = {
 _MRZ_LINE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z0-9<({\[\]})«»|l1Ii\.,cKE\-_=+'\"]{28,60}(?![A-Za-z0-9])")
 _MRZ_HEAD_RE = re.compile(r"\bP[<K(C\[{\«\|l1I][A-Z0-9]{3}[A-Z0-9<({\[\]})«»|l1Ii\.,cKE\-_=+'\"]{3,}")
 
+_DOCUMENT_MARKERS = {
+    "strong": (
+        r"national\s+identity\s+card",
+        r"identity\s+card",
+        r"id\s+card",
+        r"\bid\s+no\b",
+        r"computerized\s+national",
+        r"\bcnic\b",
+        r"government\s+of\s+[a-zA-Z]+",
+        r"united\s+arab\s+emirates",
+        r"emirates\s+id",
+        r"kingdom\s+of\s+saudi\s+arabia",
+        r"\biqama\b",
+        r"resident\s+identity",
+        r"resident\s+permit",
+        r"state\s+of\s+qatar",
+        r"civil\s+id",
+        r"ministry\s+of\s+interior",
+    ),
+    "weak": (
+        r"\bid\b",
+        r"identity",
+        r"identification",
+        r"card\s+number",
+        r"date\s+of\s+issue",
+        r"date\s+of\s+expiry",
+        r"\bissue\s+date\b",
+        r"\bexpiry\s+date\b",
+        r"national\s+no",
+        r"date\s+of\s+birth",
+        r"\bdob\b",
+        r"nationality",
+        r"\bgender\b",
+        r"\bsex\b",
+        r"blood\s+group",
+        r"signature",
+    ),
+}
+
 _ID_MARKERS_COMPILED = {
     AADHAAR: {
         weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
@@ -729,6 +801,10 @@ _ID_MARKERS_COMPILED = {
     PASSPORT: {
         weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
         for weight, patterns in _PASSPORT_MARKERS.items()
+    },
+    DOCUMENT: {
+        weight: tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+        for weight, patterns in _DOCUMENT_MARKERS.items()
     },
 }
 
@@ -741,7 +817,7 @@ def id_document_scores(text: str) -> Dict[str, float]:
     is the one that decides which endpoint wins.
     """
     text = text or ""
-    scores: Dict[str, float] = {AADHAAR: 0.0, PASSPORT: 0.0}
+    scores: Dict[str, float] = {AADHAAR: 0.0, PASSPORT: 0.0, DOCUMENT: 0.0}
     if len(text.strip()) < _MIN_PAGE_CHARS:
         return scores
 
@@ -755,8 +831,16 @@ def id_document_scores(text: str) -> Dict[str, float]:
                 score += 0.5
         scores[kind] = score
 
+    # Actively block driving licenses from being classified as generic documents.
+    if re.search(r"driving\s+licen[cs]e|license\s+type|licence\s+type", text, re.IGNORECASE):
+        scores[DOCUMENT] = 0.0
+
     if _AADHAAR_NUMBER_RE.search(text):
         scores[AADHAAR] += 2.0
+
+    _CNIC_NUMBER_RE = re.compile(r"\b\d{5}\s*[\-]?\s*\d{7}\s*[\-]?\s*\d\b")
+    if _CNIC_NUMBER_RE.search(text):
+        scores[DOCUMENT] += 3.0
 
     # An MRZ head ("P<INDKUMAR<<RAJESH") is conclusive on its own; a bare pair
     # of 40-character runs of capitals and chevrons is nearly so.
@@ -766,6 +850,8 @@ def id_document_scores(text: str) -> Dict[str, float]:
         scores[PASSPORT] += 3.0
     elif _MRZ_LINE_RE.search(text):
         scores[PASSPORT] += 1.5
+        # The back of many modern National ID cards also contains an MRZ line.
+        scores[DOCUMENT] += 1.5
 
     return {k: round(v, 2) for k, v in scores.items()}
 
@@ -784,13 +870,34 @@ class MultipassClassification:
     resume_pages: List[int]
     aadhaar_pages: List[int]
     passport_pages: List[int]
+    document_pages: List[int]
     ignored_pages: List[int]
     pages: List[PageClassification]
     reason: str
+    #: Passport pages held back because they were not issued by India. These
+    #: *are* passports — they are simply not passports this pipeline may spend a
+    #: Veris call on. Kept separate from ``ignored_pages`` so the reason a
+    #: recruiter's document never produced a record is answerable.
+    foreign_passport_pages: List[int] = field(default_factory=list)
+    #: ``{page number: verdict}`` for every page that read as a passport,
+    #: whichever way it was routed. This is what an operator inspects when a
+    #: passport did not come back.
+    passport_nationality: Dict[int, "pn.NationalityVerdict"] = field(default_factory=dict)
 
     @property
     def page_kinds(self) -> Dict[int, str]:
         return {p.page_number: p.kind for p in self.pages}
+
+    def nationality_report(self) -> List[Dict[str, object]]:
+        """Every passport page, its verdict and where it was routed."""
+        return [
+            {
+                "page": number,
+                "routed": "veris" if number in self.passport_pages else "skipped",
+                **verdict.as_dict(),
+            }
+            for number, verdict in sorted(self.passport_nationality.items())
+        ]
 
     def modes(self) -> Dict[str, List[int]]:
         """``{ocr mode: pages}`` for the modes this bundle has work for.
@@ -808,6 +915,19 @@ class MultipassClassification:
         return found
 
 
+def _log_passport_decision(page: int, send: bool, why: str) -> None:
+    """Say, at INFO, what happened to every passport page and why.
+
+    Deliberately not DEBUG: "the passport did not come through" is the support
+    question this feature generates, and the answer has to be in the log a
+    recruiter's operator can already see.
+    """
+    if send:
+        log.info("Passport page %d routed to the Veris passport endpoint: %s", page, why)
+    else:
+        log.info("Passport page %d held back: %s", page, why)
+
+
 def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
     """Split one bundle into résumé pages, Aadhaar pages and passport pages.
 
@@ -823,33 +943,150 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
     claimed = set(resume_pages)
     aadhaar_pages: List[int] = []
     passport_pages: List[int] = []
+    document_pages: List[int] = []
     ignored_pages: List[int] = []
+    foreign_passport_pages: List[int] = []
+    passport_verdicts: Dict[int, pn.NationalityVerdict] = {}
 
     for page in base.pages:
         number = page.page_number
         if number in claimed:
             continue
+            
+        text = texts[number - 1] if number - 1 < len(texts) else ""
+        log.info("Evaluating leftover page %d for ID. Text length: %d chars", number, len(text))
+        # log.info("PAGE %d TESSERACT TEXT:\n%s\n---END TEXT---", number, text)
+        
         if page.signals.chars < _MIN_PAGE_CHARS:
+            log.info("Page %d ignored: page.signals.chars (%d) < _MIN_PAGE_CHARS (%d)", number, page.signals.chars, _MIN_PAGE_CHARS)
             ignored_pages.append(number)
             continue
 
-        text = texts[number - 1] if number - 1 < len(texts) else ""
         scores = id_document_scores(text)
-        kind, best = max(scores.items(), key=lambda kv: kv[1])
+        log.info("Page %d ID scores: %s", number, scores)
 
         # A page the résumé pass merely failed to reach — an unlabelled
         # continuation, say — still reads as a CV. Only conclusive document
         # evidence takes it.
-        threshold = _ID_OVERRIDE_SCORE if page.score >= _CONTINUATION_SCORE else _ID_SEED_SCORE
-        if best < threshold:
+        base_threshold = _ID_OVERRIDE_SCORE if page.score >= _CONTINUATION_SCORE else _ID_SEED_SCORE
+        doc_threshold = 1.5 if (page.score < _CONTINUATION_SCORE) else base_threshold
+        
+        is_aadhaar = scores[AADHAAR] >= base_threshold
+        is_passport = scores[PASSPORT] >= base_threshold
+        is_document = False  # Disabled by user request: scores[DOCUMENT] >= doc_threshold
+        if not (is_aadhaar or is_passport or is_document):
+            log.info("Page %d ignored: all scores below threshold", number)
             ignored_pages.append(number)
             continue
-
-        page.kind = kind
-        if kind == AADHAAR:
+            
+        added = []
+        if is_aadhaar:
             aadhaar_pages.append(number)
-        else:
-            passport_pages.append(number)
+            added.append(AADHAAR)
+            
+        if is_passport:
+            # A passport, but whose? The Veris passport endpoint is trained on the
+            # Indian booklet; a Nepali or Philippine one comes back confidently
+            # wrong, and a wrong passport number on a visa file is found at the
+            # embassy counter. The issuing country is settled here, from the text
+            # already in hand, before anything is uploaded.
+            verdict = pn.detect_passport_country(text)
+            passport_verdicts[number] = verdict
+            send, why = pn.should_extract(
+                verdict,
+                india_only=settings.passport_india_only,
+                allow_undetermined=settings.passport_allow_undetermined_nationality,
+            )
+            if send:
+                passport_pages.append(number)
+                added.append(PASSPORT)
+            else:
+                foreign_passport_pages.append(number)
+                # If it's a foreign passport, we do NOT want it extracted as a generic document either.
+                is_document = False
+            _log_passport_decision(number, send, why)
+
+        if is_document:
+            document_pages.append(number)
+            added.append(DOCUMENT)
+
+        log.info("Page %d successfully classified as %s!", number, " + ".join(added) if added else "ignored foreign passport")
+        page.kind = added[0] if added else ID_DOCUMENT
+
+    # Nationality belongs to the passport, not to the page.
+    #
+    # The filter that holds back a foreign passport reads the issuing country
+    # off the page in front of it — but only the data page carries a nationality
+    # field. The back page of the very same booklet, listing the holder's
+    # parents, has nothing to read, comes back "undetermined", and was dropped:
+    # a genuine Indian passport page, sitting fourteen pages from the data page
+    # that had already been confirmed India at 0.96 confidence.
+    #
+    # So the bundle decides. A page that could not speak for itself takes the
+    # answer from the pages that could — and only when they agree on India. A
+    # page that *did* identify a foreign issuer keeps its own verdict and stays
+    # held back, which is the case the filter exists for.
+    if foreign_passport_pages and passport_pages:
+        confirmed = [
+            passport_verdicts[n].country
+            for n in passport_pages
+            if passport_verdicts.get(n) and passport_verdicts[n].country not in ("", "unknown")
+        ]
+        if confirmed and len(set(confirmed)) == 1:
+            speaks_for_itself = {
+                n for n in foreign_passport_pages
+                if passport_verdicts.get(n) and passport_verdicts[n].country not in ("", "unknown")
+            }
+            adopted = [n for n in foreign_passport_pages if n not in speaks_for_itself]
+            if adopted:
+                log.info(
+                    "Page(s) %s carry no nationality of their own and take the "
+                    "bundle's: %s, settled on page(s) %s",
+                    adopted, confirmed[0], passport_pages,
+                )
+                passport_pages.extend(adopted)
+                passport_pages.sort()
+                foreign_passport_pages = sorted(speaks_for_itself)
+
+    # The inside of the booklet.
+    #
+    # A passport identifies itself on two pages — the request page and the data
+    # page at the front, the parents-and-address page at the back — and says
+    # nothing readable in between. The pages between them are visa stickers and
+    # immigration stamps: small, low-contrast, rotated, printed over security
+    # guilloche, and they OCR to noise however hard the reader is pushed. One of
+    # them carries a Cambodian visa naming the holder and quoting the passport
+    # number, and Tesseract recovers not one word of it.
+    #
+    # They are still passport pages, and the endpoint that reads passports can
+    # read them far better than the local reader can. So they are identified by
+    # position and by silence rather than by content: inside the bracket the
+    # confirmed pages define, and yielding almost nothing readable.
+    #
+    # Both conditions carry weight. The bracket cannot reach past the last page
+    # that proved itself a passport, so it cannot run away down the bundle; and
+    # the certificates in this bundle read 13 to 41 words each, so they exclude
+    # themselves even where one is filed between two passport pages.
+    if settings.passport_include_booklet_interior and len(passport_pages) >= 2:
+        from app.extraction.local_ocr import word_evidence
+
+        first, last = min(passport_pages), max(passport_pages)
+        scored = set(aadhaar_pages) | set(passport_pages) | set(document_pages)
+        interior = []
+        for number in range(first + 1, last):
+            if number in claimed or number in scored:
+                continue
+            text = texts[number - 1] if number - 1 < len(texts) else ""
+            if word_evidence(text) <= settings.passport_booklet_max_words:
+                interior.append(number)
+        if interior:
+            log.info(
+                "Page(s) %s lie between confirmed passport page(s) %s and read as "
+                "nothing: the inside of the same booklet, sent with it",
+                interior, passport_pages,
+            )
+            ignored_pages = [n for n in ignored_pages if n not in set(interior)]
+            passport_pages = sorted(set(passport_pages) | set(interior))
 
     reason = base.reason
     extra = []
@@ -857,6 +1094,14 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
         extra.append(f"aadhaar on page(s) {', '.join(str(n) for n in aadhaar_pages)}")
     if passport_pages:
         extra.append(f"passport on page(s) {', '.join(str(n) for n in passport_pages)}")
+    if document_pages:
+        extra.append(f"document on page(s) {', '.join(str(n) for n in document_pages)}")
+    for number in sorted(foreign_passport_pages):
+        held = passport_verdicts.get(number)
+        extra.append(
+            f"page {number} holds a {held.country if held else 'non-Indian'} passport, "
+            f"not sent for extraction"
+        )
     if extra:
         reason = f"{reason}; {'; '.join(extra)}"
 
@@ -866,7 +1111,10 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
         resume_pages=resume_pages,
         aadhaar_pages=sorted(aadhaar_pages),
         passport_pages=sorted(passport_pages),
+        document_pages=sorted(document_pages),
         ignored_pages=sorted(ignored_pages),
         pages=base.pages,
         reason=reason,
+        foreign_passport_pages=sorted(foreign_passport_pages),
+        passport_nationality=passport_verdicts,
     )

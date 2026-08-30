@@ -18,9 +18,9 @@ import {
   Briefcase,
   Building2,
   Database,
-  Inbox,
+  Handshake,
   LayoutDashboard,
-  ScrollText,
+  FilePlus2,
   Settings as SettingsIcon,
   ShieldCheck,
   UserCog,
@@ -28,17 +28,36 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type NavId =
-  | "overview"
-  | "candidates"
-  | "my-queue"
-  | "staff"
-  | "job-orders"
-  | "sourcing"
-  | "data-management"
-  | "users"
-  | "activity"
-  | "settings";
+export const NAV_IDS = [
+  "overview",
+  "candidates",
+  "candidate-entry",
+  "staff",
+  "job-orders",
+  "sourcing",
+  "b2b-enquiries",
+  "data-management",
+  "users",
+  "settings",
+] as const;
+
+export type NavId = (typeof NAV_IDS)[number];
+
+export function isNavId(value: string): value is NavId {
+  return (NAV_IDS as readonly string[]).includes(value);
+}
+
+/** Every CRM destination has its own shareable path. `/` is the sign-in entry. */
+export function navPath(id: NavId): string {
+  return `/${id}`;
+}
+
+/** Resolve a browser pathname into the tab it represents. */
+export function navIdFromPath(pathname: string): NavId | null {
+  const segment = pathname.replace(/^\/+|\/+$/g, "");
+  if (!segment) return "overview";
+  return !segment.includes("/") && isNavId(segment) ? segment : null;
+}
 
 export interface NavItem {
   id: NavId;
@@ -62,27 +81,32 @@ export interface NavGroup {
 /**
  * Two products behind one sign-in.
  *
- * A staff account reaches exactly one destination: the candidates allocated to
- * them. Everything else in this list is the Super Admin's. That is not a
+ * A staff account reaches allocated candidates, candidate document entry, and
+ * account settings. Everything else in this list is the Super Admin's. That is not a
  * simplification of the rail — it is the whole difference between the two
  * roles, so it is expressed here as data rather than as conditionals scattered
  * through the shell.
  *
  * Sign-out and the theme switch live on the rail's account card, not in this
- * list, so a one-item rail still gives a staff member everything they need.
+ * list, so the rail still gives a staff member everything they need.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Workspace",
-    items: [{ id: "my-queue", label: "My Candidates", icon: Inbox, roles: ["staff"] }],
+    items: [
+      // What each role opens onto: the admin's summary of the whole pipeline,
+      // and the staff member's own allocated queue. One group, because they
+      // are the same thing seen from the two seats.
+      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
+    ],
   },
   {
     label: "General",
     items: [
+      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "staff"] },
+      { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "staff"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
-      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
-      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin"] },
     ],
   },
   {
@@ -90,6 +114,11 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin"] },
+      // Sits under the hub rather than beside it: the parties are the address
+      // book and these are the requirements they raise, so a recruiter reads
+      // one and then the other. What arrives here is collected by the WhatsApp
+      // bot from agents, the same bot that registers candidates.
+      { id: "b2b-enquiries", label: "B2B Enquiries", icon: Handshake, roles: ["admin"] },
       // The jobs and countries the agency recruits for, as data. What is
       // configured here decides two things a long way from this screen: which
       // options the WhatsApp bot offers candidates, and whether a candidate is
@@ -100,8 +129,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Support",
     items: [
-      { id: "activity", label: "Activity Logs", icon: ScrollText, roles: ["admin"] },
-      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin"] },
+      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "staff"] },
     ],
   },
 ];
@@ -121,7 +149,9 @@ export const NAV_GROUPS: NavGroup[] = [
  * them, because that scoping lives in the API and not in this menu.
  */
 export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
-  const allowed = pages && pages.length ? new Set(pages) : undefined;
+  const allowed = pages
+    ? new Set(pages.map((page) => (page === "my-queue" ? "candidates" : page)))
+    : undefined;
   return NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
@@ -133,18 +163,20 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
 /**
  * Where a role lands on sign-in.
  *
- * The admin opens on the staff console rather than the ingestion Overview:
- * their first question is who is holding what and whether anyone has stalled,
- * and that screen is also where the SLA breaches are listed.
+ * Admins open on the whole-CRM Overview. Reviewers open directly on the
+ * candidate queue assigned to them.
  */
-export function defaultNavFor(role: string | undefined): NavId {
-  return role === "staff" ? "my-queue" : "staff";
+export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
+  const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
+  if (role === "admin" && visible.includes("overview")) return "overview";
+  if (visible.includes("candidates")) return "candidates";
+  return visible[0] ?? "settings";
 }
 
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */
 export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle: string }> = {
   overview: {
-    eyebrow: "Dashboard",
+    eyebrow: "Workspace",
     title: "Overview",
     subtitle: "Candidate sourcing, email extraction, and processing pipeline in one view.",
   },
@@ -153,18 +185,13 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     title: "Candidates",
     subtitle: "Every parsed profile in the database.",
   },
-  "my-queue": {
-    eyebrow: "Workspace",
-    title: "My Candidates",
-    subtitle: "The profiles allocated to you — read the résumé, record your evaluation.",
-  },
   staff: {
     eyebrow: "General",
     title: "Staff & Allocation",
     // No hours in the copy: the window is configuration, every screen that
     // reports it reads the real value from /config, and a number frozen into a
     // subtitle is the one that goes stale the day someone changes it.
-    subtitle: "Accounts, expertise keywords, workload balance, and the review SLA.",
+    subtitle: "Accounts, workload balance, review progress, and overdue work.",
   },
   "job-orders": {
     eyebrow: "Tools",
@@ -175,6 +202,12 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Tools",
     title: "Sourcing Hub",
     subtitle: "Agents, associations and business clients who submit talent requirements.",
+  },
+  "b2b-enquiries": {
+    eyebrow: "Tools",
+    title: "B2B Enquiries",
+    subtitle:
+      "Manpower requirements raised by agents over WhatsApp — review one, then raise the job order.",
   },
   "data-management": {
     eyebrow: "Tools",
@@ -187,14 +220,14 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     title: "User Management",
     subtitle: "Accounts, roles, and which pages each person can reach.",
   },
-  activity: {
-    eyebrow: "Support",
-    title: "Activity Logs",
-    subtitle: "Full pipeline audit history and system events.",
-  },
   settings: {
     eyebrow: "Support",
     title: "Settings",
-    subtitle: "Preferences, system health, and the rules the ingestion pipeline applies.",
+    subtitle: "Account details and configured communication channels.",
+  },
+  "candidate-entry": {
+    eyebrow: "General",
+    title: "Candidate Entry",
+    subtitle: "Upload a resume and identity documents for VeriIS extraction.",
   },
 };

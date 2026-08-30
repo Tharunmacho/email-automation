@@ -9,9 +9,7 @@ import { candidateNameOf, formatDateFull, formatInt, initialsOf, timeAgo } from 
 import type { CandidateRecord } from "@/lib/api";
 
 interface ActivityLogsScreenProps {
-  /** The pipeline trace — sync cycles, connection events, record counts. */
   systemLogs: LogEntry[];
-  /** Every per-candidate event, across all candidates. */
   candidateLogs: CandidateLog[];
   candidates: CandidateRecord[];
   onOpenCandidateLogs: (candidate: CandidateRecord) => void;
@@ -26,14 +24,41 @@ const LEVEL_LABEL: Record<LogEntry["type"], string> = {
 
 type Tab = "system" | "records";
 
-/**
- * The System destination for both logs the app keeps.
- *
- * They are genuinely different things and stay on separate tabs: the pipeline
- * trace is this session's run history and resets with the process, while the
- * record trail is per-candidate, persisted, and survives a reload. Merging them
- * would produce one stream where half the entries vanish on refresh.
- */
+/** Build 24 hourly buckets from log timestamps (system logs) */
+function buildHourlyBuckets(logs: LogEntry[]): number[] {
+  const buckets = new Array(24).fill(0);
+  for (const log of logs) {
+    if (!log.time) continue;
+    // log.time is a display string like "12:34:56" — use today's date
+    const parts = log.time.split(":");
+    if (parts.length < 2) continue;
+    const hour = parseInt(parts[0], 10);
+    if (!Number.isNaN(hour) && hour >= 0 && hour < 24) {
+      buckets[hour] += 1;
+    }
+  }
+  return buckets;
+}
+
+function HourlyBar({ buckets }: { buckets: number[] }) {
+  const max = Math.max(...buckets, 1);
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+  return (
+    <div className="act-bar-chart">
+      {hours.map((h) => {
+        const val = buckets[h] ?? 0;
+        const pct = (val / max) * 100;
+        return (
+          <div key={h} className="act-bar-col" title={`${String(h).padStart(2, "0")}:00 — ${val} event${val === 1 ? "" : "s"}`}>
+            <div className="act-bar-fill" style={{ height: `${Math.max(pct, val > 0 ? 4 : 0)}%` }} />
+            {h % 6 === 0 && <span className="act-bar-label">{String(h).padStart(2, "0")}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ActivityLogsScreen({
   systemLogs,
   candidateLogs,
@@ -42,7 +67,6 @@ export default function ActivityLogsScreen({
 }: ActivityLogsScreenProps) {
   const [tab, setTab] = useState<Tab>("system");
 
-  /** Candidates that have history, most recently touched first. */
   const touched = useMemo(() => {
     const latest = new Map<string, { count: number; at: string }>();
     for (const entry of candidateLogs) {
@@ -52,32 +76,72 @@ export default function ActivityLogsScreen({
         at: !current || entry.at > current.at ? entry.at : current.at,
       });
     }
-
     return candidates
       .filter((candidate) => latest.has(candidate.id))
       .map((candidate) => ({ candidate, ...latest.get(candidate.id)! }))
       .sort((a, b) => b.at.localeCompare(a.at));
   }, [candidateLogs, candidates]);
 
+  /* ── KPI counts from live logs ── */
+  const errorCount   = systemLogs.filter((l) => l.type === "error").length;
+  const warnCount    = systemLogs.filter((l) => l.type === "warn").length;
+  const hourlyBuckets = useMemo(() => buildHourlyBuckets(systemLogs), [systemLogs]);
+
   return (
     <>
-      <div className="db-card" style={{ padding: "0.35rem", display: "inline-flex", gap: "0.2rem", width: "fit-content" }}>
-        <button
-          type="button"
-          className={`theme-switch-btn ${tab === "system" ? "is-on" : ""}`}
-          style={{ padding: "0.45rem 0.9rem", borderRadius: "var(--radius-sm)" }}
-          onClick={() => setTab("system")}
-        >
-          <Radio size={13} /> Pipeline trace
-        </button>
-        <button
-          type="button"
-          className={`theme-switch-btn ${tab === "records" ? "is-on" : ""}`}
-          style={{ padding: "0.45rem 0.9rem", borderRadius: "var(--radius-sm)" }}
-          onClick={() => setTab("records")}
-        >
-          <Users size={13} /> Record history
-        </button>
+      {/* ── Hourly event bar chart ── */}
+      {systemLogs.length > 0 && (
+        <section className="db-card">
+          <div className="db-card-head">
+            <div>
+              <h2 className="db-card-title">Events by Hour</h2>
+              <p className="db-card-sub">
+                Pipeline activity distribution (today, by hour)
+              </p>
+            </div>
+          </div>
+          <div className="db-card-body" style={{ paddingBottom: "1.5rem" }}>
+            <HourlyBar buckets={hourlyBuckets} />
+          </div>
+        </section>
+      )}
+
+      {/* ── Tab switcher ── */}
+      <div className="ds-head is-compact">
+        <div className="ds-seg" role="tablist" aria-label="Log source">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "system"}
+            className={`ds-seg-btn ${tab === "system" ? "is-on" : ""}`}
+            onClick={() => setTab("system")}
+          >
+            <Radio size={13} /> Pipeline trace
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "records"}
+            className={`ds-seg-btn ${tab === "records" ? "is-on" : ""}`}
+            onClick={() => setTab("records")}
+          >
+            <Users size={13} /> Record history
+          </button>
+        </div>
+
+        {/* Only the states that have something in them. A row of zeros is four
+            findings the reader has to check to learn nothing happened. */}
+        <p className="ds-head-sub">
+          {systemLogs.length === 0
+            ? "No pipeline events this session."
+            : [
+                `${formatInt(systemLogs.length)} event${systemLogs.length === 1 ? "" : "s"}`,
+                warnCount > 0 ? `${formatInt(warnCount)} warning${warnCount === 1 ? "" : "s"}` : null,
+                errorCount > 0 ? `${formatInt(errorCount)} error${errorCount === 1 ? "" : "s"}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+        </p>
       </div>
 
       {tab === "system" ? (

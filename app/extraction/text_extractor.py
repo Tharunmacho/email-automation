@@ -1,9 +1,24 @@
 """Extract machine-readable text from any supported resume file.
 
-Dispatch by detected file type. For PDFs we first try the embedded text layer;
-if it is empty/short (a scanned document) we fall back to OCR. Images always go
-through OCR. The result records *how* text was obtained so downstream code and
-audits know whether OCR was involved.
+Dispatch is by detected file type, never by filename. For PDFs the embedded text
+layer is used wherever it is trustworthy and every other page is read locally;
+images always go through OCR. The result records *how* the text was obtained so
+downstream code and audits know whether OCR was involved.
+
+The ordering here is the point. Every page is read before anything is judged,
+and every page is judged before anything is uploaded:
+
+    read the whole document locally
+        -> classify each page from its own content
+            -> resume pages   -> the Veris resume endpoint
+               Aadhaar pages  -> the Aadhaar endpoint      (multipass)
+               Indian passport pages -> the passport endpoint (multipass)
+               everything else -> never uploaded at all
+
+A file therefore cannot be billed as a resume extraction because of what it was
+called, and an Aadhaar card on the last page of a forty-page bundle cannot be
+missed because the CV was found on page three.
+
 """
 from __future__ import annotations
 
@@ -13,14 +28,10 @@ from app.config import settings
 from app.core.exceptions import TextExtractionError, UnsupportedFileTypeError
 from app.core.models import ExtractedDocument, PageText
 from app.extraction import file_type as ft
+from app.extraction import local_ocr
 from app.extraction import page_classifier as pc
 from app.extraction import pdf_pages
-from app.extraction.ocr import (
-    ocr_image_bytes,
-    ocr_pdf_page_texts,
-    ocr_via_veris,
-    ocr_via_veris_pages,
-)
+from app.extraction.ocr import ocr_via_veris_pages, ocr_via_veris_read
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -81,6 +92,14 @@ def _needs_ocr(text: str) -> bool:
 
 
 def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
+    """Read every page of the PDF, then say what is on each of them.
+
+    The text layer is free and is used wherever it is trustworthy; every other
+    page is read locally. No page is skipped on the grounds that the résumé has
+    already been found — the identity documents in an application bundle are
+    usually *behind* the CV, and stopping at the CV is precisely why they were
+    never extracted.
+    """
     import fitz  # PyMuPDF
 
     page_texts: list[str] = []
@@ -89,191 +108,116 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
         for page in doc:
             page_texts.append(_page_layout_text(page))
 
-    ocr_pages: set[int] = set()
     method = "pdf_text"
 
-    layer_chars = sum(len(t.strip()) for t in page_texts)
-    joined = "\n\n".join(page_texts)
-    is_spaced = bool(_SPACED_CHARS.search(joined))
-    thin = layer_chars < settings.ocr_min_text_chars
+    # Which pages the embedded text layer cannot answer for. A page with no text
+    # at all is a scan; one whose text comes back per-character spaced is a
+    # broken font map, and both need to be read as pictures.
+    targets = [n for n in range(1, page_count + 1) if _needs_ocr(page_texts[n - 1])]
 
-    # OCR when the text layer cannot be trusted overall (thin or spaced).
-    # If multipass is enabled, we also must trigger selective OCR even for a thick
-    # document if any individual page is an image (no text layer), because candidates
-    # often append scanned ID images to a digitally generated résumé PDF.
-    needs_partial_ocr = False
-    if not (thin or is_spaced) and settings.multipass_extraction_enabled:
-        needs_partial_ocr = any(_needs_ocr(t) for t in page_texts)
+    # A safety net against a mis-sent thousand-page scan, not a budget: local
+    # reading costs CPU, not money. Enforced here rather than only inside the
+    # reader so the limit holds however the pages are read, and it is always
+    # reported with the page numbers that went unread.
+    ceiling = max(1, settings.ocr_max_pages)
+    if len(targets) > ceiling:
+        log.warning(
+            "'%s' needs %d page(s) read but the safety ceiling is %d; pages %s were "
+            "not read (raise OCR_MAX_PAGES)",
+            filename or "attachment", len(targets), ceiling, targets[ceiling:],
+        )
+        targets = targets[:ceiling]
 
-    if thin or is_spaced or needs_partial_ocr:
+    if targets:
         log.info(
-            "PDF OCR triggered (%s, pages=%d, thin=%s, spaced=%s, partial=%s)",
-            filename, page_count, thin, is_spaced, needs_partial_ocr,
+            "Reading %d of %d page(s) of '%s' locally (no usable text layer)",
+            len(targets), page_count, filename or "attachment",
         )
-        page_texts, ocr_pages = _ocr_pdf_selectively(
-            data, filename, page_texts, page_count,
-        )
+        reads = local_ocr.ocr_pdf_page_reads(data, pages=set(targets), filename=filename)
+        fresh = {number: read.text for number, read in reads.items()}
+        page_texts, ocr_pages = _merge_pages(page_texts, fresh)
         if ocr_pages:
             method = "pdf_ocr"
+    else:
+        ocr_pages = set()
 
     return _classified(
         page_texts,
         method=method,
         page_count=page_count,
         ocr_pages=ocr_pages,
+        data=data,
+        filename=filename,
     )
 
 
-def _ocr_chunk(data: bytes, pages: list[int], filename: str) -> dict[int, str]:
-    """OCR exactly these pages, cutting them out of the PDF first.
-
-    The cloud OCR takes a *file*, so the only way to bound how much it has to
-    chew on is to hand it a smaller file. A 9-page 1.6 MB scan timed out at 180
-    seconds as one call; the same pages sent two at a time answer in seconds.
-    """
-    if not pages:
-        return {}
-
-    if settings.veris_ocr_api_key and not settings.prefer_local_ocr_for_scanning:
-        payload = pdf_pages.subset_pdf(data, pages) or data
-        try:
-            texts = [t or "" for t in ocr_via_veris_pages(payload, filename or "resume.pdf")]
-            if any(t.strip() for t in texts):
-                if len(texts) == len(pages):
-                    return dict(zip(pages, texts))
-                # Veris merged or dropped a page, so per-page numbering inside
-                # this chunk cannot be trusted. Keeping the text on the chunk's
-                # first page loses the boundary but never the content.
-                log.warning(
-                    "Veris returned %d page(s) for a %d-page chunk %s; keeping the "
-                    "text but not its page boundaries",
-                    len(texts), len(pages), pages,
-                )
-                return {pages[0]: "\n\n".join(t for t in texts if t.strip())}
-        except Exception as err:  # noqa: BLE001
-            log.warning("Veris OCR failed on pages %s (%s); trying local OCR", pages, err)
-
-    try:
-        return ocr_pdf_page_texts(data, dpi=settings.ocr_dpi, pages=set(pages))
-    except Exception as err:  # noqa: BLE001
-        log.warning("Local OCR failed on pages %s: %s", pages, err)
-        return {}
-
-
-def _ocr_scan_progressively(
-    data: bytes, filename: str, page_count: int,
-) -> tuple[dict[int, str], int]:
-    """Read a scanned bundle a couple of pages at a time, stopping at the résumé.
-
-    A pure scan has no text layer, so there is nothing to classify from until
-    something has been OCR'd — the page selection cannot be done up front. So do
-    it incrementally: OCR a small chunk, classify what has been read so far, and
-    stop once the résumé has been found and one page past it has been checked
-    for a continuation.
-
-    A CV on pages 1-2 of a 30-page bundle therefore costs four pages of OCR, and
-    a CV on page 15 costs sixteen — never thirty, and never one giant call.
-    """
-    found: dict[int, str] = {}
-    read = 0
-    all_pages = list(range(1, page_count + 1))
-    budget = max(1, settings.ocr_max_pages)
-
-    for chunk in pdf_pages.chunks(all_pages, settings.ocr_chunk_pages):
-        if read >= budget:
-            log.warning(
-                "Stopped OCR at the %d-page budget; pages %s of '%s' were never read "
-                "(raise OCR_MAX_PAGES if resumes are being missed)",
-                budget, [p for p in all_pages if p not in found and p > read], filename,
-            )
-            break
-
-        found.update(_ocr_chunk(data, chunk, filename))
-        read = chunk[-1]
-
-        texts = [found.get(n, "") for n in all_pages]
-        result = pc.classify_document(texts)
-        if result.is_resume and result.resume_pages:
-            # Keep going only while the résumé might continue onto a page we
-            # have not looked at yet.
-            if max(result.resume_pages) < read:
-                if settings.multipass_extraction_enabled:
-                    log.info(
-                        "Resume found on page(s) %s of '%s', but multipass is enabled — "
-                        "continuing OCR to look for identity documents",
-                        result.resume_pages, filename,
-                    )
-                else:
-                    log.info(
-                        "Resume found on page(s) %s of '%s' after reading %d of %d page(s)",
-                        result.resume_pages, filename, read, page_count,
-                    )
-                    break
-            if not settings.multipass_extraction_enabled:
-                continue
-
-        # Nothing resume-like yet. Whether to keep paying depends on what the
-        # pages *are*: certificates, experience letters and ID scans are the
-        # supporting documents of an application, and a CV can legitimately sit
-        # behind fifteen of them. Invoices and hall tickets are not part of any
-        # application, so once several pages in a row read as that, stop —
-        # there is no CV coming.
-        seen = [p.kind for p in result.pages if p.page_number <= read]
-        # UNKNOWN counts as a reason to keep reading: the page had content and
-        # committed to nothing, which is not evidence that no CV is coming.
-        supporting = {pc.CERTIFICATE, pc.EXPERIENCE_LETTER, pc.ID_DOCUMENT, pc.UNKNOWN}
-        if read >= settings.ocr_give_up_pages and not any(k in supporting for k in seen):
-            log.info(
-                "Stopping OCR of '%s' after %d of %d page(s): nothing read so far is "
-                "a resume or an application document (kinds: %s)",
-                filename, read, page_count, sorted(set(seen)),
-            )
-            break
-    return found, read
-
-
-def _ocr_pdf_selectively(
-    data: bytes, filename: str, page_texts: list[str], page_count: int,
+def _merge_pages(
+    page_texts: list[str], fresh: dict[int, str],
 ) -> tuple[list[str], set[int]]:
-    """OCR the pages that need it — only the ones holding the résumé.
-
-    Two cases:
-
-      * The PDF has a usable text layer — classify from it for free, then OCR
-        only those résumé pages whose text came out thin or per-character
-        spaced. Often that is no pages at all.
-      * The PDF is a pure scan — read it progressively, smallest call first,
-        and stop as soon as the résumé has been located.
-    """
-    has_text_layer = sum(len(t.strip()) for t in page_texts) >= settings.ocr_min_text_chars
-
-    if has_text_layer:
-        if settings.multipass_extraction_enabled:
-            # We must OCR any image-like page in the bundle to find IDs, even if
-            # the resume itself had a perfectly good text layer.
-            targets = [n for n in range(1, page_count + 1) if _needs_ocr(page_texts[n - 1])]
-        else:
-            wanted = pc.classify_document(page_texts).resume_pages
-            targets = [n for n in wanted if _needs_ocr(page_texts[n - 1])]
-        if not targets:
-            return page_texts, set()
-        log.info("Selective OCR on resume page(s) %s of %d", targets, page_count)
-        fresh: dict[int, str] = {}
-        for chunk in pdf_pages.chunks(targets, settings.ocr_chunk_pages):
-            fresh.update(_ocr_chunk(data, chunk, filename))
-    else:
-        fresh, _read = _ocr_scan_progressively(data, filename, page_count)
-
+    """Fold freshly-read pages into the text-layer read, keeping page numbers."""
     merged = list(page_texts)
-    ocr_pages: set[int] = set()
+    read: set[int] = set()
     for number, text in fresh.items():
         if not text.strip():
             continue
         while len(merged) < number:
             merged.append("")
         merged[number - 1] = text
-        ocr_pages.add(number)
-    return merged, ocr_pages
+        read.add(number)
+    return merged, read
+
+
+def _refine_resume_pages(
+    data: bytes, filename: str, page_texts: list[str], resume_pages: list[int],
+) -> "tuple[list[str], dict | None]":
+    """Re-read the résumé pages — and only those — through the Veris endpoint.
+
+    This is the one place anything is uploaded, and it runs *after* the local
+    read has established that these pages are a résumé. That ordering is the
+    fix for the original complaint: a bank statement or a job-board digest is
+    now identified locally and never reaches a paid extraction, while a real CV
+    still gets the better read on the two pages that hold it.
+    """
+    if not (settings.veris_refine_resume_pages and settings.veris_ocr_api_key):
+        return page_texts, None
+    if not resume_pages:
+        return page_texts, None
+
+    # Page trim, then size trim — the same treatment the Aadhaar and passport
+    # payloads get, for the same reason: a trimmed page still carries the
+    # scanner's full resolution, and that upload is most of the round trip.
+    payload = pdf_pages.compact_pdf(
+        pdf_pages.subset_pdf(data, resume_pages) or data,
+        settings.ocr_payload_max_bytes,
+        settings.ocr_payload_dpi,
+    )
+    try:
+        read = ocr_via_veris_read(payload, filename or "resume.pdf")
+        texts = [t or "" for t in read.pages]
+        extraction = read.result
+    except Exception as exc:  # noqa: BLE001 — the local read already stands
+        log.warning("Veris refinement of pages %s failed (%s); keeping the local read",
+                    resume_pages, exc)
+        return page_texts, None
+
+    if not any(t.strip() for t in texts):
+        return page_texts, extraction
+
+    refined = list(page_texts)
+    if len(texts) == len(resume_pages):
+        for number, text in zip(resume_pages, texts):
+            if len(text.strip()) > len(refined[number - 1].strip()):
+                refined[number - 1] = text
+    else:
+        # Veris merged or dropped a page, so the per-page mapping cannot be
+        # trusted. The combined text goes on the first résumé page: the boundary
+        # is lost, the content is not.
+        combined = "\n\n".join(t for t in texts if t.strip())
+        if len(combined.strip()) > len(refined[resume_pages[0] - 1].strip()):
+            refined[resume_pages[0] - 1] = combined
+    log.info("Refined résumé page(s) %s of '%s' through Veris", resume_pages, filename)
+    return refined, extraction
+
 
 
 def _classified(
@@ -281,6 +225,8 @@ def _classified(
     method: str,
     page_count: int | None = None,
     ocr_pages: set[int] | None = None,
+    data: bytes | None = None,
+    filename: str = "",
 ) -> ExtractedDocument:
     """Wrap extracted page text with the classifier's verdict.
 
@@ -305,6 +251,18 @@ def _classified(
         )
 
     result = pc.classify_document(page_texts)
+
+    # Only now — with the whole document read and the résumé located — is
+    # anything sent out for a better read, and only the pages that hold it.
+    veris_resume_result: dict | None = None
+    if data is not None and result.is_resume and result.resume_pages and ocr_pages:
+        refined, veris_resume_result = _refine_resume_pages(
+            data, filename, page_texts, result.resume_pages
+        )
+        if refined is not page_texts:
+            page_texts = refined
+            result = pc.classify_document(page_texts)
+
     pages = [
         PageText(
             page_number=p.page_number,
@@ -331,6 +289,7 @@ def _classified(
         is_resume=result.is_resume,
         classification_confidence=result.confidence,
         classification_reason=result.reason,
+        veris_resume_result=veris_resume_result,
     )
 
 
@@ -438,12 +397,17 @@ def _extract_odt(data: bytes) -> ExtractedDocument:
 
 
 def _extract_image(data: bytes, filename: str = "") -> ExtractedDocument:
-    if settings.veris_ocr_api_key and not settings.prefer_local_ocr_for_scanning:
-        text = ocr_via_veris(data, filename or "resume.png").strip()
-    else:
-        text = ocr_image_bytes(data).strip()
+    """A photographed or scanned page, read locally before it is judged.
+
+    An image attachment carries no filename evidence worth anything and no text
+    layer to inspect, so it used to be uploaded to find out what it was — which
+    meant every signature graphic and every marketing banner that cleared the
+    size floor was billed as a résumé extraction. It is read here first; only if
+    the content reads as a résumé does `_classified` send it anywhere.
+    """
+    text = local_ocr.ocr_image_bytes(data).strip()
     if len(text) < settings.ocr_min_text_chars:
-        log.warning("Image OCR produced only %d chars", len(text))
+        log.warning("Image OCR produced only %d chars for '%s'", len(text), filename)
     if not text:
         raise TextExtractionError("Image OCR produced no text.")
     return _classified([text], method="image_ocr", page_count=1, ocr_pages={1})

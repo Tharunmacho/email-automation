@@ -17,16 +17,14 @@
  * above the dropdown you are about to use.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
-  ArrowRight,
   CheckCircle2,
   Clock,
-  Inbox,
   KeyRound,
   Loader2,
-  Plus,
+  Phone,
   RefreshCw,
   Scale,
   Search,
@@ -38,7 +36,9 @@ import {
   X,
 } from "lucide-react";
 
+import Select from "@/components/ui/Select";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
+import SplitDonut from "@/components/dashboard/SplitDonut";
 import {
   assignCandidate,
   autoAssignCandidate,
@@ -63,23 +63,42 @@ interface AdminStaffManagementProps {
   onToast: (message: string, type?: "info" | "success" | "error") => void;
   onCandidatesChanged: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
+  /**
+   * Where "Add staff" goes.
+   *
+   * An account is an account: the one place that creates them, with the role
+   * and the page grants that come with them, is User Management. When the shell
+   * passes this, the button hands the intent over to that screen instead of
+   * opening the cut-down form below — which stays only for an admin whose
+   * grants do not include the User Management page.
+   */
+  onCreateStaff?: () => void;
 }
 
-const EMPTY_FORM = { email: "", password: "", name: "" };
+const EMPTY_FORM = { email: "", password: "", name: "", phone: "" };
 
-/** The directory is the long block; it opens on one page and grows on request. */
+/** A queue opens on one page and grows on request. */
 const PAGE_SIZE = 25;
 
 type AllocFilter = "all" | "unallocated" | "orphaned" | "unviewed" | "overdue" | "evaluated";
 
-const ALLOC_FILTERS: { id: AllocFilter; label: string }[] = [
+/**
+ * The tabs inside one queue.
+ *
+ * "Unallocated" and "Orphaned" are not among them: a queue is already defined
+ * by whose it is, so narrowing it to "belongs to nobody" can only ever come
+ * back empty. Those two are queues in their own right — see the sentinels.
+ */
+const QUEUE_FILTERS: { id: AllocFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "unallocated", label: "Unallocated" },
-  { id: "orphaned", label: "Orphaned" },
   { id: "unviewed", label: "Unviewed" },
   { id: "overdue", label: "Overdue" },
   { id: "evaluated", label: "Evaluated" },
 ];
+
+/** The two piles that belong to nobody, addressed the way a staff id is. */
+const UNALLOCATED = "__unallocated";
+const ORPHANED = "__orphaned";
 
 export default function AdminStaffManagement({
   candidates,
@@ -87,6 +106,7 @@ export default function AdminStaffManagement({
   onToast,
   onCandidatesChanged,
   onOpenCandidate,
+  onCreateStaff,
 }: AdminStaffManagementProps) {
   const [workload, setWorkload] = useState<StaffWorkloadResponse | null>(null);
   const [breaches, setBreaches] = useState<SlaAlert[]>([]);
@@ -96,14 +116,6 @@ export default function AdminStaffManagement({
   const [error, setError] = useState<string | null>(null);
 
   const [creating, setCreating] = useState(false);
-  /**
-   * Whether the roster box is showing the summary or everything.
-   *
-   * Summary by default, matching My Candidates: this screen answers "is the
-   * work spread evenly and is anything late" before it answers "show me every
-   * account, every breach and every allocation".
-   */
-  const [showAll, setShowAll] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [rebalancing, setRebalancing] = useState(false);
@@ -115,6 +127,10 @@ export default function AdminStaffManagement({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AllocFilter>("all");
   const [visible, setVisible] = useState(PAGE_SIZE);
+  /** Whose queue is open: a staff id, or one of the two bucket sentinels. */
+  const [detailId, setDetailId] = useState<string | null>(null);
+  /** The roster, so a KPI tile can bring it into view. */
+  const rosterRef = useRef<HTMLElement | null>(null);
 
   // Reloading is a request, not a call: bumping this re-runs the one effect
   // below, so every refresh — a push event, a create, a rebalance — goes
@@ -149,9 +165,19 @@ export default function AdminStaffManagement({
     };
   }, [refreshNonce, reloadToken]);
 
-  // Narrowing the directory takes you back to its first page; keeping the old
+  // Narrowing the queue takes you back to its first page; keeping the old
   // offset would open a two-result filter on an empty page.
-  useEffect(() => setVisible(PAGE_SIZE), [filter, query]);
+  //
+  // Adjusted during render rather than in an effect. Resetting from an effect
+  // means React commits the long page first and only then re-renders the short
+  // one, so the list is briefly rendered at an offset the new filter cannot
+  // fill. Comparing against the last value it was paged for corrects the state
+  // before anything is painted.
+  const [pagedFor, setPagedFor] = useState({ filter, query });
+  if (pagedFor.filter !== filter || pagedFor.query !== query) {
+    setPagedFor({ filter, query });
+    setVisible(PAGE_SIZE);
+  }
 
   const staff = useMemo(() => workload?.items ?? [], [workload]);
   const activeStaff = useMemo(() => staff.filter((member) => member.active), [staff]);
@@ -209,6 +235,19 @@ export default function AdminStaffManagement({
   );
 
   /**
+   * How far past the window each breached candidate is, keyed by id.
+   *
+   * This is what the removed SLA card carried, kept so the directory row can
+   * state it where the profile is actually reassigned. Rounded once, here,
+   * rather than at every render of every row.
+   */
+  const overdueHours = useMemo(() => {
+    const hours: Record<string, number> = {};
+    for (const alert of breaches) hours[alert.candidate_id] = Math.round(alert.hours_overdue);
+    return hours;
+  }, [breaches]);
+
+  /**
    * Every account that still exists, deactivated ones included.
    *
    * The test for "orphaned" is membership of this, not of `staff` — a
@@ -227,12 +266,6 @@ export default function AdminStaffManagement({
     (candidate: CandidateRecord) =>
       Boolean(candidate.assigned_staff_id) && !rosterIds.has(candidate.assigned_staff_id!),
     [rosterIds],
-  );
-
-  /** The heaviest active queue — the scale every load bar is drawn against. */
-  const heaviest = useMemo(
-    () => Math.max(1, ...staff.map((member) => member.assigned)),
-    [staff],
   );
 
   const matches = useCallback(
@@ -256,59 +289,44 @@ export default function AdminStaffManagement({
     [isOrphan, overdueIds],
   );
 
+  /** The two piles nobody owns, counted here so card and queue never disagree. */
+  const buckets = useMemo(
+    () => ({
+      unallocated: candidates.filter((candidate) => !candidate.assigned_staff_id).length,
+      orphaned: candidates.filter((candidate) => isOrphan(candidate)).length,
+    }),
+    [candidates, isOrphan],
+  );
 
   /**
-   * One ring per reviewer, sized by the share of the allocated pool they are
-   * holding. This is a staff screen, so the chart answers "is the work spread
-   * evenly" rather than "what state are the candidates in" — which is the
-   * candidate screen's question and was being asked twice.
+   * Everything the open queue holds, before its tab and its search box.
    *
-   * Capped at four: a fifth arc lands inside a radius too small to read, and
-   * the roster below is where a full list belongs. The remainder is counted
-   * rather than dropped silently.
+   * A staff queue excludes orphans deliberately: a profile pointing at a
+   * deleted account keeps the id it was assigned to, and if that id is ever
+   * reissued it would otherwise surface in a stranger's queue.
    */
-  const staffSegments = useMemo(() => {
-    const tones = [
-      "var(--primary)",
-      "var(--success)",
-      "var(--warning)",
-      "var(--rose)",
-    ];
-    const ranked = [...activeStaff].sort((a, b) => b.assigned - a.assigned);
-    return {
-      shown: ranked.slice(0, 4).map((member, index) => ({
-        key: member.id,
-        label: member.name || member.email,
-        value: member.assigned,
-        tone: tones[index],
-      })),
-      rest: Math.max(0, ranked.length - 4),
-      restLoad: ranked.slice(4).reduce((sum, member) => sum + member.assigned, 0),
-    };
-  }, [activeStaff]);
-
-  /** How many reviewers currently have at least one profile past the window. */
-  const reviewersBehind = Object.keys(breachesByStaff).length;
-
-  /** Mean queue depth across the active roster. */
-  const averageLoad = activeStaff.length
-    ? Math.round((totals?.assigned ?? 0) / activeStaff.length)
-    : 0;
+  const queueBase = useMemo(() => {
+    if (!detailId) return [] as CandidateRecord[];
+    if (detailId === UNALLOCATED) return candidates.filter((c) => !c.assigned_staff_id);
+    if (detailId === ORPHANED) return candidates.filter((c) => isOrphan(c));
+    return candidates.filter((c) => c.assigned_staff_id === detailId && !isOrphan(c));
+  }, [candidates, detailId, isOrphan]);
 
   const filterCounts = useMemo(() => {
     const counts = {} as Record<AllocFilter, number>;
-    for (const { id } of ALLOC_FILTERS) {
-      counts[id] = candidates.filter((candidate) => matches(candidate, id)).length;
+    for (const { id } of QUEUE_FILTERS) {
+      counts[id] = queueBase.filter((candidate) => matches(candidate, id)).length;
     }
     return counts;
-  }, [candidates, matches]);
+  }, [queueBase, matches]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return candidates.filter((candidate) => {
+    return queueBase.filter((candidate) => {
       if (!matches(candidate, filter)) return false;
       if (!needle) return true;
       const haystack = [
+        candidate.candidate_code,
         candidate.profile?.full_name,
         candidate.profile?.email,
         candidate.profile?.current_designation,
@@ -319,7 +337,50 @@ export default function AdminStaffManagement({
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [candidates, filter, matches, query]);
+  }, [filter, matches, query, queueBase]);
+
+  /**
+   * Open one queue, always from the top of it.
+   *
+   * The tab and the search box are shared by every queue, so they are cleared
+   * on the way in: a filter left over from the last person's pile silently
+   * hides most of the next person's.
+   */
+  const openQueue = useCallback((id: string) => {
+    setDetailId(id);
+    setFilter("all");
+    setQuery("");
+    setVisible(PAGE_SIZE);
+  }, []);
+
+  const closeQueue = useCallback(() => setDetailId(null), []);
+
+  useEffect(() => {
+    if (!detailId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeQueue();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closeQueue, detailId]);
+
+  /** Who the open queue belongs to — null for either of the two buckets. */
+  const queueMember = useMemo(
+    () => (detailId ? staff.find((member) => member.id === detailId) ?? null : null),
+    [detailId, staff],
+  );
+
+  const queueTitle = queueMember
+    ? queueMember.name || queueMember.email
+    : detailId === ORPHANED
+      ? "Orphaned profiles"
+      : "Unallocated profiles";
+
+  const queueSubtitle = queueMember
+    ? queueMember.email
+    : detailId === ORPHANED
+      ? "Assigned to an account that no longer exists — re-homing keeps the evaluation."
+      : "Nobody owns these yet, so nobody can see them.";
 
   // ---- actions ---------------------------------------------------------- //
   const handleCreate = async (event: React.FormEvent) => {
@@ -334,6 +395,7 @@ export default function AdminStaffManagement({
         email: form.email.trim(),
         password: form.password,
         name: form.name.trim(),
+        phone: form.phone.trim(),
       });
       // Nothing was reallocated, and the toast says so: an admin who wants the
       // existing pile levelled across the new account has to ask for it, and
@@ -501,7 +563,10 @@ export default function AdminStaffManagement({
       const parts = [`${formatInt(result.in_breach)} in breach`];
       if (result.new_alerts) parts.push(`${formatInt(result.new_alerts)} newly alerted`);
       if (result.resolved) parts.push(`${formatInt(result.resolved)} resolved`);
-      onToast(`SLA sweep complete — ${parts.join(", ")}.`, result.in_breach ? "info" : "success");
+      onToast(
+        `Review-window check complete — ${parts.join(", ")}.`,
+        result.in_breach ? "info" : "success",
+      );
       reload();
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not run the sweep.", "error");
@@ -531,318 +596,235 @@ export default function AdminStaffManagement({
     );
   }
 
-  /** The three things an admin comes to this screen to do. */
-
   /** Three numbers: the pile, the throughput, the risk. */
+  /** Allocated but never opened — the outer slice of the ring. */
+  const unopenedTotal = staff.reduce((sum, member) => sum + member.unviewed, 0);
+
+  const kpis = [
+    {
+      label: "Candidate pool",
+      value: compactNumber(pool),
+      caption: `${formatInt(totals?.assigned ?? 0)} allocated · ${formatInt(
+        totals?.unassigned ?? 0,
+      )} unowned`,
+      icon: Users,
+      alert: false,
+      jump: null as string | null,
+    },
+    {
+      label: "Evaluated",
+      value: `${evaluatedPct}%`,
+      caption:
+        totals && totals.assigned > 0
+          ? `${formatInt(totals.evaluated)} of ${formatInt(totals.assigned)} judged`
+          : "Nothing allocated yet",
+      icon: CheckCircle2,
+      alert: false,
+      jump: null as string | null,
+    },
+    {
+      label: `Past the ${thresholdHours}h review window`,
+      value: formatInt(breaches.length),
+      // The tile is the route to the rows it counts. It lands on the roster,
+      // where every card carries its own overdue badge, and opening that card
+      // lands on the Overdue tab of that person's queue — which is where a
+      // breach gets acted on rather than merely read.
+      caption: breaches.length ? "Not opened, or opened and not judged" : "All inside the window",
+      icon: Clock,
+      alert: breaches.length > 0,
+      jump: "roster" as string | null,
+    },
+  ];
+
+  /** The most urgent thing wrong with the roster, or nothing. See below. */
+  const advisory = totals && totals.orphaned > 0 ? "orphans" : imbalance ? "imbalance" : null;
+
+  /** Hand the request to User Management when it is reachable, else open the local form. */
+  const startCreate = () => (onCreateStaff ? onCreateStaff() : setCreating(true));
+
+  /**
+   * Take the eye to the roster from a KPI tile.
+   *
+   * Without the scroll the tile is a control whose entire effect happens a
+   * screen below the click — press "Past the 24h SLA" and, as far as anything
+   * visible goes, nothing has happened.
+   */
+  const showRoster = () => {
+    rosterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
-    <div className="staff-admin">
-      {/* ---- Box 1: the pool in one number, with the breakdown as columns.
-           Three action cards and three stat tiles used to open this screen —
-           six bordered objects before the first piece of actual work. They are
-           one box now, the same shape My Candidates uses. ---- */}
-      <section className="sq-summary">
-        <header className="sq-summary-head">
-          <div>
-            <h3 className="db-card-title">Allocation overview</h3>
-            <p className="db-card-sub">Everything ingested, and who is holding it.</p>
-          </div>
-
-          {/* The three actions, as controls rather than as cards. Their old
-              subtitles are gone: a sentence explaining what Rebalance does
-              belongs in a tooltip, not in a permanent third of the screen. */}
-          <div className="sq-actions">
-            <button type="button" className="sq-next" onClick={() => setCreating(true)}>
-              <UserPlus size={16} />
-              <span>Add staff member</span>
-              <ArrowRight size={15} />
-            </button>
-
-            <button
-              type="button"
-              className="sq-action"
-              onClick={() => void handleRebalance()}
-              disabled={rebalancing || activeStaff.length === 0}
-              title="Level untouched profiles. Anything reviewed stays with its owner."
-            >
-              {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
-              <span>{rebalancing ? "Rebalancing…" : "Rebalance"}</span>
-            </button>
-
-            <button
-              type="button"
-              className="sq-action"
-              onClick={() => void handleScan()}
-              disabled={scanning}
-              title={`Re-check every allocation against the ${thresholdHours}-hour window.`}
-            >
-              {scanning ? <Loader2 size={15} className="icon-spin" /> : <ShieldCheck size={15} />}
-              <span>{scanning ? "Sweeping…" : "Run SLA sweep"}</span>
-            </button>
-          </div>
-        </header>
-
-        <div className="sq-headline">
-          <span className="sq-headline-value">{formatInt(activeStaff.length)}</span>
-          <span className={`sq-headline-chip ${imbalance ? "is-warn" : ""}`}>
-            {imbalance ? "Uneven load" : "Balanced"}
-          </span>
-          <span className="sq-headline-label">
-            <Users size={14} /> Active reviewers
-          </span>
-        </div>
-
-        <div className="sq-metrics">
-          <div className="sq-metric">
-            <span className="sq-metric-label">
-              <UserPlus size={14} /> Accounts
-            </span>
-            <strong className="sq-metric-value">{formatInt(staff.length)}</strong>
-            <em className="sq-metric-note">
-              {formatInt(activeStaff.length)} active ·{" "}
-              {formatInt(Math.max(0, staff.length - activeStaff.length))} deactivated
-            </em>
-          </div>
-
-          <div className="sq-metric">
-            <span className="sq-metric-label">
-              <Inbox size={14} /> Average queue
-            </span>
-            <strong className="sq-metric-value">{formatInt(averageLoad)}</strong>
-            <em className="sq-metric-note">
-              {activeStaff.length
-                ? `${formatInt(totals?.assigned ?? 0)} profiles across the roster`
-                : "No active reviewer to allocate to"}
-            </em>
-          </div>
-
-          <div className="sq-metric">
-            <span className="sq-metric-label">
-              <Scale size={14} /> Load spread
-            </span>
-            <strong className={`sq-metric-value ${imbalance ? "is-alert" : ""}`}>
-              {formatInt(imbalance?.spread ?? 0)}
-            </strong>
-            <em className="sq-metric-note">
-              {imbalance
-                ? `${imbalance.busiest.name || imbalance.busiest.email} is holding the most — rebalance to level it`
-                : "Every reviewer is within one profile of the others"}
-            </em>
-          </div>
-
-          <div className="sq-metric">
-            <span className="sq-metric-label">
-              <Clock size={14} /> Reviewers behind
-            </span>
-            <strong className={`sq-metric-value ${reviewersBehind ? "is-alert" : ""}`}>
-              {formatInt(reviewersBehind)}
-            </strong>
-            <em className="sq-metric-note">
-              {reviewersBehind
-                ? `${formatInt(breaches.length)} profiles past the ${thresholdHours}h window`
-                : "Nobody is past the review window"}
-            </em>
-          </div>
-        </div>
-
-        {totals && totals.orphaned > 0 && (
-          <div className="staff-note is-warn">
-            <AlertTriangle size={15} />
-            <span>
-              <strong>
-                {formatInt(totals.orphaned)} profile{totals.orphaned === 1 ? " is" : "s are"} still
-                assigned to a deleted account and nobody can see{" "}
-                {totals.orphaned === 1 ? "it" : "them"}.
-              </strong>{" "}
-              {totals.orphaned === 1 ? "It was" : "They were"} already reviewed, so re-homing keeps
-              the evaluation — or use the Orphaned filter below to place{" "}
-              {totals.orphaned === 1 ? "it" : "them"} yourself.
-            </span>
-            <button
-              type="button"
-              className="db-btn is-primary"
-              onClick={() => void handleRehome()}
-              disabled={rehoming || activeStaff.length === 0}
-              title={
-                activeStaff.length === 0
-                  ? "There is no active account to re-home these to"
-                  : "Spread them across the active roster, verdicts intact"
-              }
-            >
-              {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
-              {rehoming ? "Re-homing…" : "Re-home now"}
-            </button>
-          </div>
-        )}
-      </section>
-
-      <div className="sq-row">
-        {/* ---- Box 2: where the pool stands, as concentric arcs. ---- */}
-        <section className="sq-chart">
-          <header className="db-card-head">
-            <h3 className="db-card-title">Workload split</h3>
-          </header>
-
-          <p className="sq-chart-total">
-            <span className="sq-chart-total-label">Allocated across the roster</span>
-            <span className="sq-chart-total-value">
-              {compactNumber(totals?.assigned ?? 0)}
-            </span>
+    <div className="staff-admin ds-page">
+      {/* The screen's actions live in its own head, beside the title they act
+          on, rather than in a band of buttons floating under a generic one. */}
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Staff &amp; allocation</h1>
+          <p className="ds-head-sub">
+            Accounts, workload balance, review progress, and overdue work.
           </p>
+        </div>
 
-          <div className="sq-chart-body">
-            <ul className="sq-legend">
-              {staffSegments.shown.length === 0 ? (
-                <li className="sq-legend-row">
-                  <span className="sq-legend-label">No active reviewers</span>
-                </li>
-              ) : (
-                staffSegments.shown.map((segment) => (
-                  <li key={segment.key} className="sq-legend-row">
-                    <span className="sq-legend-dot" style={{ background: segment.tone }} />
-                    <span className="sq-legend-label">{segment.label}</span>
-                    <span className="sq-legend-value">{formatInt(segment.value)}</span>
-                  </li>
-                ))
-              )}
+        <div className="ds-head-actions">
+        <button type="button" className="ds-primary-btn" onClick={startCreate}>
+          <UserPlus size={15} />
+          Add staff
+        </button>
+        <button
+          type="button"
+          className="ds-ghost-btn"
+          onClick={() => void handleRebalance()}
+          disabled={rebalancing || activeStaff.length === 0}
+          title="Level untouched profiles across the active roster. Reviewed work stays put."
+        >
+          {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
+          {rebalancing ? "Levelling…" : "Rebalance"}
+        </button>
+        <button
+          type="button"
+          className="ds-ghost-btn"
+          onClick={() => void handleScan()}
+          disabled={scanning}
+          title={`Re-check every allocation against the ${thresholdHours}-hour window`}
+        >
+          {scanning ? <Loader2 size={15} className="icon-spin" /> : <ShieldCheck size={15} />}
+          {scanning ? "Checking…" : "Check review times"}
+        </button>
+        <button type="button" className="ds-ghost-btn" onClick={reload} title="Refresh">
+          <RefreshCw size={15} />
+        </button>
+        </div>
+      </header>
 
-              {/* Never let the cap hide people: the arcs stop at four, the
-                  count does not. */}
-              {staffSegments.rest > 0 && (
-                <li className="sq-legend-row is-rest">
-                  <span className="sq-legend-dot" style={{ background: "var(--tint-3)" }} />
-                  <span className="sq-legend-label">
-                    +{formatInt(staffSegments.rest)} more
-                  </span>
-                  <span className="sq-legend-value">{formatInt(staffSegments.restLoad)}</span>
-                </li>
-              )}
-            </ul>
-
-            <svg
-              className="sq-rings"
-              viewBox="0 0 180 180"
-              role="img"
-              aria-label={staffSegments.shown
-                .map((x) => `${x.label} ${x.value}`)
-                .join(", ")}
+      <div className="ds-stats is-three">
+        {/* The evaluated share is the ring's job — it says the same percentage
+            with the breakdown behind it, so the flat card for it comes off. */}
+        {kpis
+          .filter((kpi) => kpi.label !== "Evaluated")
+          .map((kpi) => {
+          const Icon = kpi.icon;
+          return (
+            <button
+              key={kpi.label}
+              type="button"
+              className="ds-stat"
+              onClick={() => kpi.jump && showRoster()}
+              disabled={!kpi.jump}
             >
-              {staffSegments.shown.map((segment, index) => {
-                const radius = 76 - index * 18;
-                const circumference = 2 * Math.PI * radius;
-                const allocated = totals?.assigned ?? 0;
-                const share = allocated ? segment.value / allocated : 0;
-                return (
-                  <g key={segment.key}>
-                    <circle className="sq-ring-track" cx="90" cy="90" r={radius} />
-                    {share > 0 && (
-                      <circle
-                        className="sq-ring-arc"
-                        cx="90"
-                        cy="90"
-                        r={radius}
-                        stroke={segment.tone}
-                        strokeDasharray={`${circumference * share} ${circumference}`}
-                      />
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-        </section>
-
-        {/* ---- Box 3: the roster, compact until asked otherwise. Expanded it
-             carries the three cards this screen used to end with: the workload
-             matrix, the SLA breaches and the allocation directory. ---- */}
-        <section className="sq-recent">
-          <header className="db-card-head">
-            <div>
-              <h3 className="db-card-title">
-                {showAll ? "Workload, SLA and allocation" : "Staff workload"}
-              </h3>
-              <p className="db-card-sub">
-                {showAll
-                  ? "Every account, every breach, and who owns each profile."
-                  : `${activeStaff.length} active · new profiles go to whoever is holding the fewest.`}
-              </p>
-            </div>
-
-            <button type="button" className="sq-detail" onClick={() => setShowAll((on) => !on)}>
-              {showAll ? "Show summary" : "View details"}
-              <ArrowRight size={14} />
+              <span className="ds-stat-top">
+                <span className="ds-stat-label">{kpi.label}</span>
+                <span className={`ds-stat-icon ${kpi.alert ? "is-alert" : ""}`} aria-hidden="true">
+                  <Icon size={16} strokeWidth={2} />
+                </span>
+              </span>
+              <span className={`ds-stat-value ${kpi.alert ? "is-alert" : ""}`}>{kpi.value}</span>
+              <span className="ds-stat-foot">{kpi.caption}</span>
             </button>
-          </header>
+          );
+          })}
 
-          {!showAll &&
-            (activeStaff.length === 0 ? (
-              <div className="db-empty">
-                <p className="db-empty-title">No active staff accounts</p>
-                <p className="db-empty-sub">
-                  Add one and new profiles will start being allocated automatically.
-                </p>
-              </div>
-            ) : (
-              <ul className="sq-recent-list">
-                {activeStaff.map((member) => {
-                  const opened = Math.max(0, member.assigned - member.unviewed);
-                  const pct = member.assigned
-                    ? Math.round((member.evaluated / member.assigned) * 100)
-                    : 0;
-                  return (
-                    <li key={member.id}>
-                      <div className="sq-recent-row is-static">
-                        <span className="staff-avatar">
-                          {initialsOf(member.name || member.email)}
-                        </span>
-                        <span className="sq-recent-identity">
-                          <strong>{member.name || member.email}</strong>
-                          <em>{member.email}</em>
-                        </span>
-                        <span className="sq-recent-when">
-                          {formatInt(member.assigned)} allocated · {formatInt(opened)} opened
-                        </span>
-                        <span className="sq-staff-pct">{pct}%</span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ))}
+        {/* The ring says what the percentage beside it is a percentage of —
+            "8% evaluated" reads very differently against thirteen profiles
+            than against nine hundred. */}
+        <section className="ds-stat is-static is-review-progress">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Review progress</span>
+          </span>
+          <SplitDonut
+            size={104}
+            centre={`${evaluatedPct}%`}
+            slices={[
+              {
+                label: "Evaluated",
+                value: totals?.evaluated ?? 0,
+                color: "var(--review-evaluated)",
+              },
+              {
+                label: "Opened, not judged",
+                value: Math.max(
+                  0,
+                  (totals?.assigned ?? 0) - (totals?.evaluated ?? 0) - unopenedTotal,
+                ),
+                color: "var(--review-opened)",
+              },
+              { label: "Unopened", value: unopenedTotal, color: "var(--review-unopened)" },
+            ]}
+          />
+        </section>
+      </div>
 
-          {showAll && (
-          <>
-      {/* ---- Workload matrix ---- */}
-      <section className="db-card">
-        <header className="db-card-head">
+      {/* One advisory at a time, worst first.
+          Both of these used to show together, stacked, each three lines long —
+          two paragraphs of explanation above the data they were about. Orphans
+          win because they are invisible to every staff dashboard, where an
+          uneven roster is merely inefficient. Each is bound to its own count and
+          nothing else: fix it and the strip goes on the next read, which is why
+          there is no dismiss control. */}
+      {advisory === "orphans" && totals && (
+        <div className="staff-note is-warn">
+          <AlertTriangle size={15} />
+          <span>
+            <strong>
+              {formatInt(totals.orphaned)} reviewed profile
+              {totals.orphaned === 1 ? "" : "s"} assigned to a deleted account.
+            </strong>{" "}
+            Nobody can see {totals.orphaned === 1 ? "it" : "them"}. Re-homing keeps the evaluation.
+          </span>
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() => void handleRehome()}
+            disabled={rehoming || activeStaff.length === 0}
+            title={
+              activeStaff.length === 0
+                ? "There is no active account to re-home these to"
+                : "Spread them across the active roster, verdicts intact"
+            }
+          >
+            {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
+            {rehoming ? "Re-homing…" : "Re-home"}
+          </button>
+        </div>
+      )}
+
+      {advisory === "imbalance" && imbalance && (
+        <div className="staff-note">
+          <Scale size={16} />
+          <span>
+            <strong>Workloads are uneven.</strong> {imbalance.busiest.name} holds{" "}
+            {formatInt(imbalance.busiest.assigned)}; {imbalance.lightest.name} holds{" "}
+            {formatInt(imbalance.lightest.assigned)}. Reviewed profiles stay with their owner.
+          </span>
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() => void handleRebalance()}
+            disabled={rebalancing}
+          >
+            {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
+            {rebalancing ? "Levelling…" : "Level now"}
+          </button>
+        </div>
+      )}
+
+      {/* ---- Roster ----------------------------------------------------- */}
+      <section className="ds-panel staff-roster" ref={rosterRef}>
+        <header className="ds-panel-head">
           <div>
-            <h3 className="db-card-title">Staff workload matrix</h3>
-            <p className="db-card-sub">
+            <h3 className="ds-panel-title">Staff roster</h3>
+            <p className="ds-panel-sub">
               {activeStaff.length === 0
                 ? "No active accounts — ingested résumés will stay unallocated."
                 : `${formatInt(activeStaff.length)} active${
                     staff.length !== activeStaff.length
                       ? ` · ${formatInt(staff.length - activeStaff.length)} deactivated`
                       : ""
-                  } · new profiles go to whoever is holding the fewest.`}
+                  } · new profiles go to whoever is holding the fewest. Open a row to see and move what it holds.`}
             </p>
           </div>
-          <div className="staff-head-actions">
-            <button
-              type="button"
-              className="db-btn"
-              onClick={() => void handleRebalance()}
-              disabled={rebalancing || activeStaff.length === 0}
-              title="Level untouched profiles across the active roster"
-            >
-              {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
-              {rebalancing ? "Rebalancing…" : "Rebalance"}
-            </button>
-            <button type="button" className="db-btn is-primary" onClick={() => setCreating(true)}>
-              <Plus size={15} />
-              Create Staff Member
-            </button>
-          </div>
+          {/* No buttons here. Rebalance and Create both used to sit on this
+              header AND on the action band above it, so every action on the
+              screen appeared twice. They live in the toolbar now, once. */}
         </header>
 
         {staff.length === 0 ? (
@@ -852,317 +834,447 @@ export default function AdminStaffManagement({
             <p className="db-empty-sub">
               Ingested résumés stay unallocated until there is someone to allocate them to.
             </p>
-            <button type="button" className="db-btn is-primary" onClick={() => setCreating(true)}>
+            <button type="button" className="db-btn is-primary" onClick={startCreate}>
               <UserPlus size={15} />
               Create the first account
             </button>
           </div>
         ) : (
-          <div className="staff-matrix">
-            {staff.map((member) => {
-              const overdue = breachesByStaff[member.id] ?? 0;
-              const share = Math.round((member.assigned / heaviest) * 100);
-              return (
-                <article
-                  key={member.id}
-                  className={`staff-row ${member.active ? "" : "is-inactive"}`}
-                >
-                  <div className="staff-identity">
-                    <span className="staff-avatar">{initialsOf(member.name || member.email)}</span>
-                    <div className="staff-identity-text">
-                      <span className="staff-name">
-                        {member.name}
-                        {!member.active && <em className="staff-flag">deactivated</em>}
-                        {overdue > 0 && (
-                          <em className="staff-flag is-overdue" title={`${overdue} past the SLA`}>
-                            {overdue} overdue
-                          </em>
+          <div className="ds-table-wrap is-ruled staff-roster-table-wrap">
+            <table className="ds-table is-ruled staff-roster-table">
+              <thead>
+                <tr>
+                  <th>Staff member</th>
+                  <th>Contact</th>
+                  <th className="is-num">Allocated</th>
+                  <th className="is-num">Unviewed</th>
+                  <th className="is-num">Pending</th>
+                  <th className="is-num">Judged</th>
+                  <th>Review progress</th>
+                  <th>Status</th>
+                  <th className="is-actions" aria-label="Actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staff.map((member) => {
+                  const overdue = breachesByStaff[member.id] ?? 0;
+                  const openMemberQueue = () => openQueue(member.id);
+                  return (
+                    <tr
+                      key={member.id}
+                      className={`${member.active ? "" : "is-inactive"} ${
+                        overdue > 0 ? "is-overdue" : ""
+                      } is-clickable`}
+                      onClick={openMemberQueue}
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openMemberQueue();
+                        }
+                      }}
+                    >
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(member.name || member.email)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong>{member.name || member.email}</strong>
+                            <small className="crm-record-id">
+                              Staff ID · {member.staff_code || `STF-${member.id.slice(-12).toUpperCase()}`}
+                            </small>
+                            <small>{member.email}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        {member.phone ? (
+                          <a
+                            className="staff-table-phone"
+                            href={`tel:${member.phone.replace(/\s+/g, "")}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Phone size={13} /> {member.phone}
+                          </a>
+                        ) : (
+                          <span className="ds-quiet">No number</span>
                         )}
+                      </td>
+                      <td className="is-num">{formatInt(member.assigned)}</td>
+                      <td className={`is-num ${member.unviewed > 0 ? "is-warn" : ""}`}>
+                        {formatInt(member.unviewed)}
+                      </td>
+                      <td className="is-num">{formatInt(member.pending)}</td>
+                      <td className={`is-num ${member.evaluated > 0 ? "is-good" : ""}`}>
+                        {formatInt(member.evaluated)}
+                      </td>
+                      <td className="staff-progress-cell">
+                        <span className="staff-progress-line">
+                          {formatInt(member.evaluated)} of {formatInt(member.assigned)}
+                          <em>{member.progress}%</em>
+                        </span>
+                        <span className="db-bar-track">
+                          <span
+                            className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
+                            style={{ width: `${member.progress}%` }}
+                          />
+                        </span>
+                      </td>
+                      <td>
+                        <div className="staff-table-status">
+                          <span className={`ds-status ${member.active ? "is-ok" : "is-neutral"}`}>
+                            <i aria-hidden="true" /> {member.active ? "Active" : "Deactivated"}
+                          </span>
+                          {overdue > 0 && (
+                            <span className="staff-flag is-overdue">
+                              {formatInt(overdue)} overdue
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="is-actions" onClick={(event) => event.stopPropagation()}>
+                        <div className="staff-actions">
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm"
+                            onClick={() => void handleToggleActive(member)}
+                            title={
+                              member.active
+                                ? "Stop routing new profiles here; keeps their existing work"
+                                : "Start routing new profiles here again"
+                            }
+                          >
+                            <KeyRound size={14} />
+                            {member.active ? "Deactivate" : "Reactivate"}
+                          </button>
+                          <button
+                            type="button"
+                            className="ds-ghost-btn is-sm is-danger"
+                            onClick={() => void handleDelete(member)}
+                            title="Delete the account and redistribute its profiles"
+                            aria-label={`Delete ${member.name || member.email}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {buckets.unallocated > 0 && (
+                  <tr className="is-clickable is-bucket" onClick={() => openQueue(UNALLOCATED)}>
+                    <td>
+                      <span className="ds-who">
+                        <span className="ds-avatar is-bucket" aria-hidden="true"><Users size={15} /></span>
+                        <span className="ds-who-text"><strong>Unallocated</strong><small>Waiting for an owner</small></span>
                       </span>
-                      <span className="staff-mail">{member.email}</span>
-                    </div>
-                  </div>
+                    </td>
+                    <td className="is-wrap">Not visible to staff until assigned</td>
+                    <td className="is-num">{formatInt(buckets.unallocated)}</td>
+                    <td className="is-num">—</td><td className="is-num">—</td><td className="is-num">—</td>
+                    <td>—</td>
+                    <td><span className="ds-status is-warn"><i aria-hidden="true" />Needs assignment</span></td>
+                    <td className="is-actions"><span className="ds-open">Open</span></td>
+                  </tr>
+                )}
 
-                  {/* Three figures in the same order on every row, so the
-                      column reads down as well as across. */}
-                  <div className="staff-metrics">
-                    <span className="staff-metric">
-                      <em>{formatInt(member.assigned)}</em>Allocated
-                    </span>
-                    <span className="staff-metric">
-                      <em>{formatInt(member.unviewed)}</em>Unviewed
-                    </span>
-                    <span className="staff-metric">
-                      <em>{formatInt(member.pending)}</em>Pending
-                    </span>
-                  </div>
-
-                  <div className="staff-progress">
-                    <div className="db-bar-row">
-                      <span className="db-bar-label">
-                        {formatInt(member.evaluated)} / {formatInt(member.assigned)} evaluated
+                {buckets.orphaned > 0 && (
+                  <tr className="is-clickable is-bucket is-overdue" onClick={() => openQueue(ORPHANED)}>
+                    <td>
+                      <span className="ds-who">
+                        <span className="ds-avatar is-alert" aria-hidden="true"><AlertTriangle size={15} /></span>
+                        <span className="ds-who-text"><strong>Orphaned</strong><small>Owning account no longer exists</small></span>
                       </span>
-                      <span className="db-bar-value">{member.progress}%</span>
-                    </div>
-                    <div className="db-bar-track">
-                      <span
-                        className={`db-bar-fill ${member.progress >= 100 ? "is-success" : ""}`}
-                        style={{ width: `${member.progress}%` }}
-                      />
-                    </div>
-                    {/* The load bar is drawn against the heaviest queue, so the
-                        matrix shows at a glance who is carrying the team. */}
-                    <div className="staff-load" title={`${formatInt(member.assigned)} allocated`}>
-                      <span className="staff-load-fill" style={{ width: `${share}%` }} />
-                    </div>
-                  </div>
+                    </td>
+                    <td className="is-wrap">Reassign without losing the evaluation</td>
+                    <td className="is-num">{formatInt(buckets.orphaned)}</td>
+                    <td className="is-num">—</td><td className="is-num">—</td><td className="is-num">—</td>
+                    <td>—</td>
+                    <td><span className="ds-status is-bad"><i aria-hidden="true" />Needs re-homing</span></td>
+                    <td className="is-actions"><span className="ds-open">Open</span></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-                  <div className="staff-actions">
+      {/* The SLA breach list used to be its own card between the matrix and the
+          directory — a third long block naming the same candidates the
+          directory named, with no way to act on any of them. It is gone. The
+          hours are on the queue row itself under the Overdue tab, which is
+          where reassigning actually happens, and the KPI tile above is the
+          route to it. */}
+      {/* ---- One queue, opened from a roster card ----------------------- //
+          This used to be a permanent block at the foot of the screen listing
+          every candidate in the system at once — the same names the roster
+          summarises, a scroll and a half of them, with the owner repeated on
+          every row. It is the inside of a card now: you ask whose pile you
+          want to look at, and that is the only pile you get. */}
+      <div
+        className={`modal-overlay ${detailId ? "active" : ""}`}
+        onClick={() => !movingId && closeQueue()}
+      >
+        <div
+          className="modal-container is-queue"
+          role="dialog"
+          aria-modal="true"
+          aria-label={queueTitle}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="modal-header">
+            <div className="queue-head">
+              <span
+                className={`ds-avatar ${queueMember ? "" : "is-bucket"} ${
+                  detailId === ORPHANED ? "is-alert" : ""
+                }`}
+                aria-hidden="true"
+              >
+                {queueMember ? (
+                  initialsOf(queueMember.name || queueMember.email)
+                ) : detailId === ORPHANED ? (
+                  <AlertTriangle size={15} />
+                ) : (
+                  <Users size={15} />
+                )}
+              </span>
+              <div>
+                <h3 className="modal-title">{queueTitle}</h3>
+                <p className="modal-subtitle">
+                  {queueSubtitle}
+                  {queueMember?.phone && (
+                    <>
+                      {" · "}
+                      <a href={`tel:${queueMember.phone.replace(/\s+/g, "")}`}>
+                        {queueMember.phone}
+                      </a>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            <button type="button" className="modal-close" onClick={closeQueue} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="modal-body is-flush">
+            {/* The member's own numbers, so closing the card to check one is
+                never necessary while you are moving their work around. */}
+            {queueMember && (
+              <div className="queue-stats">
+                <span>
+                  <em>Allocated</em>
+                  <strong>{formatInt(queueMember.assigned)}</strong>
+                </span>
+                <span>
+                  <em>Unviewed</em>
+                  <strong className={queueMember.unviewed > 0 ? "is-warn" : ""}>
+                    {formatInt(queueMember.unviewed)}
+                  </strong>
+                </span>
+                <span>
+                  <em>Pending</em>
+                  <strong>{formatInt(queueMember.pending)}</strong>
+                </span>
+                <span>
+                  <em>Judged</em>
+                  <strong className={queueMember.evaluated > 0 ? "is-good" : ""}>
+                    {formatInt(queueMember.evaluated)}
+                  </strong>
+                </span>
+                <span>
+                  <em>Progress</em>
+                  <strong>{queueMember.progress}%</strong>
+                </span>
+              </div>
+            )}
+
+            <div className="queue-controls">
+              {/* Tabs only where there is more than one state to sort — the
+                  unallocated pile is by definition unviewed and unjudged. */}
+              {queueMember ? (
+                <div className="db-tabs" role="tablist" aria-label="Filter this queue">
+                  {QUEUE_FILTERS.map(({ id, label }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={filter === id}
+                      className={`db-tab ${filter === id ? "is-on" : ""}`}
+                      onClick={() => {
+                        setFilter(id);
+                        setVisible(PAGE_SIZE);
+                      }}
+                    >
+                      {label}
+                      <span className="db-tab-count">{formatInt(filterCounts[id])}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <span className="result-count">
+                  {formatInt(queueBase.length)} profile{queueBase.length === 1 ? "" : "s"}
+                </span>
+              )}
+
+              <div className="search-input-wrapper staff-search">
+                <Search size={15} />
+                <input
+                  className="search-input"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setVisible(PAGE_SIZE);
+                  }}
+                  placeholder="Search this queue…"
+                  aria-label="Search this queue"
+                />
+              </div>
+            </div>
+
+            <p className="queue-note">
+              Reassigning restarts the review timer and clears any evaluation.
+            </p>
+
+            {filtered.length === 0 ? (
+              <div className="db-empty is-compact">
+                <p className="db-empty-title">
+                  {queueBase.length === 0 ? "Nothing in this queue" : "Nothing matches that"}
+                </p>
+                <p className="db-empty-sub">
+                  {queueBase.length === 0
+                    ? "New profiles arrive here as they are allocated."
+                    : "Try another search term, or another tab."}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="alloc-table" role="table">
+                  <div className="alloc-head" role="row">
+                    <span role="columnheader">Candidate</span>
+                    <span role="columnheader">Allocated</span>
+                    <span role="columnheader">State</span>
+                    <span role="columnheader">Assign to</span>
+                  </div>
+                  {filtered.slice(0, visible).map((candidate) => {
+                    const name =
+                      candidate.profile?.full_name || candidate.profile?.email || "Unnamed";
+                    const status = candidate.evaluation_status ?? "pending";
+                    const busy = movingId === candidate.id;
+                    const overdue = overdueIds.has(candidate.id);
+                    const orphaned = isOrphan(candidate);
+                    return (
+                      <div
+                        key={candidate.id}
+                        className={`alloc-row ${overdue ? "is-overdue" : ""}`}
+                        role="row"
+                      >
+                        <button
+                          type="button"
+                          className="alloc-name"
+                          onClick={() => onOpenCandidate(candidate)}
+                          title="Open this profile"
+                        >
+                          <span className="staff-avatar is-small">{initialsOf(name)}</span>
+                          <span>
+                            <strong>{name}</strong>
+                            <em>
+                              {candidate.profile?.current_designation ?? candidate.profile?.email}
+                            </em>
+                          </span>
+                        </button>
+
+                        {/* An orphan still carries the name of whoever owned it,
+                            which on its own reads as "allocated, fine". Saying
+                            the account is gone is the whole point of the row. */}
+                        <span className="alloc-owner">
+                          {candidate.assigned_staff_name ?? (
+                            <em className="alloc-none">unallocated</em>
+                          )}
+                          {orphaned ? (
+                            <em className="alloc-none">account deleted</em>
+                          ) : (
+                            candidate.assigned_at && (
+                              <em className="alloc-when">{timeAgo(candidate.assigned_at)}</em>
+                            )
+                          )}
+                        </span>
+
+                        <span className="alloc-state">
+                          <span className={`db-pill is-${status}`}>
+                            {candidate.viewed_at ? status.replace("_", " ") : "unviewed"}
+                          </span>
+                          {overdue && overdueHours[candidate.id] !== undefined && (
+                            <em className="alloc-overdue">
+                              {formatInt(overdueHours[candidate.id])}h over
+                            </em>
+                          )}
+                        </span>
+
+                        <div className="alloc-assign">
+                          <Select
+                            size="sm"
+                            value={candidate.assigned_staff_id ?? ""}
+                            disabled={busy || activeStaff.length === 0}
+                            onChange={(staffId) => void handleReassign(candidate.id, staffId)}
+                            placeholder={
+                              activeStaff.length === 0 ? "No active staff" : "Select staff…"
+                            }
+                            ariaLabel={`Assign ${name} to a staff member`}
+                            options={activeStaff.map((member) => ({
+                              value: member.id,
+                              label: member.name,
+                              // What the native `<select>` could only fit inside
+                              // the label as "(12)". Saying what the number is
+                              // turns a count into the thing you choose on.
+                              hint: `holding ${formatInt(member.assigned)}`,
+                            }))}
+                          />
+                          {/* Only offered where it changes something: an
+                              allocated profile already has the owner the
+                              balancer would pick. */}
+                          {!candidate.assigned_staff_id && (
+                            <button
+                              type="button"
+                              className="db-btn alloc-auto"
+                              disabled={busy || activeStaff.length === 0}
+                              onClick={() => void handleAutoAssign(candidate.id)}
+                              title="Allocate to whoever is holding the fewest"
+                            >
+                              {busy ? (
+                                <Loader2 size={14} className="icon-spin" />
+                              ) : (
+                                <Wand2 size={14} />
+                              )}
+                              Auto
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {filtered.length > visible && (
+                  <div className="alloc-more">
                     <button
                       type="button"
                       className="db-btn"
-                      onClick={() => void handleToggleActive(member)}
-                      title={
-                        member.active
-                          ? "Stop routing new profiles here; keeps their existing work"
-                          : "Start routing new profiles here again"
-                      }
+                      onClick={() => setVisible((count) => count + PAGE_SIZE)}
                     >
-                      <KeyRound size={14} />
-                      {member.active ? "Deactivate" : "Reactivate"}
-                    </button>
-                    <button
-                      type="button"
-                      className="db-btn is-danger"
-                      onClick={() => void handleDelete(member)}
-                      title="Delete the account and redistribute its profiles"
-                    >
-                      <Trash2 size={14} />
+                      Show {formatInt(Math.min(PAGE_SIZE, filtered.length - visible))} more
                     </button>
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* ---- SLA breaches ---- */}
-      <section className="db-card">
-        <header className="db-card-head">
-          <div>
-            <h3 className={`db-card-title ${breaches.length > 0 ? "is-alert" : ""}`}>
-              {breaches.length > 0 ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
-              Past the {thresholdHours}-hour SLA
-            </h3>
-            <p className="db-card-sub">
-              Allocated over {thresholdHours} hours ago and still not opened, or opened and never
-              judged.
-            </p>
-          </div>
-          <div className="staff-head-actions">
-            <button type="button" className="db-btn" onClick={() => void handleScan()} disabled={scanning}>
-              {scanning ? <Loader2 size={14} className="icon-spin" /> : <ShieldCheck size={14} />}
-              {scanning ? "Sweeping…" : "Run sweep"}
-            </button>
-            <button type="button" className="db-btn" onClick={reload}>
-              <RefreshCw size={14} />
-              Refresh
-            </button>
-          </div>
-        </header>
-
-        {breaches.length === 0 ? (
-          <div className="db-empty is-compact">
-            <CheckCircle2 size={20} />
-            <p className="db-empty-title">Everything is inside the window</p>
-            <p className="db-empty-sub">
-              No allocated profile has sat unopened or unjudged for {thresholdHours} hours.
-            </p>
-          </div>
-        ) : (
-          <div className="sla-list">
-            {breaches.map((alert) => (
-              <div key={alert.candidate_id} className="sla-row">
-                <span className="sla-hours">{Math.round(alert.hours_overdue)}h</span>
-                <div className="sla-body">
-                  <span className="sla-name">{alert.full_name ?? alert.candidate_name}</span>
-                  <span className="sla-meta">
-                    {alert.assigned_staff_name} ·{" "}
-                    {alert.reason === "unviewed" ? "never opened" : "opened, not evaluated"}
-                  </span>
-                </div>
-                <span className={`db-pill ${alert.reason === "unviewed" ? "is-failed" : "is-pending"}`}>
-                  {alert.reason === "unviewed" ? "Unviewed" : "Unevaluated"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ---- Candidate directory with reassignment ---- */}
-      <section className="db-card">
-        <header className="db-card-head">
-          <div>
-            <h3 className="db-card-title">Candidate allocation</h3>
-            <p className="db-card-sub">
-              Every profile and who owns it. Reassigning restarts that profile&apos;s SLA clock and
-              clears any evaluation.
-            </p>
-          </div>
-          <div className="search-input-wrapper staff-search">
-            <Search size={15} />
-            <input
-              className="search-input"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search a candidate or an owner…"
-              aria-label="Search the allocation directory"
-            />
-          </div>
-        </header>
-
-        <div className="staff-filters">
-          <div className="db-tabs" role="tablist" aria-label="Allocation filter">
-            {ALLOC_FILTERS.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={filter === id}
-                className={`db-tab ${filter === id ? "is-on" : ""}`}
-                onClick={() => setFilter(id)}
-              >
-                {label}
-                <span className="db-tab-count">{formatInt(filterCounts[id])}</span>
-              </button>
-            ))}
-          </div>
-          <span className="result-count">
-            {formatInt(filtered.length)} of {formatInt(candidates.length)} shown
-          </span>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="db-empty is-compact">
-            <p className="db-empty-title">
-              {candidates.length === 0 ? "No candidates yet" : "Nothing matches that"}
-            </p>
-            <p className="db-empty-sub">
-              {candidates.length === 0
-                ? "Run a sync from the header and allocated profiles will appear here."
-                : "Try another search term, or clear the filter."}
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="alloc-table" role="table">
-              <div className="alloc-head" role="row">
-                <span role="columnheader">Candidate</span>
-                <span role="columnheader">Allocated</span>
-                <span role="columnheader">State</span>
-                <span role="columnheader">Assign to</span>
-              </div>
-              {filtered.slice(0, visible).map((candidate) => {
-                const name = candidate.profile?.full_name || candidate.profile?.email || "Unnamed";
-                const status = candidate.evaluation_status ?? "pending";
-                const busy = movingId === candidate.id;
-                const overdue = overdueIds.has(candidate.id);
-                const orphaned = isOrphan(candidate);
-                return (
-                  <div
-                    key={candidate.id}
-                    className={`alloc-row ${overdue ? "is-overdue" : ""}`}
-                    role="row"
-                  >
-                    <button
-                      type="button"
-                      className="alloc-name"
-                      onClick={() => onOpenCandidate(candidate)}
-                      title="Open this profile"
-                    >
-                      <span className="staff-avatar is-small">{initialsOf(name)}</span>
-                      <span>
-                        <strong>{name}</strong>
-                        <em>{candidate.profile?.current_designation ?? candidate.profile?.email}</em>
-                      </span>
-                    </button>
-
-                    {/* An orphan still carries the name of whoever owned it,
-                        which on its own reads as "allocated, fine". Saying the
-                        account is gone is the whole point of the row. */}
-                    <span className="alloc-owner">
-                      {candidate.assigned_staff_name ?? <em className="alloc-none">unallocated</em>}
-                      {orphaned ? (
-                        <em className="alloc-none">account deleted</em>
-                      ) : (
-                        candidate.assigned_at && (
-                          <em className="alloc-when">{timeAgo(candidate.assigned_at)}</em>
-                        )
-                      )}
-                    </span>
-
-                    <span className={`db-pill is-${status}`}>
-                      {candidate.viewed_at ? status.replace("_", " ") : "unviewed"}
-                    </span>
-
-                    <div className="alloc-assign">
-                      <select
-                        className="modal-select alloc-select"
-                        value={candidate.assigned_staff_id ?? ""}
-                        disabled={busy || activeStaff.length === 0}
-                        onChange={(event) => void handleReassign(candidate.id, event.target.value)}
-                      >
-                        <option value="">
-                          {activeStaff.length === 0 ? "No active staff" : "Select staff…"}
-                        </option>
-                        {activeStaff.map((member) => (
-                          <option key={member.id} value={member.id}>
-                            {member.name} ({member.assigned})
-                          </option>
-                        ))}
-                      </select>
-                      {/* Only offered where it changes something: an allocated
-                          profile already has the owner the balancer would pick. */}
-                      {!candidate.assigned_staff_id && (
-                        <button
-                          type="button"
-                          className="db-btn alloc-auto"
-                          disabled={busy || activeStaff.length === 0}
-                          onClick={() => void handleAutoAssign(candidate.id)}
-                          title="Allocate to whoever is holding the fewest"
-                        >
-                          {busy ? <Loader2 size={14} className="icon-spin" /> : <Wand2 size={14} />}
-                          Auto
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {filtered.length > visible && (
-              <div className="alloc-more">
-                <button
-                  type="button"
-                  className="db-btn"
-                  onClick={() => setVisible((count) => count + PAGE_SIZE)}
-                >
-                  Show {formatInt(Math.min(PAGE_SIZE, filtered.length - visible))} more
-                </button>
-              </div>
+                )}
+              </>
             )}
-          </>
-        )}
-      </section>
-
-          </>
-          )}
-        </section>
+          </div>
+        </div>
       </div>
-
       {/* ---- Create staff modal ---- */}
       <div
         className={`modal-overlay ${creating ? "active" : ""}`}
@@ -1217,17 +1329,29 @@ export default function AdminStaffManagement({
                 </label>
               </div>
 
-              <label className="field-group">
-                <span className="modal-label">Password</span>
-                <input
-                  className="modal-input"
-                  type="password"
-                  required
-                  value={form.password}
-                  onChange={(event) => setForm({ ...form, password: event.target.value })}
-                  placeholder="Set an initial password"
-                />
-              </label>
+              <div className="modal-row-2">
+                <label className="field-group">
+                  <span className="modal-label">Mobile number</span>
+                  <input
+                    className="modal-input"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(event) => setForm({ ...form, phone: event.target.value })}
+                    placeholder="+91 98765 43210"
+                  />
+                </label>
+                <label className="field-group">
+                  <span className="modal-label">Password</span>
+                  <input
+                    className="modal-input"
+                    type="password"
+                    required
+                    value={form.password}
+                    onChange={(event) => setForm({ ...form, password: event.target.value })}
+                    placeholder="Set an initial password"
+                  />
+                </label>
+              </div>
 
               <p className="modal-hint">
                 Candidates are allocated purely by workload — whoever is holding the fewest gets

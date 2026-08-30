@@ -8,7 +8,11 @@ export type RangeOption = (typeof RANGE_OPTIONS)[number];
 
 interface IngestionChartProps {
   buckets: DayBucket[];
+  /** The same window one period earlier — drawn as the dashed ghost line. */
+  compare?: DayBucket[];
   range: RangeOption;
+  /** Plot height in px. The card sets it; the chart never assumes one. */
+  height?: number;
 }
 
 /* Every colour in the plot comes from a CSS class rather than a literal, so the
@@ -17,10 +21,9 @@ interface IngestionChartProps {
    property, which is why these are classes rather than a `var(--primary)`
    written straight onto a `stroke` attribute. */
 
-const PAD = { top: 18, right: 18, bottom: 30, left: 40 };
-const HEIGHT = 268;
+const PAD = { top: 16, right: 6, bottom: 26, left: 38 };
 
-/** Rounds the axis top up to a clean 1/2/5 × 10ⁿ so ticks land on round numbers. */
+/** Rounds the axis top up to a clean 1/2/5 x 10^n so ticks land on round numbers. */
 function niceCeiling(value: number, ticks: number): number {
   if (value <= 0) return ticks;
   const rough = value / ticks;
@@ -28,6 +31,58 @@ function niceCeiling(value: number, ticks: number): number {
   const normalized = rough / magnitude;
   const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return step * magnitude * ticks;
+}
+
+/** Axis labels are compacted the way the reference chart's are: 5K, not 5,000. */
+function axisLabel(value: number): string {
+  if (value >= 1000) {
+    const k = value / 1000;
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}K`;
+  }
+  return formatInt(value);
+}
+
+/**
+ * A monotone cubic through the points.
+ *
+ * The straight polyline this used to draw made a quiet week look like a saw
+ * blade — every one-résumé day was a spike with two hard corners. Fitting the
+ * tangents to the neighbouring slopes (and flattening them wherever the series
+ * turns) gives the curve the reference chart has without ever overshooting a
+ * value the data does not contain, which a plain Catmull–Rom would.
+ */
+function smoothPath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+
+  const n = points.length;
+  const slopes: number[] = [];
+  for (let i = 0; i < n - 1; i += 1) {
+    const dx = points[i + 1].x - points[i].x;
+    slopes.push(dx === 0 ? 0 : (points[i + 1].y - points[i].y) / dx);
+  }
+
+  // Fritsch-Carlson tangents: zero at every local extremum, so the curve
+  // touches each sample and stays inside the band its neighbours define.
+  const tangents: number[] = new Array(n);
+  tangents[0] = slopes[0];
+  tangents[n - 1] = slopes[n - 2];
+  for (let i = 1; i < n - 1; i += 1) {
+    tangents[i] = slopes[i - 1] * slopes[i] <= 0 ? 0 : (slopes[i - 1] + slopes[i]) / 2;
+  }
+
+  let d = `M${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i += 1) {
+    const dx = points[i + 1].x - points[i].x;
+    const c1x = points[i].x + dx / 3;
+    const c1y = points[i].y + (tangents[i] * dx) / 3;
+    const c2x = points[i + 1].x - dx / 3;
+    const c2y = points[i + 1].y - (tangents[i + 1] * dx) / 3;
+    d +=
+      ` C${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)},` +
+      ` ${points[i + 1].x.toFixed(2)} ${points[i + 1].y.toFixed(2)}`;
+  }
+  return d;
 }
 
 /** Tracks the rendered width so the SVG draws at 1:1 instead of being scaled. */
@@ -50,40 +105,53 @@ function useWidth<T extends HTMLElement>() {
   return { ref, width };
 }
 
-export default function IngestionChart({ buckets, range }: IngestionChartProps) {
+export default function IngestionChart({
+  buckets,
+  compare,
+  range,
+  height = 236,
+}: IngestionChartProps) {
   const { ref, width } = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
 
-  const TICKS = 4;
-  const values = buckets.map((bucket) => bucket.added);
-  const peak = Math.max(...values, 0);
+  const TICKS = 3;
+  // The ghost line shares the axis — two series drawn to two different scales
+  // is a comparison that flatters whichever one is smaller.
+  const peak = Math.max(...buckets.map((b) => b.added), ...(compare ?? []).map((b) => b.added), 0);
   const axisMax = niceCeiling(peak, TICKS);
 
   const plotWidth = Math.max(0, width - PAD.left - PAD.right);
-  const plotHeight = HEIGHT - PAD.top - PAD.bottom;
+  const plotHeight = height - PAD.top - PAD.bottom;
+
+  const project = useCallback(
+    (series: DayBucket[]) => {
+      if (series.length === 0 || plotWidth <= 0) return [] as { x: number; y: number }[];
+      const stepX = series.length > 1 ? plotWidth / (series.length - 1) : 0;
+      return series.map((bucket, index) => ({
+        x: PAD.left + index * stepX,
+        y: PAD.top + plotHeight - (bucket.added / axisMax) * plotHeight,
+      }));
+    },
+    [plotWidth, plotHeight, axisMax],
+  );
 
   const geometry = useMemo(() => {
-    if (buckets.length === 0 || plotWidth <= 0) {
-      return { points: [] as { x: number; y: number }[], line: "", area: "" };
-    }
+    const points = project(buckets);
+    if (points.length === 0) return { points, line: "", area: "" };
 
-    const stepX = buckets.length > 1 ? plotWidth / (buckets.length - 1) : 0;
-    const points = buckets.map((bucket, index) => ({
-      x: PAD.left + index * stepX,
-      y: PAD.top + plotHeight - (bucket.added / axisMax) * plotHeight,
-    }));
-
-    const line = points
-      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-      .join(" ");
-
+    const line = smoothPath(points);
     const baseline = PAD.top + plotHeight;
     const area = `${line} L${points[points.length - 1].x.toFixed(2)} ${baseline} L${points[0].x.toFixed(2)} ${baseline} Z`;
 
     return { points, line, area };
-  }, [buckets, plotWidth, plotHeight, axisMax]);
+  }, [buckets, project, plotHeight]);
 
-  const labelEvery = range <= 7 ? 1 : range <= 14 ? 2 : 5;
+  const ghost = useMemo(() => {
+    if (!compare || compare.length === 0) return "";
+    return smoothPath(project(compare));
+  }, [compare, project]);
+
+  const labelEvery = range <= 7 ? 1 : range <= 14 ? 3 : 7;
 
   const handleMove = useCallback(
     (event: React.MouseEvent<SVGRectElement>) => {
@@ -98,12 +166,13 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
 
   const active = hover !== null ? buckets[hover] : null;
   const activePoint = hover !== null ? geometry.points[hover] : null;
+  const activeCompare = hover !== null ? compare?.[hover] : undefined;
 
   return (
     <div className="dash-plot" ref={ref}>
       <svg
         width={width}
-        height={HEIGHT}
+        height={height}
         role="img"
         aria-label={`Resumes parsed per day over the last ${range} days`}
         onMouseLeave={() => setHover(null)}
@@ -116,19 +185,42 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
           </linearGradient>
         </defs>
 
-        {/* Recessive hairline grid + value ticks */}
+        {/* Dashed hairline grid + value ticks. Dashed rather than solid: the
+            rules are scaffolding for reading a height off the plot, and a solid
+            line at this weight competes with the series drawn over it. */}
         {Array.from({ length: TICKS + 1 }, (_, index) => {
           const value = (axisMax / TICKS) * index;
           const y = PAD.top + plotHeight - (index / TICKS) * plotHeight;
           return (
             <g key={value}>
-              <line x1={PAD.left} y1={y} x2={width - PAD.right} y2={y} className="plot-grid" strokeWidth={1} />
+              <line
+                x1={PAD.left}
+                y1={y}
+                x2={width - PAD.right}
+                y2={y}
+                className="plot-grid"
+                strokeWidth={1}
+                strokeDasharray="4 5"
+              />
               <text x={PAD.left - 10} y={y + 4} textAnchor="end" className="dash-axis-text">
-                {formatInt(value)}
+                {axisLabel(value)}
               </text>
             </g>
           );
         })}
+
+        {/* The previous window, behind everything — it is context for the line
+            in front of it, never a second reading of equal weight. */}
+        {ghost && (
+          <path
+            d={ghost}
+            fill="none"
+            className="plot-line-ghost"
+            strokeWidth={1.75}
+            strokeDasharray="5 5"
+            strokeLinecap="round"
+          />
+        )}
 
         {geometry.line && (
           <>
@@ -137,7 +229,7 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
               d={geometry.line}
               fill="none"
               className="plot-line"
-              strokeWidth={2}
+              strokeWidth={2.25}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -153,7 +245,7 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
             <text
               key={bucket.key}
               x={point.x}
-              y={HEIGHT - 10}
+              y={height - 8}
               textAnchor={index === 0 ? "start" : index === buckets.length - 1 ? "end" : "middle"}
               className="dash-axis-text"
             >
@@ -172,8 +264,9 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
               y2={PAD.top + plotHeight}
               className="plot-crosshair"
               strokeWidth={1}
+              strokeDasharray="3 3"
             />
-            <circle cx={activePoint.x} cy={activePoint.y} r={6} className="plot-dot-halo" />
+            <circle cx={activePoint.x} cy={activePoint.y} r={7} className="plot-dot-halo" />
             <circle cx={activePoint.x} cy={activePoint.y} r={4} className="plot-dot" />
           </g>
         )}
@@ -202,6 +295,11 @@ export default function IngestionChart({ buckets, range }: IngestionChartProps) 
             <i className="dash-dot plot-dot-swatch" />
             {active.added} parsed
           </span>
+          {activeCompare && (
+            <span className="dash-tooltip-muted">
+              {activeCompare.added} in the previous period
+            </span>
+          )}
           {active.review > 0 && (
             <span className="dash-tooltip-muted">{active.review} flagged for review</span>
           )}

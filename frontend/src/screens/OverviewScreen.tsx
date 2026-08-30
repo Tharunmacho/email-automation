@@ -1,17 +1,32 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Briefcase, CheckCircle2, Cpu, FileText, Users } from "lucide-react";
+import {
+  ArrowRight,
+  FileSearch,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+  UserCheck,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
-import IngestionChart, { RANGE_OPTIONS, type RangeOption } from "@/components/dashboard/IngestionChart";
-import ActivityLog, { type LogEntry } from "@/components/dashboard/ActivityLog";
-import RecentCandidates from "@/components/dashboard/RecentCandidates";
+import FlowBarChart, { type FlowBucket } from "@/components/dashboard/FlowBarChart";
 import DashboardSkeleton from "@/components/dashboard/DashboardSkeleton";
-import { buildDailyBuckets, isVerified, needsReview } from "@/lib/dashboardMetrics";
-import { compactNumber, formatInt } from "@/lib/format";
+import { isVerified, needsReview, windowDelta, buildCumulativeTrend } from "@/lib/dashboardMetrics";
+import {
+  candidateNameOf,
+  formatDateFull,
+  formatInt,
+  initialsOf,
+} from "@/lib/format";
 import { useIsMounted } from "@/lib/useIsMounted";
 import type { NavId } from "@/lib/nav";
 import type { CandidateRecord } from "@/lib/api";
+import type { LogEntry } from "@/components/dashboard/ActivityLog";
 
 interface OverviewScreenProps {
   total: number;
@@ -21,192 +36,477 @@ interface OverviewScreenProps {
   onOpenCandidate: (candidate: CandidateRecord) => void;
 }
 
-interface QuickAction {
-  id: string;
-  icon: typeof FileText;
-  title: string;
-  subtitle: string;
-  accent?: boolean;
-  arrow?: boolean;
-  onClick: () => void;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+type Grain = "weekly" | "monthly";
+
+/** Up or down against the period before, or nothing when there is no before. */
+function Delta({ pct, against }: { pct: number | null; against: string }) {
+  if (pct === null) return null;
+  const up = pct >= 0;
+  return (
+    <span
+      className={`ds-delta ${up ? "is-up" : "is-down"}`}
+      title={`${up ? "Up" : "Down"} ${Math.abs(pct).toFixed(1)}% on the ${against} before this one`}
+    >
+      {Math.abs(pct).toFixed(1)}%
+      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+    </span>
+  );
 }
 
 /**
- * The Overview.
+ * `Date.now()` read through one door rather than from the render body.
  *
- * Four things to do, four numbers that say whether the pipeline is healthy, the
- * live trace, and then the detail: what came in over time and who arrived.
+ * Everything else on this screen is a pure function of the candidate
+ * collection; the clock is the one input that is not, and reading it inline
+ * makes two renders of the same props produce two different pages. Every call
+ * below sits inside a `useMemo` or behind the mount gate.
+ */
+function now(): Date {
+  return new Date();
+}
+
+/** One bucket per month for the last `count` months, oldest first. */
+function monthlyBuckets(candidates: CandidateRecord[], count: number): FlowBucket[] {
+  const today = now();
+  const buckets: FlowBucket[] = [];
+  const index = new Map<string, number>();
+
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - back, 1);
+    const key = `${date.getFullYear()}-${date.getMonth()}`;
+    index.set(key, buckets.length);
+    buckets.push({
+      label: MONTHS[date.getMonth()],
+      full: `${MONTHS_LONG[date.getMonth()]} ${date.getFullYear()}`,
+      value: 0,
+    });
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.created_at) continue;
+    const date = new Date(candidate.created_at);
+    if (Number.isNaN(date.getTime())) continue;
+    const slot = index.get(`${date.getFullYear()}-${date.getMonth()}`);
+    if (slot !== undefined) buckets[slot].value += 1;
+  }
+
+  return buckets;
+}
+
+/** One bucket per week for the last `count` weeks, oldest first. */
+function weeklyBuckets(candidates: CandidateRecord[], count: number): FlowBucket[] {
+  const today = now();
+  // Anchored to the start of today, so a candidate parsed an hour ago lands in
+  // this week rather than in a window that ends before they arrived.
+  const anchor = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() + DAY_MS;
+  const buckets: FlowBucket[] = [];
+
+  for (let back = count - 1; back >= 0; back -= 1) {
+    const end = anchor - back * 7 * DAY_MS;
+    const start = end - 7 * DAY_MS;
+    const startDate = new Date(start);
+    buckets.push({
+      label: `${startDate.getDate()} ${MONTHS[startDate.getMonth()]}`,
+      full: `Week of ${formatDateFull(startDate)}`,
+      value: candidates.filter((candidate) => {
+        if (!candidate.created_at) return false;
+        const at = new Date(candidate.created_at).getTime();
+        return !Number.isNaN(at) && at >= start && at < end;
+      }).length,
+    });
+  }
+
+  return buckets;
+}
+
+/** hh:mm for the activity table's own column, matching its date column. */
+function clockOf(value: string | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Everything the product is doing, on one screen.
  *
- * The quick-ingestion panel that used to sit beside the chart is gone. Its one
- * working control — run a sync — is in the header on every screen, and its
- * status rows repeated what Settings reports properly. Removing it lets the
- * chart use the full column width, which is what a thirty-day series needs.
- *
- * Every figure is derived from the live candidate collection rather than stored
- * separately, so a KPI cannot drift out of step with the list it summarises.
+ * Three readings across the top with the headline one filled, then the state of
+ * the pipeline beside the shape of the intake, then the profiles themselves.
+ * Nothing here is decoration: every figure is derived from the candidate
+ * collection this page already holds, so an empty workspace shows an empty
+ * dashboard rather than a demonstration one.
  */
 export default function OverviewScreen({
   total,
   candidates,
-  logs,
   onNavigate,
   onOpenCandidate,
 }: OverviewScreenProps) {
-  const [range, setRange] = useState<RangeOption>(30);
-
-  /**
-   * Every day-bucketed series is anchored to "now". The server's clock and
-   * timezone are not the viewer's, so date-derived UI is held back until the
-   * browser has mounted and owns the clock — otherwise the two renders disagree
-   * and React throws a hydration error.
-   */
+  // Weekly by default. The pool is young — a monthly chart of a database that
+  // started filling this month is one bar and five empty months, which reads as
+  // a broken chart rather than as a new one.
+  const [grain, setGrain] = useState<Grain>("weekly");
+  const [query, setQuery] = useState("");
   const mounted = useIsMounted();
 
   const verified = candidates.filter(isVerified).length;
   const review = candidates.filter(needsReview).length;
+  const active = candidates.filter((c) => c.status !== "verified" && !needsReview(c)).length;
+  const unassigned = candidates.filter((c) => !c.assigned_staff_id).length;
 
-  const scored = candidates.filter((c) => typeof c.profile?.confidence === "number");
-  const avgConfidence =
-    scored.length > 0
-      ? (scored.reduce((sum, c) => sum + (c.profile.confidence ?? 0), 0) / scored.length) * 100
-      : 0;
+  // The period control at the top is the page's, not just the chart's: the
+  // deltas on the cards are measured over the same window the chart is drawn
+  // at. A "This week" that moved only the plot would be claiming the figures
+  // beside it had been re-measured when they had not.
+  const windowDays = grain === "weekly" ? 7 : 30;
+  const against = grain === "weekly" ? "week" : "month";
 
-  const verifiedRate = candidates.length > 0 ? Math.round((verified / candidates.length) * 100) : 0;
+  // Twice the window, because the delta needs the period before this one to
+  // compare against — a 30-day trend has no 30-days-ago to subtract.
+  const totalTrend = useMemo(
+    () => buildCumulativeTrend(candidates, windowDays * 2),
+    [candidates, windowDays],
+  );
+  const verifiedTrend = useMemo(
+    () => buildCumulativeTrend(candidates, windowDays * 2, isVerified),
+    [candidates, windowDays],
+  );
+  const deltaTotal = windowDelta(totalTrend, windowDays);
+  const deltaVerified = windowDelta(verifiedTrend, windowDays);
 
-  const buckets = useMemo(() => buildDailyBuckets(candidates, range), [candidates, range]);
-  const windowTotal = buckets.reduce((sum, bucket) => sum + bucket.added, 0);
+  const flow = useMemo(
+    () => (grain === "monthly" ? monthlyBuckets(candidates, 7) : weeklyBuckets(candidates, 8)),
+    [candidates, grain],
+  );
+  const flowTotal = flow.reduce((sum, bucket) => sum + bucket.value, 0);
+
+  /** The newest arrivals, filtered by whatever is typed in the panel's search. */
+  const recent = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return [...candidates]
+      .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+      .filter((candidate) => {
+        if (!term) return true;
+        const haystack = [
+          candidateNameOf(candidate),
+          candidate.profile?.current_designation,
+          candidate.profile?.email,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(term);
+      })
+      .slice(0, 6);
+  }, [candidates, query]);
+
+  const share = (value: number) =>
+    candidates.length > 0 ? `${Math.round((value / candidates.length) * 100)}% of the pool` : "—";
 
   if (!mounted) return <DashboardSkeleton />;
 
-  const actions: QuickAction[] = [
-    {
-      id: "pool",
-      icon: Users,
-      title: "Candidates Pool",
-      subtitle: "Browse, filter and verify every parsed profile.",
-      accent: true,
-      arrow: true,
-      onClick: () => onNavigate("candidates"),
-    },
-    {
-      id: "jobs",
-      icon: Briefcase,
-      title: "Job Orders",
-      subtitle: "Match the candidate pool to active requisitions.",
-      onClick: () => onNavigate("job-orders"),
-    },
-    {
-      id: "engine",
-      icon: Cpu,
-      title: "AI Engine",
-      subtitle: "Resume parser model active & scoring.",
-      onClick: () => onNavigate("settings"),
-    },
-  ];
-
-  const kpis = [
-    {
-      label: "Total candidates",
-      value: compactNumber(total),
-      caption: "Total extracted candidate profiles",
-      icon: Users,
-    },
-    {
-      label: "Verified rate",
-      value: `${verifiedRate}%`,
-      caption: `${formatInt(verified)} signed off without further review`,
-      icon: CheckCircle2,
-    },
-    {
-      label: "Avg confidence",
-      value: `${avgConfidence.toFixed(1)}%`,
-      caption: `Across ${formatInt(scored.length)} scored resume parse${scored.length === 1 ? "" : "s"}`,
-      icon: Cpu,
-    },
-    {
-      label: "Pending review",
-      value: formatInt(review),
-      caption: "Profiles requiring manual recruiter review",
-      icon: Briefcase,
-    },
-  ];
-
   return (
-    <>
-      <section className="ov-actions">
-        {actions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              className={`ov-action ${action.accent ? "is-accent" : ""}`}
-              onClick={action.onClick}
-            >
-              <span className="ov-action-icon" aria-hidden="true">
-                <Icon size={19} strokeWidth={2} />
-              </span>
-              <span className="ov-action-text">
-                <span className="ov-action-title">
-                  {action.title}
-                  {action.arrow && <ArrowRight size={14} />}
-                </span>
-                <span className="ov-action-sub">{action.subtitle}</span>
-              </span>
-            </button>
-          );
-        })}
-      </section>
-
-      <section className="ov-kpis">
-        {kpis.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <article key={kpi.label} className="ov-kpi">
-              <p className="ov-kpi-label">
-                {kpi.label}
-                <Icon size={15} strokeWidth={2} />
-              </p>
-              <p className="ov-kpi-value">{kpi.value}</p>
-              <p className="ov-kpi-caption">{kpi.caption}</p>
-            </article>
-          );
-        })}
-      </section>
-
-      {/* The live trace sits directly under the headline numbers, above the
-          analytics. It is what you watch while a sync runs — burying it below a
-          chart means the one thing that moves in real time is off-screen at the
-          moment it matters. */}
-      <ActivityLog logs={logs} />
-
-      <section className="db-card">
-        <header className="db-card-head">
-          <div>
-            <h3 className="db-card-title">Sourced Candidates</h3>
-            <p className="db-card-sub">
-              {formatInt(windowTotal)} parsed in the last {range} days.
-            </p>
-          </div>
-          <select
-            className="ov-select"
-            value={range}
-            onChange={(event) => setRange(Number(event.target.value) as RangeOption)}
-            aria-label="Chart time range"
-          >
-            {RANGE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                Last {option} days
-              </option>
-            ))}
-          </select>
-        </header>
-        <div className="db-card-body">
-          <IngestionChart buckets={buckets} range={range} />
+    <div className="ds-page">
+      {/* ── Page head ─────────────────────────────────────────────────── */}
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Overview</h1>
+          <p className="ds-head-sub">Here is the summary of overall data</p>
         </div>
-      </section>
 
-      <RecentCandidates candidates={candidates} onOpenCandidate={onOpenCandidate} />
-    </>
+        <div className="ds-head-actions">
+          <div className="ds-seg" role="group" aria-label="Reporting period">
+            <button
+              type="button"
+              className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+              onClick={() => setGrain("weekly")}
+            >
+              This week
+            </button>
+            <button
+              type="button"
+              className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+              onClick={() => setGrain("monthly")}
+            >
+              This month
+            </button>
+          </div>
+
+          <button type="button" className="ds-ghost-btn" onClick={() => onNavigate("sourcing")}>
+            <RefreshCw size={14} /> Sourcing
+          </button>
+        </div>
+      </header>
+
+      {/* ── Three readings, the headline one filled ───────────────────── */}
+      <div className="ds-cards">
+        <article className="ds-card is-feature">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
+              <Users size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <h2 className="ds-card-title">Total candidates</h2>
+              <p className="ds-card-sub">Every profile the pipeline has parsed</p>
+            </div>
+          </div>
+
+          <div className="ds-card-value">
+            {formatInt(total)}
+            <Delta pct={deltaTotal.percent} against={against} />
+          </div>
+
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("candidates")}>
+            See details <ArrowRight size={16} />
+          </button>
+        </article>
+
+        <article className="ds-card">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
+              <UserCheck size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <h2 className="ds-card-title">Verified profiles</h2>
+              <p className="ds-card-sub">Read and signed off by a person</p>
+            </div>
+          </div>
+
+          <div className="ds-card-value">
+            {formatInt(verified)}
+            <Delta pct={deltaVerified.percent} against={against} />
+          </div>
+
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("candidates")}>
+            View summary <ArrowRight size={16} />
+          </button>
+        </article>
+
+        <article className="ds-card">
+          <div className="ds-card-top">
+            <span className="ds-card-icon">
+              <FileSearch size={18} strokeWidth={2.1} />
+            </span>
+            <div>
+              <h2 className="ds-card-title">Needs review</h2>
+              <p className="ds-card-sub">Parsed below the confidence line</p>
+            </div>
+          </div>
+
+          <div className="ds-card-value">{formatInt(review)}</div>
+
+          <button type="button" className="ds-card-foot" onClick={() => onNavigate("staff")}>
+            Open the queue <ArrowRight size={16} />
+          </button>
+        </article>
+      </div>
+
+      {/* ── Pipeline beside intake ────────────────────────────────────── */}
+      <div className="ds-split">
+        <section className="ds-panel ds-pipeline">
+          <div className="ds-panel-head">
+            <div>
+              <h2 className="ds-panel-title">Pipeline</h2>
+              <p className="ds-panel-sub">
+                {candidates.length > 0
+                  ? `${formatInt(candidates.length)} profiles on file today`
+                  : "Nothing on file yet"}
+              </p>
+            </div>
+            <button type="button" className="ds-pill-btn" onClick={() => onNavigate("staff")}>
+              <UserPlus size={14} /> Allocate
+            </button>
+          </div>
+
+          <div className="ds-tiles">
+            {[
+              {
+                key: "verified",
+                label: "Verified",
+                value: verified,
+                note: share(verified),
+                state: "Cleared",
+                tone: "ok" as const,
+                to: "candidates" as NavId,
+              },
+              {
+                key: "progress",
+                label: "In progress",
+                value: active,
+                note: share(active),
+                state: "Active",
+                tone: "ok" as const,
+                to: "candidates" as NavId,
+              },
+              {
+                key: "review",
+                label: "Needs review",
+                value: review,
+                note: share(review),
+                state: review > 0 ? "Action req." : "Clear",
+                tone: review > 0 ? ("warn" as const) : ("ok" as const),
+                to: "candidates" as NavId,
+              },
+              {
+                key: "unassigned",
+                label: "Unassigned",
+                value: unassigned,
+                note: share(unassigned),
+                state: unassigned > 0 ? "Waiting" : "All allocated",
+                tone: unassigned > 0 ? ("warn" as const) : ("ok" as const),
+                to: "staff" as NavId,
+              },
+            ].map((tile) => (
+              <button
+                key={tile.key}
+                type="button"
+                className="ds-tile"
+                onClick={() => onNavigate(tile.to)}
+              >
+                <span className="ds-tile-head">
+                  <i className={`ds-tile-dot is-${tile.tone}`} aria-hidden="true" />
+                  {tile.label}
+                </span>
+                <span className="ds-tile-value">{formatInt(tile.value)}</span>
+                <span className="ds-tile-note">{tile.note}</span>
+                <span className={`ds-tile-state is-${tile.tone}`}>{tile.state}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="ds-panel ds-flow-panel">
+          <div className="ds-panel-head">
+            <div>
+              <p className="ds-panel-eyebrow">Candidates parsed</p>
+              <p className="ds-flow-total">{formatInt(flowTotal)}</p>
+            </div>
+
+            <div className="ds-seg is-quiet" role="group" aria-label="Chart grain">
+              <button
+                type="button"
+                className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+                onClick={() => setGrain("weekly")}
+              >
+                Weekly
+              </button>
+              <button
+                type="button"
+                className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+                onClick={() => setGrain("monthly")}
+              >
+                Monthly
+              </button>
+            </div>
+          </div>
+
+          <FlowBarChart buckets={flow} caption="Parsed" />
+        </section>
+      </div>
+
+      {/* ── The profiles themselves ───────────────────────────────────── */}
+      <section className="ds-panel">
+        <div className="ds-panel-head">
+          <h2 className="ds-panel-title">Recent activity</h2>
+
+          <div className="ds-panel-tools">
+            <label className="ds-search">
+              <Search size={15} />
+              <input
+                type="search"
+                value={query}
+                placeholder="Search"
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label="Search recent candidates"
+              />
+            </label>
+            <button type="button" className="ds-ghost-btn" onClick={() => onNavigate("candidates")}>
+              <SlidersHorizontal size={14} /> Filter
+            </button>
+          </div>
+        </div>
+
+        {recent.length === 0 ? (
+          <p className="ds-empty">
+            {candidates.length === 0
+              ? "Nothing has been parsed yet. Run a sync to bring résumés in."
+              : "No profile matches that search."}
+          </p>
+        ) : (
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled">
+              <thead>
+                <tr>
+                  <th>Candidate</th>
+                  <th>Designation</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th className="is-num">Confidence</th>
+                  <th>Status</th>
+                  <th className="is-actions" aria-label="Open">Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((candidate) => {
+                  const name = candidateNameOf(candidate);
+                  const confidence = candidate.profile?.confidence;
+                  const state = isVerified(candidate)
+                    ? { label: "Verified", tone: "ok" }
+                    : needsReview(candidate)
+                      ? { label: "Needs review", tone: "warn" }
+                      : { label: "In progress", tone: "info" };
+
+                  return (
+                    <tr className="is-clickable" key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
+                            {initialsOf(name)}
+                          </span>
+                          <span className="ds-who-text">
+                            <strong>{name}</strong>
+                            <small>{candidate.profile?.email ?? "No email on file"}</small>
+                          </span>
+                        </span>
+                      </td>
+                      <td>{candidate.profile?.current_designation || "—"}</td>
+                      <td>
+                        {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
+                      </td>
+                      <td>{clockOf(candidate.created_at)}</td>
+                      <td className="is-num">
+                        {typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : "—"}
+                      </td>
+                      <td>
+                        <span className={`ds-status is-${state.tone}`}>
+                          <i aria-hidden="true" />
+                          {state.label}
+                        </span>
+                      </td>
+                      <td className="is-actions">
+                        <span className="ds-open">
+                          <ArrowRight size={15} />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <button type="button" className="ds-see-all" onClick={() => onNavigate("candidates")}>
+          See every candidate <ArrowRight size={15} />
+        </button>
+      </section>
+    </div>
   );
 }

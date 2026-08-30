@@ -120,6 +120,17 @@ class FakeRepo:
         if job is not None:
             record.job = job
 
+    def adopt_idempotency_key(self, candidate_id: str, key) -> bool:
+        """Fills a blank only, and refuses a key another record already holds —
+        the two properties of the sparse unique index the service leans on."""
+        record = self.candidates.get(candidate_id)
+        if not record or not key or record.idempotency_key:
+            return False
+        if self.find_by_idempotency_key(key):
+            return False
+        record.idempotency_key = key
+        return True
+
     def attach_resume(self, candidate_id: str, resume: StoredResume) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:
@@ -142,6 +153,9 @@ class FakeStorage:
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+
+    def exists(self, key: str) -> bool:
+        return key in self.objects
 
     def save(self, key: str, data: bytes, content_type=None) -> str:
         self.objects[key] = data
@@ -553,6 +567,76 @@ def test_aadhaar_and_pan_cannot_be_sent(client):
     assert "pan_number" not in dumped
 
 
+def test_the_job_application_block_is_stored(client):
+    """What they applied for, as the profile screen reads it back.
+
+    The bot asks these directly, and every one of them was dropped at the door
+    until the input schema named them — `extra="ignore"` is an allow-list, so a
+    field the bot sends and the model does not declare is silently discarded.
+    """
+    res = post_candidate(
+        client,
+        job_id="electrician",
+        job_title="Electrician",
+        course_or_trade="ITI Electrician",
+        state_preference="Bihar",
+        available_from="after 2 months",
+        job_answers=[
+            {"question_id": "q1", "question": "Years on site?", "answer": "6", "kind": "text"},
+            {"question_id": "q2", "question": "Hold a valid licence?", "answer": "Yes", "kind": "choice"},
+        ],
+    )
+    assert res.status_code == 201
+
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+    assert profile.job_id == "electrician"
+    assert profile.job_title == "Electrician"
+    assert profile.course_or_trade == "ITI Electrician"
+    assert profile.state_preference == "Bihar"
+    assert profile.available_from == "after 2 months"
+
+    # The wording travels with the answer rather than being resolved from the
+    # job's question list at read time. An admin rewording a question must not
+    # rewrite what this candidate was asked.
+    assert [(a.question, a.answer) for a in profile.job_answers] == [
+        ("Years on site?", "6"),
+        ("Hold a valid licence?", "Yes"),
+    ]
+
+
+def test_the_state_preference_never_stands_in_for_the_destination(client):
+    """Two fields, one rule: the CV policy reads the country and nothing else.
+
+    A state is below a country, not an alternative to one — a record carrying
+    "Bihar" and no destination would resolve the CV requirement against nothing.
+    """
+    res = post_candidate(client, destination_country="Singapore", state_preference="Johor")
+    assert res.status_code == 201
+    profile = next(iter(client.fake_repo.candidates.values())).profile
+    assert profile.destination_country == "Singapore"
+    assert profile.state_preference == "Johor"
+
+
+def test_the_job_block_is_refreshable_on_re_registration():
+    """Someone who changes their mind about the job is telling us about themselves.
+
+    So these fields sit in the refresh allow-list — unlike anything the agency
+    concluded, which `test_the_refresh_allow_list_excludes_every_recruiter_field`
+    holds shut.
+    """
+    from app.db.repository import CandidateRepository
+
+    refreshable = set(CandidateRepository.WHATSAPP_REFRESHABLE_FIELDS)
+    assert {
+        "job_id",
+        "job_title",
+        "course_or_trade",
+        "state_preference",
+        "available_from",
+        "job_answers",
+    } <= refreshable
+
+
 def test_passport_details_are_stored(client):
     res = post_candidate(
         client, passport_number="Z1234567", passport_expiry="03/2031"
@@ -637,6 +721,165 @@ def test_an_unknown_job_category_is_refused(client):
     res = post_candidate(client, job_category="not_a_real_category")
     assert res.status_code == 422
     assert "job_category" in res.text
+
+
+# --------------------------------------------------------------------------- #
+#  A job an admin added, and the questions they hung on it
+#
+#  The two halves of Data Management reaching a candidate record. The first is
+#  a regression that made the screen actively harmful: a job created there was
+#  offered to candidates by the bot within five minutes and then refused at
+#  submission, because the category was validated against the tuple compiled
+#  into `cv_policy` rather than against the table the screen writes to.
+#
+#  `known_job_ids` reads Mongo, which `conftest` refuses, so these patch the
+#  table the way a deployment would have one. Without the patch the lookup
+#  falls back to the built-in tuple — which is the behaviour every other test
+#  in this file exercises, and is why the regression survived them.
+# --------------------------------------------------------------------------- #
+def with_table(*extra_ids):
+    """Point `known_job_ids` at a table holding the seeded jobs plus `extra_ids`."""
+    from app.db.taxonomy import SEED_JOBS
+
+    rows = [{"id": seed["id"]} for seed in SEED_JOBS]
+    rows.extend({"id": job_id} for job_id in extra_ids)
+    return patch("app.db.taxonomy.list_jobs", return_value=rows)
+
+
+def test_a_job_an_admin_added_is_accepted(client):
+    """The whole point of the screen: add a row, and a candidate can apply for it.
+
+    With a resume attached, because a job an admin created carries no CV rule of
+    its own and the policy default is "required" — which is a separate refusal
+    from the one this test is about, and would hide it.
+    """
+    with with_table("cnc_operator"):
+        res = client.post(
+            "/candidates",
+            json={
+                "source": "whatsapp",
+                "profile": {
+                    "full_name": "Ravi Kumar",
+                    "phone": "+919876543210",
+                    "destination_country": "Malaysia",
+                    "job_category": "cnc_operator",
+                    "job_id": "cnc_operator",
+                    "job_title": "CNC Operator",
+                },
+                "idempotency_key": "whatsapp/111/cnc",
+                "resume": resume_payload(),
+            },
+            headers={"X-Service-Key": SERVICE_KEY},
+        )
+
+    assert res.status_code == 201, res.text
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.job_category == "cnc_operator"
+    assert stored.profile.job_title == "CNC Operator"
+
+
+def test_a_typo_is_still_refused_when_the_table_can_be_read(client):
+    """Widening the check to the table must not turn it off."""
+    with with_table("cnc_operator"):
+        res = post_candidate(client, job_category="not_a_real_category")
+
+    assert res.status_code == 422
+    assert "job_category" in res.text
+
+
+def test_a_job_retired_after_somebody_answered_it_is_still_accepted(client):
+    """A row an admin retires is not a typo, and the person who answered it
+    while it existed must not be refused because of a later edit."""
+    with patch("app.db.taxonomy.list_jobs", return_value=[{"id": "cnc_operator"}]):
+        res = post_candidate(client, job_category="general_worker")
+
+    assert res.status_code == 201, res.text
+
+
+def test_the_designation_and_its_screening_answers_are_stored(client):
+    """What the bot sends about the job, as the CRM keeps it."""
+    res = post_candidate(
+        client,
+        job_id="general_worker",
+        job_title="General Worker",
+        job_answers=[
+            {
+                "question_id": "q_shifts",
+                "question": "Which shifts can you work?",
+                "answer": "Nights, Weekends",
+                "kind": "choice",
+                "asked_at": "2026-08-27T09:00:00.000Z",
+            }
+        ],
+    )
+
+    assert res.status_code == 201, res.text
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.job_id == "general_worker"
+    assert stored.profile.job_title == "General Worker"
+    assert len(stored.profile.job_answers) == 1
+
+    answer = stored.profile.job_answers[0]
+    assert answer.question_id == "q_shifts"
+    # The wording travels with the answer rather than being resolved at read
+    # time, so an admin rewording the question does not rewrite this record.
+    assert answer.question == "Which shifts can you work?"
+    assert answer.answer == "Nights, Weekends"
+    assert answer.kind == "choice"
+
+
+def test_a_later_partial_adds_the_answers_the_first_one_did_not_have(client):
+    """The bot sends every answer under one key, so a screening answer given
+    after the first partial has to land on the record the first one created."""
+    key = "whatsapp/111/919876543210"
+
+    first = post_candidate(client, key=key)
+    assert first.status_code == 201, first.text
+
+    second = post_candidate(
+        client,
+        key=key,
+        job_id="general_worker",
+        job_answers=[
+            {
+                "question_id": "q_years",
+                "question": "How many years of experience do you have?",
+                "answer": "6 years",
+                "kind": "text",
+            }
+        ],
+    )
+
+    # 200, not 201: nothing new exists because of it.
+    assert second.status_code == 200, second.text
+    assert len(client.fake_repo.candidates) == 1, "a partial created a second candidate"
+
+    # Read back the way the refresh writes it: `refresh_whatsapp_profile` sets
+    # the dumped value, which is what lands in Mongo and what a later load
+    # parses back into `JobAnswer`.
+    stored = next(iter(client.fake_repo.candidates.values()))
+    answers = stored.profile.model_dump()["job_answers"]
+    assert [a["question_id"] for a in answers] == ["q_years"]
+    assert stored.profile.job_id == "general_worker"
+
+
+def test_a_partial_with_no_answers_does_not_blank_the_ones_on_file(client):
+    """A candidate who edits their name after answering a screening question
+    must not lose the answer to the submission that carried the edit."""
+    key = "whatsapp/111/919876543210"
+
+    post_candidate(
+        client,
+        key=key,
+        job_answers=[
+            {"question_id": "q_years", "question": "How many years?", "answer": "6 years"}
+        ],
+    )
+    post_candidate(client, key=key, full_name="Ravi Kumar Singh")
+
+    stored = next(iter(client.fake_repo.candidates.values()))
+    assert stored.profile.full_name == "Ravi Kumar Singh"
+    assert [a.answer for a in stored.profile.job_answers] == ["6 years"]
 
 
 # --------------------------------------------------------------------------- #

@@ -2,49 +2,57 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Search,
-  UsersRound,
-  Eye,
-  Edit3,
-  Trash2,
-  MoreHorizontal,
   ArrowDown,
   ArrowUp,
+  Briefcase,
   Check,
-  X,
+  CheckCircle2,
+  Edit3,
+  ExternalLink,
+  FileSearch,
   LayoutGrid,
+  Loader2,
+  Plus,
   Rows3,
-  FileText,
+  Search,
+  Trash2,
+  UserCheck,
+  Users,
+  UsersRound,
+  X,
+  type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
-import { resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
+import {
+  assignCandidate,
+  listStaff,
+  type CandidateRecord,
+  type StaffMember,
+} from "@/lib/api";
 
-export type TalentFilter = "all" | "verified" | "pending";
+export type TalentFilter = "all" | "verified" | "pending" | "active";
+
+/** One outlined mark per reading, in the same order the cards are laid out. */
+const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
+  all: Users,
+  pending: FileSearch,
+  active: Briefcase,
+  verified: CheckCircle2,
+};
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
-  /** A term handed down from the top bar's search. Seeds this screen's own
-   *  field, which then owns it — typing here must not be fought by the bar. */
-  seedQuery?: string;
-  /** How many activity entries each candidate has, keyed by id. */
-  logCounts: Record<string, number>;
+  onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
-  onOpenLogs: (candidate: CandidateRecord) => void;
   onDeleteCandidate: (candidateId: string) => void;
+  onAssignmentChanged?: () => void;
+  onToast?: (message: string, type?: "info" | "success" | "error") => void;
 }
 
 /** Confidence below this reads as "needs a human to look at it". */
 const REVIEW_CONFIDENCE = 0.75;
 
-/**
- * A person's name is short and has few words. When the parser hands back a
- * clause lifted out of the résumé body — "prototyping and specialize in
- * connecting apps to powerful AI services…" — it fails both tests, and the row
- * is better off falling back to the email address than printing prose in the
- * Candidate column. These bounds are deliberately loose: they exist to reject
- * sentences, not to police unusual names.
- */
 const MAX_NAME_CHARS = 42;
 const MAX_NAME_WORDS = 6;
 const PLACEHOLDER_NAMES = new Set(["candidate profile", "unnamed", "n/a", "none"]);
@@ -55,16 +63,10 @@ function isUsableName(value: string): boolean {
   if (PLACEHOLDER_NAMES.has(trimmed.toLowerCase())) return false;
   if (trimmed.length > MAX_NAME_CHARS) return false;
   if (trimmed.split(/\s+/).length > MAX_NAME_WORDS) return false;
-  // Prose gives itself away with sentence punctuation; names do not carry it.
-  // A bare full stop is NOT enough on its own — "S. SOMASUNDARI" and
-  // "R. Suresh Kumar" are initials, and an earlier version of this test threw
-  // both names away and fell back to gibberish derived from the address. Only
-  // a stop that follows a real word counts as the end of a sentence.
   if (/(?:[,;:!?]|\w{2,}\.)\s/.test(trimmed)) return false;
   return true;
 }
 
-/** Turns `mahalakshmiks344@gmail.com` into `Mahalakshmiks`. */
 function nameFromAddress(addr: string): string {
   const userPart = addr.split("@")[0].replace(/\d+/g, "");
   return userPart
@@ -110,29 +112,23 @@ function getIndustry(candidate: CandidateRecord): string {
     lowerSkills.includes("medical") ||
     lowerSkills.includes("health")
   )
-    return "Healthcare / Medical";
+    return "Healthcare";
   if (lowerSkills.includes("finance") || lowerSkills.includes("accounting") || lowerSkills.includes("bank"))
-    return "Finance / Banking";
+    return "Finance";
   if (lowerSkills.includes("marketing") || lowerSkills.includes("seo") || lowerSkills.includes("content"))
     return "Marketing";
   if (lowerSkills.includes("design") || lowerSkills.includes("figma") || lowerSkills.includes("ux"))
-    return "Design / UX";
+    return "Design";
   const designation = getDesignation(candidate).toLowerCase();
   if (designation.includes("engineer") || designation.includes("developer") || designation.includes("software"))
     return "IT / Software";
   if (designation.includes("account") || designation.includes("finance") || designation.includes("audit"))
-    return "Finance / Banking";
+    return "Finance";
   if (designation.includes("design") || designation.includes("ui") || designation.includes("ux"))
-    return "Design / UX";
-  if (designation.includes("market") || designation.includes("report") || designation.includes("content"))
-    return "Marketing";
-  // NOT the company name. Falling back to `current_company` put "Shelby
-  // Company Ltd." in the Industry column — an employer is not a sector, and a
-  // column that silently changes what it means is worse than an empty one.
+    return "Design";
   return "General";
 }
 
-/** Years as a number so the column sorts numerically; `null` means unknown. */
 function getExperienceYears(candidate: CandidateRecord): number | null {
   const years = candidate.profile?.total_experience_years;
   return years === null || years === undefined ? null : years;
@@ -141,24 +137,14 @@ function getExperienceYears(candidate: CandidateRecord): number | null {
 function formatExperience(years: number | null): string {
   if (years === null) return "—";
   if (years <= 0) return "Fresher";
-  // Under a year, months are the honest unit — "0.3 yrs" is a spreadsheet
-  // artefact, not something a recruiter would ever say out loud.
   if (years < 1) {
     const months = Math.max(1, Math.round(years * 12));
     return `${months} mo${months === 1 ? "" : "s"}`;
   }
-  // Floor, not round: 16.6 years of experience is sixteen completed years.
-  // Rounding up would credit the candidate with time they have not served.
   const whole = Math.floor(years);
   return `${whole} yr${whole === 1 ? "" : "s"}`;
 }
 
-/**
- * Regroups a bare ten-digit national number so the column stops looking ragged
- * next to the numbers that already carry a country code. Anything with a `+`,
- * brackets or dashes is left exactly as the candidate wrote it — guessing a
- * country code from digit count would invent data.
- */
 function formatContact(raw: string): string {
   const value = raw.trim().replace(/\s+/g, " ");
   if (/^\d{10}$/.test(value)) return `${value.slice(0, 5)} ${value.slice(5)}`;
@@ -173,29 +159,39 @@ function getEmail(candidate: CandidateRecord): string {
   return candidate.profile?.email || candidate.email_key || candidate.source_email?.from_addr || "";
 }
 
-/**
- * The record's own identifier. No longer a column, but kept in the search
- * haystack so a row can still be found by the ID quoted in an email or ticket.
- * This is the resume hash, NOT a passport number.
- */
 function getReference(candidate: CandidateRecord): string {
-  return (candidate.resume_hash?.slice(0, 8) || candidate.id.slice(-8)).toUpperCase();
+  return candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`;
+}
+
+function getAdded(candidate: CandidateRecord): string {
+  if (!candidate.created_at) return "—";
+  const date = new Date(candidate.created_at);
+  return Number.isNaN(date.getTime()) ? "—" : formatDateFull(date);
 }
 
 type StatusKey = "verified" | "review" | "active";
 
-function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string } {
-  if (candidate.status === "verified") return { key: "verified", label: "Verified" };
-  if ((candidate.profile?.confidence ?? 1) < REVIEW_CONFIDENCE) return { key: "review", label: "Review" };
-  return { key: "active", label: "Active" };
+/**
+ * The state, and the tone that carries it.
+ *
+ * Resolved in one place rather than at each of the three that draw it, so the
+ * dot in a row, the dot on a card and the word beside either can never
+ * disagree about what colour "verified" is.
+ */
+const STATUS_TONE: Record<StatusKey, string> = {
+  verified: "ok",
+  review: "warn",
+  active: "info",
+};
+
+function getStatus(candidate: CandidateRecord): { key: StatusKey; label: string; tone: string } {
+  if (candidate.status === "verified")
+    return { key: "verified", label: "Verified", tone: STATUS_TONE.verified };
+  if ((candidate.profile?.confidence ?? 1) < REVIEW_CONFIDENCE)
+    return { key: "review", label: "Needs review", tone: STATUS_TONE.review };
+  return { key: "active", label: "Ready to review", tone: STATUS_TONE.active };
 }
 
-/**
- * What an empty table means depends on which slice you asked for. "No
- * candidates in the database" is wrong on the Pending Review screen when there
- * are two hundred records and none of them need review — that is good news, and
- * it should read like it.
- */
 const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
   all: {
     title: "No candidates yet",
@@ -209,102 +205,104 @@ const EMPTY_COPY: Record<TalentFilter, { title: string; sub: string }> = {
     title: "Nothing waiting for review",
     sub: "Every parsed résumé scored above the confidence threshold.",
   },
+  active: {
+    title: "Nothing waiting to be checked",
+    sub: "Every parsed résumé has either been verified or flagged for review.",
+  },
 };
 
-/** The three slices, in the order a recruiter works through them. */
 const FILTERS: { id: TalentFilter; label: string }[] = [
-  { id: "all", label: "All" },
+  { id: "all", label: "All candidates" },
+  { id: "pending", label: "Needs review" },
+  { id: "active", label: "Ready to review" },
   { id: "verified", label: "Verified" },
-  { id: "pending", label: "Pending review" },
 ];
 
-/** Which DataBlue pill each state wears. */
-const STATUS_PILL: Record<StatusKey, string> = {
-  verified: "is-verified",
-  review: "is-pending",
-  active: "is-info",
-};
-
-/** Sort weight — review first, because it is the column you act on. */
-const STATUS_ORDER: Record<StatusKey, number> = { review: 0, active: 1, verified: 2 };
-
-type SortKey = "name" | "designation" | "industry" | "experience" | "status" | "added";
+type SortKey = "name" | "role" | "experience" | "status" | "added";
 type SortDir = "asc" | "desc";
 
-type Align = "left" | "center" | "right";
-
-interface Column {
-  key: string;
-  label: string;
-  sort?: SortKey;
-  /** Applied to the header cell AND every body cell in the column. */
-  align: Align;
-  className?: string;
-}
-
 /**
- * The single source of truth for the table's columns. Width comes from the
- * matching `.ctable-col-*` rule; alignment is declared once here and applied
- * to both the header and the cells, so the two can never drift apart.
+ * Six facts and the row's controls.
+ *
+ * The old table ran to eight columns and said several things twice: a row
+ * number beside a sortable list, an industry column reading "General" for most
+ * of the pool, and a phone column beside an email already printed under the
+ * name. What is left is what a recruiter scans down — who, what they do, how
+ * long they have done it, how to reach them, when they arrived, where they
+ * stand.
  */
-const COLUMNS: Column[] = [
-  { key: "index", label: "S.No.", align: "center", className: "ctable-num" },
-  { key: "name", label: "Candidate", sort: "name", align: "left" },
-  { key: "designation", label: "Designation", sort: "designation", align: "left" },
-  { key: "industry", label: "Industry", sort: "industry", align: "left" },
-  { key: "experience", label: "Experience", sort: "experience", align: "center", className: "ctable-numeric" },
-  { key: "contact", label: "Contact", align: "left" },
-  { key: "status", label: "Status", sort: "status", align: "center", className: "ctable-th-status" },
-  { key: "actions", label: "Actions", align: "center", className: "ctable-th-actions" },
+const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] = [
+  { key: "name", label: "Candidate", sort: "name" },
+  { key: "role", label: "Role", sort: "role" },
+  { key: "experience", label: "Experience", sort: "experience", align: "num" },
+  { key: "contact", label: "Contact" },
+  { key: "added", label: "Added", sort: "added" },
+  { key: "owner", label: "Assigned to" },
+  { key: "status", label: "Status", sort: "status" },
+  { key: "actions", label: "" },
 ];
 
-/** Look-up so a body cell can ask for its own column's alignment class. */
-const ALIGN: Record<string, string> = Object.fromEntries(
-  COLUMNS.map((col) => [col.key, `ctable-al-${col.align}`]),
-);
-
+/**
+ * Every parsed profile, on one screen.
+ *
+ * Four readings across the top that are also the filter, then one panel
+ * holding the profiles — as a table by default, as cards when the width is
+ * better spent that way. The same register as the overview: white panels on
+ * the light plane, rows as tinted bands, one accent, and the state carried by
+ * a dot and a word rather than by a wash across the whole line.
+ */
 export default function CandidatesView({
   candidates: allCandidates,
-  logCounts,
-  seedQuery = "",
+  onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
-  onOpenLogs,
   onDeleteCandidate,
+  onAssignmentChanged,
+  onToast,
 }: CandidatesViewProps) {
-  const [query, setQuery] = useState(seedQuery);
-
-  // Adopt a new term from the bar. Keyed on `seedQuery` alone, so a search run
-  // from the bar replaces what is in the field while anything typed into the
-  // field afterwards stands.
-  useEffect(() => {
-    setQuery(seedQuery);
-  }, [seedQuery]);
+  const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TalentFilter>("all");
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<CandidateRecord | null>(null);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [assignmentError, setAssignmentError] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
-  /**
-   * Verified and Pending Review are this table with a slice applied, not
-   * screens of their own — same columns, same actions, same search, so the
-   * directory does not have to be relearned three times.
-   */
+  useEffect(() => {
+    if (!assigning) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !assignmentSaving) setAssigning(null);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [assigning, assignmentSaving]);
+
   const candidates = useMemo(() => {
     if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
     if (filter === "pending") return allCandidates.filter((c) => getStatus(c).key === "review");
+    if (filter === "active") return allCandidates.filter((c) => getStatus(c).key === "active");
     return allCandidates;
   }, [allCandidates, filter]);
 
-  /** Counts sit on the tabs themselves, so the split is visible before you click. */
-  const filterCounts = useMemo(
-    () => ({
-      all: allCandidates.length,
-      verified: allCandidates.filter((c) => getStatus(c).key === "verified").length,
-      pending: allCandidates.filter((c) => getStatus(c).key === "review").length,
-    }),
-    [allCandidates],
-  );
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
+  const filterCounts = useMemo(() => {
+    const counts = { all: allCandidates.length, verified: 0, pending: 0, active: 0 };
+    for (const candidate of allCandidates) {
+      const key = getStatus(candidate).key;
+      if (key === "verified") counts.verified += 1;
+      else if (key === "review") counts.pending += 1;
+      else counts.active += 1;
+    }
+    return counts;
+  }, [allCandidates]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -319,6 +317,7 @@ export default function CandidatesView({
         (profile.skills ?? []).join(" "),
         getContact(c),
         getEmail(c),
+        c.source_email?.to_addr ?? "",
         getReference(c),
       ]
         .join(" ")
@@ -329,19 +328,13 @@ export default function CandidatesView({
 
   const sorted = useMemo(() => {
     const factor = sort.dir === "asc" ? 1 : -1;
-    // Sorting a copy — mutating the filtered array would reorder the memo that
-    // produced it and make the next render depend on the previous one.
     return [...filtered].sort((a, b) => {
       switch (sort.key) {
         case "name":
           return factor * getDisplayName(a).localeCompare(getDisplayName(b));
-        case "designation":
+        case "role":
           return factor * getDesignation(a).localeCompare(getDesignation(b));
-        case "industry":
-          return factor * getIndustry(a).localeCompare(getIndustry(b));
         case "experience": {
-          // Unknowns sort to the bottom in either direction rather than
-          // masquerading as zero years of experience.
           const ax = getExperienceYears(a);
           const bx = getExperienceYears(b);
           if (ax === null && bx === null) return 0;
@@ -349,8 +342,10 @@ export default function CandidatesView({
           if (bx === null) return -1;
           return factor * (ax - bx);
         }
-        case "status":
-          return factor * (STATUS_ORDER[getStatus(a).key] - STATUS_ORDER[getStatus(b).key]);
+        case "status": {
+          const order = { review: 0, active: 1, verified: 2 };
+          return factor * (order[getStatus(a).key] - order[getStatus(b).key]);
+        }
         case "added":
         default: {
           const at = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -361,247 +356,358 @@ export default function CandidatesView({
     });
   }, [filtered, sort]);
 
-  /** First click sorts ascending; clicking the active column flips direction. */
+  /**
+   * This month against last, per slice.
+   *
+   * Measured on `created_at`, so it answers "how many of these arrived
+   * recently" rather than "how many exist" — the figure above it already
+   * answers that. Null where last month was empty: a rise from nothing has no
+   * percentage, and printing one would invent a baseline.
+   */
+  const filterTrends = useMemo(() => {
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+
+    const countIn = (rows: CandidateRecord[], from: number, to: number) =>
+      rows.filter((row) => {
+        const at = row.created_at ? new Date(row.created_at).getTime() : NaN;
+        return !Number.isNaN(at) && at >= from && at < to;
+      }).length;
+
+    const out = {} as Record<TalentFilter, number | null>;
+    for (const { id } of FILTERS) {
+      // Measured on the whole pool, not on the current slice: the card for
+      // "Verified" has to keep reading verified while "Needs review" is the
+      // one selected, or the three cards you are not on go blank.
+      const rows =
+        id === "all"
+          ? allCandidates
+          : allCandidates.filter((row) => {
+              const key = getStatus(row).key;
+              if (id === "verified") return key === "verified";
+              if (id === "pending") return key === "review";
+              return key === "active";
+            });
+      const current = countIn(rows, thisMonth, now.getTime());
+      const previous = countIn(rows, lastMonth, thisMonth);
+      out[id] = previous > 0 ? ((current - previous) / previous) * 100 : null;
+    }
+    return out;
+  }, [allCandidates]);
+
   const toggleSort = (key: SortKey) =>
-    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+    setSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+
+  const openAssignment = async (candidate: CandidateRecord) => {
+    setAssigning(candidate);
+    setSelectedStaffId(candidate.assigned_staff_id ?? "");
+    setAssignmentError("");
+    setStaffLoading(true);
+    try {
+      const response = await listStaff(false);
+      setStaff((response.items ?? []).filter((member) => member.active));
+    } catch (error) {
+      setAssignmentError(error instanceof Error ? error.message : "Could not load staff accounts.");
+    } finally {
+      setStaffLoading(false);
+    }
+  };
+
+  const saveAssignment = async () => {
+    if (!assigning || !selectedStaffId) return;
+    setAssignmentSaving(true);
+    setAssignmentError("");
+    try {
+      await assignCandidate(assigning.id, selectedStaffId);
+      const owner = staff.find((member) => member.id === selectedStaffId);
+      onToast?.(`${getDisplayName(assigning)} assigned to ${owner?.name || owner?.email || "staff"}.`, "success");
+      setAssigning(null);
+      onAssignmentChanged?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not assign this candidate.";
+      setAssignmentError(message);
+      onToast?.(message, "error");
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
+
+  /**
+   * The controls a row carries.
+   *
+   * Opening the profile is the row itself, so there is no magnifier here
+   * repeating the click the whole row already answers — that magnifier was the
+   * fifth of five icons on every line, which is what made the actions column
+   * read as a wall.
+   */
+  const rowActions = (candidate: CandidateRecord) => {
+    const reviewed = candidate.status === "verified";
+    return (
+      <>
+        <button
+          type="button"
+          className={`ds-review-action ${reviewed ? "is-done" : ""}`}
+          title={reviewed ? "Open the completed review" : "Review this candidate"}
+          onClick={() => onOpenCandidate(candidate)}
+        >
+          {reviewed ? <CheckCircle2 size={14} /> : <FileSearch size={14} />}
+          <span>{reviewed ? "Reviewed" : "Review"}</span>
+        </button>
+        <button
+          type="button"
+          className="ds-review-action is-assign"
+          title={`Assign ${getDisplayName(candidate)} to a staff member`}
+          onClick={() => void openAssignment(candidate)}
+        >
+          <UserCheck size={14} />
+          <span>Assign</span>
+        </button>
+        <button
+          type="button"
+          className="ds-act"
+          title="Edit this profile"
+          onClick={() => onEditCandidate(candidate)}
+        >
+          <Edit3 size={15} />
+        </button>
+        <button
+          type="button"
+          className="ds-act is-danger"
+          title="Delete this profile"
+          onClick={() => setDeleteConfirm(candidate.id)}
+        >
+          <Trash2 size={15} />
+        </button>
+      </>
+    );
+  };
+
+  /** The same two-button confirmation wherever a delete is asked for. */
+  const confirmDelete = (candidateId: string) => (
+    <div className="ds-confirm">
+      <span>Delete?</span>
+      <button
+        type="button"
+        className="ds-act is-danger is-solid"
+        title="Yes, delete it"
+        onClick={() => {
+          onDeleteCandidate(candidateId);
+          setDeleteConfirm(null);
+        }}
+      >
+        <Check size={15} />
+      </button>
+      <button type="button" className="ds-act" title="Keep it" onClick={() => setDeleteConfirm(null)}>
+        <X size={15} />
+      </button>
+    </div>
+  );
+
+  const activeLabel = FILTERS.find((f) => f.id === filter)?.label ?? "All candidates";
 
   return (
-    <div className="tab-content active" style={{ animation: "fadeIn 0.3s ease" }}>
-      {/* No stat tiles here: the tab counts already report the same three
-          figures, and the table is what this screen is for. */}
-      <div className="cview-filters">
-        <div className="db-tabs" role="tablist" aria-label="Candidate status filter">
-          {FILTERS.map(({ id, label }) => (
+    <div className="ds-page">
+      {/* ── Page head ─────────────────────────────────────────────────── */}
+      <header className="ds-head">
+        <div>
+          <h1 className="ds-head-title">Candidates</h1>
+          <p className="ds-head-sub">Every parsed profile, and where each one stands</p>
+        </div>
+
+        <div className="ds-head-actions">
+          <button type="button" className="ds-ghost-btn" onClick={onAddCandidate}>
+            <Plus size={15} /> Add candidate
+          </button>
+          <button type="button" className="ds-primary-btn">
+            <ExternalLink size={15} /> Export CSV
+          </button>
+        </div>
+      </header>
+
+      {/* ── Four readings, which are also the filter ──────────────────── */}
+      {/* The readings and the filter are the same control. Four cards above a
+          row of four tabs would be the same four numbers twice, a click
+          apart. */}
+      <div className="ds-stats" role="tablist" aria-label="Filter candidates">
+        {FILTERS.map(({ id, label }) => {
+          const Icon = FILTER_ICONS[id];
+          const trend = filterTrends[id];
+          return (
             <button
               key={id}
               type="button"
               role="tab"
               aria-selected={filter === id}
-              className={`db-tab ${filter === id ? "is-on" : ""}`}
+              className={`ds-stat ${filter === id ? "is-on" : ""}`}
               onClick={() => setFilter(id)}
             >
-              {label}
-              <span className="db-tab-count">{formatInt(filterCounts[id])}</span>
+              <span className="ds-stat-top">
+                <span className="ds-stat-label">{label}</span>
+                <span className="ds-stat-icon" aria-hidden="true">
+                  <Icon size={16} strokeWidth={2} />
+                </span>
+              </span>
+              <span className="ds-stat-value">{formatInt(filterCounts[id])}</span>
+              <span className="ds-stat-foot">
+                {trend === null ? (
+                  <em className="ds-stat-quiet">No arrivals this month</em>
+                ) : (
+                  <>
+                    <em className={trend >= 0 ? "is-up" : "is-down"}>
+                      {trend >= 0 ? "↑" : "↓"} {Math.abs(trend).toFixed(1)}%
+                    </em>
+                    since last month
+                  </>
+                )}
+              </span>
             </button>
-          ))}
-        </div>
-
-        <div className="db-tabs" role="group" aria-label="Directory layout">
-          <button
-            type="button"
-            className={`db-tab ${view === "table" ? "is-on" : ""}`}
-            onClick={() => setView("table")}
-            aria-pressed={view === "table"}
-            title="Table view"
-          >
-            <Rows3 size={14} /> Table
-          </button>
-          <button
-            type="button"
-            className={`db-tab ${view === "cards" ? "is-on" : ""}`}
-            onClick={() => setView("cards")}
-            aria-pressed={view === "cards"}
-            title="Card view"
-          >
-            <LayoutGrid size={14} /> Cards
-          </button>
-        </div>
+          );
+        })}
       </div>
 
-      <div className="sh-toolbar cview-toolbar">
-        <div className="sh-toolbar-right">
-          <div className="sh-search">
-            <Search size={16} className="sh-search-icon" />
-            <input
-              type="text"
-              className="sh-search-input"
-              placeholder="Search name, role, industry, skills or contact…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search candidates"
-            />
-            {query && (
+      {/* ── The profiles themselves ───────────────────────────────────── */}
+      <section className="ds-panel">
+        <div className="ds-panel-head is-split">
+          <div>
+            <h2 className="ds-panel-title">{activeLabel}</h2>
+            <p className="ds-panel-sub">
+              {formatInt(sorted.length)} shown of {formatInt(candidates.length)} on file
+            </p>
+          </div>
+
+          <div className="ds-panel-tools">
+            <label className="ds-search">
+              <Search size={15} />
+              <input
+                type="search"
+                value={query}
+                placeholder="Search name, role, skills or email"
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search candidates"
+              />
+            </label>
+
+            <div className="ds-seg is-quiet" role="group" aria-label="View">
               <button
-                className="sourcing-search-clear"
-                onClick={() => setQuery("")}
-                title="Clear search"
-                aria-label="Clear search"
+                type="button"
+                className={`ds-seg-btn is-icon ${view === "table" ? "is-on" : ""}`}
+                onClick={() => setView("table")}
+                title="Table view"
+                aria-label="Table view"
               >
-                <X size={14} />
+                <Rows3 size={15} />
+              </button>
+              <button
+                type="button"
+                className={`ds-seg-btn is-icon ${view === "cards" ? "is-on" : ""}`}
+                onClick={() => setView("cards")}
+                title="Card view"
+                aria-label="Card view"
+              >
+                <LayoutGrid size={15} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {sorted.length === 0 ? (
+          <div className="ds-empty-state">
+            <UsersRound size={30} />
+            <h3>{query ? "Nothing matches that search" : EMPTY_COPY[filter].title}</h3>
+            <p>{query ? "No profile matches what you typed." : EMPTY_COPY[filter].sub}</p>
+            {query && (
+              <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
+                Clear search
               </button>
             )}
           </div>
-
-          <span className="sh-result-count">
-            {formatInt(filtered.length)} of {formatInt(candidates.length)} shown
-          </span>
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="db-empty">
-          <UsersRound size={28} strokeWidth={1.5} />
-          <span className="db-empty-title">{EMPTY_COPY[filter].title}</span>
-          <span className="db-empty-sub">
-            {query ? "Nothing here matches that search." : EMPTY_COPY[filter].sub}
-          </span>
-          {query && (
-            <button type="button" className="db-btn" style={{ marginTop: "0.7rem" }} onClick={() => setQuery("")}>
-              Clear search
-            </button>
-          )}
-        </div>
-      ) : view === "cards" ? (
-        <div className="ccard-grid">
-          {sorted.map((candidate) => {
-            const displayName = getDisplayName(candidate);
-            const status = getStatus(candidate);
-            const years = getExperienceYears(candidate);
-            const logCount = logCounts[candidate.id] ?? 0;
-            return (
-              <div
-                key={candidate.id}
-                className="ccard"
-                role="button"
-                tabIndex={0}
-                aria-label={`Open ${displayName}`}
-                onClick={() => onOpenCandidate(candidate)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onOpenCandidate(candidate);
-                  }
-                }}
-              >
-                <div className="ccard-head">
-                  <span className="ccard-avatar" aria-hidden="true">
-                    {initialsOf(displayName)}
-                  </span>
-                  <span className="ccard-identity">
-                    <span className="ccard-name" title={displayName}>
-                      {displayName}
+        ) : view === "cards" ? (
+          <div className="ds-grid">
+            {sorted.map((candidate) => {
+              const displayName = getDisplayName(candidate);
+              const status = getStatus(candidate);
+              const email = getEmail(candidate);
+              return (
+                <article
+                  key={candidate.id}
+                  className="ds-mini"
+                  onClick={() => onOpenCandidate(candidate)}
+                >
+                  <div className="ds-mini-head">
+                    <span className="ds-who">
+                      <span className="ds-avatar" aria-hidden="true">
+                        {initialsOf(displayName)}
+                      </span>
+                      <span className="ds-who-text">
+                        <strong title={displayName}>{displayName}</strong>
+                        <small className="crm-record-id">Candidate ID · {getReference(candidate)}</small>
+                        <small title={email}>{email || "No email on file"}</small>
+                      </span>
                     </span>
-                    <span className="ccard-role" title={getDesignation(candidate) || undefined}>
-                      {getDesignation(candidate) || getEmail(candidate) || "—"}
+                    <span className={`ds-status is-${status.tone}`}>
+                      <i aria-hidden="true" />
+                      {status.label}
                     </span>
-                  </span>
-                  <span className={`db-pill ${STATUS_PILL[status.key]}`}>{status.label}</span>
-                </div>
-
-                <div className="ccard-meta">
-                  <span>
-                    <span className="ccard-meta-key">Industry</span>
-                    <span className="ccard-meta-val">{getIndustry(candidate)}</span>
-                  </span>
-                  <span>
-                    <span className="ccard-meta-key">Experience</span>
-                    <span className="ccard-meta-val">{formatExperience(years)}</span>
-                  </span>
-                  <span>
-                    <span className="ccard-meta-key">Contact</span>
-                    <span className="ccard-meta-val">{getContact(candidate) || "—"}</span>
-                  </span>
-                  <span>
-                    <span className="ccard-meta-key">Added</span>
-                    <span className="ccard-meta-val">
-                      {candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—"}
-                    </span>
-                  </span>
-                </div>
-
-                {/* The row's action cluster, verbatim — same buttons, same
-                    behaviour, so switching view changes the layout and nothing
-                    else. Clicks must not also open the card behind them. */}
-                <div className="ccard-foot" onClick={(event) => event.stopPropagation()}>
-                  <span className="ctable-sub">{getEmail(candidate)}</span>
-                  <div className="ctable-actions">
-                    {candidate.resume?.storage_key && (
-                      <a
-                        className="ctable-btn ctable-btn-view"
-                        href={resumeDownloadUrl(candidate.id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="View original resume"
-                        aria-label={`View original resume of ${displayName}`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <FileText size={14} />
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="ctable-btn ctable-btn-edit"
-                      title="Edit details"
-                      aria-label={`Edit details of ${displayName}`}
-                      onClick={() => onEditCandidate(candidate)}
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className={`ctable-btn ctable-btn-activity ${logCount > 0 ? "is-on" : ""}`}
-                      title={
-                        logCount > 0
-                          ? `Activity log — ${logCount} event${logCount === 1 ? "" : "s"}`
-                          : "Activity log"
-                      }
-                      aria-label={`Activity log for ${displayName}`}
-                      onClick={() => onOpenLogs(candidate)}
-                    >
-                      <MoreHorizontal size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="ctable-btn ctable-btn-delete"
-                      title="Delete candidate"
-                      aria-label={`Delete ${displayName}`}
-                      onClick={() => {
-                        if (
-                          confirm(`Permanently delete "${displayName}" from MongoDB Atlas?`)
-                        ) {
-                          onDeleteCandidate(candidate.id);
-                        }
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="ctable-wrap">
-          <div className="ctable-scroll">
-            <table className="ctable">
-              <colgroup>
-                <col className="ctable-col-num" />
-                <col className="ctable-col-name" />
-                <col className="ctable-col-designation" />
-                <col className="ctable-col-industry" />
-                <col className="ctable-col-experience" />
-                <col className="ctable-col-contact" />
-                <col className="ctable-col-status" />
-                <col className="ctable-col-actions" />
-              </colgroup>
+
+                  <dl className="ds-mini-meta">
+                    <div>
+                      <dt>Role</dt>
+                      <dd>{getDesignation(candidate) || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Industry</dt>
+                      <dd>{getIndustry(candidate)}</dd>
+                    </div>
+                    <div>
+                      <dt>Experience</dt>
+                      <dd>{formatExperience(getExperienceYears(candidate))}</dd>
+                    </div>
+                    <div>
+                      <dt>Contact</dt>
+                      <dd>{getContact(candidate) || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Assigned to</dt>
+                      <dd>{candidate.assigned_staff_name || "Unassigned"}</dd>
+                    </div>
+                  </dl>
+
+                  <div className="ds-mini-foot" onClick={(e) => e.stopPropagation()}>
+                    <span className="ds-mini-when">Added {getAdded(candidate)}</span>
+                    <div className="ds-acts">
+                      {deleteConfirm === candidate.id
+                        ? confirmDelete(candidate.id)
+                        : rowActions(candidate)}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled">
               <thead>
                 <tr>
                   {COLUMNS.map((col) => (
-                    <th key={col.key} className={`${ALIGN[col.key]} ${col.className ?? ""}`}>
+                    <th
+                      key={col.key}
+                      className={`${col.align === "num" ? "is-num " : ""}${!col.label ? "is-actions" : ""}`.trim() || undefined}
+                      aria-label={col.label ? undefined : "Actions"}
+                    >
                       {col.sort ? (
                         <button
                           type="button"
-                          className={`ctable-sort ${sort.key === col.sort ? "is-active" : ""}`}
+                          className={`ds-sort ${sort.key === col.sort ? "is-on" : ""}`}
                           onClick={() => toggleSort(col.sort!)}
-                          aria-label={`Sort by ${col.label}`}
                         >
                           {col.label}
-                          {sort.key === col.sort && sort.dir === "asc" ? (
-                            <ArrowUp size={11} />
-                          ) : (
-                            <ArrowDown size={11} />
-                          )}
+                          {sort.key === col.sort &&
+                            (sort.dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
                         </button>
                       ) : (
                         col.label
@@ -610,160 +716,65 @@ export default function CandidatesView({
                   ))}
                 </tr>
               </thead>
-
               <tbody>
-                {sorted.map((candidate, index) => {
+                {sorted.map((candidate) => {
                   const displayName = getDisplayName(candidate);
                   const designation = getDesignation(candidate);
-                  const industry = getIndustry(candidate);
-                  const years = getExperienceYears(candidate);
                   const contact = getContact(candidate);
                   const email = getEmail(candidate);
                   const status = getStatus(candidate);
-                  const createdAt = candidate.created_at
-                    ? formatDateFull(new Date(candidate.created_at))
-                    : "—";
-                  const logCount = logCounts[candidate.id] ?? 0;
-                  const isConfirmingDelete = deleteConfirm === candidate.id;
 
                   return (
-                    <tr
-                      key={candidate.id}
-                      className={`ctable-row status-${status.key}`}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`Open ${displayName}`}
-                      onClick={() => onOpenCandidate(candidate)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          onOpenCandidate(candidate);
-                        }
-                      }}
-                    >
-                      <td className={`${ALIGN.index} ctable-num`}>{index + 1}</td>
-
-                      <td className={ALIGN.name}>
-                        <div className="ctable-identity">
-                          <span className="ctable-monogram" aria-hidden="true">
+                    <tr className="is-clickable" key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
+                      <td>
+                        <span className="ds-who">
+                          <span className="ds-avatar" aria-hidden="true">
                             {initialsOf(displayName)}
                           </span>
-                          <span className="ctable-identity-text">
-                            <span className="ctable-name">{displayName}</span>
-                            <span className="ctable-sub">{email || createdAt}</span>
+                          <span className="ds-who-text">
+                            <strong title={displayName}>{displayName}</strong>
+                            <small className="crm-record-id">Candidate ID · {getReference(candidate)}</small>
+                            <small title={email}>{email || "No email on file"}</small>
                           </span>
+                        </span>
+                      </td>
+
+                      {/* The role and the industry it sits in are one fact read
+                          two ways, so they share a cell rather than take a
+                          column each. */}
+                      <td>
+                        <span className="ds-cell-main" title={designation || undefined}>
+                          {designation || "—"}
+                        </span>
+                        <span className="ds-cell-sub">{getIndustry(candidate)}</span>
+                      </td>
+
+                      <td className="is-num">{formatExperience(getExperienceYears(candidate))}</td>
+
+                      <td title={contact || undefined}>{contact || "—"}</td>
+
+                      <td>{getAdded(candidate)}</td>
+
+                      <td>
+                        <span className={`ds-owner ${candidate.assigned_staff_id ? "" : "is-empty"}`}>
+                          <UserCheck size={13} />
+                          {candidate.assigned_staff_name || "Unassigned"}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span className={`ds-status is-${status.tone}`}>
+                          <i aria-hidden="true" />
+                          {status.label}
+                        </span>
+                      </td>
+
+                      <td className="is-actions" onClick={(e) => e.stopPropagation()}>
+                        <div className="ds-acts">
+                          {deleteConfirm === candidate.id
+                            ? confirmDelete(candidate.id)
+                            : rowActions(candidate)}
                         </div>
-                      </td>
-
-                      {/* `title` gives the full value back when a cell truncates. */}
-                      <td className={ALIGN.designation} title={designation || undefined}>
-                        {designation || <span className="ctable-empty-cell">—</span>}
-                      </td>
-
-                      <td className={ALIGN.industry} title={industry}>
-                        {industry}
-                      </td>
-
-                      <td className={`${ALIGN.experience} ctable-numeric`}>{formatExperience(years)}</td>
-
-                      <td className={`${ALIGN.contact} ctable-strong`} title={contact || undefined}>
-                        {contact || <span className="ctable-empty-cell">—</span>}
-                      </td>
-
-                      <td className={`${ALIGN.status} ctable-cell-status`}>
-                        <span className={`db-pill ${STATUS_PILL[status.key]}`}>{status.label}</span>
-                      </td>
-
-                      {/* Actions live inside the row but must not trigger it. */}
-                      <td
-                        className={`${ALIGN.actions} ctable-cell-actions`}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {isConfirmingDelete ? (
-                          <div className="ctable-confirm">
-                            <span className="ctable-confirm-label">Delete?</span>
-                            <button
-                              type="button"
-                              className="ctable-confirm-yes"
-                              title="Confirm delete"
-                              aria-label={`Confirm delete of ${displayName}`}
-                              onClick={() => {
-                                onDeleteCandidate(candidate.id);
-                                setDeleteConfirm(null);
-                              }}
-                            >
-                              <Check size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="ctable-confirm-no"
-                              title="Cancel"
-                              aria-label="Cancel delete"
-                              onClick={() => setDeleteConfirm(null)}
-                            >
-                              <X size={14} />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="ctable-actions">
-                            {candidate.resume?.storage_key && (
-                              <a
-                                className="ctable-btn ctable-btn-view"
-                                href={resumeDownloadUrl(candidate.id)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="View original resume"
-                                aria-label={`View original resume of ${displayName}`}
-                                onClick={(event) => event.stopPropagation()}
-                              >
-                                <FileText size={14} />
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              className="ctable-btn ctable-btn-view"
-                              title="View executive profile"
-                              aria-label={`View executive profile of ${displayName}`}
-                              onClick={() => onOpenCandidate(candidate)}
-                            >
-                              <Eye size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="ctable-btn ctable-btn-edit"
-                              title="Edit details"
-                              aria-label={`Edit details of ${displayName}`}
-                              onClick={() => onEditCandidate(candidate)}
-                            >
-                              <Edit3 size={14} />
-                            </button>
-                            {/* Opens this candidate's own activity screen. The
-                                tint marks a row that has history, so the log
-                                can be found without opening every row first. */}
-                            <button
-                              type="button"
-                              className={`ctable-btn ctable-btn-activity ${logCount > 0 ? "is-on" : ""}`}
-                              title={
-                                logCount > 0
-                                  ? `Activity log — ${logCount} event${logCount === 1 ? "" : "s"}`
-                                  : "Activity log"
-                              }
-                              aria-label={`Activity log for ${displayName}`}
-                              onClick={() => onOpenLogs(candidate)}
-                            >
-                              <MoreHorizontal size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className="ctable-btn ctable-btn-delete"
-                              title="Delete candidate"
-                              aria-label={`Delete ${displayName}`}
-                              onClick={() => setDeleteConfirm(candidate.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        )}
                       </td>
                     </tr>
                   );
@@ -771,16 +782,103 @@ export default function CandidatesView({
               </tbody>
             </table>
           </div>
+        )}
 
-          <div className="ctable-foot">
-            <span>
-              Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
-              <strong>{formatInt(candidates.length)}</strong> candidates
-            </span>
-            <span className="ctable-live">
-              <span className="status-dot" />
-              Live
-            </span>
+        <div className="ds-panel-foot">
+          <span>
+            Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
+            <strong>{formatInt(candidates.length)}</strong> candidates
+          </span>
+          <span className="ds-status is-ok">
+            <i aria-hidden="true" />
+            Live DB sync
+          </span>
+        </div>
+      </section>
+
+      {assigning && (
+        <div className="cm-overlay active" onClick={() => !assignmentSaving && setAssigning(null)}>
+          <div
+            className="cm-dialog candidate-assign-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="candidate-assign-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h3 id="candidate-assign-title" className="modal-title">Assign candidate</h3>
+                <p className="modal-subtitle">Choose who will own and review this profile.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setAssigning(null)}
+                disabled={assignmentSaving}
+                aria-label="Close assignment dialog"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="modal-body candidate-assign-body">
+              <div className="candidate-assign-person">
+                <span className="ds-avatar" aria-hidden="true">{initialsOf(getDisplayName(assigning))}</span>
+                <span>
+                  <strong>{getDisplayName(assigning)}</strong>
+                  <small>Current owner: {assigning.assigned_staff_name || "Unassigned"}</small>
+                </span>
+              </div>
+
+              <div className="field-group">
+                <label className="modal-label" htmlFor="candidate-owner">Assign to</label>
+                {staffLoading ? (
+                  <div className="candidate-assign-loading">
+                    <Loader2 size={16} className="icon-spin" /> Loading staff…
+                  </div>
+                ) : (
+                  <select
+                    id="candidate-owner"
+                    className="modal-select"
+                    value={selectedStaffId}
+                    onChange={(event) => setSelectedStaffId(event.target.value)}
+                    autoFocus
+                  >
+                    <option value="">Select an active staff member</option>
+                    {staff.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name || member.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="modal-hint">
+                  New candidates continue to be distributed automatically to the least-loaded active staff member.
+                </span>
+              </div>
+
+              {assignmentError && <div className="sh-form-error">{assignmentError}</div>}
+            </div>
+
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-cancel-btn"
+                onClick={() => setAssigning(null)}
+                disabled={assignmentSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="db-btn is-primary"
+                onClick={() => void saveAssignment()}
+                disabled={!selectedStaffId || staffLoading || assignmentSaving}
+              >
+                {assignmentSaving ? <Loader2 size={14} className="icon-spin" /> : <UserCheck size={14} />}
+                {assignmentSaving ? "Assigning…" : "Assign candidate"}
+              </button>
+            </div>
           </div>
         </div>
       )}

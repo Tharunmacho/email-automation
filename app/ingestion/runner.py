@@ -6,6 +6,7 @@ message is only marked done once its resumes are safely stored.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import time
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -19,7 +20,25 @@ from app.tasks.locks import claim_message
 log = get_logger(__name__)
 
 
-def mark_message_done(gmail, message_id: str, status: str) -> None:
+def _identity_kwargs(email: Any) -> dict:
+    """The stable way to address this message again, if we know it.
+
+    A UID stops addressing anything the moment the message is filed into another
+    folder, so the RFC822 ``Message-ID`` — carried on `EmailMessage.thread_id`
+    for IMAP accounts — is what a later re-label has to search on. Only real
+    strings are passed on: a client that does not supply them keeps the plain
+    two-argument call it has always had.
+    """
+    found = {}
+    for key, attr in (("rfc_message_id", "thread_id"), ("subject", "subject"),
+                      ("from_addr", "from_addr")):
+        value = getattr(email, attr, None)
+        if isinstance(value, str) and value.strip():
+            found[key] = value.strip()
+    return found
+
+
+def mark_message_done(gmail, message_id: str, status: str, email: Any = None) -> None:
     """Gmail-side bookkeeping for a message the pipeline has finished with.
 
     Only messages that were actually processed as candidate resumes are marked
@@ -32,16 +51,29 @@ def mark_message_done(gmail, message_id: str, status: str) -> None:
     Shared by the batch runner and the per-message Celery task, so the two paths
     cannot drift into labelling the same outcome differently.
     """
+    where = _identity_kwargs(email)
+
     if status == "suppressed":
+        # Apply before remove, always. On a folder-based account applying the
+        # label *is* a move, and the move is what takes the message out of the
+        # old folder — so removing first would only leave it somewhere the move
+        # then has to find it again.
         if settings.gmail_deleted_label:
-            gmail.apply_label(message_id, settings.gmail_deleted_label)
+            gmail.apply_label(message_id, settings.gmail_deleted_label, **where)
         if settings.gmail_processed_label:
-            gmail.remove_label(message_id, settings.gmail_processed_label)
-    elif status in ("processed", "error"):
+            gmail.remove_label(message_id, settings.gmail_processed_label, **where)
+    elif status == "processed":
         if settings.gmail_mark_read:
             gmail.mark_read(message_id)
         if settings.gmail_processed_label:
-            gmail.apply_label(message_id, settings.gmail_processed_label)
+            gmail.apply_label(message_id, settings.gmail_processed_label, **where)
+    elif status == "error":
+        # Left in the inbox on purpose. An error is retryable — OCR was down,
+        # Mongo blinked — and filing it as processed is what would hide it from
+        # the next poll forever. It is only marked read so the operator can see
+        # the runner has been through it.
+        if settings.gmail_mark_read:
+            gmail.mark_read(message_id)
 
 
 # A dropped connection is not a bad email. Fetching a message is a pure read, so
@@ -83,20 +115,50 @@ class BatchSummary:
 
 
 class IngestionRunner:
-    def __init__(self, gmail: Any | None = None, pipeline: IngestionPipeline | None = None):
-        self.gmail = gmail or get_email_client()
+    def __init__(
+        self,
+        clients: List[Any] | None = None,
+        pipeline: IngestionPipeline | None = None,
+        gmail: Any | None = None,
+    ):
+        if clients is not None:
+            self.clients = clients
+        elif gmail is not None:
+            self.clients = [gmail]
+        else:
+            from app.email_client import get_all_email_clients
+            self.clients = get_all_email_clients()
         self.pipeline = pipeline or IngestionPipeline()
 
     def run_once(self, query: str | None = None) -> BatchSummary:
         summary = BatchSummary()
         effective_query = query if query is not None else settings.gmail_query
-        message_ids = self.gmail.search_message_ids(query=effective_query)
-        summary.fetched = len(message_ids)
-        log.info("Fetched %d message(s) matching query '%s'", summary.fetched, effective_query)
+        
+        # Collect message IDs from all clients concurrently
+        client_messages = []
+        if len(self.clients) <= 1:
+            for client in self.clients:
+                mids = client.search_message_ids(query=effective_query)
+                if mids:
+                    client_messages.extend([(client, mid) for mid in mids])
+        else:
+            def _search_client(c: Any) -> list[tuple[Any, str]]:
+                try:
+                    mids = c.search_message_ids(query=effective_query)
+                    return [(c, mid) for mid in mids] if mids else []
+                except Exception as err:
+                    log.warning("Search failed for client %s: %s", getattr(c, "imap_username", c), err)
+                    return []
 
-        import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.clients)) as search_exec:
+                futures = [search_exec.submit(_search_client, client) for client in self.clients]
+                for fut in concurrent.futures.as_completed(futures):
+                    client_messages.extend(fut.result())
+                
+        summary.fetched = len(client_messages)
+        log.info("Fetched %d message(s) across %d account(s) matching query '%s'", summary.fetched, len(self.clients), effective_query)
 
-        def _process_one_message(mid: str) -> ProcessResult | None:
+        def _process_one_message(client: Any, mid: str) -> ProcessResult | None:
             # Claim the message first. Beat fans out one Celery task per email
             # and gives the poll lock straight back, so a manual sync starting a
             # minute later re-fetches messages that are still being extracted —
@@ -107,10 +169,9 @@ class IngestionRunner:
                         mid, "skipped", "already being processed by another worker"
                     )
 
-                gmail_client = self.gmail
                 try:
-                    email = _fetch_with_retry(gmail_client, mid)
-                    result = self.pipeline.process_email(email, gmail=gmail_client)
+                    email = _fetch_with_retry(client, mid)
+                    result = self.pipeline.process_email(email, gmail=client)
                 except Exception:  # noqa: BLE001
                     log.exception("Failed to process message %s", mid)
                     return None
@@ -120,7 +181,7 @@ class IngestionRunner:
                 # result — that reported "Ingested Candidates=0" for a poll that had
                 # just written a profile.
                 try:
-                    mark_message_done(gmail_client, mid, result.status)
+                    mark_message_done(client, mid, result.status, email=email)
                 except Exception as err:  # noqa: BLE001
                     log.warning(
                         "Processed %s but could not mark it done in Gmail (%s); "
@@ -130,10 +191,14 @@ class IngestionRunner:
 
                 return result
 
-        max_workers = min(10, max(1, len(message_ids)))
+        # Bounded by the batch, then by the setting. The threads are
+        # I/O-bound (Gmail, Veris, the LLM), so this sits well above the
+        # core count; what stops us flooding Veris is the gateway's
+        # in-flight cap, not this number.
+        max_workers = min(max(1, settings.ingestion_max_workers), max(1, len(client_messages)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_mid = {executor.submit(_process_one_message, mid): mid for mid in message_ids}
-            for future in concurrent.futures.as_completed(future_to_mid):
+            future_to_msg = {executor.submit(_process_one_message, client, mid): mid for client, mid in client_messages}
+            for future in concurrent.futures.as_completed(future_to_msg):
                 res = future.result()
                 if res is None:
                     summary.errors += 1
@@ -162,7 +227,7 @@ class IngestionRunner:
                 f"{a.filename}: {a.status}" + (f" ({a.detail})" if a.detail else "")
                 for a in res.attachments
             ) or res.reason
-            log.info("  %s -> %s | %s", res.message_id, res.status, detail)
+            log.debug("  %s -> %s | %s", res.message_id, res.status, detail)
 
         # Auto-assign any unallocated candidates remaining in MongoDB Atlas
         try:

@@ -75,6 +75,19 @@ class ExtractedDocument(BaseModel):
     classification_confidence: Optional[float] = None
     classification_reason: str = ""
 
+    # The résumé extraction, already paid for.
+    #
+    # Locating the résumé sends its pages to the Veris résumé endpoint for a
+    # better read, and that job's answer carries the structured fields as well
+    # as the text. The parser then used to send the very same pages to the very
+    # same endpoint again for the fields alone — one upload, one extraction and
+    # one wait, all duplicated, differing only in idempotency key. Keeping the
+    # payload here lets the parser use the answer instead of buying it twice.
+    #
+    # None when nothing was uploaded (no API key, a local read, a synchronous
+    # call), and the parser then does exactly what it always did.
+    veris_resume_result: Optional[dict] = None
+
     @property
     def resume_text(self) -> str:
         """Only the pages carrying candidate profile data (all of it if unknown)."""
@@ -140,6 +153,28 @@ class TradeLicense(BaseModel):
     expiry_date: Optional[str] = None
 
 
+class JobAnswer(BaseModel):
+    """One screening question, as it was asked and as it was answered.
+
+    The question text is stored alongside the id rather than looked up at read
+    time, and that is deliberate: an admin rewords a question the week after a
+    candidate answered it, and a profile that renders today's wording against
+    last week's answer is a record of a conversation that never happened.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    #: The `job_questions` row this answers, when it came from one. Free-form
+    #: questions the bot asked outside the taxonomy have no id and are still
+    #: worth keeping.
+    question_id: Optional[str] = None
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    #: "text" or "choice" — what the candidate was offered, not what they said.
+    kind: Optional[str] = None
+    asked_at: Optional[str] = None
+
+
 class CandidateProfile(BaseModel):
     """The structured key/value profile the AI extracts from resume text."""
     model_config = ConfigDict(extra="allow")
@@ -184,6 +219,28 @@ class CandidateProfile(BaseModel):
     # the CV policy keys on; `job_preference` is never consulted for a decision
     # because free text cannot be matched reliably.
     job_category: Optional[str] = None
+
+    # ---- the job they actually applied for --------------------------------- #
+    # The `job_designations` row the candidate picked, id and title both. The id
+    # is what the CV rules and any later report join on; the title is what a
+    # recruiter reads, kept here so a job retired or reworded months later still
+    # renders as the job this person applied for.
+    job_id: Optional[str] = None
+    job_title: Optional[str] = None
+    # The trade qualification behind the application — "ITI Electrician",
+    # "Diploma in Mechanical Engineering". Distinct from `education`, which is
+    # the schooling history; this is the one line a client asks for.
+    course_or_trade: Optional[str] = None
+    # Where inside the destination they want to be — a state, an emirate, a
+    # city. Below `destination_country` and never a substitute for it: the CV
+    # policy reads the country and would not know what to do with "Kerala".
+    state_preference: Optional[str] = None
+    # When they can start, in their own words: "Immediately", "after 2 months",
+    # "2026-03-01". Free text on purpose — a date field would force the bot to
+    # invent one for every candidate who answered with a duration.
+    available_from: Optional[str] = None
+    # What they said to the screening questions attached to that job.
+    job_answers: List[JobAnswer] = Field(default_factory=list)
 
     skills: List[str] = Field(default_factory=list)
     technical_skills: List[str] = Field(default_factory=list)
@@ -392,8 +449,10 @@ class SourceEmail(BaseModel):
     thread_id: str
     from_addr: str
     from_name: Optional[str] = None
+    to_addr: Optional[str] = None
     subject: str = ""
     received_date: Optional[str] = None
+
 
 
 # The verdicts a reviewer can record. "pending" is the state every allocation
@@ -416,17 +475,81 @@ EVALUATION_STATUSES = (
 # "whatsapp" is the recruitment bot, where a CV is required for some
 # destination/job combinations and not for others — a question the CV policy
 # answers, not the caller.
-CANDIDATE_SOURCES = ("email", "whatsapp")
+CANDIDATE_SOURCES = ("email", "whatsapp", "manual", "upload")
+
+
+#: Where a contact number came from. Not a preference order — a WhatsApp number
+#: is not "better" than the one on the CV, it is a different fact about the same
+#: person, and a documentation officer ringing them needs to know which is which.
+CONTACT_SOURCES = ("whatsapp", "resume", "email", "manual")
+
+
+class CandidateContact(BaseModel):
+    """One way to reach a candidate, and where we learned it.
+
+    A person has more than one number: the handset they message from, and the
+    one printed on the CV they wrote two years ago. Both are theirs. Storing
+    only the first loses the number a documentation officer will actually get
+    an answer on; treating the second as a *different person* is how one
+    candidate becomes two records with half a registration each.
+
+    So contacts are a list on the record, deduplicated on `key` — the same
+    last-ten-digit normalisation the rest of the system compares phones with —
+    with every source that produced the number kept alongside it. One number
+    both sources gave is one entry naming both, not two entries.
+    """
+
+    #: As it was given, because that is what a person reads back to a candidate.
+    value: str
+    #: International form where one could be derived. Never invented.
+    e164: Optional[str] = None
+    #: The comparable form. `normalize_phone`, so it lines up with `phone_key`.
+    key: str
+    #: Every source that produced this number. See `CONTACT_SOURCES`.
+    sources: List[str] = Field(default_factory=list)
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+
+
+class IdentityReview(BaseModel):
+    """Two records that look like one person, left for a human to settle.
+
+    Raised, never acted on. Merging two candidates means choosing which
+    allocation survives, which evaluation survives and which documents are
+    thrown away, and every one of those is a decision with somebody's work
+    inside it. A passport number appearing on a second record is strong
+    evidence and it is still evidence — an OCR misread of one character
+    produces exactly this, and so does a genuine data-entry error on a shared
+    handset.
+
+    So the conflict is written down, both records keep everything they have,
+    and the submission that exposed it lands on the passport holder.
+    """
+
+    #: Machine-readable. `duplicate_passport` is the only one so far.
+    reason: str
+    passport_key: Optional[str] = None
+    #: Every record the conflict spans, this one included, oldest first.
+    candidate_ids: List[str] = Field(default_factory=list)
+    flagged_at: Optional[datetime] = None
+    #: Set when somebody has dealt with it. The flag is kept either way — that
+    #: two records once collided is a fact about the data worth keeping.
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    note: Optional[str] = None
 
 
 class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
     id: str                     # stored as Mongo _id
+    # Human-facing CRM identifier. The database id remains private and keeps
+    # powering every route; this is what staff quote, search and see on screen.
+    candidate_code: Optional[str] = None
 
     # Defaulted to "email" so every document written before this field existed
     # reads back as what it actually is. There is no backfill to run.
-    source: Literal["email", "whatsapp"] = "email"
+    source: Literal["email", "whatsapp", "manual", "upload"] = "email"
 
     profile: CandidateProfile
     # Optional on the type, conditional in practice — see `_check_source_rules`
@@ -439,6 +562,31 @@ class CandidateRecord(BaseModel):
     # Normalised dedup keys (also indexed in Mongo).
     email_key: Optional[str] = None
     phone_key: Optional[str] = None
+
+    # ---- identity --------------------------------------------------------- #
+    #: The normalised passport number, and the strongest identity this system
+    #: has. One person, one passport: a submission carrying a number already on
+    #: file belongs to that candidate whatever handset it came from, whichever
+    #: of the agency's lines it arrived on, and however far through registration
+    #: either record is.
+    #:
+    #: Absent until a passport turns up, which is usually late — documents are
+    #: the last thing a registration collects. A candidate without one is not
+    #: broken, they are unresolved, and they are matched the way they always
+    #: were until the passport lands. See `app/services/candidate_intake`.
+    passport_key: Optional[str] = None
+    #: Which of the two things that can produce it did: an OCR'd passport page,
+    #: or a number the candidate typed. Kept because they disagree, and when
+    #: they do it is the scan that is worth believing.
+    passport_key_source: Optional[str] = None
+
+    #: Every number that reaches this person, with its source. See
+    #: `CandidateContact` — a phone is a contact detail, not an identity.
+    contacts: List[CandidateContact] = Field(default_factory=list)
+
+    #: Set when this record's passport number is also on another record.
+    #: Nothing is merged and nothing is deleted; a human decides.
+    identity_review: Optional[IdentityReview] = None
     # None, never "".
     #
     # `resume_hash` carries a unique sparse index (`app/db/mongo.py`), and
@@ -527,6 +675,17 @@ class CandidateRecord(BaseModel):
     updated_at: datetime = Field(default_factory=utcnow)
 
     @model_validator(mode="after")
+    def _ensure_candidate_code(self) -> "CandidateRecord":
+        # Old documents do not carry this field. Deriving it at the model edge
+        # makes detail reads complete immediately; startup also persists the
+        # same value so projected list reads and database searches have it.
+        if not self.candidate_code:
+            from app.core.crm_ids import candidate_code
+
+            self.candidate_code = candidate_code(self.id)
+        return self
+
+    @model_validator(mode="after")
     def _check_source_rules(self) -> "CandidateRecord":
         """What each source must carry, enforced on the model itself.
 
@@ -551,6 +710,16 @@ class CandidateRecord(BaseModel):
                 raise ValueError("an email candidate must have a resume")
             if self.source_email is None:
                 raise ValueError("an email candidate must have source_email")
+            return self
+
+        # Administrator-created records never invent an email source. Legacy
+        # manual records remain readable; the current upload path requires the
+        # document it was extracted from.
+        if self.source in ("manual", "upload"):
+            if self.source_email is not None:
+                raise ValueError("an administrator-uploaded candidate cannot have source_email")
+            if self.source == "upload" and self.resume is None:
+                raise ValueError("an uploaded candidate must have a resume")
             return self
 
         # WhatsApp. No source_email is expected, and inventing one would be a

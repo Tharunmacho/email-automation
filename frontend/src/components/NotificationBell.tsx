@@ -36,6 +36,11 @@ function iconFor(type: string) {
   return UserPlus;
 }
 
+/** Older stored alerts may still carry the retired acronym from the API. */
+function notificationCopy(value: string): string {
+  return value.replace(/\bSLA\b/gi, "review window");
+}
+
 export default function NotificationBell({ nonce, onOpenCandidate }: NotificationBellProps) {
   const [items, setItems] = useState<NotificationRecord[]>([]);
   const [unread, setUnread] = useState(0);
@@ -55,7 +60,13 @@ export default function NotificationBell({ nonce, onOpenCandidate }: Notificatio
   }, []);
 
   useEffect(() => {
-    void load();
+    let live = true;
+    void (async () => {
+      if (live) await load();
+    })();
+    return () => {
+      live = false;
+    };
   }, [load, nonce]);
 
   useEffect(() => {
@@ -151,7 +162,7 @@ export default function NotificationBell({ nonce, onOpenCandidate }: Notificatio
             <div className="notif-empty">
               <Bell size={18} />
               <p>Nothing yet</p>
-              <span>New allocations and SLA alerts land here.</span>
+              <span>New allocations and overdue review alerts land here.</span>
             </div>
           ) : (
             <ul className="notif-list">
@@ -168,8 +179,8 @@ export default function NotificationBell({ nonce, onOpenCandidate }: Notificatio
                         <Icon size={14} strokeWidth={2.2} />
                       </span>
                       <span className="notif-text">
-                        <strong>{item.title}</strong>
-                        <em>{item.message}</em>
+                        <strong>{notificationCopy(item.title)}</strong>
+                        <em>{notificationCopy(item.message)}</em>
                         <span className="notif-when">
                           {item.created_at ? timeAgo(item.created_at) : ""}
                         </span>

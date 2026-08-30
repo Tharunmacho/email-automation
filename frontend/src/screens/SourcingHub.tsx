@@ -11,28 +11,24 @@ import {
   User,
   Phone,
   Mail,
-  Calendar,
   X,
   Trash2,
   ChevronDown,
-  Hash,
-  MapPin,
-  Tag,
   Pencil,
   Copy,
   Check,
   Zap,
-  Layers,
   Target,
   Inbox,
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 
-import StatTile, { type StatTone } from "@/components/ui/StatTile";
+import { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
-import { deriveStatus, type JobOrderRecord } from "@/screens/JobOrders";
+import { deriveStatus } from "@/screens/JobOrders";
+import type { JobOrderRecord, SourcingClientRecord, SourcingType } from "@/types";
 import {
   listSourcingClientsAPI,
   createSourcingClientAPI,
@@ -57,7 +53,7 @@ import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
  * `client` on the way in — see `normaliseType` — so nothing disappears from the
  * screen because a category was retired underneath it.
  */
-export type SourcingType = "agent" | "association" | "client";
+export type { SourcingType };
 
 /**
  * What the API hands back, mapped onto what this screen offers.
@@ -71,19 +67,10 @@ export function normaliseType(raw: string | undefined): SourcingType {
   return raw === "agent" || raw === "association" ? raw : "client";
 }
 
-export interface SourcingRecord {
-  id: string;
-  name: string;
-  type: SourcingType;
-  contact: string;
-  phone: string;
-  email: string;
-  date: string;
-  status: "ACTIVE" | "PENDING" | "INACTIVE";
-  industryOrCategory?: string;
-  regNo?: string;
-  address?: string;
-}
+// `SourcingClientRecord` in `@/types`, which is what `lib/api` sends and
+// receives. Aliased here because this screen has always called it a
+// SourcingRecord and several call sites read better that way.
+export type SourcingRecord = SourcingClientRecord;
 
 type TypeFilter = "all" | SourcingType;
 type SortKey = "recent" | "name" | "demand";
@@ -150,13 +137,6 @@ const SORT_LABELS: Record<SortKey, string> = {
   name: "Name (A–Z)",
   demand: "Most demand",
 };
-
-/** Every record is created ACTIVE and nothing can change it yet, so the badge
- *  would be a constant on every card. Show it only when a record carries a
- *  non-default status (set directly in the DB), where it actually means something. */
-function isDefaultStatus(status: SourcingRecord["status"]): boolean {
-  return status === "ACTIVE";
-}
 
 /** Records created before dates were normalised still carry M/D/YYYY. */
 function parseRecordDate(value: string | undefined): Date | null {
@@ -371,38 +351,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     [engagementByClient],
   );
 
-  const agentCount = records.filter((r) => r.type === "agent").length;
-  const clientCount = records.filter((r) => r.type === "client").length;
-  const associationCount = records.filter((r) => r.type === "association").length;
-
   const countFor = (key: TypeFilter) =>
     key === "all" ? records.length : records.filter((r) => r.type === key).length;
-
-  /** Portfolio roll-up that feeds the four tiles. */
-  const portfolio = useMemo(() => {
-    let engaged = 0;
-    let openSeats = 0;
-    let seats = 0;
-    let filled = 0;
-
-    for (const rec of records) {
-      const e = engagementOf(rec.name);
-      if (!e) continue;
-      if (e.live > 0) {
-        engaged += 1;
-        openSeats += Math.max(0, e.seats - e.filled);
-      }
-      seats += e.seats;
-      filled += e.filled;
-    }
-
-    return {
-      engaged,
-      openSeats,
-      fillRate: seats > 0 ? Math.round((filled / seats) * 100) : 0,
-      engagedShare: records.length > 0 ? Math.round((engaged / records.length) * 100) : 0,
-    };
-  }, [records, engagementOf]);
 
   const visibleRecords = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -447,6 +397,22 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   }, [records, typeFilter, liveOnly, searchQuery, sortKey, engagementOf]);
 
   const isFiltered = Boolean(searchQuery.trim()) || liveOnly || typeFilter !== "all";
+
+  const sourcingSummary = useMemo(() => {
+    let hiring = 0;
+    let liveOrders = 0;
+    let openSeats = 0;
+
+    records.forEach((record) => {
+      const engagement = engagementOf(record.name);
+      const live = engagement?.live ?? 0;
+      if (live > 0) hiring += 1;
+      liveOrders += live;
+      openSeats += Math.max(0, (engagement?.seats ?? 0) - (engagement?.filled ?? 0));
+    });
+
+    return { hiring, liveOrders, openSeats };
+  }, [records, engagementOf]);
 
   const clearFilters = () => {
     setSearchQuery("");
@@ -596,103 +562,97 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   // ---- pieces ------------------------------------------------------------ //
 
-  const renderCard = (item: SourcingRecord) => {
+  const renderRow = (item: SourcingRecord) => {
     const e = engagementOf(item.name);
     const tone = toneOf(e);
     const seats = e?.seats ?? 0;
     const filled = e?.filled ?? 0;
     const pct = seats > 0 ? Math.min(100, Math.round((filled / seats) * 100)) : 0;
-    const officeLabel = item.type === "client" ? "Head office" : "Registered office";
-
-    // Every card renders the same four rows and the same demand block, whether
-    // or not the values exist. Optional rows made the footers sit at different
-    // heights, so the grid never lined up.
-    const rows: { key: string; icon: React.ReactNode; label: string; body: React.ReactNode }[] = [
-      {
-        key: "contact",
-        icon: <User size={14} />,
-        label: "Contact",
-        body: <span title={item.contact}>{item.contact}</span>,
-      },
-      {
-        key: "phone",
-        icon: <Phone size={14} />,
-        label: "Phone",
-        body: hasValue(item.phone) ? (
-          <a className="sh-link" href={`tel:${item.phone.replace(/\s+/g, "")}`} title={item.phone}>
-            {item.phone}
-          </a>
-        ) : (
-          <span className="sh-row-empty">Not provided</span>
-        ),
-      },
-      {
-        key: "email",
-        icon: <Mail size={14} />,
-        label: "Email",
-        body: hasValue(item.email) ? (
-          <>
-            <a className="sh-link" href={`mailto:${item.email}`} title={item.email}>
-              {item.email}
-            </a>
-            <button
-              className="sh-copy"
-              onClick={() => handleCopyEmail(item)}
-              title="Copy email address"
-              aria-label={`Copy email address for ${item.name}`}
-            >
-              {copiedId === item.id ? <Check size={12} /> : <Copy size={12} />}
-            </button>
-          </>
-        ) : (
-          <span className="sh-row-empty">Not provided</span>
-        ),
-      },
-      {
-        key: "office",
-        icon: <MapPin size={14} />,
-        label: officeLabel,
-        body: item.address ? (
-          <span title={item.address}>{item.address}</span>
-        ) : (
-          <span className="sh-row-empty">Not provided</span>
-        ),
-      },
-    ];
 
     return (
-      <article className={`sh-card tone-${CLIENT_TONE[tone]}`} key={item.id}>
-        <header className="sh-card-head">
-          <span className="sh-monogram">{initialsOf(item.name)}</span>
-
-          <div className="sh-headings">
-            <h3 className="sh-name" title={item.name}>
-              {item.name}
-            </h3>
-            <div className="sh-meta">
-              <span className={`sh-type-chip ${item.type}`}>
-                {TYPE_CHIP[item.type].icon}
-                {TYPE_CHIP[item.type].label}
+      <tr className={`sh-table-row tone-${CLIENT_TONE[tone]}`} key={item.id}>
+        <td>
+          <span className="ds-who sh-table-partner">
+            <span className="sh-monogram" aria-hidden="true">{initialsOf(item.name)}</span>
+            <span className="ds-who-text">
+              <strong title={item.name}>{item.name}</strong>
+              <small>
+                <span className={`sh-type-chip ${item.type}`}>
+                  {TYPE_CHIP[item.type].icon} {TYPE_CHIP[item.type].label}
+                </span>
+                <span title={item.industryOrCategory}>
+                  {item.industryOrCategory || (item.type === "client" ? "No sector set" : "No category set")}
+                </span>
+              </small>
+            </span>
+          </span>
+        </td>
+        <td>
+          <span className="sh-table-contact">
+            <strong title={item.contact}>{item.contact || "No contact name"}</strong>
+            {hasValue(item.phone) ? (
+              <a className="sh-link" href={`tel:${item.phone.replace(/\s+/g, "")}`} title={item.phone}>
+                <Phone size={12} /> {item.phone}
+              </a>
+            ) : (
+              <small>No phone provided</small>
+            )}
+            {hasValue(item.email) ? (
+              <span className="sh-table-email">
+                <a className="sh-link" href={`mailto:${item.email}`} title={item.email}>
+                  <Mail size={12} /> {item.email}
+                </a>
+                <button
+                  type="button"
+                  className="sh-copy"
+                  onClick={() => handleCopyEmail(item)}
+                  title="Copy email address"
+                  aria-label={`Copy email address for ${item.name}`}
+                >
+                  {copiedId === item.id ? <Check size={12} /> : <Copy size={12} />}
+                </button>
               </span>
-              {item.industryOrCategory ? (
-                <span className="sh-chip" title={item.industryOrCategory}>
-                  <Tag size={11} />
-                  {item.industryOrCategory}
-                </span>
+            ) : (
+              <small>No email provided</small>
+            )}
+          </span>
+        </td>
+        <td className="is-wrap">
+          <span className="sh-table-office" title={item.address || undefined}>
+            {item.address || "Not provided"}
+          </span>
+        </td>
+        <td>
+          <span className="sh-table-demand">
+            <span className="sh-demand-head">
+              <strong>{e ? `${formatInt(e.orders)} order${e.orders === 1 ? "" : "s"}` : "No orders"}</strong>
+              {tone === "live" ? (
+                <span className="sh-live-pill"><span className="sh-live-dot" />{formatInt(e?.live ?? 0)} live</span>
+              ) : tone === "filled" ? (
+                <span className="sh-done-pill"><Check size={11} />Closed</span>
               ) : (
-                <span className="sh-chip sh-chip-empty">
-                  <Tag size={11} />
-                  {item.type === "client" ? "No sector set" : "No category set"}
-                </span>
+                <span className="sh-demand-quiet">Idle</span>
               )}
-              {!isDefaultStatus(item.status) && (
-                <span className={`sh-status status-${item.status.toLowerCase()}`}>{item.status}</span>
-              )}
-            </div>
-          </div>
-
+            </span>
+            <span className="sh-bar"><span className="sh-bar-fill" style={{ width: `${pct}%` }} /></span>
+            <small>{e ? `${formatInt(filled)} of ${formatInt(seats)} seats filled · ${pct}%` : "No hiring demand"}</small>
+          </span>
+        </td>
+        <td>
+          <span className="sh-table-reference">
+            <strong title={item.regNo || item.id}>{item.regNo || item.id}</strong>
+            <small>{displayDate(item.date)}</small>
+          </span>
+        </td>
+        <td>
+          <span className={`ds-status ${item.status === "ACTIVE" ? "is-ok" : item.status === "PENDING" ? "is-warn" : "is-neutral"}`}>
+            <i aria-hidden="true" /> {item.status === "ACTIVE" ? "Active" : item.status === "PENDING" ? "Pending" : "Inactive"}
+          </span>
+        </td>
+        <td className="is-actions">
           <div className="sh-actions">
             <button
+              type="button"
               className="sh-icon-btn"
               onClick={() => {
                 setActiveMenuId((prev) => (prev === item.id ? null : item.id));
@@ -703,98 +663,28 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             >
               <MoreVertical size={18} />
             </button>
-
             {activeMenuId === item.id && (
               <div className="sourcing-dropdown-menu sh-menu">
                 {confirmDeleteId === item.id ? (
                   <div className="sh-confirm">
-                    <p className="sh-confirm-title">
-                      <AlertTriangle size={13} />
-                      Delete {item.name}?
-                    </p>
-                    <p className="sh-confirm-note">
-                      Its job orders stay, but they will no longer match a client.
-                    </p>
+                    <p className="sh-confirm-title"><AlertTriangle size={13} />Delete {item.name}?</p>
+                    <p className="sh-confirm-note">Its job orders stay, but they will no longer match a client.</p>
                     <div className="sh-confirm-row">
-                      <button className="sh-confirm-cancel" onClick={() => setConfirmDeleteId(null)}>
-                        Cancel
-                      </button>
-                      <button className="sh-confirm-go" onClick={() => handleDeleteRecord(item.id)}>
-                        Delete
-                      </button>
+                      <button className="sh-confirm-cancel" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                      <button className="sh-confirm-go" onClick={() => handleDeleteRecord(item.id)}>Delete</button>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <button className="dropdown-item" onClick={() => openEditModal(item)}>
-                      <Pencil size={14} />
-                      <span>Edit details</span>
-                    </button>
-                    <button className="dropdown-item danger" onClick={() => setConfirmDeleteId(item.id)}>
-                      <Trash2 size={14} />
-                      <span>Delete</span>
-                    </button>
+                    <button className="dropdown-item" onClick={() => openEditModal(item)}><Pencil size={14} /><span>Edit details</span></button>
+                    <button className="dropdown-item danger" onClick={() => setConfirmDeleteId(item.id)}><Trash2 size={14} /><span>Delete</span></button>
                   </>
                 )}
               </div>
             )}
           </div>
-        </header>
-
-        <dl className="sh-rows">
-          {rows.map((row) => (
-            <div className="sh-row" key={row.key}>
-              <span className="sh-row-icon">{row.icon}</span>
-              <dt className="sh-row-label">{row.label}</dt>
-              <dd className="sh-row-value">{row.body}</dd>
-            </div>
-          ))}
-        </dl>
-
-        {/* Demand strip — colour and copy both come from `tone`. */}
-        <div className="sh-demand">
-          <div className="sh-demand-head">
-            <span className="sh-demand-title">
-              <Briefcase size={13} />
-              {e ? `${formatInt(e.orders)} job order${e.orders === 1 ? "" : "s"}` : "No job orders"}
-            </span>
-            {tone === "live" ? (
-              <span className="sh-live-pill">
-                <span className="sh-live-dot" />
-                {formatInt(e?.live ?? 0)} live
-              </span>
-            ) : tone === "filled" ? (
-              <span className="sh-done-pill">
-                <Check size={11} />
-                All closed
-              </span>
-            ) : (
-              <span className="sh-demand-quiet">Not engaged</span>
-            )}
-          </div>
-
-          <div className="sh-bar">
-            <span className="sh-bar-fill" style={{ width: `${pct}%` }} />
-          </div>
-
-          <span className="sh-demand-foot">
-            {e
-              ? `${formatInt(filled)} of ${formatInt(seats)} seat${seats === 1 ? "" : "s"} filled · ${pct}%`
-              : "No hiring demand raised against this client yet"}
-          </span>
-        </div>
-
-        <footer className="sh-card-foot">
-          <span className="sh-ref" title={item.regNo || item.id}>
-            <Hash size={12} />
-            {item.regNo || item.id}
-          </span>
-          <span className="sh-date">
-            <Calendar size={13} />
-            {displayDate(item.date)}
-          </span>
-        </footer>
-      </article>
+        </td>
+      </tr>
     );
   };
 
@@ -808,7 +698,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             {searchQuery.trim() ? `No client matches “${searchQuery.trim()}”. ` : ""}
             Try widening the search or clearing the filters.
           </span>
-          <button className="sh-empty-btn" onClick={clearFilters}>
+          <button type="button" className="sh-empty-btn" onClick={clearFilters}>
             Clear filters
           </button>
         </>
@@ -819,7 +709,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             Add the agents, associates and clients you source through. Job orders
             raised against them will then roll up here as live demand.
           </span>
-          <button className="sh-empty-btn primary" onClick={openCreateModal}>
+          <button type="button" className="sh-empty-btn primary" onClick={openCreateModal}>
             <Plus size={15} />
             Add your first client
           </button>
@@ -828,23 +718,38 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     </div>
   );
 
+  const renderTableHead = () => (
+    <thead>
+      <tr>
+        <th>Partner</th>
+        <th>Contact</th>
+        <th>Office</th>
+        <th>Hiring demand</th>
+        <th>Reference / added</th>
+        <th>Status</th>
+        <th className="is-actions">Actions</th>
+      </tr>
+    </thead>
+  );
+
   const renderSkeleton = () => (
-    <div className="sh-grid">
-      {[0, 1, 2].map((i) => (
-        <div className="sh-skeleton" key={i}>
-          <div className="sh-skeleton-head">
-            <span className="sh-sk-block sh-sk-mono" />
-            <div className="sh-sk-lines">
-              <span className="sh-sk-block sh-sk-line lg" />
-              <span className="sh-sk-block sh-sk-line sm" />
-            </div>
-          </div>
-          <span className="sh-sk-block sh-sk-line" />
-          <span className="sh-sk-block sh-sk-line" />
-          <span className="sh-sk-block sh-sk-line md" />
-          <span className="sh-sk-block sh-sk-bar" />
-        </div>
-      ))}
+    <div className="ds-table-wrap is-ruled sh-table-wrap" aria-label="Loading sourcing partners">
+      <table className="ds-table is-ruled sh-table">
+        {renderTableHead()}
+        <tbody>
+          {[0, 1, 2].map((index) => (
+            <tr key={index}>
+              <td><span className="sh-sk-block sh-sk-line lg" /></td>
+              <td><span className="sh-sk-block sh-sk-line" /></td>
+              <td><span className="sh-sk-block sh-sk-line md" /></td>
+              <td><span className="sh-sk-block sh-sk-bar" /></td>
+              <td><span className="sh-sk-block sh-sk-line sm" /></td>
+              <td><span className="sh-sk-block sh-sk-line sm" /></td>
+              <td><span className="sh-sk-block sh-sk-mono" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 
@@ -852,60 +757,75 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
 
   return (
     <div className="sh-root">
-      {/* Portfolio figures. White tiles, one coloured edge each — the colour is
-          what the figure means, not decoration. */}
-      <div className="stat-tiles">
-        <StatTile
-          tone="blue"
-          icon={Building2}
-          label="Sourcing clients"
-          value={formatInt(records.length)}
-          note={`${formatInt(agentCount)} agent${agentCount === 1 ? "" : "s"} · ${formatInt(associationCount)} associate${associationCount === 1 ? "" : "s"} · ${formatInt(clientCount)} client${clientCount === 1 ? "" : "s"}`}
-        />
-        <StatTile
-          tone="green"
-          icon={Zap}
-          label="Clients hiring now"
-          value={formatInt(portfolio.engaged)}
-          note={records.length > 0 ? `${portfolio.engagedShare}% of the portfolio engaged` : "No clients yet"}
-        />
-        <StatTile
-          tone="cyan"
-          icon={Layers}
-          label="Open positions"
-          value={formatInt(portfolio.openSeats)}
-          note="Unfilled seats across live orders"
-        />
-        <StatTile
-          tone="green"
-          icon={Target}
-          label="Fill rate"
-          value={`${portfolio.fillRate}%`}
-          note="Seats covered across every order"
-        />
+      <div className="ds-stats sh-summary" aria-label="Sourcing summary">
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Sourcing partners</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Building2 size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(records.length)}</span>
+          <span className="ds-stat-foot">Agents, associates and clients</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Hiring now</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Zap size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.hiring)}</span>
+          <span className="ds-stat-foot">Partners with active demand</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Live job orders</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Briefcase size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.liveOrders)}</span>
+          <span className="ds-stat-foot">Open or in-progress orders</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Open seats</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Target size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{formatInt(sourcingSummary.openSeats)}</span>
+          <span className="ds-stat-foot">Positions still to be filled</span>
+        </section>
       </div>
 
-      {/* Controls */}
-      <div className="sh-toolbar">
-        <div className="sh-segment" role="tablist" aria-label="Client type">
-          {TYPE_TABS.map((tab) => {
-            const Icon = tab.icon;
-            const active = typeFilter === tab.key;
-            return (
-              <button
-                key={tab.key}
-                role="tab"
-                aria-selected={active}
-                className={`sh-segment-btn ${active ? "active" : ""}`}
-                onClick={() => setTypeFilter(tab.key)}
-              >
-                <Icon size={15} />
-                <span>{tab.label}</span>
-                <span className="sh-segment-count">{formatInt(countFor(tab.key))}</span>
-              </button>
-            );
-          })}
+      <section className="ds-panel sh-directory" aria-labelledby="sh-directory-title">
+        <div className="ds-panel-head is-split sh-directory-head">
+          <div>
+            <h2 id="sh-directory-title">Sourcing partners</h2>
+            <p>Search contacts, review active demand, and manage every sourcing relationship.</p>
+          </div>
+          <button type="button" className="sh-new-btn" onClick={openCreateModal}>
+            <Plus size={16} />
+            <span>New client</span>
+          </button>
         </div>
+
+        {/* Controls */}
+        <div className="sh-toolbar">
+          <div className="sh-segment" role="tablist" aria-label="Client type">
+            {TYPE_TABS.map((tab) => {
+              const Icon = tab.icon;
+              const active = typeFilter === tab.key;
+              return (
+                <button
+                  type="button"
+                  key={tab.key}
+                  role="tab"
+                  aria-selected={active}
+                  className={`sh-segment-btn ${active ? "active" : ""}`}
+                  onClick={() => setTypeFilter(tab.key)}
+                >
+                  <Icon size={15} />
+                  <span>{tab.label}</span>
+                  <span className="sh-segment-count">{formatInt(countFor(tab.key))}</span>
+                </button>
+              );
+            })}
+          </div>
 
         <div className="sh-toolbar-right">
           <div className="sh-search">
@@ -920,6 +840,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             />
             {searchQuery && (
               <button
+                type="button"
                 className="sourcing-search-clear"
                 onClick={() => setSearchQuery("")}
                 title="Clear search"
@@ -931,6 +852,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           </div>
 
           <button
+            type="button"
             className={`sh-toggle ${liveOnly ? "active" : ""}`}
             onClick={() => setLiveOnly((prev) => !prev)}
             aria-pressed={liveOnly}
@@ -955,12 +877,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             <ChevronDown size={14} />
           </div>
 
-          <button className="sh-new-btn" onClick={openCreateModal}>
-            <Plus size={16} />
-            <span>New client</span>
-          </button>
+          </div>
         </div>
-      </div>
 
       <div className="sh-resultbar">
         <span className="sh-result-count">
@@ -969,7 +887,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             : `${formatInt(visibleRecords.length)} of ${formatInt(records.length)} client${records.length === 1 ? "" : "s"}`}
         </span>
         {isFiltered && !loading && (
-          <button className="sh-clear-link" onClick={clearFilters}>
+          <button type="button" className="sh-clear-link" onClick={clearFilters}>
             <X size={13} />
             Clear filters
           </button>
@@ -977,8 +895,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       </div>
 
       {loading ? renderSkeleton() : visibleRecords.length === 0 ? renderEmpty() : (
-        <div className="sh-grid">{visibleRecords.map(renderCard)}</div>
+        <div className="ds-table-wrap is-ruled sh-table-wrap">
+          <table className="ds-table is-ruled sh-table">
+            {renderTableHead()}
+            <tbody>{visibleRecords.map(renderRow)}</tbody>
+          </table>
+        </div>
       )}
+      </section>
 
       {/* Create / edit client */}
       {isModalOpen && (

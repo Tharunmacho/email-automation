@@ -241,7 +241,13 @@ class Reconciler:
 
         payload, name = MultipassExtractor._payload_for(data, row.pages, row.filename, row.ocr_mode)
         try:
-            handle = self.client.submit(payload, name, row.ocr_mode, row.idempotency_key)
+            # Keyed on the bytes as well as the mail — see `MultipassExtractor`.
+            from app.extraction.jobs import content_key
+
+            handle = self.client.submit(
+                payload, name, row.ocr_mode,
+                f"{row.idempotency_key}/{content_key(payload)}",
+            )
         except OCRJobError as exc:
             status = self.state.mark_failed(row.id, str(exc), settings.ocr_job_max_attempts)
             report.abandoned += 1 if status == ABANDONED else 0

@@ -27,6 +27,22 @@ export interface Project {
   url?: string | null;
 }
 
+/**
+ * One screening question, as it was asked and as it was answered.
+ *
+ * The wording travels with the answer rather than being resolved from the
+ * job's current question list: an admin rewording a question must not rewrite
+ * what a candidate was asked six weeks ago.
+ */
+export interface JobAnswer {
+  question_id?: string | null;
+  question?: string | null;
+  answer?: string | null;
+  /** "text" or "choice" — what they were offered, not what they said. */
+  kind?: string | null;
+  asked_at?: string | null;
+}
+
 export interface CandidateProfile {
   is_resume?: boolean;
   confidence: number;
@@ -54,6 +70,34 @@ export interface CandidateProfile {
   job_preference?: string | null;
   /** The same, as a controlled value. This is what the CV policy reads. */
   job_category?: string | null;
+
+  /** The `job_designations` row they picked — the join key. */
+  job_id?: string | null;
+  /**
+   * That job's title, stored beside the id rather than looked up.
+   *
+   * A job retired or reworded months later still has to read as the job this
+   * person applied for.
+   */
+  job_title?: string | null;
+  /** The trade qualification behind the application — "ITI Electrician". */
+  course_or_trade?: string | null;
+  /**
+   * A state, emirate or city inside the destination country.
+   *
+   * Sits below `destination_country` and never replaces it — the CV policy
+   * reads the country and would not know what to do with "Kerala".
+   */
+  state_preference?: string | null;
+  /**
+   * When they can start, in their own words: "Immediately", "after 2 months".
+   *
+   * Free text on purpose. A date field would force a made-up date onto every
+   * candidate who answered with a duration.
+   */
+  available_from?: string | null;
+  /** What they said to the screening questions attached to that job. */
+  job_answers?: JobAnswer[];
 
   skills?: string[];
   technical_skills?: string[];
@@ -89,7 +133,7 @@ export interface CandidateProfile {
   summary?: string | null;
   resume_summary?: string | null;
   additional_info?: Record<string, unknown>;
-  raw_ocr?: Record<string, any> | null;
+  raw_ocr?: Record<string, unknown> | null;
 }
 
 /**
@@ -113,6 +157,7 @@ export interface SourceEmail {
   thread_id?: string;
   from_addr?: string;
   from_name?: string | null;
+  to_addr?: string | null;
   subject?: string;
   received_date?: string | null;
 }
@@ -209,7 +254,7 @@ export interface IdentityDocument {
   masked_aadhaar_number?: string | null;
   aadhaar_number_valid?: boolean | null;
   date_of_birth?: string | null;
-  year_of_birth?: number | null;
+  year_of_birth?: string | number | null;
   gender?: string | null;
   mobile_number?: string | null;
   address?: string | null;
@@ -234,20 +279,16 @@ export interface IdentityDocument {
   updated_at?: string | null;
 }
 
-export interface IdentityDocuments {
-  candidate_id: string;
-  aadhaar: IdentityDocument[];
-  passport: IdentityDocument[];
-}
-
 export interface CandidateRecord {
   id: string;
+  /** Human-facing CRM identifier; the internal database key remains `id`. */
+  candidate_code?: string;
   /**
    * Where this candidate came from. Absent on records written before the
    * WhatsApp integration, which are all email — read it as `"email"` when
    * missing rather than treating it as unknown.
    */
-  source?: "email" | "whatsapp";
+  source?: "email" | "whatsapp" | "manual" | "upload";
   profile: CandidateProfile;
   /**
    * Optional, because a candidate may genuinely have no CV.
@@ -269,7 +310,7 @@ export interface CandidateRecord {
   resume_hash?: string | null;
   status: string;
   duplicate_of?: string | null;
-  raw_ocr?: Record<string, any> | null;
+  raw_ocr?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 
@@ -307,6 +348,146 @@ export interface CandidateRecord {
   job?: JobSection | null;
 }
 
+/**
+ * Where an identity document came from — which file, off which pages.
+ *
+ * A passport read out of page 54 of a 60-page application bundle is a different
+ * claim from one that arrived as its own scan, and a documentation officer
+ * checking a misread number needs to know which page to open.
+ */
+export interface IdentityDocumentSource {
+  provider?: string;
+  account_id?: string;
+  message_id?: string;
+  attachment_id?: string;
+  filename?: string;
+  sha256?: string;
+  pages?: number[];
+}
+
+/**
+ * The scan itself, where one is stored against the record.
+ *
+ * A document read out of an application bundle has no block of its own — the
+ * pages in `source` are what it is, and the server cuts them out of the stored
+ * bundle when somebody asks. A document that arrived as its own upload has
+ * this. Either way the download is the same call; this only says what the file
+ * will turn out to be called.
+ *
+ * No storage key. The server never sends one.
+ */
+export interface IdentityDocumentFile {
+  filename?: string;
+  mime_type?: string;
+  size?: number;
+  sha256?: string;
+}
+
+/**
+ * One Aadhaar card as the OCR service read it.
+ *
+ * `aadhaar_number` and `vid` are served to administrators only — every other
+ * caller gets `masked_aadhaar_number` and nothing else, so a recruiter's
+ * browser never holds the full number. Treat both as possibly absent.
+ */
+export interface AadhaarRecord {
+  _id?: string;
+  document_type?: string;
+  candidate_id?: string | null;
+  name?: string | null;
+  /** Administrators only. */
+  aadhaar_number?: string | null;
+  /** Always present — "XXXXXXXX9017". */
+  masked_aadhaar_number?: string | null;
+  /** The card's own checksum. False means the OCR misread a digit. */
+  aadhaar_number_valid?: boolean | null;
+  date_of_birth?: string | null;
+  year_of_birth?: string | number | null;
+  gender?: string | null;
+  mobile_number?: string | null;
+  address?: string | null;
+  care_of?: string | null;
+  pincode?: string | null;
+  /** Administrators only. */
+  vid?: string | null;
+  enrollment_id?: string | null;
+  document_side?: string | null;
+  warnings?: string[];
+  source?: IdentityDocumentSource;
+  /**
+   * Whether there is a scan behind this row that this caller may download.
+   *
+   * Answered by the server, not guessed at here: it turns on facts the browser
+   * does not have — whether a bundle is still in storage, and whether an
+   * Aadhaar may be served to whoever is signed in. A button that can only 404
+   * tells a recruiter something untrue.
+   */
+  file_available?: boolean;
+  file?: IdentityDocumentFile;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** One passport as the OCR service read it, MRZ first. */
+export interface PassportRecord {
+  _id?: string;
+  document_type?: string;
+  candidate_id?: string | null;
+  passport_number?: string | null;
+  surname?: string | null;
+  given_names?: string | null;
+  nationality?: string | null;
+  issuing_country?: string | null;
+  date_of_birth?: string | null;
+  sex?: string | null;
+  expiry_date?: string | null;
+  date_of_issue?: string | null;
+  personal_number?: string | null;
+  /**
+   * The MRZ's own integrity test. False means a character was misread — worth
+   * showing, never worth silently trusting.
+   */
+  check_digits_valid?: boolean | null;
+  mrz_source?: string | null;
+  /** Administrators only. */
+  raw_mrz?: string | null;
+  confidence?: number | null;
+  /** Read off the printed page rather than the MRZ — carries place of issue. */
+  printed_fields?: Record<string, unknown> | null;
+  warnings?: string[];
+  source?: IdentityDocumentSource;
+  /**
+   * Whether there is a scan behind this row that this caller may download.
+   *
+   * Answered by the server, not guessed at here: it turns on facts the browser
+   * does not have — whether a bundle is still in storage, and whether an
+   * Aadhaar may be served to whoever is signed in. A button that can only 404
+   * tells a recruiter something untrue.
+   */
+  file_available?: boolean;
+  file?: IdentityDocumentFile;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Everything `GET /candidates/{id}/identity` found for one candidate. */
+export interface IdentityDocuments {
+  candidate_id: string;
+  aadhaar: AadhaarRecord[];
+  passport: PassportRecord[];
+}
+
+/** Curated result returned after VeriIS processes candidate uploads. */
+export interface CandidateUploadResponse {
+  candidate: CandidateRecord;
+  identity: {
+    aadhaar: AadhaarRecord[];
+    passport: PassportRecord[];
+  };
+  processed: Array<"resume" | "aadhaar" | "passport">;
+  ocr_provider: "VeriIS";
+}
+
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */
 export type EvaluationStatus =
   | "pending"
@@ -336,11 +517,16 @@ export interface DemoAccount {
 
 export interface StaffMember {
   id: string;
+  /** Human-facing roster identifier; separate from the account/database key. */
+  staff_code?: string;
   email: string;
   name: string;
   role: string;
   /** Expertise terms the balancer matches against a candidate's skills. */
   keywords: string[];
+  /** Free text, and optional — an account created before the field existed
+      has none, and no format is imposed on the ones that do. */
+  phone?: string;
   active: boolean;
 }
 
@@ -477,9 +663,13 @@ export interface PollSummary {
 
 export interface AuthUser {
   id: string;
+  /** Present for staff accounts. */
+  staff_code?: string | null;
   email: string;
   name: string;
   role: string;
+  /** Personal mobile number recorded on this account, when configured. */
+  phone?: string;
   /**
    * The pages this account may reach: its role's floor plus whatever an admin
    * granted it. Computed by the API so the browser never has to reimplement the
@@ -493,28 +683,108 @@ export interface AuthUser {
   page_grants?: string[];
 }
 
+/** Who a sourcing relationship is with. */
+export type SourcingType = "agent" | "association" | "client";
+
+/**
+ * One party in the sourcing network, as it round-trips through the API.
+ *
+ * Same story as `JobOrderRecord`: `POST /sourcing-clients` stores what it is
+ * given, so the screen's shape is the contract. The snake-case interface that
+ * used to stand here described a record the app has never written.
+ */
 export interface SourcingClientRecord {
   id: string;
   name: string;
-  client_type: string;
-  email?: string | null;
-  phone?: string | null;
-  location?: string | null;
-  status?: string;
-  notes?: string | null;
-  created_at?: string;
+  type: SourcingType;
+  contact: string;
+  phone: string;
+  email: string;
+  date: string;
+  status: "ACTIVE" | "PENDING" | "INACTIVE";
+  industryOrCategory?: string;
+  regNo?: string;
+  address?: string;
 }
 
+/**
+ * A manpower requirement raised by an agent, as `GET /b2b-enquiries` returns it.
+ *
+ * Snake-case throughout because that is what the API sends; nothing is mapped
+ * on the way in. The fields are optional-by-omission rather than by design —
+ * the backend writes every one of them on every insert, and they are marked
+ * optional here only so a record stored by an earlier build still type-checks.
+ */
+export interface B2BEnquiryRecord {
+  id: string;
+  source: "whatsapp" | "manual" | string;
+  status: "new" | "reviewing" | "converted" | "closed" | string;
+
+  /** Who raised it. */
+  party_type: "agent" | "association" | "client" | string;
+  company_name?: string;
+  contact_name: string;
+  phone?: string;
+  phone_e164?: string;
+  email?: string;
+  country?: string;
+  city?: string;
+
+  /** What they asked for. `requirement` is their own words and is the field a
+   *  recruiter reads first; everything below it is what the bot managed to
+   *  pull out of the conversation. */
+  requirement?: string;
+  job_title?: string;
+  job_id?: string;
+  /** Absent rather than 0 when they did not give a number — see the backend's
+   *  `_coerce_headcount`, which refuses to invent one. */
+  headcount?: number | null;
+  destination_country?: string;
+  salary_budget?: string;
+  experience_required?: string;
+  skills?: string[];
+  needed_by?: string;
+  notes?: string;
+
+  /** The Sourcing Hub record this sender was matched to, when they are already
+   *  on file. Advisory — a display label, never an account link. */
+  sourcing_client_id?: string | null;
+  sourcing_client_name?: string;
+  wa_user_id?: string;
+
+  /** What the agency did about it. */
+  converted_job_order_id?: string | null;
+  handled_by?: string;
+  handled_at?: string | null;
+  received_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * A vacancy the agency is working, exactly as it round-trips through the API.
+ *
+ * `POST /job-orders` stores the object it is given and returns it unchanged, so
+ * this shape is the contract — there is no server-side model to disagree with.
+ * It lived in `screens/JobOrders.tsx` while a *different*, unused definition sat
+ * here claiming snake-case fields the app never wrote; the two could not both
+ * be right, and the one the screens actually use is this one.
+ */
 export interface JobOrderRecord {
   id: string;
   title: string;
-  client_name?: string | null;
-  client_id?: string | null;
-  skills_required?: string[];
-  experience_required_years?: number | null;
-  location?: string | null;
-  status?: string;
-  salary_range?: string | null;
-  description?: string | null;
-  created_at?: string;
+  client: string;
+  headcount: number;
+  salary: string;
+  skills: string[];
+  description?: string;
+  dueDate: string;
+  status: "OPEN" | "IN PROGRESS" | "FILLED" | "CLOSED";
+  minExperience?: string;
+  industry?: string;
+  designation?: string;
+  fulfilledCount?: number;
+  shortlistedCandidateIds?: string[];
+  rejectedCandidateIds?: string[];
 }
+
+export type JobOrderStatus = JobOrderRecord["status"];

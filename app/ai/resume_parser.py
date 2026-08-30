@@ -344,7 +344,7 @@ class ResumeParser:
         # own objective section; never dump raw OCR into the field.
         objective = " ".join(sections.get("objective", [])).strip()
         summary_text = objective or (clean_summary or "")
-        if len(summary_text) > 600 and not objective:
+        if len(summary_text) > 2000 and not objective:
             summary_text = ""
 
         raw_ocr_fallback = {
@@ -394,7 +394,7 @@ class ResumeParser:
             achievements=achievements_list,
             current_designation=current_des,
             current_company=current_comp,
-            resume_summary=summary_text[:600] or None,
+            resume_summary=summary_text[:2000] or None,
             raw_ocr=raw_ocr_fallback,
         )
 
@@ -442,46 +442,46 @@ class ResumeParser:
                 temp_file.write_bytes(parse_data)
                 log.info("Sending resume to Veris OCR Resume API endpoint: %s", parse_name)
                 try:
-                    from recursai.veris_ocr import VerisOCR
-                    import concurrent.futures
-                    def _do_veris():
-                        kwargs = {
-                            "api_key": settings.veris_ocr_api_key,
-                            "base_url": settings.veris_ocr_base_url,
-                        }
-                        # Ask the client to honour the timeout itself; the socket
-                        # default below only covers connect/read, not the client's
-                        # own retry loop.
-                        try:
-                            client = VerisOCR(timeout=settings.veris_timeout_seconds, **kwargs)
-                        except TypeError:
-                            client = VerisOCR(**kwargs)
-                        with client:
-                            return client.resume.extract(str(temp_file))
+                    from app.extraction.jobs import AsyncOCRJobClient, current_job_context, content_key, OCRJobError
+                    from recursai.veris_ocr.models import ResumeResult
 
-                    import socket
-                    old_timeout = socket.getdefaulttimeout()
-                    res = None
-                    last_veris_exc = None
-                    try:
-                        for attempt in range(1, 3):
-                            try:
-                                socket.setdefaulttimeout(settings.veris_timeout_seconds)
-                                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                                    future = executor.submit(_do_veris)
-                                    res = future.result(timeout=settings.veris_timeout_seconds)
-                                    break
-                            except Exception as exc:
-                                last_veris_exc = exc
-                                if attempt < 2:
-                                    log.warning("Veris OCR attempt %d failed (%s); retrying...", attempt, exc)
-                                    import time
-                                    time.sleep(1)
-                    finally:
-                        socket.setdefaulttimeout(old_timeout)
+                    # Already extracted, when locating the résumé sent these
+                    # same pages to this same endpoint. That job's answer holds
+                    # the structured fields as well as the text it was fetched
+                    # for, so asking again buys nothing: the same upload, the
+                    # same extraction and the same wait, billed a second time.
+                    already = getattr(extracted, "veris_resume_result", None)
+                    if already:
+                        log.info(
+                            "Reusing the résumé extraction already returned for '%s' "
+                            "instead of a second Veris job", filename,
+                        )
+                        res = ResumeResult.from_dict(already)
+                    else:
+                        # The digest of what is actually being uploaded, always:
+                        # the résumé pages are carved out of the bundle here, and
+                        # two carves of the same page are not byte-identical, so a
+                        # key without it is a promise this call cannot keep.
+                        ctx = current_job_context()
+                        digest = content_key(parse_data)
+                        idempotency_key = ctx.key_for("resume_parse", digest) if ctx else digest
 
-                    if res is None:
-                        raise last_veris_exc or RuntimeError("Veris OCR failed after retries")
+                        with AsyncOCRJobClient() as job_client:
+                            handle, outcome = job_client.run(
+                                parse_data,
+                                parse_name,
+                                mode="resume",
+                                idempotency_key=idempotency_key,
+                                budget_seconds=settings.veris_timeout_seconds
+                            )
+
+                            if outcome.timed_out:
+                                raise TimeoutError(f"Veris OCR async job timed out after {settings.veris_timeout_seconds}s")
+
+                            if not outcome.succeeded:
+                                raise OCRJobError(f"Veris OCR job failed: {outcome.error}")
+
+                            res = ResumeResult.from_dict(outcome.result or {})
 
                     veris_text = resume_text or ""
                     veris_extracted = extracted.model_copy(update={
@@ -503,10 +503,24 @@ class ResumeParser:
                     # identical to a successful parse — the record just silently
                     # came back with heuristic-grade (often wrong) data.
                     log.error(
-                        "Veris Resume API FAILED for '%s' (%s: %s). Falling back to the "
-                        "heuristic parser, which extracts far less. Profile quality for "
-                        "this candidate will be degraded.",
+                        "Veris Resume API FAILED for '%s' (%s: %s).",
                         filename, type(exc).__name__, exc,
+                    )
+                    if settings.require_veris_resume:
+                        # Fail the attachment rather than store a profile the
+                        # heuristic parser guessed at. The email stays
+                        # unlabelled, so the next poll extracts it properly
+                        # instead of leaving a plausible-looking wrong record
+                        # that nobody will ever revisit.
+                        raise AIParseError(
+                            f"The résumé extraction service could not read "
+                            f"'{filename}' ({type(exc).__name__}: {exc}). Leaving the "
+                            f"email for the next poll rather than storing a "
+                            f"locally-guessed profile."
+                        ) from exc
+                    log.warning(
+                        "Falling back to the heuristic parser, which extracts far less. "
+                        "Profile quality for this candidate will be degraded.",
                     )
 
         # Fall back to local text parsing.
@@ -1018,6 +1032,75 @@ def veris_payload(res) -> dict:
     return {}
 
 
+# Where the career objective ends and the next section begins.
+#
+# A résumé's opening paragraph runs until the next heading, and on a scan those
+# headings routinely arrive on the *same line* as the sentence before them —
+# the page is one flowing string by the time it has been de-columnised, so a
+# line-based section split cannot see them. They are therefore matched anywhere
+# in the text, which makes being precise about what counts as a heading the
+# whole difficulty.
+#
+# Two kinds, and the split between them matters. A multi-word heading
+# ("EDUCATIONAL QUALIFICATION", "WORK EXPERIENCE") is unambiguous wherever it
+# appears. A bare one — "skills", "education", "experience" — is an ordinary
+# English word that objectives are full of: "...develop and update my knowledge
+# and skills..." is a sentence, not a heading, and matching it truncated the
+# summary mid-thought. So a single generic word only counts when it is punctuated
+# like a heading, with a colon after it.
+_SECTION_AFTER_OBJECTIVE = re.compile(
+    r"\b(?:"
+    # Specific enough to be a heading wherever it appears.
+    r"educational?\s+qualifications?"
+    r"|academic\s+qualifications?"
+    r"|education(?:al)?\s+background"
+    r"|qualification\s+institution"
+    r"|work\s+experience"
+    r"|professional\s+experience"
+    r"|employment\s+history"
+    r"|core\s+qualifications?"
+    r"|key\s+skills"
+    r"|technical\s+skills"
+    r"|personal\s+(?:details|information|profile)"
+    r"|languages?\s+known"
+    r"|career\s+summary"
+    r")\b\s*[:\-]?"
+    # Or a generic word, but only when punctuated as a heading.
+    r"|\b(?:"
+    r"education|experience|skills|certifications?|licen[cs]es|projects?"
+    r"|achievements?|declaration|references?|hobbies|strengths?"
+    r")\s*:",
+    re.IGNORECASE,
+)
+
+
+def _objective_only(summary):
+    """The career objective, without the rest of the résumé glued to it.
+
+    The summary on a profile is meant to be the candidate's own opening
+    statement. What was being stored instead ran straight on through the next
+    heading and into its contents:
+
+        "To work with progressive organization ... growth of organization.
+         EDUCATIONAL QUALIFICATION: QUALIFICATION INSTITUTION/UNIVERSITY YEAR
+         OF PASSING SSLC ICI GOVT BOYS HR. SEC. SCHOOL, TENKASI 2006 HSC ..."
+
+    — that tail is the Education section, already shown properly in its own
+    section from the structured data, repeated here as an unreadable run-on.
+    Cutting at the first heading leaves the objective and nothing else.
+    """
+    text = (summary or "").strip()
+    if not text:
+        return None
+    found = _SECTION_AFTER_OBJECTIVE.search(text)
+    # Only when there is a real sentence in front of it: a summary that *starts*
+    # with a heading has no objective to keep, and truncating to nothing would
+    # lose the little it does say.
+    if found and found.start() > 40:
+        text = text[: found.start()].strip()
+    return text.strip(" .,-:;") or None
+
+
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     from app.core.models import CandidateProfile, WorkExperience, Education, Project
 
@@ -1128,12 +1211,15 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
     # Veris reliably returns skills/education/experience but usually leaves
     # achievements, certifications and languages in the page text. Recover them
     # from the resume's own section headings — no per-candidate keywords.
-    page_text_parts = [veris_text] if veris_text else []
+    page_text_parts = []
     pages_list = data.get("pages") or getattr(res, "pages", [])
-    for page in pages_list:
-        decol = decolumnize_ocr_page(page)
-        if decol:
-            page_text_parts.append(decol)
+    if pages_list:
+        for page in pages_list:
+            decol = decolumnize_ocr_page(page)
+            if decol:
+                page_text_parts.append(decol)
+    elif veris_text:
+        page_text_parts.append(veris_text)
 
     page_text = "\n\n".join(page_text_parts)
     sections = extract_sections(page_text)
@@ -1197,7 +1283,8 @@ def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:
 
     summary = data.get("summary") or getattr(res, "summary", None)
     if not summary and objective_lines:
-        summary = " ".join(objective_lines)[:600]
+        summary = " ".join(objective_lines)[:2000]
+    summary = _objective_only(summary)
     if summary and (summary.strip().lower() == "0 months" or len(summary.strip()) < 5):
         summary = None
 

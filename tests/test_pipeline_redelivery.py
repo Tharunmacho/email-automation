@@ -87,6 +87,9 @@ class FakeStorage:
     def __init__(self):
         self.saved = {}
 
+    def exists(self, key) -> bool:
+        return key in self.saved
+
     def save(self, key, data, content_type: Optional[str] = None):
         self.saved[key] = data
         return key

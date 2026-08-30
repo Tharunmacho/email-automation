@@ -6,12 +6,17 @@ singleton so the ``.env`` is parsed only once per process.
 """
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+#: The value `.env.example` ships and a container can never reach.
+_LOCAL_REDIS = "redis://localhost:6379/0"
 
 
 class Settings(BaseSettings):
@@ -26,7 +31,43 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
-    # ---- Email Provider Choice ----
+    # ---- Email Accounts (Multi-Inbox Configuration) ----
+    # Reads from secrets/email_accounts.json if it exists.
+    # Otherwise, falls back to the legacy single `.env` variables for backward compatibility.
+    email_accounts_file: str = "secrets/email_accounts.json"
+    
+    @property
+    def email_accounts(self) -> List[dict]:
+        import json
+        from pathlib import Path
+        path = Path(self.email_accounts_file)
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, list) and len(data) > 0:
+                    return data
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to parse %s: %s", self.email_accounts_file, e)
+
+        # Fallback to single account from .env if json doesn't exist
+        return [{
+            "provider": self.email_provider,
+            "imap_server": self.imap_server,
+            "imap_port": self.imap_port,
+            "imap_username": self.imap_username,
+            "imap_password": self.imap_password,
+            "imap_use_ssl": self.imap_use_ssl,
+            "imap_folder": self.imap_folder,
+            "smtp_server": self.smtp_server,
+            "smtp_port": self.smtp_port,
+            "smtp_username": self.smtp_username,
+            "smtp_password": self.smtp_password,
+            "smtp_use_ssl": self.smtp_use_ssl,
+            "smtp_use_tls": self.smtp_use_tls,
+        }]
+
+    # ---- Legacy Email Provider Choice ----
     # "smtp_imap" | "gmail"
     email_provider: str = "smtp_imap"
 
@@ -108,24 +149,26 @@ class Settings(BaseSettings):
     auth_secret: str = "dev-only-change-me"
     auth_token_ttl_hours: int = 12
     # Seed account, created once on startup if it does not already exist.
-    admin_email: str = "admin@gmail.com"
-    admin_password: str = "admin@123"
+    admin_email: str = "adira@gmail.com"
+    admin_password: str = "adira@2026"
 
     # ---- Demo Accounts & SLA ----
     # Seeded on startup and published by /auth/demo-accounts, which is
     # unauthenticated — only the admin account is advertised, and turning this
     # off silences the endpoint entirely.
     demo_accounts_enabled: bool = True
-    demo_admin_email: str = "admin@gmail.com"
-    demo_admin_password: str = "admin@123"
-    demo_staff_email: str = "staff@gmail.com"
-    demo_staff_password: str = "staff@123"
+    demo_admin_email: str = "adira@gmail.com"
+    demo_admin_password: str = "adira@2026"
     # How long a profile may sit allocated-but-unresolved before the sweep calls
     # it a breach, measured from `assigned_at` (falling back to `ingested_at`)
-    # until it is opened or judged. One working day: a résumé that arrives on
-    # Tuesday afternoon should be looked at by Wednesday afternoon, and a
-    # tighter window turns the alert channel into noise nobody reads.
-    sla_threshold_hours: int = 24
+    # until it is opened or judged.
+    #
+    # Two days. Long enough that a profile landing on Friday afternoon is not
+    # escalated over the weekend for nobody's benefit, and short enough that a
+    # candidate nobody has opened is chased while they are still deciding
+    # whether to answer somebody else. A tighter window turns the alert channel
+    # into noise, and a muted channel reports nothing at all.
+    sla_threshold_hours: int = 48
     auto_assign_enabled: bool = True
 
     # ---- WhatsApp bot integration ----
@@ -143,6 +186,25 @@ class Settings(BaseSettings):
     # this rejects every request rather than serving an unauthenticated write
     # endpoint to the internet.
     whatsapp_service_key: str = ""
+
+    # ---- Telling the bot about an allocation ----
+    # Where the recruitment bot listens, and the credential it expects on its
+    # `/api/*` routes.
+    #
+    # A staff member is told on WhatsApp that they have been given somebody by
+    # asking the bot to send it, rather than by sending it from here. The bot
+    # owns the Meta credentials, the number the agency sends from, the send
+    # budget and the rate limiter; a second service holding a copy of all four
+    # is a second thing to rotate, a second thing to leak, and a second place
+    # for the daily send count to be wrong.
+    #
+    # Empty disables the relay completely — the in-app notification is still
+    # written and pushed, and nothing goes out over WhatsApp. That is the right
+    # default for a deployment that has not been given a bot to talk to, and it
+    # is why nothing here raises when it is unset.
+    wa_bot_url: str = ""
+    wa_bot_api_key: str = ""
+    wa_bot_timeout_seconds: float = 5.0
 
     # Path to the CV policy table (JSON). Empty uses the built-in rules in
     # `app/policy/cv_policy.py`, which are a starting point rather than the
@@ -164,29 +226,96 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     ocr_languages: str = "eng"
     ocr_min_text_chars: int = 120
-    # Quality pass, run only on the pages that hold the résumé.
+    # The DPI a page is first rendered at. Pages that read poorly are re-read at
+    # `ocr_escalate_dpi` — see `app/extraction/local_ocr.py`.
     ocr_dpi: int = 300
-    # How many pages go into one OCR call, and the granularity at which the
-    # scan stops. The cloud OCR takes a file, so this is the only lever on how
-    # long a single call can take: a 9-page 1.6 MB scan timed out at 180s as one
-    # request, while the same pages in chunks answer in seconds.
+    ocr_escalate_dpi: int = 450
+    # Tesseract page-segmentation modes. 6 (one uniform block) is right for most
+    # pages; 4 (variable-width columns) and 3 (fully automatic) rescue the
+    # two-column résumés and the mixed certificate scans it gets wrong.
+    ocr_psm: int = 6
+    ocr_alternate_psms: List[int] = [4, 3]
+    # Below this reading-quality score a page is retried — a different
+    # segmentation, then a higher DPI, then a second engine. Roughly "fewer than
+    # a dozen real words on the page", which for a document page means the read
+    # failed rather than that the page was empty.
+    ocr_page_quality_floor: float = 12.0
+    # Scanned booklets — passports above all — come off the scanner on their
+    # side, and a sideways page does not read badly. It reads as confident
+    # nonsense that clears every quality gate, which is exactly how a real
+    # passport data page went unseen. Pages are turned and re-read when
+    # Tesseract's own confidence in the upright read falls below the floor.
+    ocr_detect_rotation: bool = True
+    # A page that reads as language upright is left alone: the résumé in the
+    # bundle that prompted this yields 17 recognisable words the right way up
+    # and its certificates 9, so an ordinary page costs one small probe and no
+    # extra OCR. The passport pages yielded none upright — and 8 and 12 once
+    # turned, which is what makes the decision safe.
+    ocr_rotation_word_floor: int = 6
+    # Send the visa and immigration pages of a passport booklet along with the
+    # pages that identify it.
     #
-    # It is also the *early-stopping* granularity. At 10, a bundle whose résumé
-    # sits on pages 25-26 is read as pages 1-10, 11-20, 21-30 and then stops —
-    # pages 31-50 are never rendered, never uploaded, never billed. Raising this
-    # buys fewer round trips at the cost of overshooting further past the CV.
-    ocr_chunk_pages: int = 10
+    # OFF, on evidence. Those pages are found correctly — they lie between two
+    # confirmed passport pages and read as nothing — but the passport endpoint
+    # extracts passport *fields*, and the fields live on the data page and the
+    # back page. A visa sticker adds none of them. What it does add is payload:
+    # sending eighteen pages instead of three pushed one real job past the
+    # `identity_job_wait_seconds` budget, so it came back "pending" and the
+    # passport was not stored at all. Better data on three pages beats no data
+    # on eighteen.
+    #
+    # Turn it on if the extractor is ever taught to read visas, and raise
+    # `identity_job_wait_seconds` with it.
+    passport_include_booklet_interior: bool = False
+    passport_booklet_max_words: int = 4
+    # Pages are independent, and `pytesseract` shells out, so this scales close
+    # to linearly with cores. It is per document, not per batch.
+    #
+    # 0 means "size it from the host" — see `local_ocr.local_worker_count`. The
+    # old flat 4 left most of a modern machine idle: a 30-page bundle took 28
+    # seconds on an 8-core host. Set a positive number to pin it.
+    ocr_local_workers: int = 0
+    # Try RapidOCR on pages Tesseract reads badly, when it is installed. A host
+    # without it is a supported configuration; this only decides whether we look.
+    ocr_secondary_engine_enabled: bool = True
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
     # resume can legitimately sit on page 25 of 50, and stopping early would
     # lose it. Truncation is always logged, never silent.
-    ocr_max_pages: int = 60
-    # Give up early on a scan that is plainly not an application at all: after
-    # this many pages with no resume *and* no supporting document (certificate,
-    # experience letter, ID) among them, there is no CV coming. Certificates do
-    # NOT trip this — a CV on page 15 behind fourteen of them is the case the
-    # whole page classifier exists for.
-    ocr_give_up_pages: int = 4
+    # A safety ceiling on one document, not a budget to be spent carefully:
+    # local OCR is CPU, not billing, so this exists only so a mis-sent
+    # thousand-page scan cannot occupy a worker indefinitely. Truncation is
+    # always logged with the page numbers that went unread — never silent.
+    ocr_max_pages: int = 300
+    # After the classifier has established which pages hold the résumé, send
+    # exactly those pages to the Veris résumé endpoint for a higher-quality
+    # read. This is the *only* route to that endpoint: nothing is uploaded
+    # before its content has been identified locally, which is what stopped
+    # invoices and job-board digests being billed as résumé extractions.
+    veris_refine_resume_pages: bool = True
+    # When Veris is configured, its answer is the *only* answer allowed to
+    # become a candidate profile.
+    #
+    # The local heuristic parser exists to read a résumé on a host with no OCR
+    # service at all, and it is far weaker: it produced a candidate called
+    # "Work history" whose designation was "SARAVANAN.A Role" and whose
+    # Projects section held a paragraph about languages. Storing that when the
+    # service was merely briefly unreachable is worse than storing nothing —
+    # the record looks complete, so nobody goes back to it, and the good
+    # extraction is never taken.
+    #
+    # With this on, a failed Veris call fails the attachment instead. The email
+    # is left unlabelled, so the next poll simply tries again. Turn it off only
+    # for a deployment that has no Veris key and must fall back to local
+    # parsing.
+    require_veris_resume: bool = True
+    # Above this, a payload is re-rendered as JPEG before it is uploaded. The
+    # page trim removes pages but not resolution, so one sheet of a phone-camera
+    # bundle can still be tens of megabytes — and that upload, not the
+    # extraction, is what pushes an identity job past its wait budget. Four
+    # megabytes comfortably holds a 300dpi A4 scan.
+    ocr_payload_max_bytes: int = 4_000_000
+    ocr_payload_dpi: int = 300
     veris_ocr_base_url: str = "https://veris.recursai.in"
     veris_ocr_api_key: str = ""
     # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume
@@ -209,11 +338,27 @@ class Settings(BaseSettings):
     # the job id, so anything unfinished is collected by the reconciler rather
     # than holding a Gmail message open.
     identity_job_wait_seconds: float = 45.0
+    # How long the inline poll keeps sweeping for identity jobs it had to leave
+    # running. Only used when there is no Celery worker — with one, beat's
+    # reconciler does this and this budget is never spent. Generous, because it
+    # runs on a background thread nobody is waiting on, and the alternative is a
+    # passport that was successfully extracted and never stored.
+    inline_reconcile_budget_seconds: float = 300.0
+    # Gap between sweeps, widening as it goes. The job is already running at
+    # the service; asking more often does not make it finish sooner.
+    inline_reconcile_interval_seconds: float = 5.0
     # Poll backoff. Base doubles per attempt, capped, and jittered across the
     # whole interval so a batch submitted together does not come back in
     # lockstep. A `Retry-After` from the service overrides both.
     ocr_job_backoff_base_seconds: float = 1.5
     ocr_job_backoff_cap_seconds: float = 30.0
+    # Before the backoff starts, poll fast and flat. Pure exponential backoff
+    # meant a job that finished at 8s was not seen until ~22s — the waiting cost
+    # more than the extraction. Almost every resume finishes inside this window,
+    # so this interval, not the backoff curve, is what sets per-resume latency.
+    # Past the window the job is a long one and polling gets out of the way.
+    ocr_job_fast_poll_seconds: float = 25.0
+    ocr_job_fast_poll_interval_seconds: float = 0.6
     # How many times one submission rides out a full queue (429/503) before the
     # row is failed and left to the reconciler.
     ocr_job_submit_retries: int = 4
@@ -222,18 +367,79 @@ class Settings(BaseSettings):
     # being retried forever.
     ocr_job_max_attempts: int = 5
 
+    # ---- Throughput ----
+    # How many extractions may be submitted-but-unfinished at Veris at once,
+    # process-wide. This is the real throttle on how much work is queued at the
+    # service, and it is deliberately NOT the worker-thread count: a thread
+    # waiting on a job it already submitted should not be occupying a slot that
+    # a résumé with nothing submitted could use. Raising it does not make Veris
+    # faster; it stops us being the reason its queue is short. Watch
+    # `queue_wait_ms` in GET /ingest/ocr-state — near zero means the cap is not
+    # the bottleneck and raising it will not help.
+    veris_max_inflight_jobs: int = 24
+    # Worker threads in one batch run (`IngestionRunner`). The work is I/O-bound
+    # — Gmail, Veris, the LLM — so this can sit well above the core count. It
+    # bounds Gmail and Mongo concurrency; `veris_max_inflight_jobs` bounds Veris.
+    # Bound to a small number (3) by default because IMAP providers (like Hostinger)
+    # strictly limit simultaneous connections per IP address.
+    ingestion_max_workers: int = 8
+    # ---- Automatic polling ----
+    # Whether the mailboxes are drained on a timer.
+    #
+    # Off: extraction runs when somebody presses Sync, and at no other moment.
+    # That is a deliberate choice rather than a missing feature — a timer that
+    # reads mailboxes and runs OCR without anyone asking spends money on the
+    # extraction service, and it also puts a second poll cycle alongside a
+    # manual one, which is how two runs came to submit the same résumé at once.
+    #
+    # The screen still updates by itself: the live push is driven by what the
+    # ingestion *does*, not by what triggered it, so a manual sync fills the
+    # candidate list without a page reload exactly as a timed poll would.
+    #
+    # Turning it on is one flag, and two places honour it: Celery beat runs
+    # `poll_gmail` when a worker is up, and the API runs the same cycle
+    # in-process when one is not.
+    mail_autopoll_enabled: bool = False
+    # Only consulted when the poll above is enabled.
+    mail_poll_interval_seconds: int = 60
+    # Simultaneous IMAP connections held open *per account*. Connections are
+    # pooled and reused rather than opened per operation, so this is the cap on
+    # concurrency against one mailbox, not a count of how many are opened over a
+    # batch. Providers close the newest connection over their per-account limit
+    # — Hostinger's is small — and that failure surfaces as a random mid-batch
+    # timeout, so this stays comfortably underneath it while still letting the
+    # two mailboxes work in parallel with each other.
+    imap_max_connections: int = 4
+
     # ---- Multipass extraction ----
     # Route Aadhaar and passport pages out of the same bundle to their own OCR
     # endpoints, instead of dropping everything that is not the résumé.
     multipass_extraction_enabled: bool = True
-    # If True, sends the entire original PDF to the OCR extraction endpoints
-    # instead of cropping out just the pages where the document was detected.
-    # WARNING: Sending a 50MB 60-page PDF to Veris API may cause the connection to drop!
-    send_full_bundle_to_ocr: bool = False
-    # If True, ALWAYS prefers local Tesseract for the scanning phase to prevent cloud timeouts on huge files
-    prefer_local_ocr_for_scanning: bool = True
     mongo_aadhaar_collection: str = "aadhaar_records"
     mongo_passport_collection: str = "passport_records"
+    mongo_document_collection: str = "document_records"
+
+    # ---- Passport nationality filter ----
+    # The Veris passport endpoint is trained on the Indian booklet. Fed a
+    # foreign passport it does not decline — it returns a confidently wrong
+    # record, and a wrong passport number reaches a Gulf visa file. So the
+    # issuing country is settled locally, from the text layer, and only an
+    # Indian passport is uploaded. Set False to send every passport again.
+    passport_india_only: bool = True
+    # What to do with a passport whose country cannot be established at all —
+    # a scan too poor to yield an MRZ or an emblem line. The two failure modes
+    # are not symmetric: allow them and an occasional foreign passport gets
+    # through, forbid them and a genuine Indian passport behind a bad scan is
+    # silently lost. Defaulting to True keeps the Indian ones, which are the
+    # overwhelming majority of what this mailbox receives. Set False for a
+    # strict "confirmed Indian or nothing" policy.
+    passport_allow_undetermined_nationality: bool = False
+
+    # ---- Scheduled ingestion ----
+    # Celery beat searches every configured mailbox at this interval and
+    # fans each message out to a worker task. Set to 0 to leave ingestion
+    # manual while retaining the worker for CRM-triggered syncs.
+    gmail_poll_interval_seconds: int = 30
 
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last
@@ -245,6 +451,19 @@ class Settings(BaseSettings):
     # `reconciler_stuck_after_seconds`, so a row that goes quiet is picked up on
     # the first tick after it qualifies rather than a whole interval later.
     reconciler_interval_seconds: int = 120
+
+    # How often celery beat runs the SLA sweep.
+    #
+    # It used to run on nothing at all: the task existed and the beat schedule
+    # did not list it, so a breach was only ever found when an admin pressed
+    # Scan. An alert channel that reports overdue work only to somebody already
+    # looking for overdue work is not one, hence the schedule.
+    #
+    # Hourly, against a window measured in days. Finer would cost a sweep of the
+    # collection for no earlier warning — a profile that breaches at 14:05 is
+    # not more overdue at 14:10 than it is at 15:00, and the alert says how many
+    # hours it has been waiting either way.
+    sla_scan_interval_seconds: int = 3600
     # How long the reconciler waits on any single job it re-drives. Short: its
     # job is to move rows along, not to sit on one.
     reconciler_job_wait_seconds: float = 30.0
@@ -297,6 +516,7 @@ class Settings(BaseSettings):
             "no-reply", "noreply", "donotreply", "do-not-reply",
             "mailer-daemon", "postmaster", "notifications@", "newsletter",
             "billing@", "invoice@", "receipts@", "support@", "alerts@",
+            "naukri.com", "@naukri", "jobboard", "linkedin.com",
         ]
     )
 
@@ -311,6 +531,62 @@ class Settings(BaseSettings):
     @property
     def storage_dir(self) -> Path:
         return Path(self.storage_local_dir)
+
+    @model_validator(mode="after")
+    def _use_canonical_mongo_database(self) -> "Settings":
+        """The production CRM has one database name: ``resume_ats``.
+
+        A short-lived deployment used ``adira`` and split new registrations
+        away from the existing CRM data. Keep accepting that stale environment
+        value during rollout, but route it to the canonical database so future
+        deploys cannot recreate the split.
+        """
+        if self.mongo_db.strip().lower() == "adira":
+            object.__setattr__(self, "mongo_db", "resume_ats")
+        return self
+
+    @model_validator(mode="after")
+    def _redis_url_follows_the_broker(self) -> "Settings":
+        """One Redis, configured once.
+
+        `REDIS_URL` drives the distributed locks; `CELERY_BROKER_URL` drives the
+        queue. They address the same server in every deployment that has one —
+        but they are separate settings with the same localhost default, so a
+        deployment that pointed the broker at its real Redis and left `REDIS_URL`
+        alone got a worker that connected and a lock that did not:
+
+            Redis lock fallback: Error 111 connecting to localhost:6379
+
+        which degrades silently to a per-process lock that cannot see the other
+        containers. That is the failure this exists to prevent, and it is worth
+        preventing because nothing about it is visible until two servers both
+        drain the same mailbox.
+
+        So a `REDIS_URL` that was never set adopts the broker's host instead of a
+        default that is correct only on a developer's laptop. Setting it
+        explicitly still wins, for the deployment that really does keep the two
+        apart.
+        """
+        broker = (self.celery_broker_url or "").strip()
+        if not broker or broker == _LOCAL_REDIS or broker == self.redis_url:
+            return self
+
+        # Two ways `REDIS_URL` ends up wrong, and the second is the common one:
+        # it is not missing from the deployment's environment, it is *present
+        # and still carrying the value copied from `.env.example`*. Inside a
+        # container `localhost` is that container, so this exact string next to
+        # a broker on a real host is never what anyone meant.
+        untouched = "redis_url" not in self.model_fields_set
+        if untouched or self.redis_url == _LOCAL_REDIS:
+            object.__setattr__(self, "redis_url", broker)
+            if not untouched:
+                logging.getLogger(__name__).warning(
+                    "REDIS_URL was %s while the Celery broker points elsewhere; "
+                    "using the broker's Redis for locks too. Set REDIS_URL "
+                    "explicitly to something other than the default to keep them "
+                    "apart.", _LOCAL_REDIS,
+                )
+        return self
 
 
 def get_settings() -> Settings:

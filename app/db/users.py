@@ -12,6 +12,7 @@ from typing import Optional
 
 from pymongo import ASCENDING
 
+from app.core.crm_ids import staff_code
 from app.core.models import utcnow
 from app.core.security import hash_password, verify_password
 from app.db.mongo import get_db
@@ -22,6 +23,7 @@ log = get_logger(__name__)
 ADMIN_ROLE = "admin"
 STAFF_ROLE = "staff"
 USERS_COLLECTION = "users"
+LEGACY_DEMO_STAFF_EMAIL = "staff@gmail.com"
 
 #: Every page a permission can be granted for.
 #:
@@ -33,15 +35,13 @@ USERS_COLLECTION = "users"
 PAGES = (
     "overview",
     "candidates",
-    "my-queue",
+    "candidate-entry",
     "staff",
     "job-orders",
     "sourcing",
+    "b2b-enquiries",
     "data-management",
     "users",
-    "visualizer",
-    "resume-parser",
-    "activity",
     "settings",
 )
 
@@ -51,7 +51,8 @@ PAGES = (
 #: and an admin who can lock themselves out of the page where permissions are
 #: edited is a support call with no answer.
 #:
-#: A staff member reaches their own queue. Every *other* page is a grant, and
+#: A staff member reaches their own queue, document entry, and account settings.
+#: Every *other* page is a grant, and
 #: grants only ever add. This is the load-bearing decision in the whole
 #: permission model: a grant cannot widen what a staff member is allowed to
 #: *see* — `_staff_scope` in the API still restricts them to candidates
@@ -59,7 +60,7 @@ PAGES = (
 #: their own work in a different screen, not the whole database's PII.
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
-    STAFF_ROLE: {"my-queue"},
+    STAFF_ROLE: {"candidates", "candidate-entry", "settings"},
 }
 
 
@@ -80,9 +81,17 @@ class User:
     email: str
     name: str
     role: str
+    # Public only for staff accounts; admins are not members of the allocation
+    # roster and therefore do not need a staff identifier.
+    staff_code: str = ""
     keywords: list[str] = None
     active: bool = True
     created_at: Optional[datetime] = None
+    #: How to reach this person off the console. Free text on purpose: the
+    #: roster is Indian, Gulf and occasionally European, and a format that
+    #: rejects "+971 50 123 4567" or an extension is a format that gets worked
+    #: around by typing the number into the name field.
+    phone: str = "" 
     #: Extra pages this account may reach, beyond what its role already gives.
     #: Never a restriction — see `ROLE_DEFAULT_PAGES`.
     page_grants: list[str] = None
@@ -94,7 +103,11 @@ class User:
             "email": self.email,
             "name": self.name,
             "role": self.role,
+            "staff_code": self.staff_code or (
+                staff_code(self.id) if self.role == STAFF_ROLE else None
+            ),
             "keywords": self.keywords or [],
+            "phone": self.phone or "",
             "active": self.active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "page_grants": self.page_grants or [],
@@ -109,8 +122,25 @@ def _normalize(email: str) -> str:
 
 
 class UserRepository:
+    """Repository for user accounts.
+
+    The collection is resolved lazily on every access so that this class can be
+    instantiated at import time (e.g. as a module-level singleton) without
+    opening a MongoClient.  A ``_fixed_coll`` may be supplied by tests that
+    want to inject a mock; callers that don't supply one always get the
+    process-wide shared client.
+    """
+
     def __init__(self, collection=None):
-        self._coll = collection if collection is not None else get_users_collection()
+        # ``None`` means "resolve via get_db() on every call" — see ``_coll``.
+        self._fixed_coll = collection
+
+    @property
+    def _coll(self):
+        """Return the injected collection (tests) or the live one (production)."""
+        if self._fixed_coll is not None:
+            return self._fixed_coll
+        return get_users_collection()
 
     def find_by_email(self, email: str) -> Optional[dict]:
         return self._coll.find_one({"email": _normalize(email)})
@@ -126,7 +156,11 @@ class UserRepository:
             email=doc.get("email", ""),
             name=doc.get("name") or doc.get("email", "").split("@")[0].title(),
             role=doc.get("role", "admin"),
+            staff_code=doc.get("staff_code") or (
+                staff_code(doc["_id"]) if doc.get("role") == STAFF_ROLE else ""
+            ),
             keywords=doc.get("keywords", []),
+            phone=doc.get("phone") or "",
             active=doc.get("active", True),
             created_at=doc.get("created_at"),
             page_grants=doc.get("page_grants", []),
@@ -151,16 +185,19 @@ class UserRepository:
         name: str = "",
         role: str = "admin",
         page_grants: "list[str] | None" = None,
+        phone: str = "",
     ) -> User:
         email = _normalize(email)
         if self.find_by_email(email):
             raise ValueError(f"A user with email {email} already exists.")
+        user_id = uuid.uuid4().hex
         doc = {
-            "_id": uuid.uuid4().hex,
+            "_id": user_id,
             "email": email,
             "name": name or email.split("@")[0].title(),
             "role": role,
             "page_grants": [p for p in (page_grants or []) if p in PAGES],
+            "phone": (phone or "").strip(),
             # Stored explicitly: an account without the field would be filtered
             # out of every `active: True` query, and a staff member allocation
             # cannot see is a staff member who never receives work.
@@ -170,6 +207,8 @@ class UserRepository:
             "created_at": utcnow(),
             "last_login_at": None,
         }
+        if role == STAFF_ROLE:
+            doc["staff_code"] = staff_code(user_id)
         self._coll.insert_one(doc)
         log.info("Created user %s (%s)", email, role)
         return self._to_user(doc)
@@ -214,16 +253,20 @@ class UserRepository:
         password: str,
         name: str = "",
         keywords: list[str] = None,
+        phone: str = "",
     ) -> User:
         email = _normalize(email)
         if self.find_by_email(email):
             raise ValueError(f"A user with email {email} already exists.")
+        user_id = uuid.uuid4().hex
         doc = {
-            "_id": uuid.uuid4().hex,
+            "_id": user_id,
+            "staff_code": staff_code(user_id),
             "email": email,
             "name": name or email.split("@")[0].title(),
             "role": STAFF_ROLE,
             "keywords": keywords or [],
+            "phone": (phone or "").strip(),
             "active": True,
             "password_hash": hash_password(password),
             "created_at": utcnow(),
@@ -257,6 +300,7 @@ class UserRepository:
         password: str | None = None,
         page_grants: list[str] | None = None,
         keywords: list[str] | None = None,
+        phone: str | None = None,
     ) -> User | None:
         """Edit any account, whatever its role.
 
@@ -273,12 +317,18 @@ class UserRepository:
             updates["name"] = name
         if role in (ADMIN_ROLE, STAFF_ROLE):
             updates["role"] = role
+            if role == STAFF_ROLE and not doc.get("staff_code"):
+                updates["staff_code"] = staff_code(user_id)
         if active is not None:
             updates["active"] = active
         if password:
             updates["password_hash"] = hash_password(password)
         if keywords is not None:
             updates["keywords"] = keywords
+        # An empty string is a real edit here — it is how a number gets removed —
+        # so the test is `is not None`, not truthiness.
+        if phone is not None:
+            updates["phone"] = phone.strip()
         if page_grants is not None:
             # Unknown ids are dropped rather than stored: a grant for a page
             # that does not exist is a permission nobody can use and a puzzle
@@ -304,6 +354,7 @@ class UserRepository:
         keywords: list[str] | None = None,
         active: bool | None = None,
         password: str | None = None,
+        phone: str | None = None,
     ) -> User | None:
         doc = self._coll.find_one({"_id": staff_id, "role": STAFF_ROLE})
         if not doc:
@@ -313,6 +364,8 @@ class UserRepository:
             updates["name"] = name
         if keywords is not None:
             updates["keywords"] = keywords
+        if phone is not None:
+            updates["phone"] = phone.strip()
         if active is not None:
             updates["active"] = active
         if password:
@@ -361,55 +414,82 @@ def ensure_seed_user(email: str, password: str, name: str = "Administrator") -> 
         else:
             repo.set_password(settings.demo_admin_email, settings.demo_admin_password)
 
-    if settings.demo_staff_email and settings.demo_staff_password:
-        existing_staff = repo.find_by_email(settings.demo_staff_email)
-        if not existing_staff:
-            repo.create_staff(
-                email=settings.demo_staff_email,
-                password=settings.demo_staff_password,
-                name="Staff Reviewer",
-                keywords=["Python", "React", "DevOps", "Java", "SQL"],
-            )
-            log.info("Seeded initial staff account: %s", settings.demo_staff_email)
-        else:
-            repo.set_password(settings.demo_staff_email, settings.demo_staff_password)
-
-
 def ensure_demo_accounts(
     admin_email: str,
     admin_password: str,
-    staff_email: str,
-    staff_password: str,
 ) -> list[str]:
-    """Create the two accounts the login screen advertises, once.
+    """Create the admin account the login screen advertises, once.
 
     Creates, never overwrites: an operator who changes a demo password keeps
-    that change across restarts. Both roles are seeded because the staff account
-    is the only thing that demonstrates the isolation — there is nothing to
-    isolate without one.
+    that change across restarts. Staff accounts are created only by an admin;
+    startup must never restore a staff member somebody deliberately removed.
 
     Returns the addresses actually created, so a boot log can say what it did.
     """
     repo = UserRepository()
     created: list[str] = []
-    for email, password, name, role in (
-        (admin_email, admin_password, "Super Admin", ADMIN_ROLE),
-        (staff_email, staff_password, "Staff Member", STAFF_ROLE),
-    ):
-        if not email or not password:
-            continue
-        if repo.find_by_email(email):
-            continue
-        repo.create(email=email, password=password, name=name, role=role)
-        created.append(email)
-        log.info("Seeded demo %s account: %s", role, email)
+    if admin_email and admin_password and not repo.find_by_email(admin_email):
+        repo.create(
+            email=admin_email,
+            password=admin_password,
+            name="Super Admin",
+            role=ADMIN_ROLE,
+        )
+        created.append(admin_email)
+        log.info("Seeded demo admin account: %s", admin_email)
     return created
+
+
+def remove_legacy_demo_staff() -> str | None:
+    """Remove the old auto-seeded Staff Reviewer account, once and for good.
+
+    The email and generated names identify only the historical demo account.
+    A real account that has been renamed or uses another address is untouched.
+    Returns its id so startup can safely redistribute any unread assignments.
+    """
+    repo = UserRepository()
+    existing = repo.find_by_email(LEGACY_DEMO_STAFF_EMAIL)
+    if not existing:
+        return None
+    if existing.get("role") != STAFF_ROLE:
+        return None
+    if existing.get("name") not in {"Staff Reviewer", "Staff Member"}:
+        return None
+    staff_id = str(existing["_id"])
+    if not repo.delete_staff(staff_id):
+        return None
+    log.info("Removed legacy demo staff account: %s", LEGACY_DEMO_STAFF_EMAIL)
+    return staff_id
 
 
 def ensure_user_indexes() -> None:
     from app.db.mongo import ensure_index
 
     coll = get_users_collection()
+    # Existing staff receive the same stable code they would have received at
+    # creation time. Admin accounts intentionally remain without one.
+    for doc in coll.find(
+        {
+            "role": STAFF_ROLE,
+            "$or": [
+                {"staff_code": {"$exists": False}},
+                {"staff_code": None},
+                {"staff_code": ""},
+            ],
+        },
+        {"_id": 1},
+    ):
+        coll.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"staff_code": staff_code(doc["_id"])}},
+        )
+    ensure_index(
+        coll,
+        [("staff_code", ASCENDING)],
+        "staff_code_unique",
+        unique=True,
+        sparse=True,
+    )
     # Sign-in reads by address, and two accounts on one address would make
     # authentication ambiguous.
     ensure_index(coll, [("email", ASCENDING)], "user_email_unique", unique=True)

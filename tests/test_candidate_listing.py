@@ -10,6 +10,7 @@ to fetch.
 """
 from __future__ import annotations
 
+from app.core.crm_ids import candidate_code
 from app.db.repository import CandidateRepository
 
 
@@ -112,6 +113,7 @@ DOC = {
         "thread_id": "thread-1",
         "from_addr": "alice@example.com",
         "from_name": "Alice Smith",
+        "to_addr": "recruitment@agency.com",
         "subject": "Resume",
     },
 }
@@ -146,6 +148,7 @@ def test_a_list_row_still_carries_what_the_directory_shows():
     assert row["profile"]["skills"] == ["Python"]
     assert row["resume"]["original_filename"] == "alice.pdf"
     assert row["source_email"]["from_addr"] == "alice@example.com"
+    assert row["source_email"]["to_addr"] == "recruitment@agency.com"
     assert row["status"] == "ingested"
 
 
@@ -203,6 +206,7 @@ def test_the_minimal_view_is_flat_and_exactly_the_agreed_fields():
 
     assert row == {
         "id": "candidate-alice",
+        "candidate_code": candidate_code("candidate-alice"),
         "full_name": "Alice Smith",
         "email": "alice@example.com",
         "phone": "+1 555-0100",

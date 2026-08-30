@@ -176,6 +176,9 @@ class _NoRepo:
 class _NoStorage:
     name = "none"
 
+    def exists(self, *_a, **_k):
+        raise AssertionError("a rejected attachment must never be stored")
+
     def save(self, *_a, **_k):
         raise AssertionError("a rejected attachment must never be stored")
 
@@ -235,10 +238,13 @@ def test_an_unreadable_scan_is_an_error_not_a_rejection(monkeypatch):
     from app.core.exceptions import TextExtractionError
     from app.extraction import text_extractor as tx
 
+    # What a host with no OCR engine actually produces: not an exception, but
+    # zero characters. That is the dangerous case — an empty extraction reads
+    # to the classifier as a perfectly confident "this is not a resume".
     def no_ocr(*_a, **_k):
-        raise TextExtractionError("Tesseract OCR ... was not found.")
+        return {}
 
-    monkeypatch.setattr(tx, "ocr_pdf_page_texts", no_ocr)
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_texts", no_ocr)
 
     # A PDF with pages but no text layer at all.
     doc = fitz.open()
@@ -258,7 +264,7 @@ def test_pipeline_reports_an_unreadable_scan_as_an_error(monkeypatch):
     from app.extraction import text_extractor as tx
 
     monkeypatch.setattr(
-        tx, "ocr_pdf_page_texts",
+        tx.local_ocr, "ocr_pdf_page_texts",
         lambda *a, **k: (_ for _ in ()).throw(TextExtractionError("no tesseract")),
     )
 
@@ -282,6 +288,9 @@ class _CapturingStorage:
 
     def __init__(self):
         self.saved: dict[str, bytes] = {}
+
+    def exists(self, key) -> bool:
+        return key in self.saved
 
     def save(self, key, data, content_type=None):
         self.saved[key] = data
@@ -436,3 +445,44 @@ def test_trade_skills_are_also_recovered_from_the_resume_text():
 
     assert "eot crane" in found
     assert "pipe fitting" in found
+
+
+class _SilentlyLosingStorage:
+    """A backend whose `save` reports success and keeps nothing.
+
+    A full disk, a GridFS write the server rejected, a mount that went away —
+    they all look like this from in here, and none of them raise.
+    """
+
+    name = "lossy"
+
+    def exists(self, _key) -> bool:
+        return False
+
+    def save(self, key, _data, content_type=None):
+        return key
+
+
+def test_a_candidate_is_never_created_when_the_file_did_not_store():
+    """The upload is the one artefact that cannot be recreated.
+
+    A profile can be re-parsed and the OCR re-run, but a résumé nobody kept is
+    gone once the mail is filed. Inserting the record anyway produces a
+    candidate whose Download button can only fail — discovered by a recruiter,
+    months later, at the moment they need the file. Reported as an error, so the
+    email stays unlabelled and the next poll tries again.
+    """
+    from app.ingestion.pipeline import IngestionPipeline
+
+    data = make_pdf(bundle_pages())
+    repo = _CapturingRepo()
+    pipeline = IngestionPipeline(
+        repository=repo, storage=_SilentlyLosingStorage(),
+        parser=ResumeParser(), ledger=_NoLedger(),
+    )
+
+    result = pipeline.process_email(_email_with("application.pdf", data))
+
+    assert [a.status for a in result.attachments] == ["error"]
+    assert "not there when read back" in result.attachments[0].detail
+    assert repo.inserted == [], "a candidate was created with no downloadable file"

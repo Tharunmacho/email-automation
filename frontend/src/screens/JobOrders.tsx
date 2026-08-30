@@ -30,14 +30,11 @@ import {
   MapPin,
   Inbox,
   Sparkles,
-  Download,
-  Copy,
   Share2,
-  Send,
   Info,
-  ExternalLink,
 } from "lucide-react";
 
+import DatePicker from "@/components/ui/DatePicker";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf, formatDateFull, formatInt, initialsOf } from "@/lib/format";
@@ -51,27 +48,14 @@ import {
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
-export interface JobOrderRecord {
-  id: string;
-  title: string;
-  client: string;
-  headcount: number;
-  salary: string;
-  skills: string[];
-  description?: string;
-  dueDate: string;
-  status: "OPEN" | "IN PROGRESS" | "FILLED" | "CLOSED";
-  minExperience?: string;
-  industry?: string;
-  designation?: string;
-  fulfilledCount?: number;
-  shortlistedCandidateIds?: string[];
-  rejectedCandidateIds?: string[];
-}
+// Defined in `@/types` so `lib/api` and `SourcingHub` share one definition of
+// what a job order is; re-exported here because both already import it by this
+// path.
+import type { JobOrderRecord, JobOrderStatus } from "@/types";
+
+export type { JobOrderRecord, JobOrderStatus };
 
 const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
-
-export type JobOrderStatus = JobOrderRecord["status"];
 
 const STATUS_TONE: Record<JobOrderStatus, StatTone> = {
   OPEN: "blue",
@@ -138,11 +122,11 @@ function getDueMeta(dueDate?: string): DueMeta {
   parsed.setHours(0, 0, 0, 0);
   const days = Math.round((parsed.getTime() - today.getTime()) / 86400000);
 
-  const urgent = { color: "#be123c", bg: "#fff1f2", border: "#fecdd3" };
+  const urgent = { color: "var(--rose-ink)", bg: "var(--rose-fill)", border: "var(--rose-edge)" };
   if (days < 0) return { label: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`, ...urgent, overdue: true, days };
   if (days === 0) return { label: "Due today", ...urgent, overdue: true, days };
-  if (days <= 7) return { label: `${days} day${days === 1 ? "" : "s"} left`, color: "#b45309", bg: "#fffbeb", border: "#fde68a", overdue: false, days };
-  return { label: `${days} days left`, color: "#15803d", bg: "#f0fdf4", border: "#bbf7d0", overdue: false, days };
+  if (days <= 7) return { label: `${days} day${days === 1 ? "" : "s"} left`, color: "var(--warning-ink)", bg: "var(--warning-fill)", border: "var(--warning-edge)", overdue: false, days };
+  return { label: `${days} days left`, color: "#15803d", bg: "var(--success-fill)", border: "var(--success-edge)", overdue: false, days };
 }
 
 function formatDueDate(dueDate?: string): string {
@@ -813,17 +797,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setActiveMenuId(null);
   };
 
-  const activeOrdersCount = orders.filter((o) => {
-    const live = deriveStatus(o);
-    return live === "OPEN" || live === "IN PROGRESS";
-  }).length;
-  const totalHeadcount = orders.reduce((sum, o) => sum + (o.headcount || 1), 0);
-  const totalShortlisted = orders.reduce((sum, o) => sum + (o.shortlistedCandidateIds?.length || o.fulfilledCount || 0), 0);
-  const openPositions = Math.max(0, totalHeadcount - totalShortlisted);
-  const fillRate = totalHeadcount > 0 ? Math.round((totalShortlisted / totalHeadcount) * 100) : 0;
-  const overdueCount = orders.filter(
-    (o) => deriveStatus(o) !== "CLOSED" && getDueMeta(o.dueDate).overdue,
-  ).length;
 
   const matchSummaryByOrder = useMemo(() => {
     const summary = new Map<string, { strong: number; best: number }>();
@@ -1021,12 +994,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   />
                 </div>
                 <div>
-                  <label className="modal-label">Due Date</label>
-                  <input
-                    type="date"
-                    className="modal-input"
+                  <span className="modal-label">Due Date</span>
+                  <DatePicker
                     value={editDueDate}
-                    onChange={(e) => setEditDueDate(e.target.value)}
+                    onChange={setEditDueDate}
+                    ariaLabel="Due date"
+                    placeholder="No due date"
                   />
 
                   <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", marginTop: "6px" }}>
@@ -1735,37 +1708,6 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   // -------------------------------------------------------------
   return (
     <div className="job-orders-wrapper">
-      <div className="stat-tiles">
-        <StatTile
-          tone="blue"
-          icon={Target}
-          label="Positions to fill"
-          value={formatInt(openPositions)}
-          note={`${formatInt(totalHeadcount)} seat${totalHeadcount === 1 ? "" : "s"} across ${formatInt(activeOrdersCount)} active order${activeOrdersCount === 1 ? "" : "s"}`}
-        />
-        <StatTile
-          tone="green"
-          icon={UserCheck}
-          label="Shortlisted candidates"
-          value={formatInt(totalShortlisted)}
-          note={`${fillRate}% of all seats filled`}
-        />
-        <StatTile
-          tone="cyan"
-          icon={Briefcase}
-          label="Active orders"
-          value={formatInt(activeOrdersCount)}
-          note={`${formatInt(orders.length)} order${orders.length === 1 ? "" : "s"} in total`}
-        />
-        <StatTile
-          tone={overdueCount > 0 ? "red" : "slate"}
-          icon={AlertTriangle}
-          label="Overdue orders"
-          value={formatInt(overdueCount)}
-          note={overdueCount > 0 ? "Past their due date" : "Nothing past due"}
-        />
-      </div>
-
       <section className="jo-toolbar">
         <div className="jo-toolbar-top">
           <div className="search-input-wrapper">
@@ -1821,7 +1763,122 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
         </div>
       </section>
 
-      <div className="jo-grid">
+      {!ordersLoading && filteredOrders.length > 0 && (
+        <section className="ds-panel jo-register" aria-label="Job orders">
+          <div className="ds-table-wrap is-ruled">
+            <table className="ds-table is-ruled jo-table">
+              <thead>
+                <tr>
+                  <th>Job order</th>
+                  <th>Client</th>
+                  <th>Status</th>
+                  <th>Salary</th>
+                  <th>Experience</th>
+                  <th className="is-num">Filled</th>
+                  <th>Due date</th>
+                  <th>Match</th>
+                  <th className="is-actions" aria-label="Actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.map((item) => {
+                  const fulfilled = (item.shortlistedCandidateIds || []).length || item.fulfilledCount || 0;
+                  const rowStatus = deriveStatus(item);
+                  const due = getDueMeta(item.dueDate);
+                  const isLate = due.overdue && rowStatus !== "CLOSED";
+                  const match = matchSummaryByOrder.get(item.id);
+                  const statusTone = isLate
+                    ? "bad"
+                    : rowStatus === "FILLED"
+                      ? "ok"
+                      : rowStatus === "CLOSED"
+                        ? "neutral"
+                        : "info";
+
+                  return (
+                    <tr className="is-clickable" key={item.id} onClick={() => setSelectedOrder(item)}>
+                      <td>
+                        <span className="jo-table-job">
+                          <strong title={item.title}>{item.title}</strong>
+                          <small>
+                            {(item.skills || []).slice(0, 3).join(" · ") || "No skills specified"}
+                          </small>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="jo-table-client">
+                          <span className="ds-avatar" aria-hidden="true">{initialsOf(item.client)}</span>
+                          <span title={item.client}>{item.client}</span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`ds-status is-${statusTone}`}>
+                          <i aria-hidden="true" />
+                          {isLate ? "Overdue" : rowStatus.replace("IN PROGRESS", "In progress")}
+                        </span>
+                      </td>
+                      <td>{formatSalary(item.salary)}</td>
+                      <td>{item.minExperience && item.minExperience !== "Any" ? item.minExperience : "Open"}</td>
+                      <td className="is-num"><strong>{fulfilled}</strong> of {item.headcount}</td>
+                      <td>
+                        <span className={`jo-table-due ${isLate ? "is-late" : ""}`}>
+                          {formatDueDate(item.dueDate)}
+                          <small>{due.label}</small>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="jo-table-match">
+                          <strong>{match?.best ?? 0}%</strong>
+                          <small>{match?.strong ? `${match.strong} strong` : "No strong matches"}</small>
+                        </span>
+                      </td>
+                      <td className="is-actions" onClick={(event) => event.stopPropagation()}>
+                        <div className="jo-actions">
+                          <button
+                            type="button"
+                            className="jo-icon-btn"
+                            onClick={() => openEditModal(item)}
+                            title="Edit this job order"
+                            aria-label={`Edit ${item.title}`}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <div className="jo-menu-wrap">
+                            <button
+                              type="button"
+                              className="jo-icon-btn"
+                              onClick={() => setActiveMenuId((prev) => (prev === item.id ? null : item.id))}
+                              aria-label={`Actions for ${item.title}`}
+                            >
+                              <MoreVertical size={15} />
+                            </button>
+                            {activeMenuId === item.id && (
+                              <div className="sourcing-dropdown-menu">
+                                <button type="button" className="dropdown-item" onClick={() => openEditModal(item)}>
+                                  <Pencil size={14} /><span>Edit</span>
+                                </button>
+                                <button type="button" className="dropdown-item" onClick={() => handleToggleCloseOrder(item)}>
+                                  <CheckCircle size={14} />
+                                  <span>{item.status === "CLOSED" ? "Reopen order" : "Close order"}</span>
+                                </button>
+                                <button type="button" className="dropdown-item danger" onClick={() => handleDeleteOrder(item.id)}>
+                                  <Trash2 size={14} /><span>Delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <div className={`jo-grid ${!ordersLoading && filteredOrders.length > 0 ? "is-hidden" : ""}`}>
         {ordersLoading ? (
           <div className="jo-state">
             <Loader2 size={26} className="jo-spinner" />
@@ -2182,12 +2239,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
 
                   <div>
-                    <label className="modal-label">Target Close Date</label>
-                    <input
-                      type="date"
-                      className="modal-input"
+                    <span className="modal-label">Target Close Date</span>
+                    <DatePicker
                       value={newDueDate}
-                      onChange={(e) => setNewDueDate(e.target.value)}
+                      onChange={setNewDueDate}
+                      ariaLabel="Target close date"
+                      placeholder="30 days from today"
                     />
                     <span style={{ fontSize: "0.72rem", color: "var(--text-light)", fontWeight: 500 }}>
                       Leave blank to default to 30 days from today.

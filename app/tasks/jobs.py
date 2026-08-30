@@ -19,7 +19,7 @@ each message before touching it.
 from __future__ import annotations
 
 from app.config import settings
-from app.email_client import get_email_client, GmailClient
+from app.email_client import get_email_client, get_all_email_clients, GmailClient
 from app.ingestion.pipeline import IngestionPipeline
 from app.ingestion.runner import BatchSummary, IngestionRunner, mark_message_done
 from app.logging_config import get_logger
@@ -95,12 +95,17 @@ def poll_gmail(query: str | None = None) -> dict:
     """
     try:
         with redis_lock(POLL_LOCK, settings.poll_dispatch_lock_ttl_seconds):
-            gmail = get_email_client()
-            ids = gmail.search_message_ids(query=query)
-            for mid in ids:
-                process_message.delay(mid)
-            log.info("Dispatched %d message(s) for processing", len(ids))
-            return {"dispatched": len(ids), "message_ids": ids}
+            clients = get_all_email_clients()
+            total_dispatched = 0
+            all_ids = []
+            for client in clients:
+                ids = client.search_message_ids(query=query)
+                for mid in ids:
+                    process_message.delay(mid)
+                total_dispatched += len(ids)
+                all_ids.extend(ids)
+            log.info("Dispatched %d message(s) for processing across %d account(s)", total_dispatched, len(clients))
+            return {"dispatched": total_dispatched, "message_ids": all_ids}
     except LockNotAcquired:
         # Only a manual sync can hold the lock long enough to cause this now,
         # and the work it is doing is the work this tick would have queued.
@@ -149,11 +154,27 @@ def _process_one(task, message_id: str) -> dict:
             return {"message_id": message_id, "status": "skipped",
                     "reason": "already being processed", "candidates": []}
 
-        gmail = get_email_client()
+        clients = get_all_email_clients()
         pipeline = IngestionPipeline()
+        
+        email = None
+        working_client = None
+        last_exc = None
+        
+        for client in clients:
+            try:
+                email = client.get_message(message_id)
+                working_client = client
+                break
+            except Exception as exc:
+                last_exc = exc
+                
+        if not email:
+            log.exception("process_message failed to find %s in any account", message_id)
+            raise task.retry(exc=last_exc)
+
         try:
-            email = gmail.get_message(message_id)
-            result = pipeline.process_email(email, gmail=gmail)
+            result = pipeline.process_email(email, gmail=working_client)
         except Exception as exc:  # noqa: BLE001
             log.exception("process_message failed for %s", message_id)
             raise task.retry(exc=exc)
@@ -162,7 +183,7 @@ def _process_one(task, message_id: str) -> dict:
         # candidate is already in Mongo, so a Gmail hiccup here must not turn a
         # successful ingestion into a retry that ingests it all over again.
         try:
-            mark_message_done(gmail, message_id, result.status)
+            mark_message_done(working_client, message_id, result.status, email=email)
         except Exception as err:  # noqa: BLE001
             log.warning(
                 "Processed %s but could not mark it done in Gmail (%s); "
@@ -177,15 +198,3 @@ def _process_one(task, message_id: str) -> dict:
             "candidates": result.ingested_ids,
         }
 
-
-@celery_app.task(name="app.tasks.jobs.process_single_message")
-def process_single_message(message_id: str) -> dict:
-    """Alias for `process_message`, under the name the fan-out contract uses.
-
-    Registered as its own task rather than renaming the original: a rename would
-    strand every `process_message` already sitting in Redis when the workers
-    restart, and those are real candidate emails. Both names route to the same
-    claim lock, so dispatching a message under either one still guarantees a
-    single worker processes it.
-    """
-    return process_message.run(message_id)

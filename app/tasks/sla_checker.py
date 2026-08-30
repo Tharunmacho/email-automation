@@ -35,6 +35,7 @@ from app.db.mongo import get_db
 from app.db.repository import CandidateRepository
 from app.logging_config import get_logger
 from app.notifications import notify_sla_breaches
+from app.tasks.celery_app import celery_app
 
 log = get_logger(__name__)
 
@@ -168,6 +169,13 @@ def scan(threshold_hours: float | None = None) -> Dict[str, Any]:
     }
 
 
+@celery_app.task(name="app.tasks.sla_checker.scan_sla_breaches")
 def scan_sla_breaches() -> Dict[str, Any]:
-    """Celery task wrapper for the periodic sweep."""
+    """The beat task, run on `settings.sla_scan_interval_seconds`.
+
+    It carries no lock, unlike the reconciler's. `scan` re-derives the breach
+    set from the collection every time and skips anything already recorded as
+    active, so two overlapping sweeps agree rather than race — and at hourly
+    ticks over a two-day window there is nothing to overlap with anyway.
+    """
     return scan()

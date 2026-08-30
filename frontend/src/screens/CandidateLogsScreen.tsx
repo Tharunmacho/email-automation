@@ -21,6 +21,7 @@ interface CandidateLogsScreenProps {
  * the record is looking for.
  */
 const EVENT: Record<CandidateLogAction, { label: string; tone: "blue" | "green" | "amber" | "red" }> = {
+  Created: { label: "Candidate profile created", tone: "green" },
   Viewed: { label: "Candidate profile viewed", tone: "blue" },
   "Opened editor": { label: "Candidate profile updated", tone: "blue" },
   Edited: { label: "Candidate profile saved", tone: "green" },

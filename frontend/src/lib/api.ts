@@ -1,10 +1,10 @@
 /**
  * Typed client for the FastAPI resume-ingestion backend (app/api/routes.py).
  *
- * The app is built with `output: "export"`, so it is served as static files —
- * usually by the same FastAPI process, in which case a relative origin works.
- * During `next dev` the frontend runs on :3000 and the API on :8000, so point
- * NEXT_PUBLIC_API_BASE at the backend (CORS is already wide open server-side).
+ * The production container uses Next.js standalone output. During local
+ * development or Docker usage the frontend runs on :3000 and FastAPI on
+ * :8000, so point NEXT_PUBLIC_API_BASE at the backend. A reverse-proxied
+ * deployment can compile it as an empty string to keep API calls same-origin.
  */
 
 export const API_BASE =
@@ -18,16 +18,24 @@ import type {
   Education,
   Project,
   CandidateProfile,
+  JobAnswer,
   StoredResume,
   SourceEmail,
   CandidateRecord,
   CandidateListResponse,
+  AadhaarRecord,
+  PassportRecord,
+  IdentityDocuments,
+  IdentityDocument,
+  AnsweredQuestion,
+  CandidateUploadResponse,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  B2BEnquiryRecord,
   EvaluationStatus,
   StaffMember,
   StaffWorkloadRow,
@@ -38,11 +46,6 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  RegistrationState,
-  AnsweredQuestion,
-  JobSection,
-  IdentityDocument,
-  IdentityDocuments,
 } from "@/types";
 
 export type {
@@ -50,16 +53,24 @@ export type {
   Education,
   Project,
   CandidateProfile,
+  JobAnswer,
   StoredResume,
   SourceEmail,
   CandidateRecord,
   CandidateListResponse,
+  AadhaarRecord,
+  PassportRecord,
+  IdentityDocuments,
+  IdentityDocument,
+  AnsweredQuestion,
+  CandidateUploadResponse,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
   AuthUser,
   SourcingClientRecord,
   JobOrderRecord,
+  B2BEnquiryRecord,
   EvaluationStatus,
   StaffMember,
   StaffWorkloadRow,
@@ -70,11 +81,6 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  RegistrationState,
-  AnsweredQuestion,
-  JobSection,
-  IdentityDocument,
-  IdentityDocuments,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -223,26 +229,17 @@ export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
 }
 
-/**
- * The Aadhaar and passport read out of this candidate's application.
- *
- * Its own request rather than part of the candidate, because these live in
- * their own collections on purpose: the reads that populate the candidate list
- * project the candidate document wholesale, and an identity number stored there
- * would reach a browser the first time somebody added a column. Numbers come
- * back masked unless the caller is an administrator.
- *
- * Returns empty lists rather than throwing when there are none — most
- * candidates have none, and an error state for the ordinary case would put a
- * red box on almost every profile.
- */
-export async function fetchIdentityDocuments(
-  candidateId: string,
-): Promise<IdentityDocuments> {
+/** Fetch the separately stored Aadhaar and passport records for one candidate. */
+export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
+  return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
+    cache: "no-store",
+  });
+}
+
+/** Backward-compatible identity lookup used by older profile views. */
+export async function fetchIdentityDocuments(candidateId: string): Promise<IdentityDocuments> {
   try {
-    return await request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
-      cache: "no-store",
-    });
+    return await getCandidateIdentity(candidateId);
   } catch {
     return { candidate_id: candidateId, aadhaar: [], passport: [] };
   }
@@ -256,6 +253,13 @@ export function triggerPoll(): Promise<PollSummary> {
 interface QueuedPoll {
   task_id: string;
   state: string;
+  /**
+   * Present only when there was no worker to queue on, in which case the API
+   * ran the cycle inside the request and this is its summary — there is no
+   * task to wait for. Without reading it, a client sees a 200 with no task id
+   * and asks after `/ingest/tasks/undefined` until it times out.
+   */
+  result?: PollSummary;
 }
 
 interface PollTaskStatus {
@@ -301,6 +305,12 @@ export async function runPollCycle(): Promise<PollSummary> {
     if (err instanceof UnauthorizedError) throw err;
     return triggerPoll();
   }
+
+  // No worker was running, so the API polled inline and this is the finished
+  // batch. Nothing to wait for — and nothing to re-run: asking for another
+  // cycle here would put every message through OCR a second time.
+  if (queued.result) return queued.result;
+  if (!queued.task_id) return triggerPoll();
 
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let consecutiveErrors = 0;
@@ -358,6 +368,22 @@ export function updateCandidateProfile(
   });
 }
 
+/** Upload documents and let VeriIS create the structured candidate profile. */
+export function uploadCandidateDocuments(files: {
+  resume: File;
+  aadhaar?: File | null;
+  passport?: File | null;
+}): Promise<CandidateUploadResponse> {
+  const body = new FormData();
+  body.append("resume", files.resume);
+  if (files.aadhaar) body.append("aadhaar", files.aadhaar);
+  if (files.passport) body.append("passport", files.passport);
+  return request<CandidateUploadResponse>("/candidates/upload", {
+    method: "POST",
+    body,
+  });
+}
+
 export function verifyCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}/verify`, { method: "POST" });
 }
@@ -372,6 +398,28 @@ export function resumeDownloadUrl(candidateId: string): string {
   const token = getToken();
   const query = token ? `?token=${encodeURIComponent(token)}` : "";
   return `${API_BASE}/candidates/${candidateId}/resume${query}`;
+}
+
+/**
+ * The Aadhaar or passport scan behind one identity row.
+ *
+ * The record id is scoped to the candidate id server-side, so this is not a
+ * second way to reach a document — holding a record id is not authorisation.
+ * An Aadhaar is refused with a 403 to anyone who is not an administrator, for
+ * the same reason its number is masked: the card is the number. Ask
+ * `file_available` on the record before offering the link.
+ */
+export function identityFileUrl(
+  candidateId: string,
+  documentType: "aadhaar" | "passport",
+  recordId: string,
+): string {
+  const token = getToken();
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return (
+    `${API_BASE}/candidates/${candidateId}/identity/` +
+    `${documentType}/${encodeURIComponent(recordId)}/file${query}`
+  );
 }
 
 // ---- System / ingestion configuration ----
@@ -394,6 +442,7 @@ export interface IngestRules {
   attachments: { accepted_extensions: string[] };
   ignored_senders: string[];
   ocr: {
+    provider: string;
     min_text_chars: number;
     dpi: number;
     chunk_pages: number;
@@ -423,7 +472,7 @@ export async function fetchHealth(): Promise<{ status: string; candidates: numbe
 }
 
 // --------------------------------------------------------------------------- //
-//  Staff administration (Super Admin only — the API answers 403 otherwise)
+//  Staff administration (requires the Staff page permission)
 // --------------------------------------------------------------------------- //
 export function listStaff(includeInactive = true): Promise<{ count: number; items: StaffMember[] }> {
   return request<{ count: number; items: StaffMember[] }>(
@@ -450,6 +499,7 @@ export function createStaff(payload: {
   password: string;
   name?: string;
   keywords?: string[];
+  phone?: string;
 }): Promise<{ staff: StaffMember }> {
   return request<{ staff: StaffMember }>("/staff", {
     method: "POST",
@@ -460,7 +510,13 @@ export function createStaff(payload: {
 
 export function updateStaff(
   staffId: string,
-  payload: { name?: string; keywords?: string[]; active?: boolean; password?: string },
+  payload: {
+    name?: string;
+    keywords?: string[];
+    active?: boolean;
+    password?: string;
+    phone?: string;
+  },
 ): Promise<{ staff: StaffMember }> {
   return request<{ staff: StaffMember }>(`/staff/${staffId}`, {
     method: "PATCH",
@@ -624,12 +680,14 @@ export function runSlaScan(): Promise<{ in_breach: number; new_alerts: number; r
 }
 
 // ---- Sourcing Clients DB API ----
-export function listSourcingClientsAPI(): Promise<{ items: any[] }> {
-  return request<{ items: any[] }>("/sourcing-clients");
+export function listSourcingClientsAPI(): Promise<{ items: SourcingClientRecord[] }> {
+  return request<{ items: SourcingClientRecord[] }>("/sourcing-clients");
 }
 
-export function createSourcingClientAPI(record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>("/sourcing-clients", {
+export function createSourcingClientAPI(
+  record: SourcingClientRecord,
+): Promise<{ status: string; record: SourcingClientRecord }> {
+  return request<{ status: string; record: SourcingClientRecord }>("/sourcing-clients", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),
@@ -641,20 +699,25 @@ export function deleteSourcingClientAPI(clientId: string): Promise<{ status: str
 }
 
 // ---- Job Orders DB API ----
-export function listJobOrdersAPI(): Promise<{ items: any[] }> {
-  return request<{ items: any[] }>("/job-orders");
+export function listJobOrdersAPI(): Promise<{ items: JobOrderRecord[] }> {
+  return request<{ items: JobOrderRecord[] }>("/job-orders");
 }
 
-export function createJobOrderAPI(record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>("/job-orders", {
+export function createJobOrderAPI(
+  record: JobOrderRecord,
+): Promise<{ status: string; record: JobOrderRecord }> {
+  return request<{ status: string; record: JobOrderRecord }>("/job-orders", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),
   });
 }
 
-export function updateJobOrderAPI(orderId: string, record: any): Promise<{ status: string; record: any }> {
-  return request<{ status: string; record: any }>(`/job-orders/${orderId}`, {
+export function updateJobOrderAPI(
+  orderId: string,
+  record: JobOrderRecord,
+): Promise<{ status: string; record: JobOrderRecord }> {
+  return request<{ status: string; record: JobOrderRecord }>(`/job-orders/${orderId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(record),
@@ -663,6 +726,83 @@ export function updateJobOrderAPI(orderId: string, record: any): Promise<{ statu
 
 export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/job-orders/${orderId}`, { method: "DELETE" });
+}
+
+// ---- B2B Enquiries -------------------------------------------------------- //
+//
+// Manpower requirements raised by agents. The WhatsApp bot writes them through
+// its own service-key endpoint (`POST /b2b-enquiries`), which is not reachable
+// from here and is not meant to be. Everything below uses the signed-in
+// recruiter's session and requires the B2B Enquiries page grant.
+
+export interface EnquiryListResponse {
+  items: B2BEnquiryRecord[];
+  /** Per-state totals over the whole collection, not over `items`. A filtered
+   *  list must not make the other tabs read zero. */
+  counts: Record<string, number>;
+  statuses: string[];
+}
+
+export function listB2BEnquiriesAPI(status?: string): Promise<EnquiryListResponse> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<EnquiryListResponse>(`/b2b-enquiries${query}`, { cache: "no-store" });
+}
+
+/** Log an enquiry that came in by phone or email rather than through the bot. */
+export function createB2BEnquiryAPI(
+  record: Partial<B2BEnquiryRecord>,
+): Promise<{ status: string; enquiry: B2BEnquiryRecord }> {
+  return request<{ status: string; enquiry: B2BEnquiryRecord }>("/b2b-enquiries/manual", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(record),
+  });
+}
+
+/**
+ * Partial update. Only the fields sent are touched, so moving an enquiry to
+ * `reviewing` cannot blank the requirement text by omitting it.
+ *
+ * `converted` is refused by the API: it means a job order exists, and the only
+ * way to make that true is `convertB2BEnquiryAPI`, which writes both at once.
+ */
+export function updateB2BEnquiryAPI(
+  enquiryId: string,
+  changes: Partial<B2BEnquiryRecord>,
+): Promise<{ status: string; enquiry: B2BEnquiryRecord }> {
+  return request<{ status: string; enquiry: B2BEnquiryRecord }>(`/b2b-enquiries/${enquiryId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+}
+
+export interface ConvertEnquiryPayload {
+  title: string;
+  client: string;
+  headcount: number;
+  salary?: string;
+  skills?: string[];
+  description?: string;
+  due_date?: string;
+  industry?: string;
+  designation?: string;
+}
+
+/** Raise the job order this enquiry asked for, and stamp the enquiry with it. */
+export function convertB2BEnquiryAPI(
+  enquiryId: string,
+  payload: ConvertEnquiryPayload,
+): Promise<{ status: string; job_order: JobOrderRecord; enquiry: B2BEnquiryRecord }> {
+  return request(`/b2b-enquiries/${enquiryId}/convert`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteB2BEnquiryAPI(enquiryId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/b2b-enquiries/${enquiryId}`, { method: "DELETE" });
 }
 
 
@@ -786,19 +926,21 @@ export function deleteJobQuestionAPI(questionId: string): Promise<{ status: stri
 
 // ---- User management ------------------------------------------------------ //
 //
-// Accounts, and which pages each one reaches. Permissions add and never
-// subtract: a grant puts a page on someone's rail and does not widen what they
-// may see once they are on it — a staff member with the Candidates page still
-// sees only the candidates allocated to them, because that restriction lives in
-// the API's own scoping rather than in the menu.
+// Accounts, and which pages each one reaches. A checked grant exposes the page
+// and its API; an unchecked page is absent. Candidate record isolation remains
+// separate, so staff still see only profiles allocated to them.
 
 export interface ManagedUser {
   id: string;
+  /** Present for staff accounts; admins do not belong to the staff roster. */
+  staff_code?: string | null;
   email: string;
   name: string;
   role: string;
   active: boolean;
   keywords: string[];
+  /** Mobile number, free text. Empty when nobody has recorded one. */
+  phone?: string;
   created_at: string | null;
   /** The extra pages an admin ticked. */
   page_grants: string[];
@@ -817,6 +959,7 @@ export function createUserAPI(payload: {
   role?: string;
   page_grants?: string[];
   keywords?: string[];
+  phone?: string;
 }): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>("/users", {
     method: "POST",
@@ -834,6 +977,7 @@ export function updateUserAPI(
     password?: string;
     page_grants?: string[];
     keywords?: string[];
+    phone?: string;
   },
 ): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>(`/users/${userId}`, {

@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import app, current_user
+from app.api.routes import _has_page, app, current_user
 from app.core.models import CandidateProfile, CandidateRecord, SourceEmail, StoredResume
 
 
@@ -83,12 +83,13 @@ def api():
         ]
     )
 
-    def sign_in_as(role: str, user_id: str = "staff-1"):
+    def sign_in_as(role: str, user_id: str = "staff-1", pages: list[str] | None = None):
         app.dependency_overrides[current_user] = lambda: {
             "id": user_id,
             "email": f"{user_id}@x.com",
             "name": user_id,
             "role": role,
+            "pages": pages if pages is not None else ["candidates", "settings"],
         }
 
     with patch("app.api.routes.repo", return_value=repo):
@@ -140,7 +141,93 @@ def test_staff_cannot_download_someone_elses_resume(api):
 
 
 # --------------------------------------------------------------------------- #
-#  Admin-only routes
+#  Identity documents
+#
+#  The profile screen tells a recruiter that the Aadhaar number is masked and
+#  that only an administrator is served the full one. That is a promise made in
+#  the browser and kept by the server, so it is checked here rather than taken
+#  on trust.
+# --------------------------------------------------------------------------- #
+def _fake_identity(_candidate_id=None):
+    from datetime import datetime, timezone
+
+    return {
+        "aadhaar": [
+            {
+                "_id": "rec-1",
+                "name": "Mine Candidate",
+                "aadhaar_number": "123412349017",
+                "masked_aadhaar_number": "XXXXXXXX9017",
+                "aadhaar_number_valid": True,
+                "vid": "9876543210987654",
+                "address": "Vill Chaturbuhjwa, West Champaran, Bihar",
+                # The unmasked number lives in here a dozen times over.
+                "raw": {"aadhaar": {"aadhaar_number": "123412349017"}},
+                "updated_at": datetime(2026, 8, 13, 9, 30, tzinfo=timezone.utc),
+                "source": {"filename": "application.pdf", "pages": [54]},
+            }
+        ],
+        "passport": [
+            {
+                "_id": "rec-2",
+                "passport_number": "Z1234567",
+                "surname": "Shah",
+                "given_names": "Nasim",
+                "expiry_date": "2031-03-14",
+                "check_digits_valid": True,
+                "raw_mrz": "P<INDSHAH<<NASIM<<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+                "raw": {"mrz": {"passport_number": "Z1234567"}},
+                "updated_at": datetime(2026, 8, 13, 9, 31, tzinfo=timezone.utc),
+                "source": {"filename": "application.pdf", "pages": [55]},
+            }
+        ],
+    }
+
+
+def test_a_recruiter_is_served_the_masked_aadhaar_only(api):
+    api.sign_in_as("staff", "staff-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        body = api.get("/candidates/cand-mine/identity").json()
+
+    card = body["aadhaar"][0]
+    assert card["masked_aadhaar_number"] == "XXXXXXXX9017"
+    # The three places the full number could otherwise reach a browser.
+    assert "aadhaar_number" not in card
+    assert "vid" not in card
+    assert "raw" not in card
+    assert "raw_mrz" not in body["passport"][0]
+    assert "raw" not in body["passport"][0]
+    # What is left is still enough to recognise the document and find the page
+    # it was read off.
+    assert card["aadhaar_number_valid"] is True
+    assert card["source"]["pages"] == [54]
+
+
+def test_an_administrator_is_served_the_full_number(api):
+    api.sign_in_as("admin", "admin-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        body = api.get("/candidates/cand-mine/identity").json()
+
+    assert body["aadhaar"][0]["aadhaar_number"] == "123412349017"
+    assert body["passport"][0]["passport_number"] == "Z1234567"
+    # Never the whole OCR payload, whoever is asking — it carries the number in
+    # a dozen places nobody is projecting or masking.
+    assert "raw" not in body["aadhaar"][0]
+
+
+def test_an_identity_document_never_confirms_someone_elses_candidate(api):
+    """404, exactly as the candidate endpoints do.
+
+    A 403 here would confirm the id exists, and an identity document must not
+    be the thing that leaks it.
+    """
+    api.sign_in_as("staff", "staff-1")
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        assert api.get("/candidates/cand-theirs/identity").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+#  Pages the account was not granted
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "method,path",
@@ -156,14 +243,24 @@ def test_staff_cannot_download_someone_elses_resume(api):
         ("post", "/sla/scan"),
     ],
 )
-def test_staff_are_refused_every_admin_route(api, method, path):
+def test_ungranted_pages_are_indistinguishable_from_missing_routes(api, method, path):
     api.sign_in_as("staff", "staff-1")
     # Only POST carries a body; the client rejects `json=` on GET and DELETE.
     kwargs = {"json": {}} if method == "post" else {}
     response = getattr(api, method)(path, **kwargs)
-    assert response.status_code == 403, (
-        f"{method.upper()} {path} answered {response.status_code}, not 403"
+    assert response.status_code == 404, (
+        f"{method.upper()} {path} answered {response.status_code}, not 404"
     )
+
+
+def test_a_granted_page_is_recognised_and_an_ungranted_page_is_not():
+    staff = {"role": "staff", "pages": ["candidates", "job-orders", "settings"]}
+    assert _has_page(staff, "job-orders") is True
+    assert _has_page(staff, "sourcing") is False
+
+
+def test_an_admin_reaches_every_page_even_with_an_old_session_shape():
+    assert _has_page({"role": "admin"}, "users") is True
 
 
 # --------------------------------------------------------------------------- #
@@ -245,10 +342,9 @@ def test_demo_endpoint_goes_quiet_when_demo_mode_is_off(api, monkeypatch):
     assert body == {"enabled": False, "accounts": []}
 
 
-def test_demo_seeding_creates_one_account_per_role():
-    """Both roles have to exist, because the staff account is the only thing
-    that proves the isolation — there is nothing to isolate without one."""
-    from app.db.users import ADMIN_ROLE, STAFF_ROLE, ensure_demo_accounts
+def test_demo_seeding_creates_only_the_admin_account():
+    """Startup must not recreate a staff member an admin removed."""
+    from app.db.users import ADMIN_ROLE, ensure_demo_accounts
 
     created_docs = []
 
@@ -261,10 +357,10 @@ def test_demo_seeding_creates_one_account_per_role():
             return None
 
     with patch("app.db.users.UserRepository", FakeRepo):
-        created = ensure_demo_accounts("a@x.com", "pw1", "s@x.com", "pw2")
+        created = ensure_demo_accounts("a@x.com", "pw1")
 
-    assert created == ["a@x.com", "s@x.com"]
-    assert [d["role"] for d in created_docs] == [ADMIN_ROLE, STAFF_ROLE]
+    assert created == ["a@x.com"]
+    assert [d["role"] for d in created_docs] == [ADMIN_ROLE]
 
 
 def test_demo_seeding_never_resets_an_existing_account():
@@ -280,7 +376,36 @@ def test_demo_seeding_never_resets_an_existing_account():
             raise AssertionError("seeding overwrote an existing account")
 
     with patch("app.db.users.UserRepository", FakeRepo):
-        assert ensure_demo_accounts("a@x.com", "pw1", "s@x.com", "pw2") == []
+        assert ensure_demo_accounts("a@x.com", "pw1") == []
+
+
+def test_legacy_staff_reviewer_is_removed_but_a_real_account_is_not():
+    from app.db.users import remove_legacy_demo_staff
+
+    deleted = []
+
+    class LegacyRepo:
+        def find_by_email(self, email):
+            assert email == "staff@gmail.com"
+            return {"_id": "legacy-staff", "email": email, "role": "staff", "name": "Staff Reviewer"}
+
+        def delete_staff(self, staff_id):
+            deleted.append(staff_id)
+            return True
+
+    with patch("app.db.users.UserRepository", LegacyRepo):
+        assert remove_legacy_demo_staff() == "legacy-staff"
+    assert deleted == ["legacy-staff"]
+
+    class RealRepo(LegacyRepo):
+        def find_by_email(self, email):
+            return {"_id": "real-staff", "email": email, "role": "staff", "name": "Priya"}
+
+        def delete_staff(self, staff_id):  # pragma: no cover - must stay untouched
+            raise AssertionError("real staff account was deleted")
+
+    with patch("app.db.users.UserRepository", RealRepo):
+        assert remove_legacy_demo_staff() is None
 
 
 # --------------------------------------------------------------------------- #

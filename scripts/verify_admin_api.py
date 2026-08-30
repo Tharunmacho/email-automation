@@ -45,7 +45,7 @@ def call(method, path, body=None, token=None, service=False):
 
 
 print("\nsigning in")
-status, body = call("POST", "/auth/login", {"email": "admin@gmail.com", "password": "admin@123"})
+status, body = call("POST", "/auth/login", {"email": "adira@gmail.com", "password": "adira@2026"})
 token = body.get("token", "")
 check(status == 200 and token, "admin login", str(status))
 check("pages" in body.get("user", {}), "the session carries its page list", str(body.get("user", {}).get("pages", []))[:60] + "…")

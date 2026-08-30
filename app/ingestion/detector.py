@@ -39,8 +39,10 @@ _RESUME_KEYWORDS = re.compile(
 _PROMO_SUBJECT = re.compile(
     r"\b(otp|one[-\s]?time\s*password|verify|verification code|newsletter|unsubscribe|"
     r"invoice|receipt|order|payment|sale|discount|promo|"
-    r"notification|alert|reminder|statement|subscription|springboard|certificate|"
-    r"completion|course|learning)\b",
+    r"notification|alert|security alert|sign-in|2-step|privacy policy|updates to|"
+    r"reminder|statement|subscription|springboard|certificate|"
+    r"completion|course|learning|recommended match|recommended|job alert|match applicant|"
+    r"digest|weekly digest|daily digest|job matches|candidate recommendations|applicant match)\b",
     re.IGNORECASE,
 )
 
@@ -65,6 +67,15 @@ class DetectionResult:
 
 def _sender_ignored(from_addr: str) -> bool:
     addr = (from_addr or "").lower()
+    ignored_patterns = [
+        "no-reply", "noreply", "donotreply", "do-not-reply",
+        "mailer-daemon", "postmaster", "notifications@", "newsletter",
+        "billing@", "invoice@", "receipts@", "support@", "alerts@",
+        "digest@", "recommendations@", "jobboard", "job-alerts",
+        "google.com", "accounts.google.com", "openai.com", "canva.com",
+    ]
+    if any(frag in addr for frag in ignored_patterns):
+        return True
     return any(frag in addr for frag in settings.ignore_sender_fragments)
 
 
@@ -75,20 +86,6 @@ _IMAGE_EXTS = ft.IMAGE_EXTENSIONS
 
 
 def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
-    """Attachments worth opening. A *type* filter — never a content judge.
-
-    No filename is read for meaning here, deliberately. The old blocklist threw
-    away a real candidate whose CV was attached as
-    "Asif_mohd_MOTOR WORKSHOP ADMIN.pdf" — "workshop" and "admin" are that man's
-    job title. `01.pdf`, `Scan_2026.pdf` and `Doc.pdf` have to be opened for the
-    same reason: what a document *is* can only be learned by reading it, and the
-    page classifier does exactly that, cheaply, a few lines downstream.
-
-    Images are the one case with a real cost asymmetry — they cannot be read
-    without OCR, and every email signature logo arrives as an image attachment.
-    They are screened on *size*, which is a property of the file rather than of
-    its name.
-    """
     keep: List[Attachment] = []
     allowed = {e.lower() for e in settings.resume_extensions}
 
@@ -96,10 +93,6 @@ def _resume_type_attachments(attachments: List[Attachment]) -> List[Attachment]:
         ext = os.path.splitext(att.filename)[1].lower()
         mime = ft.normalize_mime(att.mime_type)
 
-        # Extension *or* declared type. An unnamed inline part reconstructed as
-        # `document_1.bin`, and a `.pages` file nobody thought to list, both have
-        # to survive this: the extension is a hint about a file, not a fact, and
-        # the only thing that settles what a document is, is reading it.
         if ext not in allowed and not ft.is_document_mime(mime):
             log.info(
                 "Ignoring '%s': neither its extension (%s) nor its type (%s) "
@@ -139,19 +132,13 @@ _CLOUD_LINK_RE = re.compile(
 
 
 def _body_as_attachment(email: EmailMessage) -> Attachment | None:
-    """The email body itself, as a text attachment, when it reads as a résumé.
-
-    Returned as a synthetic `.txt` attachment rather than handled as a special
-    case, so the rest of the pipeline — hashing, the ledger, dedup, storage,
-    the LLM — needs to know nothing about where the text came from.
-    """
     body = (email.body_text or "").strip()
     if len(body) < _MIN_BODY_RESUME_CHARS:
         return None
 
     verdict = pc.classify_page(body)
     if verdict.kind != pc.RESUME:
-        log.info(
+        log.debug(
             "Email body of %s is not a resume (kind=%s, score=%.2f)",
             email.message_id, verdict.kind, verdict.score,
         )
@@ -175,13 +162,10 @@ def detect(email: EmailMessage) -> DetectionResult:
     resume_atts = _resume_type_attachments(email.attachments)
 
     if not resume_atts:
-        # No file came with the mail — but plenty of candidates paste the CV
-        # straight into the message, and the body is text we already hold. It
-        # costs nothing to read, and the page classifier judges it on exactly
-        # the same evidence it applies to a PDF page.
-        if _sender_ignored(email.from_addr):
+        subject = email.subject or ""
+        if _sender_ignored(email.from_addr) or _PROMO_SUBJECT.search(subject):
             return DetectionResult(
-                False, 0.1, f"no attachment; sender ignored ({email.from_addr})", [],
+                False, 0.0, f"no resume attachment on automated/digest email ({email.from_addr})", [],
             )
 
         body_att = _body_as_attachment(email)

@@ -35,6 +35,7 @@ def _setup_dns_resolver() -> None:
         pass
 
 
+
 @lru_cache(maxsize=1)
 def get_client() -> MongoClient:
     _setup_dns_resolver()
@@ -96,6 +97,30 @@ def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
     db = get_db()
     coll = get_candidates_collection()
+    # Add a public CRM id to records written before the field existed. The
+    # generator is deterministic, so this is safe after interrupted startups
+    # and produces the exact same value as a legacy detail read.
+    from app.core.crm_ids import candidate_code
+
+    for doc in coll.find(
+        {"$or": [
+            {"candidate_code": {"$exists": False}},
+            {"candidate_code": None},
+            {"candidate_code": ""},
+        ]},
+        {"_id": 1},
+    ):
+        coll.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"candidate_code": candidate_code(doc["_id"])}},
+        )
+    ensure_index(
+        coll,
+        [("candidate_code", ASCENDING)],
+        "candidate_code_unique",
+        unique=True,
+        sparse=True,
+    )
     # Exact-duplicate detection: one candidate per resume file hash.
     ensure_index(coll, [("resume_hash", ASCENDING)], "resume_hash_unique", unique=True, sparse=True)
     # Person-level dedup lookups.
@@ -144,6 +169,7 @@ def ensure_indexes() -> None:
     # Durable "already ingested / user deleted" ledger, the accounts, and the
     # notification feed — the last of which carries the TTL that stops the
     # collection growing without bound, so it is not optional.
+    from app.db.b2b_enquiries import ensure_b2b_indexes
     from app.db.identity_records import ensure_identity_indexes
     from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
@@ -154,6 +180,10 @@ def ensure_indexes() -> None:
     ensure_ledger_indexes()
     ensure_user_indexes()
     ensure_notification_indexes()
+    # Manpower requirements the bot collects from agents. The unique index on
+    # `idempotency_key` is the one that matters: without it a retried
+    # submission becomes a second vacancy and the agency fills one job twice.
+    ensure_b2b_indexes()
     # The jobs and countries an admin edits, and the CV rules hanging off them.
     # Seeded here rather than by a migration script so a fresh database answers
     # the same questions a long-running one does — and seeding is additive, so
@@ -168,8 +198,8 @@ def ensure_indexes() -> None:
 
     log.info(
         "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders', "
-        "'ingest_ledger', 'users', 'notifications', 'ingestion_state', "
-        "'%s' and '%s'",
+        "'b2b_enquiries', 'ingest_ledger', 'users', 'notifications', "
+        "'ingestion_state', '%s' and '%s'",
         coll.name,
         settings.mongo_aadhaar_collection,
         settings.mongo_passport_collection,

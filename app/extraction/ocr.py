@@ -1,80 +1,44 @@
-"""OCR helpers for scanned PDFs and image resumes.
+"""The Veris OCR endpoints, and the local reader they fall back to.
 
-Uses Tesseract via ``pytesseract``. The Tesseract *binary* must be installed on
-the host (it is not a pip package). If it is missing we raise a clear error so
-the operator knows exactly what to install, rather than failing cryptically.
+Local reading itself lives in `app.extraction.local_ocr`; this module is about
+the *cloud* passes and when they are worth making. The order matters and it is
+the opposite of what it used to be: a document is now read locally and
+classified first, and only pages already established to be a resume are sent to
+the resume endpoint. Nothing is uploaded to find out what it is.
 """
 from __future__ import annotations
 
-import io
-import shutil
+from dataclasses import dataclass
 
 from app.config import settings
-from app.core.exceptions import TextExtractionError
+from app.extraction import local_ocr
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
 
 
-def _ensure_tesseract():
-    import pytesseract
-
-    if settings.tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
-        return pytesseract
-    if shutil.which("tesseract") is None:
-        raise TextExtractionError(
-            "Tesseract OCR is required for scanned/image resumes but was not found. "
-            "Install it (https://github.com/tesseract-ocr/tesseract) and either add it "
-            "to PATH or set TESSERACT_CMD in your .env."
-        )
-    return pytesseract
+# Reading a page is `local_ocr`'s job — preprocessing, several segmentation
+# modes, DPI escalation, an optional second engine and a page cache all live
+# there. These three names stay because the reconciler and a handful of
+# operational scripts import them, and they now forward rather than keeping a
+# second, weaker copy of the same logic.
 
 
 def ocr_image_bytes(data: bytes) -> str:
     """Run OCR on a single raster image given as bytes."""
-    pytesseract = _ensure_tesseract()
-    from PIL import Image
-
-    with Image.open(io.BytesIO(data)) as img:
-        if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-        return pytesseract.image_to_string(img, lang=settings.ocr_languages)
+    return local_ocr.ocr_image_bytes(data)
 
 
 def ocr_pdf_page_texts(
     pdf_data: bytes, dpi: int = 150, pages: "set[int] | None" = None
 ) -> "dict[int, str]":
-    """OCR a PDF page by page, returning ``{1-based page number: text}``.
-
-    ``pages`` restricts the work to those page numbers. On a 30-page application
-    bundle whose résumé is two pages, that is the difference between 30 OCR
-    passes and 2 — which is the whole point of classifying pages first.
-    """
-    pytesseract = _ensure_tesseract()
-    import fitz  # PyMuPDF
-    from PIL import Image
-
-    out: dict[int, str] = {}
-    zoom = dpi / 72.0
-    matrix = fitz.Matrix(zoom, zoom)
-    with fitz.open(stream=pdf_data, filetype="pdf") as doc:
-        for page_index, page in enumerate(doc):
-            page_number = page_index + 1
-            if pages is not None and page_number not in pages:
-                continue
-            pix = page.get_pixmap(matrix=matrix)
-            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            page_text = pytesseract.image_to_string(img, lang=settings.ocr_languages)
-            out[page_number] = page_text
-            log.debug("OCR page %d @%ddpi → %d chars", page_number, dpi, len(page_text))
-    return out
+    """OCR a PDF page by page, returning ``{1-based page number: text}``."""
+    return local_ocr.ocr_pdf_page_texts(pdf_data, dpi=dpi, pages=pages)
 
 
 def ocr_pdf_pages(pdf_data: bytes, dpi: int = 150) -> str:
-    """Render each PDF page to an image and OCR it. Used when a PDF has no text layer."""
-    texts = ocr_pdf_page_texts(pdf_data, dpi=dpi)
-    return "\n".join(texts[n] for n in sorted(texts))
+    """Every page of a PDF as one string. Used when a PDF has no text layer."""
+    return local_ocr.ocr_pdf_pages(pdf_data, dpi=dpi)
 
 
 def ocr_via_veris(file_data: bytes, filename: str) -> str:
@@ -82,7 +46,33 @@ def ocr_via_veris(file_data: bytes, filename: str) -> str:
     return "\n".join(ocr_via_veris_pages(file_data, filename))
 
 
+@dataclass
+class VerisRead:
+    """One résumé pass, and everything it came back with.
+
+    `pages` is the per-page text; `result` is the untouched job payload the
+    service returned, which carries the *structured* résumé fields alongside
+    that text. Both used to be fetched separately — the text here and the
+    fields again from `resume_parser`, two jobs against the same endpoint over
+    the same pages, differing only in idempotency key. The second was pure
+    duplication: same upload, same extraction, billed twice and waited for
+    twice. Keeping the payload lets one call answer both.
+
+    `result` is None when the answer did not come from the job queue — a
+    synchronous call or a local fallback — and the caller then does what it
+    always did.
+    """
+
+    pages: "list[str]"
+    result: "dict | None" = None
+
+
 def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
+    """Page text only. Kept for callers with no use for the structured fields."""
+    return ocr_via_veris_read(file_data, filename).pages
+
+
+def ocr_via_veris_read(file_data: bytes, filename: str) -> "VerisRead":
     """Run OCR via the Veris OCR cloud API, one string per page.
 
     Page boundaries have to survive: the classifier needs them to tell the CV
@@ -102,23 +92,23 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
 
     suffix = Path(filename).suffix or ".pdf"
 
-    def _local() -> "list[str]":
+    def _local() -> "VerisRead":
         try:
             if suffix.lower() == ".pdf":
                 texts = ocr_pdf_page_texts(file_data)
-                return [texts[n] for n in sorted(texts)]
-            return [ocr_image_bytes(file_data)]
+                return VerisRead([texts[n] for n in sorted(texts)])
+            return VerisRead([ocr_image_bytes(file_data)])
         except Exception as fallback_err:  # noqa: BLE001
             log.warning("Local OCR skipped/failed: %s", fallback_err)
-            return []
+            return VerisRead([])
 
     if not settings.veris_ocr_api_key:
         return _local()
 
     if settings.ocr_async_jobs_enabled:
-        pages = _veris_pages_via_job(file_data, filename)
-        if pages is not None:
-            return pages
+        read = _veris_read_via_job(file_data, filename)
+        if read is not None:
+            return read
         log.info("Falling back to the synchronous Veris endpoint for %s", filename)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -144,7 +134,7 @@ def ocr_via_veris_pages(file_data: bytes, filename: str) -> "list[str]":
                     "Veris OCR successfully processed file; extracted %d chars over %d page(s)",
                     sum(len(p) for p in page_texts), len(page_texts),
                 )
-                return page_texts
+                return VerisRead(page_texts)
         except Exception as e:
             log.warning("Veris OCR API failed (%s). Falling back to local OCR if available.", e)
             return _local()
@@ -167,16 +157,16 @@ def _page_texts_from(pages) -> "list[str]":
     return out
 
 
-def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
+def _veris_read_via_job(file_data: bytes, filename: str) -> "VerisRead | None":
     """The résumé pass, through the job queue.
 
-    Returns None — not an empty list — when the queue could not be used at all,
+    Returns None — not an empty read — when the queue could not be used at all,
     because "no job" and "a job that found no text" have to route differently:
     the first falls back to the synchronous endpoint, the second is an answer.
     """
+    from app.extraction import ocr_gateway
     from app.extraction.jobs import (
         MODE_RESUME,
-        AsyncOCRJobClient,
         OCRJobError,
         content_key,
         current_job_context,
@@ -190,38 +180,56 @@ def _veris_pages_via_job(file_data: bytes, filename: str) -> "list[str] | None":
     )
     recorder = getattr(context, "recorder", None)
 
+    def _record_submission(handle) -> None:
+        # Fires the moment Veris accepts the work, before the wait begins. The
+        # wait is the interruptible part, and the job id is the only thing that
+        # makes the extraction recoverable when it is interrupted.
+        if recorder is not None:
+            recorder.on_submitted(MODE_RESUME, handle.job_id, key)
+
     try:
-        with AsyncOCRJobClient() as client:
-            handle = client.submit(file_data, filename or "resume.pdf", MODE_RESUME, key)
-            if recorder is not None:
-                recorder.on_submitted(MODE_RESUME, handle.job_id, key)
-
-            outcome = client.wait(handle.job_id, MODE_RESUME, settings.ocr_job_wait_seconds)
-            if recorder is not None:
-                recorder.on_finished(MODE_RESUME, handle.job_id, outcome.status, outcome.error)
-
-            if outcome.succeeded:
-                page_texts = _page_texts_from((outcome.result or {}).get("pages"))
-                log.info(
-                    "Veris job %s extracted %d chars over %d page(s) from %s",
-                    handle.job_id, sum(len(p) for p in page_texts), len(page_texts), filename,
-                )
-                return page_texts
-
-            if outcome.pending:
-                # Still running, and the job id is recorded. Reading the file
-                # locally now would spend Tesseract on work that is already paid
-                # for — but returning nothing would reject a real resume, so the
-                # local read is the lesser evil and the next poll of this
-                # (still unlabelled) mail collects the job's own answer.
-                log.warning(
-                    "Veris job %s for %s is still %s after %.0fs; using the local read this pass",
-                    handle.job_id, filename, outcome.status, settings.ocr_job_wait_seconds,
-                )
-                return None
-
-            log.warning("Veris job %s failed for %s: %s", handle.job_id, filename, outcome.error)
+        # Through the gateway: a connection this thread already has open, and an
+        # in-flight slot released the instant this job finishes so the next
+        # resume in the batch is submitted immediately rather than when some
+        # unrelated thread frees up.
+        handle, outcome = ocr_gateway.run_job(
+            file_data,
+            filename or "resume.pdf",
+            MODE_RESUME,
+            key,
+            budget_seconds=settings.ocr_job_wait_seconds,
+            on_submitted=_record_submission,
+        )
+        if handle is None or outcome is None:
             return None
+
+        if recorder is not None:
+            recorder.on_finished(MODE_RESUME, handle.job_id, outcome.status, outcome.error)
+
+        if outcome.succeeded:
+            page_texts = _page_texts_from((outcome.result or {}).get("pages"))
+            log.info(
+                "Veris job %s extracted %d chars over %d page(s) from %s",
+                handle.job_id, sum(len(p) for p in page_texts), len(page_texts), filename,
+            )
+            # The payload goes back whole. The structured fields are already in
+            # it, and fetching them again is a second job for the same answer.
+            return VerisRead(page_texts, outcome.result or None)
+
+        if outcome.pending:
+            # Still running, and the job id is recorded. Reading the file
+            # locally now would spend Tesseract on work that is already paid
+            # for — but returning nothing would reject a real resume, so the
+            # local read is the lesser evil and the next poll of this
+            # (still unlabelled) mail collects the job's own answer.
+            log.warning(
+                "Veris job %s for %s is still %s after %.0fs; using the local read this pass",
+                handle.job_id, filename, outcome.status, settings.ocr_job_wait_seconds,
+            )
+            return None
+
+        log.warning("Veris job %s failed for %s: %s", handle.job_id, filename, outcome.error)
+        return None
     except OCRJobError as exc:
         log.warning("Could not run %s through the OCR job queue (%s)", filename, exc)
         if recorder is not None:

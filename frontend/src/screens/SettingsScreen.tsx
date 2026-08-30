@@ -1,226 +1,189 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { LogOut, Moon, Sun } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AtSign, LogOut, Mail, Phone, ScanText, ShieldCheck, UserRound } from "lucide-react";
 
 import {
-  API_BASE,
-  fetchHealth,
   fetchIngestRules,
-  fetchWorkerStatus,
+  listUsersAPI,
   type AuthUser,
   type IngestRules,
+  type ManagedUser,
 } from "@/lib/api";
-import {
-  getThemeServerSnapshot,
-  getThemeSnapshot,
-  setTheme,
-  subscribeTheme,
-  type Theme,
-} from "@/lib/theme";
-import { formatInt } from "@/lib/format";
-import EmailRules from "@/screens/EmailRulesScreen";
 
 interface SettingsScreenProps {
   user: AuthUser;
   onSignOut: () => void;
 }
 
-type Probe<T> = { state: "loading" } | { state: "ok"; value: T } | { state: "error"; message: string };
-
-function StatusPill({ probe, okLabel }: { probe: Probe<unknown>; okLabel: string }) {
-  if (probe.state === "loading") return <span className="db-pill is-neutral">Checking…</span>;
-  if (probe.state === "error") return <span className="db-pill is-failed">Unreachable</span>;
-  return <span className="db-pill is-verified">{okLabel}</span>;
+interface AdminConfiguration {
+  rules: IngestRules;
+  users: ManagedUser[];
 }
 
+type AdminProbe =
+  | { state: "loading" }
+  | { state: "ready"; value: AdminConfiguration }
+  | { state: "error"; message: string };
+
 /**
- * Session, appearance and the state of the services this workspace depends on.
- *
- * The service rows are live probes rather than stored values: the question this
- * screen answers is "is it working right now", which a cached answer cannot
- * report.
+ * Settings is deliberately small: everybody can confirm their own account,
+ * while configuration visibility is restricted to an administrator. Secrets
+ * never reach this screen; the API reports addresses, phone numbers and
+ * whether the Veris key exists, never passwords or keys themselves.
  */
 export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps) {
-  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
-
-  const [health, setHealth] = useState<Probe<{ status: string; candidates: number }>>({
-    state: "loading",
-  });
-  const [workers, setWorkers] = useState<Probe<{ available: boolean }>>({ state: "loading" });
-  const [rules, setRules] = useState<Probe<IngestRules>>({ state: "loading" });
+  const isAdmin = user.role === "admin";
+  const [adminConfig, setAdminConfig] = useState<AdminProbe>({ state: "loading" });
 
   useEffect(() => {
+    if (!isAdmin) return;
     let active = true;
-    const settle = <T,>(setter: (p: Probe<T>) => void) => [
-      (value: T) => {
-        if (active) setter({ state: "ok", value });
+    Promise.all([fetchIngestRules(), listUsersAPI()]).then(
+      ([rules, users]) => {
+        if (active) setAdminConfig({ state: "ready", value: { rules, users: users.items ?? [] } });
       },
-      (err: unknown) => {
+      (error: unknown) => {
         if (active) {
-          setter({ state: "error", message: err instanceof Error ? err.message : "Failed" });
+          setAdminConfig({
+            state: "error",
+            message: error instanceof Error ? error.message : "Could not load configuration.",
+          });
         }
       },
-    ] as const;
-
-    const [okHealth, failHealth] = settle(setHealth);
-    fetchHealth().then(okHealth, failHealth);
-    const [okWorkers, failWorkers] = settle(setWorkers);
-    fetchWorkerStatus().then(okWorkers, failWorkers);
-    const [okRules, failRules] = settle(setRules);
-    fetchIngestRules().then(okRules, failRules);
-
+    );
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAdmin]);
 
-  const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
-    { id: "light", label: "Light", icon: Sun },
-    { id: "dark", label: "Dark", icon: Moon },
-  ];
+  const configuredEmails = useMemo(() => {
+    if (adminConfig.state !== "ready") return [];
+    const entries: { id: string; label: string; value: string; active: boolean }[] = [];
+    const mailbox = adminConfig.value.rules.mailbox.account?.trim();
+    if (mailbox) {
+      entries.push({ id: `mailbox-${mailbox}`, label: "Recruitment mailbox", value: mailbox, active: true });
+    }
+    for (const account of adminConfig.value.users) {
+      if (!account.email || entries.some((entry) => entry.value.toLowerCase() === account.email.toLowerCase())) continue;
+      entries.push({
+        id: account.id,
+        label: account.role === "admin" ? "Admin account" : "Staff account",
+        value: account.email,
+        active: account.active,
+      });
+    }
+    return entries;
+  }, [adminConfig]);
+
+  const configuredMobiles = useMemo(() => {
+    if (adminConfig.state !== "ready") return [];
+    return adminConfig.value.users
+      .filter((account) => Boolean(account.phone?.trim()))
+      .map((account) => ({
+        id: account.id,
+        label: account.name || account.email,
+        value: account.phone!.trim(),
+        active: account.active,
+      }));
+  }, [adminConfig]);
 
   return (
-    <>
-      <div className="db-split">
-        <section className="db-card">
-          <header className="db-card-head">
-            <div>
-              <h3 className="db-card-title">Account</h3>
-              <p className="db-card-sub">The session this browser is signed in with.</p>
-            </div>
-          </header>
-          <div className="db-card-body">
-            <div className="db-kv">
-              <div className="db-kv-key">Name</div>
-              <div className="db-kv-val">{user.name || "—"}</div>
-              <div className="db-kv-key">Email</div>
-              <div className="db-kv-val">{user.email}</div>
-              <div className="db-kv-key">Role</div>
-              <div className="db-kv-val">
-                <span className="db-pill is-info">{user.role || "user"}</span>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="db-btn is-danger"
-              style={{ marginTop: "1.1rem" }}
-              onClick={onSignOut}
-            >
-              <LogOut size={15} /> Sign out
-            </button>
-          </div>
-        </section>
-
-        <section className="db-card">
-          <header className="db-card-head">
-            <div>
-              <h3 className="db-card-title">Appearance</h3>
-              <p className="db-card-sub">Applies to this browser only, and is remembered.</p>
-            </div>
-          </header>
-          <div className="db-card-body">
-            <div className="theme-switch" style={{ maxWidth: "260px" }} role="group" aria-label="Colour theme">
-              {THEMES.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`theme-switch-btn ${theme === id ? "is-on" : ""}`}
-                  onClick={() => setTheme(id)}
-                  aria-pressed={theme === id}
-                >
-                  <Icon size={13} /> {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className="db-card">
-        <header className="db-card-head">
+    <div className="settings-simple">
+      <section className="ds-panel settings-account" aria-labelledby="settings-account-title">
+        <div className="ds-panel-head is-split">
           <div>
-            <h3 className="db-card-title">Services</h3>
-            <p className="db-card-sub">Checked live, each time this screen is opened.</p>
+            <h2 id="settings-account-title" className="ds-panel-title">Account details</h2>
+            <p className="ds-panel-sub">The identity currently signed in to this workspace.</p>
           </div>
-        </header>
-        <div className="db-card-body">
-          <div className="db-kv">
-            <div className="db-kv-key">API</div>
-            <div className="db-kv-val">
-              <StatusPill probe={health} okLabel="Reachable" />{" "}
-              <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>
-                {API_BASE || "same origin"}
-              </span>
-            </div>
+          <span className="settings-account-icon" aria-hidden="true"><UserRound size={19} /></span>
+        </div>
 
-            <div className="db-kv-key">Records in database</div>
-            <div className="db-kv-val">
-              {health.state === "ok" ? formatInt(health.value.candidates) : "—"}
-            </div>
-
-            <div className="db-kv-key">Background worker</div>
-            <div className="db-kv-val">
-              {workers.state === "ok" ? (
-                <span className={`db-pill ${workers.value.available ? "is-verified" : "is-pending"}`}>
-                  {workers.value.available ? "Online" : "Offline — syncs run inline"}
-                </span>
-              ) : (
-                <StatusPill probe={workers} okLabel="Online" />
-              )}
-            </div>
-
-            <div className="db-kv-key">Mailbox</div>
-            <div className="db-kv-val">
-              {rules.state === "ok" ? (
-                <span className={`db-pill ${rules.value.mailbox.configured ? "is-verified" : "is-pending"}`}>
-                  {rules.value.mailbox.configured ? rules.value.mailbox.account : "Not configured"}
-                </span>
-              ) : (
-                <StatusPill probe={rules} okLabel="Configured" />
-              )}
-            </div>
-
-            <div className="db-kv-key">Extraction model</div>
-            <div className="db-kv-val">
-              {rules.state === "ok" ? (
-                <span className="db-chip is-mono">{rules.value.extraction.model}</span>
-              ) : (
-                "—"
-              )}
-            </div>
-
-            <div className="db-kv-key">OCR provider</div>
-            <div className="db-kv-val">
-              {rules.state === "ok" ? (
-                <span
-                  className={`db-pill ${rules.value.ocr.provider_configured ? "is-verified" : "is-pending"}`}
-                >
-                  {rules.value.ocr.provider_configured ? "Configured" : "No key"}
-                </span>
-              ) : (
-                "—"
-              )}
-            </div>
+        <dl className="settings-account-grid">
+          <div>
+            <dt>Name</dt>
+            <dd>{user.name || "Not provided"}</dd>
           </div>
+          <div>
+            <dt>Email address</dt>
+            <dd><AtSign size={14} /> {user.email}</dd>
+          </div>
+          <div>
+            <dt>Mobile number</dt>
+            <dd><Phone size={14} /> {user.phone || "Not configured"}</dd>
+          </div>
+          <div>
+            <dt>Access level</dt>
+            <dd><ShieldCheck size={14} /> {isAdmin ? "Administrator" : "Staff"}</dd>
+          </div>
+        </dl>
 
-          {/* Configuration is environment-driven. Saying so here stops this
-              screen reading as a settings form that has lost its Save button. */}
-          <p className="db-card-sub" style={{ marginTop: "1.1rem" }}>
-            Pipeline configuration is set from the server environment and is read-only here. The
-            values currently in force are below.
-          </p>
+        <div className="settings-account-foot">
+          <span>Account details are managed by an administrator.</span>
+          <button type="button" className="db-btn is-danger" onClick={onSignOut}>
+            <LogOut size={14} /> Sign out
+          </button>
         </div>
       </section>
 
-      <div>
-        <h2 className="db-label" style={{ display: "block", marginBottom: "0.7rem" }}>
-          Ingestion rules
-        </h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <EmailRules />
-        </div>
-      </div>
-    </>
+      {isAdmin && (
+        <section className="ds-panel settings-config" aria-labelledby="settings-config-title">
+          <div className="ds-panel-head is-split">
+            <div>
+              <h2 id="settings-config-title" className="ds-panel-title">Configured communication</h2>
+              <p className="ds-panel-sub">Read-only addresses, mobile contacts, and OCR source currently in use.</p>
+            </div>
+            <span className="db-pill is-info">Admin only</span>
+          </div>
+
+          {adminConfig.state === "loading" ? (
+            <div className="settings-config-state"><span className="app-boot-spinner" /> Loading configuration…</div>
+          ) : adminConfig.state === "error" ? (
+            <div className="settings-config-state is-error">{adminConfig.message}</div>
+          ) : (
+            <div className="settings-config-grid">
+              <section className="settings-config-block">
+                <div className="settings-config-head"><Mail size={16} /><h3>Configured emails</h3></div>
+                <div className="settings-config-list">
+                  {configuredEmails.length ? configuredEmails.map((entry) => (
+                    <div className="settings-config-row" key={entry.id}>
+                      <span><strong>{entry.value}</strong><small>{entry.label}</small></span>
+                      <span className={`ds-status ${entry.active ? "is-ok" : "is-neutral"}`}>
+                        <i aria-hidden="true" />{entry.active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  )) : <p className="settings-empty">No email address is configured.</p>}
+                </div>
+              </section>
+
+              <section className="settings-config-block">
+                <div className="settings-config-head"><Phone size={16} /><h3>Configured mobile numbers</h3></div>
+                <div className="settings-config-list">
+                  {configuredMobiles.length ? configuredMobiles.map((entry) => (
+                    <div className="settings-config-row" key={entry.id}>
+                      <span><strong>{entry.value}</strong><small>{entry.label}</small></span>
+                      <span className={`ds-status ${entry.active ? "is-ok" : "is-neutral"}`}>
+                        <i aria-hidden="true" />{entry.active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  )) : <p className="settings-empty">No mobile number is configured.</p>}
+                </div>
+              </section>
+
+              <section className="settings-config-block is-ocr">
+                <div className="settings-config-head"><ScanText size={16} /><h3>OCR source</h3></div>
+                <div className="settings-ocr-source">
+                  <span className="settings-ocr-mark"><ScanText size={20} /></span>
+                  <span><strong>{adminConfig.value.rules.ocr.provider}</strong><small>Document OCR and scanned résumé extraction</small></span>
+                  <span className={`db-pill ${adminConfig.value.rules.ocr.provider_configured ? "is-verified" : "is-pending"}`}>
+                    {adminConfig.value.rules.ocr.provider_configured ? "Configured" : "API key required"}
+                  </span>
+                </div>
+              </section>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
   );
 }

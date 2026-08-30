@@ -18,15 +18,34 @@ from celery import Celery
 
 from app.config import settings
 
+
+def _mail_poll_schedule() -> dict:
+    """The mailbox poll, when this deployment wants one.
+
+    `poll_gmail` searches every configured account and fans out one task per
+    email, so the résumés are extracted concurrently and the next tick is not
+    blocked behind them. Absent unless `MAIL_AUTOPOLL_ENABLED` is set: the
+    default is that nothing reads a mailbox until a person asks for it.
+    """
+    if not settings.mail_autopoll_enabled:
+        return {}
+    return {
+        "poll-mailboxes": {
+            "task": "app.tasks.jobs.poll_gmail",
+            "schedule": float(settings.mail_poll_interval_seconds),
+        }
+    }
+
+
 celery_app = Celery(
     "resume_ingest",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.tasks.jobs", "app.tasks.reconciler"],
+    include=["app.tasks.jobs", "app.tasks.reconciler", "app.tasks.sla_checker"],
 )
 
 celery_app.conf.update(
-    imports=["app.tasks.jobs", "app.tasks.reconciler"],
+    imports=["app.tasks.jobs", "app.tasks.reconciler", "app.tasks.sla_checker"],
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
@@ -42,9 +61,28 @@ celery_app.conf.update(
     # the answer. It is single-flighted on a Redis lock, so a tick landing on
     # top of a slow sweep is a no-op rather than a double submission.
     beat_schedule={
+        # Draining the mailboxes is *not* scheduled here by default — see
+        # `mail_autopoll_enabled`. Extraction runs when somebody presses Sync,
+        # so the schedule below is only the housekeeping that has to happen
+        # whether or not anyone is looking. Setting the flag adds the mail poll
+        # back (`_mail_poll_schedule`).
+        **_mail_poll_schedule(),
         "reconcile-ocr-jobs": {
             "task": "app.tasks.reconciler.reconcile_ocr_jobs",
             "schedule": float(settings.reconciler_interval_seconds),
+        },
+        # The SLA sweep. It had a task wrapper and no schedule, which meant a
+        # profile nobody had touched was only ever found when an admin went
+        # looking for profiles nobody had touched — the one case the alert was
+        # supposed to cover on its own.
+        #
+        # `scan` is idempotent by construction: a breach already recorded as
+        # active is not re-recorded and not re-announced, and one that has been
+        # dealt with closes itself. So a tick landing on top of a slow sweep
+        # costs a duplicate query and nothing else.
+        "scan-sla-breaches": {
+            "task": "app.tasks.sla_checker.scan_sla_breaches",
+            "schedule": float(settings.sla_scan_interval_seconds),
         },
     },
 )

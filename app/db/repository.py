@@ -8,13 +8,39 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
+from bson import ObjectId
+from bson.errors import InvalidId
+from pymongo import ASCENDING
 from pymongo.errors import DuplicateKeyError
 
+from app.core.crm_ids import candidate_code
 from app.core.models import CandidateProfile, CandidateRecord, StoredResume
+from app.db import whatsapp_compat
 from app.db.mongo import get_candidates_collection
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+def _id_filter(candidate_id: str) -> dict:
+    """Match one candidate by id, whichever way its `_id` was written.
+
+    Every record this repository creates keys `_id` on a hex uuid *string*. The
+    WhatsApp bot, writing its own document straight into the collection, keys it
+    on an ObjectId — and `{"_id": "6a8c..."}` does not match `ObjectId("6a8c...")`,
+    so the candidate simply was not there. Not "was not readable": every by-id
+    operation returned nothing, which the API turns into a 404, which is why one
+    of these rows could be listed but never opened, edited, allocated, or even
+    deleted.
+
+    An id that is 24 hex characters is therefore looked up both ways. Anything
+    else cannot be an ObjectId and is matched as the string it is, so the common
+    path costs one comparison and no extra index work.
+    """
+    try:
+        return {"_id": {"$in": [candidate_id, ObjectId(candidate_id)]}}
+    except (InvalidId, TypeError):
+        return {"_id": candidate_id}
 
 
 # --------------------------------------------------------------------------- #
@@ -31,6 +57,7 @@ log = get_logger(__name__)
 # named here is available from `GET /candidates/{id}`.
 LIST_PROJECTION = {
     "_id": 1,
+    "candidate_code": 1,
     "status": 1,
     "duplicate_of": 1,
     "auto_reply_sent": 1,
@@ -60,6 +87,7 @@ LIST_PROJECTION = {
     # Who sent it — the fallback for a résumé with no name or address in it.
     "source_email.from_name": 1,
     "source_email.from_addr": 1,
+    "source_email.to_addr": 1,
     "source_email.subject": 1,
     # Allocation and verdict: the staff queue sorts and colours rows by these,
     # and the SLA countdown in the list is `assigned_at` against `viewed_at`.
@@ -74,6 +102,12 @@ LIST_PROJECTION = {
     # show how long it has been waiting.
     "ingested_at": 1,
     "processed_at": 1,
+    # The same row, for a candidate the bot wrote straight into the collection
+    # under its own field names. Without these the projection would strip the
+    # only copy of the name, the number and the registration date before
+    # `whatsapp_compat.normalize` ever saw the document, and the row would
+    # render as the empty placeholder it used to.
+    **whatsapp_compat.LIST_PROJECTION,
 }
 
 # The narrowest useful row: identity, state, and when it arrived. For callers
@@ -81,12 +115,15 @@ LIST_PROJECTION = {
 # nothing they did not ask for.
 MINIMAL_PROJECTION = {
     "_id": 1,
+    "candidate_code": 1,
     "status": 1,
     "created_at": 1,
     "profile.full_name": 1,
     "profile.email": 1,
     "profile.phone": 1,
     "profile.confidence": 1,
+    # As above, for bot-written records.
+    **whatsapp_compat.MINIMAL_PROJECTION,
 }
 
 # What the balancer needs to level the collection: who holds each profile and
@@ -125,9 +162,11 @@ SLA_CLOCK_EXPR = {"$ifNull": ["$assigned_at", {"$ifNull": ["$ingested_at", "$cre
 
 def _minimal_row(doc: dict) -> dict:
     """Flatten a minimally-projected document into the listing contract."""
+    doc = whatsapp_compat.normalize(doc)
     profile = doc.get("profile") or {}
     return {
-        "id": doc["_id"],
+        "id": str(doc["_id"]),
+        "candidate_code": doc.get("candidate_code") or candidate_code(doc["_id"]),
         "full_name": profile.get("full_name"),
         "email": profile.get("email"),
         "phone": profile.get("phone"),
@@ -184,6 +223,19 @@ class CandidateRepository:
     def find_by_email_or_phone(
         self, email_key: Optional[str], phone_key: Optional[str]
     ) -> Optional[CandidateRecord]:
+        """The person behind this address or number, oldest first.
+
+        The sort is not decoration. One phone number can reach more than one
+        document — a candidate the mailbox pipeline ingested from a CV and the
+        same candidate registering on WhatsApp, or two records from before this
+        check existed — and `find_one` with no sort returns whichever the
+        storage engine happens to reach first, which is not stable between
+        calls. That made "the same person" resolve to a different record on two
+        consecutive submissions, so half a registration landed on each.
+
+        Oldest wins because the oldest is the one with the history hanging off
+        it: the allocation, the evaluation, the documents already filed.
+        """
         ors = []
         if email_key:
             ors.append({"email_key": email_key})
@@ -191,8 +243,41 @@ class CandidateRepository:
             ors.append({"phone_key": phone_key})
         if not ors:
             return None
-        doc = self._coll.find_one({"$or": ors})
+        doc = self._coll.find_one({"$or": ors}, sort=[("created_at", ASCENDING)])
         return CandidateRecord.from_mongo(doc) if doc else None
+
+    def adopt_idempotency_key(self, candidate_id: str, key: Optional[str]) -> bool:
+        """Record which conversation this candidate came from, if none is on file.
+
+        Called when the *phone* matched rather than the key: the record exists,
+        this submission belongs to it, and nothing yet links the two. Writing
+        the key down means the next submission from the same conversation takes
+        the direct lookup instead of the phone one.
+
+        Fills a blank only. A record that already carries a key keeps it — that
+        key names the conversation which created the record, and this one did
+        not. The filter, rather than a read-then-write, is what makes that true
+        when two submissions arrive together.
+
+        A `DuplicateKeyError` means another record claimed this key in between.
+        That is the sparse unique index doing its job, and it is swallowed: the
+        profile refresh this accompanies has already happened and is the half
+        that mattered.
+        """
+        if not key:
+            return False
+        try:
+            result = self._coll.update_one(
+                {**_id_filter(candidate_id), "idempotency_key": {"$in": [None, ""]}},
+                {"$set": {"idempotency_key": key}},
+            )
+        except DuplicateKeyError:
+            log.info(
+                "Idempotency key %s is already held by another candidate; leaving %s as it is",
+                key, candidate_id,
+            )
+            return False
+        return bool(result.modified_count)
 
     # ---- writes ----------------------------------------------------------- #
     def insert(self, record: CandidateRecord) -> str:
@@ -221,7 +306,7 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {"status": status, "duplicate_of": duplicate_of, "updated_at": utcnow()}},
         )
 
@@ -249,7 +334,7 @@ class CandidateRepository:
         # doll of itself and the Raw JSON tab no longer showed what Veris
         # returned. The stored payload is now immutable: an edit changes
         # `profile`, never `raw_ocr`.
-        existing_doc = self._coll.find_one({"_id": candidate_id})
+        existing_doc = self._coll.find_one(_id_filter(candidate_id))
         stored_raw = existing_doc.get("raw_ocr") if existing_doc else None
         if not isinstance(stored_raw, dict) or not stored_raw:
             stored_raw = getattr(profile, "raw_ocr", None)
@@ -269,9 +354,52 @@ class CandidateRepository:
             update_dict["raw_ocr"] = stored_raw
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": update_dict},
         )
+
+    def replace_extraction(self, candidate_id: str, profile: CandidateProfile) -> bool:
+        """Overwrite the parsed profile *and* the verbatim payload behind it.
+
+        Deliberately not `update_profile`. That one is the human edit path and
+        protects `raw_ocr` from being overwritten, which is right: an edit
+        changes what a recruiter sees, never what the extractor said. This is
+        the opposite operation — the document has been read again, so both the
+        profile and the payload it was derived from are replaced together, and
+        leaving the old payload in place would make the record describe an
+        extraction that no longer produced it.
+
+        Used when a profile was built by a degraded path (a Veris outage
+        falling back to the heuristic parser) and the file can now be read
+        properly. The original upload is never touched.
+        """
+        from app.core.models import utcnow
+        from app.db.dedup import normalize_email, normalize_phone
+
+        for exp in profile.work_experience or []:
+            if exp.designation and not exp.title:
+                exp.title = exp.designation
+            elif exp.title and not exp.designation:
+                exp.designation = exp.title
+
+        payload = profile.model_dump(mode="python")
+        raw = payload.get("raw_ocr") if isinstance(payload.get("raw_ocr"), dict) else None
+
+        result = self._coll.update_one(
+            _id_filter(candidate_id),
+            {
+                "$set": {
+                    "profile": payload,
+                    "raw_ocr": raw,
+                    "email_key": normalize_email(profile.email),
+                    "phone_key": normalize_phone(profile.phone),
+                    "updated_at": utcnow(),
+                }
+            },
+        )
+        if result.matched_count:
+            log.info("Replaced the extraction for candidate %s", candidate_id)
+        return bool(result.matched_count)
 
     #: Profile fields a re-registration is allowed to refresh.
     #
@@ -289,6 +417,12 @@ class CandidateRepository:
         "destination_country",
         "job_preference",
         "job_category",
+        "job_id",
+        "job_title",
+        "course_or_trade",
+        "state_preference",
+        "available_from",
+        "job_answers",
         "trade_skills",
         "skills",
         "languages",
@@ -366,7 +500,7 @@ class CandidateRepository:
             updates["email_key"] = normalize_email(profile.email)
 
         updates["updated_at"] = utcnow()
-        self._coll.update_one({"_id": candidate_id}, {"$set": updates})
+        self._coll.update_one(_id_filter(candidate_id), {"$set": updates})
         log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
 
     def refresh_whatsapp_sections(
@@ -429,7 +563,7 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         result = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {
                 "$set": {
                     "resume": resume.model_dump(mode="python"),
@@ -446,8 +580,22 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {"auto_reply_sent": True, "updated_at": utcnow()}},
+        )
+
+    def set_storage_backend(self, candidate_id: str, backend: str) -> None:
+        """Record where this candidate's file now lives.
+
+        Written when a résumé is moved or recovered into a different backend, so
+        the download reaches for it in the right place first instead of
+        rediscovering the move on every click.
+        """
+        from app.core.models import utcnow
+
+        self._coll.update_one(
+            _id_filter(candidate_id),
+            {"$set": {"resume.storage_backend": backend, "updated_at": utcnow()}},
         )
 
 
@@ -494,16 +642,23 @@ class CandidateRepository:
 
         rows = []
         for doc in cursor:
-            doc["id"] = doc.pop("_id")
+            doc = whatsapp_compat.normalize(doc)
+            doc["id"] = str(doc.pop("_id"))
+            doc["candidate_code"] = doc.get("candidate_code") or candidate_code(doc["id"])
             rows.append(doc)
         return rows
 
     def get(self, candidate_id: str) -> Optional[CandidateRecord]:
-        doc = self._coll.find_one({"_id": candidate_id})
-        return CandidateRecord.from_mongo(doc) if doc else None
+        doc = self._coll.find_one(_id_filter(candidate_id))
+        if not doc:
+            return None
+        # A bot-written document is mapped into the CRM's shape before it is
+        # validated — unmapped it has no `profile` at all, which is a required
+        # field, so the read would raise rather than return the candidate.
+        return CandidateRecord.from_mongo(whatsapp_compat.normalize(doc))
 
     def delete(self, candidate_id: str) -> bool:
-        res = self._coll.delete_one({"_id": candidate_id})
+        res = self._coll.delete_one(_id_filter(candidate_id))
         return res.deleted_count > 0
 
     def count(self, query: Optional[dict] = None, staff_id: Optional[str] = None) -> int:
@@ -523,7 +678,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {
                 "assigned_staff_id": staff_id,
                 "assigned_staff_name": staff_name,
@@ -557,7 +712,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            {"_id": candidate_id},
+            _id_filter(candidate_id),
             {"$set": {
                 "assigned_staff_id": staff_id,
                 "assigned_staff_name": staff_name,
@@ -685,7 +840,7 @@ class CandidateRepository:
 
         now = utcnow()
         res = self._coll.update_one(
-            _scoped({"_id": candidate_id, "viewed_at": None}, staff_id),
+            _scoped({**_id_filter(candidate_id), "viewed_at": None}, staff_id),
             {"$set": {"viewed_at": now, "updated_at": now}},
         )
         return res.modified_count > 0
@@ -715,14 +870,14 @@ class CandidateRepository:
             "evaluated_by": staff_id,
             "updated_at": now,
         }
-        res = self._coll.update_one(_scoped({"_id": candidate_id}, staff_id), {"$set": updates})
+        res = self._coll.update_one(_scoped(_id_filter(candidate_id), staff_id), {"$set": updates})
         if res.matched_count == 0:
             return None
 
         # Judging a profile is looking at it; without this the SLA sweep would
         # keep reporting an evaluated profile as never opened.
         self._coll.update_one(
-            {"_id": candidate_id, "viewed_at": None}, {"$set": {"viewed_at": now}}
+            {**_id_filter(candidate_id), "viewed_at": None}, {"$set": {"viewed_at": now}}
         )
         return self.get(candidate_id)
 

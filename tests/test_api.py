@@ -21,6 +21,18 @@ class MockRepository:
     def get(self, candidate_id: str):
         return self.candidates.get(candidate_id)
 
+    def insert(self, record: CandidateRecord):
+        self.candidates[record.id] = record
+        return record.id
+
+    def find_by_resume_hash(self, resume_hash):
+        if not resume_hash:
+            return None
+        return next(
+            (record for record in self.candidates.values() if record.resume_hash == resume_hash),
+            None,
+        )
+
     def update_profile(self, candidate_id: str, profile: CandidateProfile):
         if candidate_id in self.candidates:
             self.candidates[candidate_id].profile = profile
@@ -36,6 +48,14 @@ class MockRepository:
 
     def delete(self, candidate_id: str) -> bool:
         return self.candidates.pop(candidate_id, None) is not None
+
+    def assign(self, candidate_id: str, staff_id: str, staff_name=None) -> bool:
+        record = self.candidates.get(candidate_id)
+        if not record:
+            return False
+        record.assigned_staff_id = staff_id
+        record.assigned_staff_name = staff_name
+        return True
 
     def count(self, query=None, staff_id=None):
         return len(self._scoped(staff_id))
@@ -215,6 +235,268 @@ def test_update_candidate_profile(test_client):
     assert response.status_code == 404
 
 
+def _uploaded_candidate_result():
+    from app.services.candidate_upload_intake import CandidateUploadResult
+
+    profile = CandidateProfile(
+        is_resume=True,
+        confidence=0.94,
+        full_name="Meera Nair",
+        email="meera@example.com",
+        phone="+91 98765 43210",
+    )
+    record = CandidateRecord(
+        id="candidate-uploaded",
+        source="upload",
+        profile=profile,
+        resume=StoredResume(
+            original_filename="meera.pdf",
+            mime_type="application/pdf",
+            size=12,
+            sha256="uploaded-hash",
+            storage_backend="local",
+            storage_key="2026/08/candidate-uploaded_meera.pdf",
+            extraction_method="veris_resume_api",
+            ocr_used=True,
+        ),
+        resume_hash="uploaded-hash",
+        email_key="meera@example.com",
+        phone_key="9876543210",
+        cv_required=True,
+    )
+    return CandidateUploadResult(
+        candidate=record,
+        identity={
+            "aadhaar": [{"name": "Meera Nair", "masked_aadhaar_number": "XXXXXXXX9017"}],
+            "passport": [{"passport_number": "Z1234567", "check_digits_valid": True}],
+        },
+    )
+
+
+def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_result(test_client):
+    result = _uploaded_candidate_result()
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        return_value=result,
+    ) as intake, patch("app.api.routes.assign_candidate") as assign:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/upload",
+            files={
+                "resume": ("meera.pdf", b"resume-bytes", "application/pdf"),
+                "aadhaar": ("aadhaar.jpg", b"aadhaar-bytes", "image/jpeg"),
+                "passport": ("passport.png", b"passport-bytes", "image/png"),
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["candidate"]["profile"]["full_name"] == "Meera Nair"
+    assert "raw_ocr" not in body["candidate"]
+    assert "raw_ocr" not in body["candidate"]["profile"]
+    assert body["identity"]["aadhaar"][0]["masked_aadhaar_number"] == "XXXXXXXX9017"
+    assert body["identity"]["passport"][0]["passport_number"] == "Z1234567"
+    assert body["processed"] == ["resume", "aadhaar", "passport"]
+    assert body["ocr_provider"] == "VeriIS"
+
+    sent = intake.call_args.kwargs
+    assert sent["resume"].data == b"resume-bytes"
+    assert sent["aadhaar"].data == b"aadhaar-bytes"
+    assert sent["passport"].data == b"passport-bytes"
+    assert sent["uploader_id"] == "test-user"
+    assign.assert_called_once()
+
+
+def test_staff_upload_is_assigned_to_the_uploader(test_client):
+    result = _uploaded_candidate_result()
+
+    def persist_result(*, repository, **_kwargs):
+        repository.insert(result.candidate)
+        return result
+
+    previous_user = app.dependency_overrides[current_user]
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "staff-7",
+        "email": "recruiter@example.com",
+        "name": "Recruiter Seven",
+        "role": "staff",
+        "pages": ["candidates", "candidate-entry", "settings"],
+    }
+    try:
+        with patch(
+            "app.services.candidate_upload_intake.intake_uploaded_candidate",
+            side_effect=persist_result,
+        ), patch("app.api.routes.assign_candidate") as balance:
+            response = test_client.post(
+                "/candidates/upload",
+                files={"resume": ("meera.pdf", b"resume-bytes", "application/pdf")},
+            )
+    finally:
+        app.dependency_overrides[current_user] = previous_user
+
+    assert response.status_code == 201
+    assert response.json()["candidate"]["assigned_staff_id"] == "staff-7"
+    assert response.json()["candidate"]["assigned_staff_name"] == "Recruiter Seven"
+    balance.assert_not_called()
+
+
+def test_upload_candidate_requires_a_resume(test_client):
+    response = test_client.post(
+        "/candidates/upload",
+        files={"passport": ("passport.jpg", b"passport", "image/jpeg")},
+    )
+    assert response.status_code == 422
+
+
+def test_upload_candidate_translates_intake_refusal(test_client):
+    from app.services.candidate_upload_intake import CandidateUploadError
+
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        side_effect=CandidateUploadError(
+            "The passport MRZ checksum failed. Upload a clearer passport scan.",
+            status_code=422,
+        ),
+    ):
+        response = test_client.post(
+            "/candidates/upload",
+            files={"resume": ("meera.pdf", b"resume", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert "passport MRZ checksum failed" in response.json()["detail"]
+
+
+def test_import_candidate_preserves_record_and_stores_matching_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "imported-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "imported-hash"
+    payload = b"original-resume-bytes"
+    import hashlib
+
+    digest = hashlib.sha256(payload).hexdigest()
+    imported.resume.sha256 = digest
+    imported.resume_hash = digest
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", payload, "application/pdf")},
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "status": "imported",
+        "candidate_id": "candidate-imported",
+        "resume_stored": True,
+    }
+    storage.save.assert_called_once()
+    saved_key, saved_payload = storage.save.call_args.args[:2]
+    assert saved_key.startswith("imports/candidate-imported/")
+    assert saved_payload == payload
+
+
+def test_import_candidate_rejects_resume_hash_mismatch(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "expected-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "expected-hash"
+
+    with patch("app.api.routes.get_storage_backend") as storage:
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", b"wrong-file", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert "SHA-256" in response.json()["detail"]
+    storage.return_value.save.assert_not_called()
+
+
+def test_import_candidate_requires_explicit_missing_resume_acknowledgement(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+
+    response = test_client.post(
+        "/candidates/import",
+        data={"record_json": imported.model_dump_json()},
+    )
+
+    assert response.status_code == 422
+    assert "allow_missing_resume" in response.json()["detail"]
+
+
+def test_import_candidate_allows_admin_to_preserve_record_with_lost_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["resume_stored"] is False
+    storage.save.assert_not_called()
+
+
+def test_import_candidate_is_forbidden_to_staff(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    previous_user = app.dependency_overrides[current_user]
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "staff-7",
+        "email": "recruiter@example.com",
+        "name": "Recruiter Seven",
+        "role": "staff",
+        "pages": ["candidates", "candidate-entry"],
+    }
+    try:
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+    finally:
+        app.dependency_overrides[current_user] = previous_user
+
+    assert response.status_code == 403
+
+
+def test_manual_candidate_json_endpoint_is_removed(test_client):
+    response = test_client.post(
+        "/candidates/manual",
+        json={"profile": {"full_name": "Meera Nair"}},
+    )
+    # The dynamic candidate-id route can make FastAPI report 405 for this
+    # obsolete path; either result confirms there is no writable manual API.
+    assert response.status_code in {404, 405}
+
+
 def test_verify_candidate(test_client):
     response = test_client.get("/candidates/candidate-alice/verify")
     # verification POST route
@@ -305,7 +587,8 @@ def test_delete_candidate_retires_every_message_carrying_the_resume(test_client)
          patch("app.db.ledger.IngestLedger.message_ids_for_candidate",
                return_value=sorted(every_message)), \
          patch("app.db.ledger.IngestLedger.retire_candidate", return_value=3), \
-         patch("app.email_client.get_email_client", return_value=gmail):
+         patch("app.email_client.get_email_client", return_value=gmail), \
+         patch("app.email_client.get_all_email_clients", return_value=[gmail]):
         response = test_client.delete("/api/v1/candidates/candidate-alice")
 
     assert response.status_code == 200
@@ -345,6 +628,4 @@ def test_delete_candidate_survives_a_concurrent_delete(test_client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
-
-
 

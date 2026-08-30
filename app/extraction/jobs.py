@@ -87,13 +87,34 @@ class JobContext:
     recorder: Optional[JobRecorder] = None
 
     def key_for(self, mode: str, fallback_digest: str = "") -> str:
+        """The idempotency key for one extraction of one document.
+
+        The digest of the bytes being uploaded is part of the key, and has to
+        be. The service treats a key as a promise that the same key means the
+        same upload, and rejects a second submission that breaks it —
+        ``Idempotency-Key was already used for a different OCR upload``.
+
+        A message-scoped key alone could not keep that promise: the pages sent
+        for a résumé are carved out of the bundle at submission time, and
+        PyMuPDF writes a fresh document id and timestamp into every carve, so
+        the identical page produces different bytes on every attempt. Two runs
+        over one email — a scheduled poll overlapping a manual sync, or a plain
+        retry — therefore collided, the submission was refused, and the pipeline
+        fell back to the heuristic parser and stored a far poorer profile.
+
+        With the digest in the key, identical bytes still re-attach to the
+        running job (nothing is billed twice) and different bytes are simply a
+        different job (nothing is refused).
+        """
+        digest = (fallback_digest or "")[:32]
         if self.message_id:
             handle = (self.attachment_id or "")[:64]
-            return f"{self.provider}/{self.account_id}/{self.message_id}/{handle}/{mode}"
+            scope = f"{self.provider}/{self.account_id}/{self.message_id}/{handle}/{mode}"
+            return f"{scope}/{digest}" if digest else scope
         # No mail context (a CLI parse, a manual re-run): the file's own content
         # is the next best identity, and re-reading the same bytes should still
         # re-attach rather than re-bill.
-        return f"content/{fallback_digest}/{mode}"
+        return f"content/{digest}/{mode}"
 
 
 _JOB_CONTEXT: ContextVar[Optional[JobContext]] = ContextVar("ocr_job_context", default=None)
@@ -308,20 +329,59 @@ class AsyncOCRJobClient:
         return OCRJobError(str(exc), retryable=retryable, retry_after=retry_after, status=status)
 
     # ---- backoff ---------------------------------------------------------- #
-    def _backoff(self, attempt: int, retry_after: Optional[float] = None) -> float:
+    def _backoff(
+        self,
+        attempt: int,
+        retry_after: Optional[float] = None,
+        *,
+        elapsed: float = 0.0,
+    ) -> float:
         """How long to wait before attempt ``attempt`` (1-based).
 
         ``Retry-After`` wins outright when the service sends one — it knows how
-        long its queue is and we do not. Otherwise: exponential, capped, and
-        jittered across the *whole* interval rather than a fraction of it, so a
-        batch of resumes submitted together does not come back in lockstep and
-        re-create the burst that got them throttled.
+        long its queue is and we do not.
+
+        Otherwise there are two regimes, and having only the second one was
+        costing more latency than the extraction itself. Pure exponential backoff
+        from 1.5s doubles to 1.5, 3, 6, 12, 24 — so a job that genuinely finished
+        at eight seconds was not *observed* until twenty-two, and the wait, not
+        the work, set the response time. Almost every résumé finishes inside the
+        first half-minute, so:
+
+        * **Fast phase** — for the first ``ocr_job_fast_poll_seconds`` of the
+          wait, poll at a flat short interval. A job that finishes at 8s is seen
+          at 8s. This is what a per-résumé latency target is actually made of.
+        * **Backoff phase** — past that, the job is a long one (a 60-page scan,
+          or a queue that is genuinely deep), nobody is waiting on the next poll
+          landing quickly, and the polling should get out of the service's way.
+
+        Both phases are jittered across the whole interval rather than a
+        fraction of it, so fifty résumés submitted together do not come back in
+        lockstep and re-create the burst that got them throttled.
         """
         if retry_after is not None and retry_after > 0:
             return min(float(retry_after), settings.ocr_job_backoff_cap_seconds)
-        base = settings.ocr_job_backoff_base_seconds * (2 ** max(0, attempt - 1))
+
+        if elapsed < settings.ocr_job_fast_poll_seconds:
+            interval = settings.ocr_job_fast_poll_interval_seconds
+            # Jitter is narrower here: the point of the fast phase is a tight,
+            # predictable observation delay, and 0.5x-1.0x of an already short
+            # interval would just add polls without adding responsiveness.
+            return round(interval * (0.85 + 0.3 * self._rand()), 3)
+
+        # Measured from the end of the fast phase, so the first backoff step is
+        # the base interval rather than whatever the attempt counter had reached
+        # while polling quickly.
+        steps = max(0, attempt - self._fast_phase_polls())
+        base = settings.ocr_job_backoff_base_seconds * (2 ** steps)
         capped = min(base, settings.ocr_job_backoff_cap_seconds)
         return round(capped * (0.5 + 0.5 * self._rand()), 3)
+
+    @staticmethod
+    def _fast_phase_polls() -> int:
+        """Roughly how many polls the fast phase spends, for the backoff reset."""
+        interval = max(0.05, settings.ocr_job_fast_poll_interval_seconds)
+        return max(1, int(settings.ocr_job_fast_poll_seconds / interval))
 
     # ---- operations ------------------------------------------------------- #
     def submit(
@@ -421,7 +481,8 @@ class AsyncOCRJobClient:
         can do meanwhile.
         """
         budget = budget_seconds if budget_seconds is not None else settings.ocr_job_wait_seconds
-        deadline = now() + max(0.0, float(budget))
+        started = now()
+        deadline = started + max(0.0, float(budget))
         attempt = 0
         polls = 0
         last = JobOutcome(job_id=job_id, mode=mode, status=QUEUED)
@@ -441,7 +502,7 @@ class AsyncOCRJobClient:
                 retry_after = err.retry_after
                 log.debug("Transient error polling job %s: %s", job_id, err)
 
-            delay = self._backoff(attempt, retry_after)
+            delay = self._backoff(attempt, retry_after, elapsed=now() - started)
             if now() + delay >= deadline:
                 last.polls = polls
                 last.timed_out = True

@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import OverviewScreen from "@/screens/OverviewScreen";
 import SourcingHub from "@/screens/SourcingHub";
+import B2BEnquiries from "@/screens/B2BEnquiries";
 import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
-import ActivityLogsScreen from "@/screens/ActivityLogsScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import CandidateEditScreen from "@/screens/CandidateEditScreen";
-import CandidateLogsScreen from "@/screens/CandidateLogsScreen";
+import CandidateUploadScreen, { type CandidateUploadFiles } from "@/screens/CandidateUploadScreen";
 import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
@@ -23,15 +24,20 @@ import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
 import { summariseProfileChange } from "@/lib/candidateProfile";
 import { useRealtime, type RealtimeEvent } from "@/lib/realtime";
-import { NAV_META, defaultNavFor, navGroupsFor, type NavId } from "@/lib/nav";
+import {
+  NAV_META,
+  defaultNavFor,
+  navGroupsFor,
+  navIdFromPath,
+  navPath,
+  type NavId,
+} from "@/lib/nav";
 import {
   appendCandidateLog,
   dropCandidateLogs,
-  getLogsServerSnapshot,
-  getLogsSnapshot,
-  subscribeLogs,
 } from "@/lib/candidateLog";
 import {
+  uploadCandidateDocuments,
   evaluateCandidate,
   fetchMe,
   getCandidate,
@@ -63,8 +69,16 @@ import type { Verdict } from "@/screens/CandidateProfileScreen";
  * record for that candidate alone.
  */
 interface CandidateScreen {
-  mode: "profile" | "edit" | "logs";
+  mode: "profile" | "edit";
   candidateId: string;
+}
+
+interface CandidateExtractionState {
+  status: "extracting" | "complete" | "error";
+  filename: string;
+  title: string;
+  detail: string;
+  candidateId?: string;
 }
 
 /**
@@ -93,11 +107,6 @@ const CANDIDATE_SCREEN_META: Record<
     title: "Edit Candidate",
     subtitle: "Change the stored details. Only the fields you can edit are shown.",
   },
-  logs: {
-    eyebrow: "Talent Pool",
-    title: "Candidate Activity",
-    subtitle: "Everything that has happened to this one record.",
-  },
 };
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -109,17 +118,14 @@ const logEntry = (message: string, type: LogEntry["type"] = "info"): LogEntry =>
 });
 
 export default function Home() {
+  const pathname = usePathname();
   // null = signed out. `checking` covers the first paint, where a stored token
   // exists but has not been validated yet — without it the login screen would
   // flash on every refresh for an already-signed-in user.
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<NavId>("overview");
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // The term the top bar last searched on. Held here rather than in the bar so
-  // it survives navigating away from the pool and back.
-  const [globalSearch, setGlobalSearch] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // Bumped whenever a push event says the allocation data moved, so the staff
@@ -133,14 +139,14 @@ export default function Home() {
   const [arrivedIds, setArrivedIds] = useState<Set<string>>(() => new Set());
   // A profile the bell asked the staff workspace to open.
   const [queueFocusId, setQueueFocusId] = useState<string | null>(null);
+  // Set when "Add staff" sends the admin to User Management, so that screen
+  // opens on its create form rather than on the accounts matrix.
+  const [usersOpenCreate, setUsersOpenCreate] = useState(false);
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
-
-  // Persisted outside React, so a reload does not erase who edited what.
-  const candidateLogs = useSyncExternalStore(subscribeLogs, getLogsSnapshot, getLogsServerSnapshot);
 
   const [screen, setScreen] = useState<CandidateScreen | null>(null);
   // The whole record for whichever candidate a screen is open on. Fetched per
@@ -151,6 +157,12 @@ export default function Home() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailNonce, setDetailNonce] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const [candidateExtraction, setCandidateExtraction] = useState<CandidateExtractionState | null>(null);
+  const [candidateEntryReset, setCandidateEntryReset] = useState(0);
+  // Identifies the upload owned by the current signed-in session. Signing out
+  // invalidates the id so a slow VeriIS response cannot notify the next user.
+  const candidateExtractionRunRef = useRef(0);
   const [verifying, setVerifying] = useState(false);
   /** A staff verdict in flight, which locks the review screen's own buttons. */
   const [evaluating, setEvaluating] = useState(false);
@@ -166,6 +178,44 @@ export default function Home() {
   // refresh a stale one without re-fetching a list that is seconds old.
   const lastRefreshRef = useRef(0);
 
+  /** The only destinations this account is allowed to discover or open. */
+  const reachableTabs = useMemo(
+    () =>
+      user
+        ? new Set(
+            navGroupsFor(user.role, user.pages).flatMap((group) =>
+              group.items.map((item) => item.id),
+            ),
+          )
+        : null,
+    [user],
+  );
+  const canReadCandidates = reachableTabs?.has("candidates") ?? false;
+
+  // The path is the page state. Native history updates keep this large client
+  // workspace mounted, while Back/Forward changes `pathname` and therefore the
+  // rendered destination without maintaining a second copy in React state.
+  const routeTab = navIdFromPath(pathname) ?? "overview";
+
+  useEffect(() => {
+    const closeTransientScreen = () => {
+      setScreen(null);
+      setUsersOpenCreate(false);
+    };
+    window.addEventListener("popstate", closeTransientScreen);
+    return () => window.removeEventListener("popstate", closeTransientScreen);
+  }, []);
+
+  // A bookmarked route may be valid application-wide but unavailable to the
+  // signed-in account. Render the role's safe landing page and correct the URL
+  // without leaving the forbidden destination in browser history.
+  useEffect(() => {
+    if (!user || !reachableTabs) return;
+    if (reachableTabs.has(routeTab)) return;
+    const fallback = defaultNavFor(user.role, user.pages);
+    window.history.replaceState(null, "", navPath(fallback));
+  }, [reachableTabs, routeTab, user]);
+
   // ---- helpers ---------------------------------------------------------- //
   /**
    * Two logs, and an entry belongs to exactly one of them. Anything scoped to a
@@ -179,17 +229,25 @@ export default function Home() {
   }, []);
 
   /** How many events each candidate has — the directory shows this on the row. */
-  const logCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const entry of candidateLogs) {
-      counts[entry.candidateId] = (counts[entry.candidateId] ?? 0) + 1;
-    }
-    return counts;
-  }, [candidateLogs]);
-
   const showToast = useCallback((message: string, type: ToastType = "info") => {
     setToast({ message, type, key: Date.now() });
   }, []);
+
+  /**
+   * Record a user action in the dashboard trace and acknowledge it immediately.
+   * Screens that already describe their create, update, delete and failure
+   * outcomes through `onActivity` can therefore share the same popup feedback
+   * without maintaining a second set of messages. A warning is an expected
+   * destructive outcome (for example, "job order deleted"), not a failed
+   * operation, so it uses the neutral toast treatment.
+   */
+  const announceActivity = useCallback(
+    (message: string, type: LogEntry["type"] = "info") => {
+      log(message, type);
+      showToast(message, type === "warn" ? "info" : type);
+    },
+    [log, showToast],
+  );
 
   /** Resolve an id to the person's name so the log reads like a sentence. */
   const nameOf = useCallback(
@@ -243,24 +301,35 @@ export default function Home() {
     };
   }, []);
 
+  // Protected deep links never leave a signed-out visitor sitting on a CRM
+  // URL. Collapse them to the single login address; successful authentication
+  // then sends the account to its own permitted landing page.
+  useEffect(() => {
+    if (checking || user || pathname === "/") return;
+    window.history.replaceState(null, "", "/");
+  }, [checking, pathname, user]);
+
   const handleSignOut = useCallback(() => {
+    candidateExtractionRunRef.current += 1;
     clearSession();
     setUser(null);
     setCandidates([]);
     setTotal(0);
     setLogs([]);
+    setCandidateExtraction(null);
+    setCreationError(null);
     // Candidate history is deliberately NOT cleared: it is the record's audit
     // trail, not this session's scratch state, and the next sign-in should find
     // it intact.
     // So the next session opens with its own connect banner.
     bootLoggedRef.current = false;
     setScreen(null);
-    setActiveTab("overview");
+    window.history.replaceState(null, "", "/");
   }, []);
 
   // ---- bootstrap -------------------------------------------------------- //
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canReadCandidates) return;
     let active = true;
 
     listCandidates().then(
@@ -299,7 +368,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [canReadCandidates, user]);
 
   /**
    * The backstop refresh: slow, and only when someone is actually looking.
@@ -311,7 +380,7 @@ export default function Home() {
    * of what it ingested.
    */
   useEffect(() => {
-    if (!user) return;
+    if (!user || !canReadCandidates) return;
 
     const refreshIfIdle = () => {
       if (syncingRef.current) return;
@@ -334,7 +403,7 @@ export default function Home() {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refreshCandidates, user]);
+  }, [canReadCandidates, refreshCandidates, user]);
 
   /**
    * The destination actually shown, which is not always the one in state.
@@ -346,12 +415,9 @@ export default function Home() {
    * and then correct itself a frame later.
    */
   const currentTab = useMemo(() => {
-    if (!user) return activeTab;
-    const reachable = new Set(
-      navGroupsFor(user.role, user.pages).flatMap((group) => group.items.map((item) => item.id)),
-    );
-    return reachable.has(activeTab) ? activeTab : defaultNavFor(user.role);
-  }, [user, activeTab]);
+    if (!user || !reachableTabs) return routeTab;
+    return reachableTabs.has(routeTab) ? routeTab : defaultNavFor(user.role, user.pages);
+  }, [user, reachableTabs, routeTab]);
 
   /**
    * Whether this session gets a navigation rail.
@@ -388,7 +454,7 @@ export default function Home() {
             if (event.candidate?.id) next.add(event.candidate.id);
             return next;
           });
-          void refreshCandidates();
+          if (canReadCandidates) void refreshCandidates();
           break;
         }
         // The admin's copy of the same moment. Without this, the person who
@@ -396,11 +462,16 @@ export default function Home() {
         case "candidate_ingested": {
           showToast(event.message, "success");
           setRealtimeNonce((n) => n + 1);
-          void refreshCandidates();
+          if (canReadCandidates) void refreshCandidates();
           break;
         }
         case "sla_alert": {
-          setSlaPopup({ message: event.message, alerts: event.alerts });
+          setSlaPopup({
+            message: `${event.count} profile${event.count === 1 ? " is" : "s are"} beyond the ${
+              event.threshold_hours
+            }-hour review window.`,
+            alerts: event.alerts,
+          });
           setRealtimeNonce((n) => n + 1);
           break;
         }
@@ -408,7 +479,7 @@ export default function Home() {
           break;
       }
     },
-    [refreshCandidates, showToast],
+    [canReadCandidates, refreshCandidates, showToast],
   );
 
   const { status: realtimeStatus } = useRealtime(Boolean(user), handleRealtime);
@@ -422,15 +493,24 @@ export default function Home() {
    * Re-runs on `detailNonce`, which a save or a verify bumps: the id has not
    * changed, but what is stored under it has.
    */
+  // Clearing the last screen's error — and the record itself when nothing is
+  // open — is an adjustment to the id changing, not work to do afterwards.
+  // Done from the effect it cost a committed render still showing the previous
+  // state; done here the corrected values are what gets painted. The two
+  // clearings differ deliberately: closing a candidate empties the record,
+  // while opening a different one keeps the last one on screen until the new
+  // record arrives, which is what it did before.
+  const [detailFor, setDetailFor] = useState({ id: openCandidateId, nonce: detailNonce });
+  if (detailFor.id !== openCandidateId || detailFor.nonce !== detailNonce) {
+    setDetailFor({ id: openCandidateId, nonce: detailNonce });
+    setDetailError(null);
+    if (!openCandidateId) setDetail(null);
+  }
+
   useEffect(() => {
-    if (!openCandidateId) {
-      setDetail(null);
-      setDetailError(null);
-      return;
-    }
+    if (!openCandidateId) return;
 
     let active = true;
-    setDetailError(null);
 
     getCandidate(openCandidateId).then(
       (record) => active && setDetail(record),
@@ -448,30 +528,34 @@ export default function Home() {
 
   const handleNavigate = useCallback(
     (next: NavId) => {
-      setActiveTab(next);
+      // Internal dashboard cards may suggest another destination. Treat them
+      // exactly like the rail: if it was not granted, the click learns nothing
+      // and opens nothing.
+      if (!reachableTabs?.has(next)) return;
+      const nextPath = navPath(next);
+      if (pathname !== nextPath) window.history.pushState(null, "", nextPath);
       // Leaving for another destination closes whichever candidate screen was
       // open, so coming back lands on the list rather than mid-edit.
       setScreen(null);
+      // Any ordinary navigation clears the create-user request below, so only
+      // the click that made it opens User Management on its form.
+      setUsersOpenCreate(false);
       if (next === "candidates") void refreshCandidates();
     },
-    [refreshCandidates],
+    [pathname, reachableTabs, refreshCandidates],
   );
 
   /**
-   * The bar's search. There is no separate results screen: the candidate pool
-   * is already the screen that lists and filters candidates, so searching from
-   * the bar opens it on the term rather than building a second view of the same
-   * records that would then have to be kept in step with the first.
+   * "Add staff" on the staff console.
+   *
+   * Creating a person is account work, so it happens where accounts live: this
+   * carries the intent over to User Management and opens its create form there,
+   * rather than duplicating a second, thinner create path on the staff screen.
    */
-  const handleGlobalSearch = useCallback(
-    (term: string) => {
-      setGlobalSearch(term);
-      setScreen(null);
-      setActiveTab("candidates");
-      void refreshCandidates();
-    },
-    [refreshCandidates],
-  );
+  const handleCreateStaff = useCallback(() => {
+    handleNavigate("users");
+    setUsersOpenCreate(true);
+  }, [handleNavigate]);
 
   // ---- pipeline run ----------------------------------------------------- //
   const runPipeline = useCallback(async () => {
@@ -515,7 +599,7 @@ export default function Home() {
           if ((msgRes.reason ?? "").startsWith("already processed")) alreadyHandled += 1;
           else {
             ignoredEmails += 1;
-            log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
+            // log(`[NOTICE] Email ignored — ${msgRes.reason || "no reason given"}.`, "warn");
           }
           continue;
         }
@@ -526,13 +610,13 @@ export default function Home() {
               log(`[SUCCESS] '${att.filename}': parsed and saved to MongoDB Atlas${why}.`, "success");
               break;
             case "duplicate":
-              log(`[NOTICE] '${att.filename}': skipped${why || " — already ingested"}.`, "warn");
+              // log(`[NOTICE] '${att.filename}': skipped${why || " — already ingested"}.`, "warn");
               break;
             case "suppressed":
-              log(`[NOTICE] '${att.filename}': skipped — previously deleted by a user.`, "warn");
+              // log(`[NOTICE] '${att.filename}': skipped — previously deleted by a user.`, "warn");
               break;
             case "not_resume":
-              log(`[NOTICE] '${att.filename}': not usable as a resume${why}.`, "warn");
+              // log(`[NOTICE] '${att.filename}': not usable as a resume${why}.`, "warn");
               break;
             case "error":
               log(`[ERROR] '${att.filename}': extraction failed${why}.`, "error");
@@ -636,6 +720,59 @@ export default function Home() {
     }
   };
 
+  const handleCreateCandidate = async (files: CandidateUploadFiles) => {
+    if (candidateExtraction?.status === "extracting") return;
+    const runId = candidateExtractionRunRef.current + 1;
+    candidateExtractionRunRef.current = runId;
+    setCreationError(null);
+    setCandidateExtraction({
+      status: "extracting",
+      filename: files.resume.name,
+      title: "VeriIS extracting",
+      detail: "The documents are queued or being extracted. You can continue working.",
+    });
+    showToast("Candidate extraction started. You can continue working.", "info");
+    try {
+      const result = await uploadCandidateDocuments(files);
+      if (candidateExtractionRunRef.current !== runId) return;
+      const created = result.candidate;
+      setCandidateExtraction({
+        status: "complete",
+        filename: files.resume.name,
+        title: `${candidateNameOf(created)} is ready`,
+        detail: "Extraction finished. Open the completed candidate profile.",
+        candidateId: created.id,
+      });
+      setCandidateEntryReset((nonce) => nonce + 1);
+      setRealtimeNonce((nonce) => nonce + 1);
+      void refreshCandidates();
+      appendCandidateLog(
+        created.id,
+        "Created",
+        `Candidate extracted from ${result.processed.join(", ")} by VeriIS.`,
+        "success",
+        user?.email,
+      );
+      log(`Added candidate from document upload: ${candidateNameOf(created)}.`, "success");
+      const identityNames = result.processed.filter((item) => item !== "resume");
+      const identityCopy = identityNames.length
+        ? ` ${identityNames.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} extracted.`
+        : "";
+      showToast(`Candidate extracted successfully.${identityCopy}`, "success");
+    } catch (err) {
+      if (candidateExtractionRunRef.current !== runId) return;
+      const message = err instanceof Error ? err.message : "Could not add the candidate.";
+      setCreationError(message);
+      setCandidateExtraction({
+        status: "error",
+        filename: files.resume.name,
+        title: "Extraction needs attention",
+        detail: message,
+      });
+      showToast(message, "error");
+    }
+  };
+
   const handleVerify = async (candidateId: string) => {
     setVerifying(true);
     const who = nameOf(candidateId);
@@ -704,10 +841,11 @@ export default function Home() {
    * their queue. Sending a reviewer back to a screen the API refuses them is
    * how the back button used to end up somewhere they could not be.
    */
-  const listTab: NavId = user?.role === "staff" ? "my-queue" : "candidates";
+  const listTab: NavId = "candidates";
 
   const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
-    setActiveTab(listTab);
+    const listPath = navPath(listTab);
+    if (pathname !== listPath) window.history.pushState(null, "", listPath);
     setScreen({ mode, candidateId });
   };
 
@@ -740,9 +878,9 @@ export default function Home() {
     appendCandidateLog(candidate.id, "Opened editor", `Edit screen opened.`, "info", user?.email);
   };
 
-  /** Reading the history is not itself an event in it. */
-  const handleOpenLogs = (candidate: CandidateRecord) => {
-    openScreen("logs", candidate.id);
+  const handleAddCandidate = () => {
+    setCreationError(null);
+    handleNavigate("candidate-entry");
   };
 
   const closeScreen = () => setScreen(null);
@@ -827,8 +965,9 @@ export default function Home() {
    * their queue — so the bell hands over an id and this decides.
    */
   const handleOpenCandidateById = (candidateId: string) => {
+    if (!reachableTabs?.has("candidates")) return;
     if (user?.role === "staff") {
-      setActiveTab("my-queue");
+      handleNavigate("candidates");
       setQueueFocusId(candidateId);
       return;
     }
@@ -841,14 +980,28 @@ export default function Home() {
    * the previously open candidate, resolves to null and the screen waits.
    */
   const screenCandidate =
-    screen && detail && detail.id === screen.candidateId ? detail : null;
+    screen && detail && detail.id === screen.candidateId
+      ? detail
+      : null;
 
   const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
 
   /** A staff member reading a candidate: the one screen that gets no page head. */
   const isStaffReview = user?.role === "staff" && screen?.mode === "profile";
 
-  if (checking) {
+  // Screens that draw their own title row. The dashboard's header carries the
+  // window it is showing and the controls that change it, and the candidates
+  // pool carries its own title, subtitle and the date range, add and export
+  // controls — so for both, the generic eyebrow/title/subtitle block above
+  // would be a second heading for the same page, and the one without the
+  // controls.
+  const ownsItsHeader =
+    !screen &&
+    ["overview", "candidates", "candidate-entry", "staff", "users", "data-management"].includes(
+      currentTab,
+    );
+
+  if (checking && pathname !== "/") {
     return (
       <div className="app-boot">
         <span className="app-boot-spinner" />
@@ -856,12 +1009,15 @@ export default function Home() {
     );
   }
 
-  if (!user) {
+  // `/` is always the sign-in screen, even when a previous session token is
+  // still valid. The CRM itself begins at `/overview` after authentication.
+  if (pathname === "/" || !user) {
     return (
       <LoginScreen
         onSuccess={(u) => {
           setUser(u);
-          setActiveTab(defaultNavFor(u.role));
+          const landing = defaultNavFor(u.role, u.pages);
+          window.history.replaceState(null, "", navPath(landing));
         }}
       />
     );
@@ -874,20 +1030,26 @@ export default function Home() {
       <TopBar
         user={user}
         syncing={syncing}
+        realtime={realtimeStatus}
         realtimeNonce={realtimeNonce}
         hasRail={hasRail}
-        onOpenCandidate={handleOpenCandidateById}
+        onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
+        candidateExtraction={candidateExtraction}
+        onOpenCandidateExtraction={
+          candidateExtraction?.status === "complete" && candidateExtraction.candidateId
+            ? () => handleOpenCandidateById(candidateExtraction.candidateId as string)
+            : candidateExtraction?.status === "error"
+              ? () => handleNavigate("candidate-entry")
+              : undefined
+        }
+        onDismissCandidateExtraction={() => setCandidateExtraction(null)}
         onSync={runPipeline}
         onToggleRail={() => setMobileOpen((open) => !open)}
-        onSearch={handleGlobalSearch}
-        onSignOut={handleSignOut}
       />
 
       <div className="app-body">
-        {/* The staff workspace is one screen, so it has no rail at all: a
-            navigation column offering a single destination is a column that
-            only ever tells you where you already are. Identity and sign-out
-            move into the bar above instead. */}
+        {/* Accounts with more than one reachable destination keep the rail;
+            a tightly restricted account can still use the compact top bar. */}
         {hasRail && (
           <Sidebar
             activeId={currentTab}
@@ -914,7 +1076,7 @@ export default function Home() {
                 Profile" was a second heading competing with the one that
                 matters. The chrome there is the bar's pulse and bell, and
                 nothing else. */}
-            {!isStaffReview && (
+            {!isStaffReview && !ownsItsHeader && (
               <header className="db-page-head">
                 <div>
                   <span className="db-eyebrow">{meta.eyebrow}</span>
@@ -968,14 +1130,6 @@ export default function Home() {
               />
             )}
 
-            {screenCandidate && screen?.mode === "logs" && (
-              <CandidateLogsScreen
-                candidate={screenCandidate}
-                logs={candidateLogs}
-                onBack={closeScreen}
-              />
-            )}
-
             {/* The record is fetched when the screen opens, so there is a
                 moment with nothing to show — and, if it cannot be fetched, no
                 screen to show at all. Neither may fall through to the
@@ -1008,35 +1162,50 @@ export default function Home() {
                   />
                 )}
 
-                {currentTab === "sourcing" && <SourcingHub onActivity={log} />}
+                {currentTab === "sourcing" && <SourcingHub onActivity={announceActivity} />}
 
-                {currentTab === "data-management" && <DataManagementScreen onActivity={log} />}
+                {currentTab === "b2b-enquiries" && <B2BEnquiries onActivity={announceActivity} />}
+
+                {currentTab === "data-management" && <DataManagementScreen onActivity={announceActivity} />}
+
+                {currentTab === "candidate-entry" && (
+                  <CandidateUploadScreen
+                    key={candidateEntryReset}
+                    saving={candidateExtraction?.status === "extracting"}
+                    error={creationError}
+                    onSubmit={(files) => void handleCreateCandidate(files)}
+                  />
+                )}
 
                 {currentTab === "users" && (
-                  <UserManagementScreen onActivity={log} currentUserId={user?.id} />
+                  <UserManagementScreen
+                    onActivity={announceActivity}
+                    currentUserId={user?.id}
+                    openCreate={usersOpenCreate}
+                  />
                 )}
 
                 {currentTab === "candidates" && (
-                  <CandidatesView
-                    candidates={candidates}
-                    logCounts={logCounts}
-                    seedQuery={globalSearch}
-                    onOpenCandidate={handleOpenCandidate}
-                    onEditCandidate={handleEditCandidate}
-                    onOpenLogs={handleOpenLogs}
-                    onDeleteCandidate={handleDeleteCandidate}
-                  />
-                )}
-
-                {currentTab === "my-queue" && (
-                  <StaffDashboard
-                    candidates={candidates}
-                    arrivedIds={arrivedIds}
-                    focusCandidateId={queueFocusId}
-                    onFocusHandled={() => setQueueFocusId(null)}
-                    onToast={showToast}
-                    onOpenCandidate={handleOpenCandidate}
-                  />
+                  user?.role === "staff" ? (
+                    <StaffDashboard
+                      candidates={candidates}
+                      arrivedIds={arrivedIds}
+                      focusCandidateId={queueFocusId}
+                      onFocusHandled={() => setQueueFocusId(null)}
+                      onToast={showToast}
+                      onOpenCandidate={handleOpenCandidate}
+                    />
+                  ) : (
+                    <CandidatesView
+                      candidates={candidates}
+                      onAddCandidate={handleAddCandidate}
+                      onOpenCandidate={handleOpenCandidate}
+                      onEditCandidate={handleEditCandidate}
+                      onDeleteCandidate={handleDeleteCandidate}
+                      onAssignmentChanged={() => void refreshCandidates()}
+                      onToast={showToast}
+                    />
+                  )
                 )}
 
                 {currentTab === "staff" && (
@@ -1046,20 +1215,14 @@ export default function Home() {
                     onToast={showToast}
                     onCandidatesChanged={() => void refreshCandidates()}
                     onOpenCandidate={handleOpenCandidate}
+                    onCreateStaff={
+                      reachableTabs?.has("users") ? handleCreateStaff : undefined
+                    }
                   />
                 )}
 
                 {currentTab === "job-orders" && (
-                  <JobOrders candidates={candidates} onActivity={log} />
-                )}
-
-                {currentTab === "activity" && (
-                  <ActivityLogsScreen
-                    systemLogs={logs}
-                    candidateLogs={candidateLogs}
-                    candidates={candidates}
-                    onOpenCandidateLogs={handleOpenLogs}
-                  />
+                  <JobOrders candidates={candidates} onActivity={announceActivity} />
                 )}
 
                 {currentTab === "settings" && (
@@ -1080,12 +1243,12 @@ export default function Home() {
             className="modal-container is-narrow"
             role="alertdialog"
             aria-modal="true"
-            aria-label="SLA breach"
+            aria-label="Overdue reviews"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
               <div>
-                <h3 className="modal-title">Profiles past the SLA</h3>
+                <h3 className="modal-title">Profiles past the review window</h3>
                 <p className="modal-subtitle">{slaPopup.message}</p>
               </div>
               <button

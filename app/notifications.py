@@ -8,6 +8,10 @@ Two deliveries, in this order, and the order is the point:
   2. **Push it.** A WebSocket event to whoever happens to be watching, for the
      toast. Best-effort by definition — it reaches open sockets and nothing
      else.
+  3. **Send it to their phone.** The WhatsApp bot is asked to message the staff
+     member on the number their account carries. Also best-effort, and last on
+     purpose: it is the only one of the three that leaves this network, and the
+     record it announces is already written by the time it runs.
 
 Doing only (2) is what made the feature look broken: allocation happens on a
 Gmail poll, the staff member it allocates to is usually not looking at the
@@ -25,6 +29,7 @@ from app.db import notifications as store
 from app.db.notifications import NotificationRepository
 from app.db.users import UserRepository
 from app.logging_config import get_logger
+from app.staff_whatsapp import relay_assignment, relay_sla_breach
 
 log = get_logger(__name__)
 
@@ -106,6 +111,17 @@ def notify_candidate_assigned(
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not push the ingest event: %s", exc)
 
+    # ---- and their phone ------------------------------------------------- #
+    # Last, and outside the count: `notified` is how many people this event was
+    # *recorded* for, which the tests assert on, and a WhatsApp message that
+    # went to somebody already counted is not a second person being told.
+    #
+    # `relay_assignment` swallows its own failures — see the module — so there
+    # is deliberately no try/except around it here. Wrapping it would only
+    # catch the import.
+    if staff_id:
+        relay_assignment(candidate_id, staff_id)
+
     return notified
 
 
@@ -159,5 +175,14 @@ def notify_sla_breaches(
         ws.publish_event(ws.sla_alert_event(alerts, threshold_hours))
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not push the SLA event: %s", exc)
+
+    # ---- and the admins' phones ------------------------------------------ #
+    # One call for the whole sweep, not one per profile. `alerts` is already
+    # only what newly breached, so this does not re-announce anything.
+    #
+    # Outside `notified` for the same reason as the allocation relay: that
+    # counts feed rows written, and an admin who was messaged as well was not
+    # notified twice.
+    relay_sla_breach(alerts, threshold_hours)
 
     return notified

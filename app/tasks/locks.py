@@ -23,9 +23,10 @@ this can too.
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator
 
 import redis
 
@@ -119,7 +120,7 @@ def claim_message(message_id: str, ttl_seconds: int | None = None) -> Iterator[b
         client = get_redis()
         acquired = bool(client.set(key, token, nx=True, ex=ttl))
     except redis.RedisError as err:
-        log.warning("Could not claim message %s (%s); processing it anyway", message_id, err)
+        log.debug("Redis unavailable for message claim %s (%s); processing directly", message_id, err)
         yield True
         return
 
@@ -132,3 +133,90 @@ def claim_message(message_id: str, ttl_seconds: int | None = None) -> Iterator[b
         yield True
     finally:
         _release(client, key, token, name, ttl)
+
+
+# --------------------------------------------------------------------------- #
+#  The inline poll
+# --------------------------------------------------------------------------- #
+#: Held for a whole inline cycle — the one the API runs itself when no Celery
+#: worker is up. Named apart from POLL_LOCK because the two are different
+#: mechanisms for the same exclusion, and a deployment can be running both.
+INLINE_POLL_LOCK = "inline-poll"
+
+#: The guard that remains when Redis does not answer. Strictly weaker — it
+#: cannot see other processes — and strictly better than nothing: a deployment
+#: with no Redis is usually a single server, which this covers completely.
+_local_inline_lock = threading.Lock()
+
+
+class PollClaim:
+    """A held inline-poll claim.
+
+    Not a context manager, deliberately. The claim is taken in the request that
+    starts a cycle and given back by the thread that finishes it, so its life
+    does not fit inside one `with` block — and making it fit would mean deciding
+    "another cycle is already running" inside the worker thread, after the
+    caller had already been handed a task id for a cycle that will never run.
+    """
+
+    def __init__(self, distributed: bool, release: "Callable[[], None]"):
+        self.distributed = distributed
+        self._release = release
+        self._released = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        try:
+            self._release()
+        except Exception as exc:  # noqa: BLE001 — a stuck lock expires; a raise here loses the batch
+            log.warning("Could not release the inline poll claim: %s", exc)
+
+
+def claim_inline_poll(ttl_seconds: int | None = None) -> "PollClaim | None":
+    """Reserve the inline poll across every server, or None if it is taken.
+
+    A `threading.Lock` only ever prevented two cycles inside *one* process. Two
+    API containers behind a load balancer both polled the same mailbox, both
+    downloaded the same attachments and both paid for the same extraction — the
+    ledger keeps the duplicate record out, but only after the money is spent.
+
+    Redis being unreachable falls back to the in-process lock rather than
+    refusing: a lock service that is down must not stop the mailbox draining,
+    and for the single-server deployment that is the usual reason Redis is
+    missing, the fallback is exactly as strong as the distributed lock.
+    """
+    ttl = ttl_seconds if ttl_seconds is not None else settings.poll_lock_ttl_seconds
+    key = f"lock:{INLINE_POLL_LOCK}"
+    token = uuid.uuid4().hex
+
+    try:
+        client = get_redis()
+        acquired = bool(client.set(key, token, nx=True, ex=ttl))
+    except redis.RedisError as err:
+        log.info(
+            "Redis unavailable for the inline poll lock (%s); falling back to the "
+            "in-process lock, which guards this server only", err,
+        )
+        if not _local_inline_lock.acquire(blocking=False):
+            return None
+        return PollClaim(distributed=False, release=_local_inline_lock.release)
+
+    if not acquired:
+        return None
+
+    # The in-process lock is taken as well, so that a Redis key which expires
+    # mid-cycle — the TTL is a deadline, not an estimate — cannot let a second
+    # cycle start inside the process that is still running the first.
+    _local_inline_lock.acquire(blocking=False)
+
+    def _give_back() -> None:
+        _release(client, key, token, INLINE_POLL_LOCK, ttl)
+        if _local_inline_lock.locked():
+            try:
+                _local_inline_lock.release()
+            except RuntimeError:
+                pass
+
+    return PollClaim(distributed=True, release=_give_back)
