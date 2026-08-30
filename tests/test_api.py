@@ -340,12 +340,44 @@ def test_staff_upload_is_assigned_to_the_uploader(test_client):
     balance.assert_not_called()
 
 
-def test_upload_candidate_requires_a_resume(test_client):
-    response = test_client.post(
-        "/candidates/upload",
-        files={"passport": ("passport.jpg", b"passport", "image/jpeg")},
-    )
-    assert response.status_code == 422
+def test_upload_candidate_allows_manual_entry_without_a_resume(test_client):
+    result = _uploaded_candidate_result()
+    result.candidate.resume = None
+    result.candidate.resume_hash = None
+    result.candidate.source = "manual"
+    result.candidate.profile.job_id = "electrician"
+    result.candidate.profile.job_title = "Electrician"
+    result.candidate.profile.destination_country = "UAE"
+
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        return_value=result,
+    ) as intake, patch(
+        "app.db.taxonomy.get_job",
+        return_value={"id": "electrician", "title": "Electrician", "active": True},
+    ), patch(
+        "app.db.taxonomy.list_countries",
+        return_value=[{"id": "uae", "name": "UAE", "active": True}],
+    ), patch("app.api.routes.assign_candidate") as assign:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/upload",
+            data={
+                "full_name": "Meera Nair",
+                "email": "meera@example.com",
+                "job_id": "electrician",
+                "destination_country": "uae",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["processed"] == []
+    assert response.json()["ocr_provider"] == "manual"
+    sent = intake.call_args.kwargs
+    assert sent["resume"] is None
+    assert sent["job_id"] == "electrician"
+    assert sent["job_title"] == "Electrician"
+    assert sent["destination_country"] == "UAE"
 
 
 def test_upload_candidate_translates_intake_refusal(test_client):

@@ -18,6 +18,8 @@ RESUME_HASH = sha256_hex(RESUME_BYTES)
 class FakeRepo:
     def __init__(self):
         self.records = {}
+        self.deleted_emails = set()
+        self.deleted_phones = set()
 
     def find_by_message_id(self, message_id):
         return next((r for r in self.records.values()
@@ -36,7 +38,14 @@ class FakeRepo:
         return record.id
 
     def delete(self, candidate_id):
-        return self.records.pop(candidate_id, None) is not None
+        record = self.records.pop(candidate_id, None)
+        if record:
+            self.deleted_emails.add(record.email_key)
+            self.deleted_phones.add(record.phone_key)
+        return record is not None
+
+    def was_deleted(self, *, email_key=None, phone_key=None, **_signals):
+        return email_key in self.deleted_emails or phone_key in self.deleted_phones
 
     def mark_auto_reply_sent(self, candidate_id):
         pass
@@ -80,6 +89,10 @@ class FakeLedger:
                               "candidate_id": candidate_id, "status": "deleted",
                               "suppressed": True})
         return len(message_ids) + int(bool(resume_hash))
+
+    def suppress_hash(self, resume_hash, reason="deleted by user"):
+        self.rows.append({"message_id": "__manual__", "resume_hash": resume_hash,
+                          "candidate_id": None, "status": reason, "suppressed": True})
 
 
 class FakeStorage:
@@ -150,6 +163,22 @@ def test_same_file_from_a_new_email_stays_deleted(parts):
     again = pipeline.process_email(_email("msg-sent-again"))
 
     assert again.status == "skipped"
+    assert again.attachments[0].status == "suppressed"
+    assert repo.records == {}
+
+
+def test_modified_resume_with_same_contact_stays_deleted(parts):
+    pipeline, repo, ledger = parts
+    first = pipeline.process_email(_email("msg-original"))
+    candidate_id = first.ingested_ids[0]
+    repo.delete(candidate_id)
+    ledger.retire_candidate(candidate_id, ["msg-original"], resume_hash=RESUME_HASH)
+
+    changed = _email("msg-modified")
+    changed.attachments[0].data = RESUME_BYTES + b" updated"
+    changed.attachments[0].size = len(changed.attachments[0].data)
+    again = pipeline.process_email(changed)
+
     assert again.attachments[0].status == "suppressed"
     assert repo.records == {}
 

@@ -31,7 +31,6 @@ import {
   toEditableState,
 } from "@/lib/candidateProfile";
 import {
-  fetchIdentityDocuments,
   type AnsweredQuestion,
   type IdentityDocument,
   getCandidateIdentity,
@@ -621,29 +620,14 @@ export default function CandidateProfileScreen({
    * separately — see `fetchIdentityDocuments`. Empty until it answers, and
    * empty for good if there are none, which is most candidates.
    */
-  const [identity, setIdentity] = useState<IdentityDocuments | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    // Only for candidates who could have one. An email candidate's application
-    // is a résumé; the identity collections are fed by the bot and by the
-    // bundle reader, and asking for a candidate who has neither is a request
-    // whose answer is always empty.
-    if (candidate.source !== "whatsapp") {
-      setIdentity(null);
-      return;
-    }
-    fetchIdentityDocuments(candidate.id).then((found) => {
-      if (live) setIdentity(found);
-    });
-    return () => {
-      live = false;
-    };
-  }, [candidate.id, candidate.source]);
-
+  // Reuse the identity request above. The old second request ran only for
+  // WhatsApp candidates, hiding files added through manual candidate entry.
   const identityDocuments = useMemo(
-    () => [...(identity?.aadhaar ?? []), ...(identity?.passport ?? [])],
-    [identity],
+    () => [
+      ...(identityFor?.documents?.aadhaar ?? []),
+      ...(identityFor?.documents?.passport ?? []),
+    ],
+    [identityFor],
   );
 
   const job = candidate.job ?? null;

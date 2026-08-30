@@ -40,6 +40,7 @@ from app.config import settings
 from app.core.models import (
     EVALUATION_STATUSES,
     CandidateProfile,
+    CandidateRecord,
     JobSection,
     RegistrationState,
 )

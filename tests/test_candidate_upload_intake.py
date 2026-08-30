@@ -74,6 +74,33 @@ def stored_resume(**_kwargs):
     )
 
 
+def test_manual_intake_creates_candidate_with_preferences_and_no_resume_or_ocr_key():
+    repository = MemoryRepository()
+
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", ""):
+        result = intake_uploaded_candidate(
+            resume=None,
+            repository=repository,
+            uploader_id="admin-1",
+            full_name=" Meera Nair ",
+            email=" meera@example.com ",
+            job_id="electrician",
+            job_title="Electrician",
+            destination_country="UAE",
+        )
+
+    candidate = result.candidate
+    assert candidate.source == "manual"
+    assert candidate.resume is None
+    assert candidate.resume_hash is None
+    assert candidate.cv_required is False
+    assert candidate.profile.full_name == "Meera Nair"
+    assert candidate.profile.job_id == "electrician"
+    assert candidate.profile.job_title == "Electrician"
+    assert candidate.profile.job_preference == "Electrician"
+    assert candidate.profile.destination_country == "UAE"
+
+
 def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declared_profile_fields():
     repository = MemoryRepository()
     aadhaar_result = {
