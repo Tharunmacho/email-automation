@@ -308,6 +308,24 @@ def normalize(doc: Dict[str, Any]) -> Dict[str, Any]:
 
     out = dict(doc)
 
+    # These names also exist in CandidateRecord, but a bot-owned document uses
+    # them for its own storage/reference shapes. Letting those values reach
+    # Pydantic makes the directory row readable (it is projected and never
+    # validates the whole document) while the detail read raises on an invalid
+    # StoredResume/SourceEmail/contacts object and surfaces as a CORS-looking
+    # "Failed to fetch" in the browser. The direct-write bot has not stored a
+    # file in this CRM, so retaining its pointer would be misleading even when
+    # it happened to validate.
+    for incompatible in (
+        "resume",
+        "resume_hash",
+        "source_email",
+        "contacts",
+        "identity_review",
+        "idempotency_key",
+    ):
+        out.pop(incompatible, None)
+
     # The bot's fields fill the gaps; anything the CRM already holds wins.
     #
     # The same rule `refresh_whatsapp_profile` applies when a second
@@ -359,7 +377,12 @@ def normalize(doc: Dict[str, Any]) -> Dict[str, Any]:
     # how a record that was never assessed reads. Asserting True would be worse
     # than wrong: the model requires a résumé to go with it, and there is no
     # résumé in the CRM's storage, so every read of this candidate would raise.
-    out.setdefault("cv_required", False)
+    # This record bypassed the policy service, so even a same-named value in
+    # the bot document is not a CRM policy decision. Force the honest state
+    # rather than preserving a True value that would require a CRM resume which
+    # this direct-write path cannot have.
+    out["cv_required"] = False
+    out.pop("cv_policy_version", None)
 
     return out
 
