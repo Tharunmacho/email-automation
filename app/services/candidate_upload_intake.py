@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from pydantic import BaseModel
 
@@ -99,7 +99,12 @@ def _curated_profile(profile: CandidateProfile) -> CandidateProfile:
     return CandidateProfile.model_validate(data)
 
 
-def _extract_identity(document_type: str, upload: UploadedDocument) -> ExtractedIdentity:
+def _extract_identity(
+    document_type: str,
+    upload: UploadedDocument,
+    *,
+    require_passport_number: bool = True,
+) -> ExtractedIdentity:
     digest = sha256_hex(upload.data)
     try:
         handle, outcome = ocr_gateway.run_job(
@@ -145,12 +150,21 @@ def _extract_identity(document_type: str, upload: UploadedDocument) -> Extracted
             )
     else:
         facts = result.get("mrz")
-        if not isinstance(facts, dict) or not facts.get("passport_number"):
+        printed_fields = result.get("fields")
+        has_passport_content = (
+            isinstance(facts, dict) and any(facts.values())
+        ) or (
+            isinstance(printed_fields, dict) and any(printed_fields.values())
+        )
+        if not has_passport_content or (
+            require_passport_number
+            and (not isinstance(facts, dict) or not facts.get("passport_number"))
+        ):
             raise CandidateUploadError(
                 "The passport upload did not contain a readable passport number.",
                 code="invalid_passport",
             )
-        if facts.get("all_check_digits_valid") is False:
+        if isinstance(facts, dict) and facts.get("all_check_digits_valid") is False:
             raise CandidateUploadError(
                 "The passport MRZ checksum failed. Upload a clearer passport scan.",
                 code="invalid_passport_mrz",
@@ -223,8 +237,8 @@ def intake_uploaded_candidate(
     resume: UploadedDocument | None,
     repository,
     uploader_id: str,
-    aadhaar: UploadedDocument | None = None,
-    passport: UploadedDocument | None = None,
+    aadhaar: UploadedDocument | Sequence[UploadedDocument] | None = None,
+    passport: UploadedDocument | Sequence[UploadedDocument] | None = None,
     parser: ResumeParser | None = None,
     full_name: str | None = None,
     email: str | None = None,
@@ -234,7 +248,22 @@ def intake_uploaded_candidate(
     destination_country: str | None = None,
 ) -> CandidateUploadResult:
     """Extract uploaded documents or create a manual, CV-less candidate."""
-    if (resume or aadhaar or passport) and not settings.veris_ocr_api_key:
+    def identity_uploads(
+        value: UploadedDocument | Sequence[UploadedDocument] | None,
+        document_type: str,
+    ) -> list[UploadedDocument]:
+        uploads = [value] if isinstance(value, UploadedDocument) else list(value or [])
+        if len(uploads) > 2:
+            raise CandidateUploadError(
+                f"Upload no more than two {document_type} files.",
+                code=f"too_many_{document_type}_files",
+            )
+        return uploads
+
+    aadhaar_uploads = identity_uploads(aadhaar, "aadhaar")
+    passport_uploads = identity_uploads(passport, "passport")
+
+    if (resume or aadhaar_uploads or passport_uploads) and not settings.veris_ocr_api_key:
         raise CandidateUploadError(
             "VeriIS OCR is not configured. Add VERIS_OCR_API_KEY before uploading candidates.",
             status_code=503,
@@ -244,10 +273,8 @@ def intake_uploaded_candidate(
     try:
         if resume:
             validate_resume(resume.data, resume.mime_type)
-        if aadhaar:
-            identity_files.validate_identity(aadhaar.data, aadhaar.mime_type)
-        if passport:
-            identity_files.validate_identity(passport.data, passport.mime_type)
+        for upload in [*aadhaar_uploads, *passport_uploads]:
+            identity_files.validate_identity(upload.data, upload.mime_type)
     except (ResumeRejected, identity_files.IdentityRejected) as exc:
         raise CandidateUploadError(exc.message, code=exc.code) from exc
 
@@ -346,13 +373,32 @@ def intake_uploaded_candidate(
         )
 
     identities: list[ExtractedIdentity] = []
-    if aadhaar:
-        identities.append(_extract_identity("aadhaar", aadhaar))
-    if passport:
-        identities.append(_extract_identity("passport", passport))
+    identities.extend(
+        _extract_identity("aadhaar", upload) for upload in aadhaar_uploads
+    )
+    identities.extend(
+        _extract_identity("passport", upload, require_passport_number=False)
+        for upload in passport_uploads
+    )
+
+    if passport_uploads and not any(
+        (item.result.get("mrz") or {}).get("passport_number")
+        for item in identities
+        if item.document_type == "passport"
+    ):
+        raise CandidateUploadError(
+            "The passport uploads did not contain a readable passport number.",
+            code="invalid_passport",
+        )
 
     passport_result = next(
-        (item for item in identities if item.document_type == "passport"), None
+        (
+            item
+            for item in identities
+            if item.document_type == "passport"
+            and (item.result.get("mrz") or {}).get("passport_number")
+        ),
+        None,
     )
     passport_key = None
     if passport_result:

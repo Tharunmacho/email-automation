@@ -1321,8 +1321,8 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
 @app.post("/candidates/upload", status_code=201)
 def create_candidate_from_uploads(
     resume: UploadFile | None = File(default=None),
-    aadhaar: UploadFile | None = File(default=None),
-    passport: UploadFile | None = File(default=None),
+    aadhaar: list[UploadFile] | None = File(default=None),
+    passport: list[UploadFile] | None = File(default=None),
     full_name: str = Form(default=""),
     email: str = Form(default=""),
     phone: str = Form(default=""),
@@ -1348,6 +1348,15 @@ def create_candidate_from_uploads(
             filename=file.filename or fallback,
             mime_type=file.content_type or "application/octet-stream",
         )
+
+    def uploaded_many(files: list[UploadFile] | None, fallback: str) -> list[UploadedDocument]:
+        if len(files or []) > 2:
+            document_type = fallback.removesuffix(".jpg").capitalize()
+            raise CandidateUploadError(
+                f"Upload no more than two {document_type} files.",
+                code=f"too_many_{document_type.lower()}_files",
+            )
+        return [uploaded(file, fallback) for file in (files or [])]
 
     from app.db.taxonomy import get_job, list_countries
 
@@ -1379,8 +1388,8 @@ def create_candidate_from_uploads(
     try:
         result = intake_uploaded_candidate(
             resume=uploaded(resume, "resume.pdf") if resume else None,
-            aadhaar=uploaded(aadhaar, "aadhaar.jpg") if aadhaar else None,
-            passport=uploaded(passport, "passport.jpg") if passport else None,
+            aadhaar=uploaded_many(aadhaar, "aadhaar.jpg"),
+            passport=uploaded_many(passport, "passport.jpg"),
             repository=repository,
             uploader_id=str(uploader.get("id") or ""),
             full_name=full_name,

@@ -724,7 +724,7 @@ export default function Home() {
     if (candidateExtraction?.status === "extracting") return;
     const runId = candidateExtractionRunRef.current + 1;
     const displayName = files.resume?.name || files.full_name || "Manual candidate";
-    const hasDocuments = Boolean(files.resume || files.aadhaar || files.passport);
+    const hasDocuments = Boolean(files.resume || files.aadhaar?.length || files.passport?.length);
     candidateExtractionRunRef.current = runId;
     setCreationError(null);
     setCandidateExtraction({

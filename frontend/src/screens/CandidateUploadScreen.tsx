@@ -25,8 +25,8 @@ import {
 
 export interface CandidateUploadFiles {
   resume?: File | null;
-  aadhaar?: File | null;
-  passport?: File | null;
+  aadhaar?: File[];
+  passport?: File[];
   full_name?: string;
   email?: string;
   phone?: string;
@@ -50,28 +50,44 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function UploadSlot({ id, title, copy, accept, file, icon, disabled, onChange }: {
+function UploadSlot({ id, title, copy, accept, files, maxFiles = 1, icon, disabled, onChange }: {
   id: string;
   title: string;
   copy: string;
   accept: string;
-  file: File | null;
+  files: File[];
+  maxFiles?: number;
   icon: ReactNode;
   disabled: boolean;
-  onChange: (file: File | null) => void;
+  onChange: (files: File[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
+  const addFiles = (incoming: FileList | File[]) => {
+    if (disabled) return;
+    const next = [...files];
+    for (const file of Array.from(incoming)) {
+      const duplicate = next.some((current) => (
+        current.name === file.name && current.size === file.size && current.lastModified === file.lastModified
+      ));
+      if (!duplicate && next.length < maxFiles) next.push(file);
+    }
+    onChange(next);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
   const takeDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
-    if (!disabled) onChange(event.dataTransfer.files.item(0));
+    addFiles(event.dataTransfer.files);
   };
+
+  const remaining = maxFiles - files.length;
 
   return (
     <div
-      className={`cupload-slot ${file ? "has-file" : ""} ${dragging ? "is-dragging" : ""}`}
+      className={`cupload-slot ${files.length ? "has-file" : ""} ${dragging ? "is-dragging" : ""}`}
       onDragOver={(event) => {
         event.preventDefault();
         if (!disabled) setDragging(true);
@@ -85,36 +101,39 @@ function UploadSlot({ id, title, copy, accept, file, icon, disabled, onChange }:
         className="cupload-native"
         type="file"
         accept={accept}
+        multiple={maxFiles > 1}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.files?.item(0) ?? null)}
+        onChange={(event) => event.target.files && addFiles(event.target.files)}
       />
       <div className="cupload-slot-icon" aria-hidden="true">{icon}</div>
       <div className="cupload-slot-copy">
-        <div className="cupload-slot-title">{title}<span>Optional</span></div>
-        {file ? (
-          <div className="cupload-file">
-            <CheckCircle2 size={15} />
-            <span title={file.name}>{file.name}</span>
-            <small>{formatBytes(file.size)}</small>
+        <div className="cupload-slot-title">
+          {title}<span>Optional{maxFiles > 1 ? ` · Up to ${maxFiles}` : ""}</span>
+        </div>
+        {files.length ? (
+          <div className="cupload-files">
+            {files.map((file, index) => (
+              <div className="cupload-file" key={`${file.name}-${file.size}-${file.lastModified}`}>
+                <CheckCircle2 size={15} />
+                <span title={file.name}>{file.name}</span>
+                <small>{formatBytes(file.size)}</small>
+                <button
+                  type="button"
+                  className="cupload-file-remove"
+                  aria-label={`Remove ${file.name}`}
+                  disabled={disabled}
+                  onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
           </div>
         ) : <p>{copy}</p>}
       </div>
-      {file ? (
-        <button
-          type="button"
-          className="cupload-remove"
-          aria-label={`Remove ${title}`}
-          disabled={disabled}
-          onClick={() => {
-            onChange(null);
-            if (inputRef.current) inputRef.current.value = "";
-          }}
-        >
-          <X size={16} />
-        </button>
-      ) : (
+      {remaining > 0 && (
         <button type="button" className="cscreen-btn" disabled={disabled} onClick={() => inputRef.current?.click()}>
-          <UploadCloud size={15} /> Choose file
+          <UploadCloud size={15} /> {files.length ? "Add another" : `Choose file${maxFiles > 1 ? "s" : ""}`}
         </button>
       )}
     </div>
@@ -122,9 +141,9 @@ function UploadSlot({ id, title, copy, accept, file, icon, disabled, onChange }:
 }
 
 export default function CandidateUploadScreen({ saving, error = null, onBack, onSubmit }: CandidateUploadScreenProps) {
-  const [resume, setResume] = useState<File | null>(null);
-  const [aadhaar, setAadhaar] = useState<File | null>(null);
-  const [passport, setPassport] = useState<File | null>(null);
+  const [resume, setResume] = useState<File[]>([]);
+  const [aadhaar, setAadhaar] = useState<File[]>([]);
+  const [passport, setPassport] = useState<File[]>([]);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -151,13 +170,13 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
   }, []);
 
   const manualIdentityComplete = Boolean(fullName.trim() && (email.trim() || phone.trim()));
-  const canSubmit = Boolean(resume || manualIdentityComplete);
+  const canSubmit = Boolean(resume.length || manualIdentityComplete);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || saving) return;
     onSubmit({
-      resume,
+      resume: resume[0] ?? null,
       aadhaar,
       passport,
       full_name: fullName.trim(),
@@ -183,7 +202,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
         )}
         <button type="submit" className="cscreen-btn is-primary" disabled={!canSubmit || saving}>
           {saving ? <LoaderCircle className="cupload-spin" size={16} /> : <ScanLine size={16} />}
-          {saving ? "Creating candidate..." : resume ? "Extract and add candidate" : "Add candidate"}
+          {saving ? "Creating candidate..." : resume.length ? "Extract and add candidate" : "Add candidate"}
         </button>
       </div>
 
@@ -200,7 +219,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
         <div className="cupload-active" role="status">
           <LoaderCircle className="cupload-spin" size={18} />
           <div>
-            <strong>{resume || aadhaar || passport ? "VeriIS is reading the documents" : "Creating candidate"}</strong>
+            <strong>{resume.length || aadhaar.length || passport.length ? "VeriIS is reading the documents" : "Creating candidate"}</strong>
             <span>You can open another section. The top bar will notify you when this finishes.</span>
           </div>
         </div>
@@ -213,7 +232,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
         </div>
         <div className="cupload-form-grid">
           <label className="cupload-field">
-            <span>Full name {!resume && <em>Required</em>}</span>
+            <span>Full name {!resume.length && <em>Required</em>}</span>
             <input className="modal-input" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Candidate name" autoComplete="name" disabled={saving} />
           </label>
           <label className="cupload-field">
@@ -237,9 +256,9 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
       </section>
 
       <div className="cupload-grid">
-        <UploadSlot id="candidate-resume" title="Resume" copy="PDF, Word, text or a clear image. Maximum 20 MB." accept={RESUME_ACCEPT} file={resume} icon={<FileText size={22} />} disabled={saving} onChange={setResume} />
-        <UploadSlot id="candidate-aadhaar" title="Aadhaar" copy="Upload a clear scan or a PDF containing both sides." accept={IDENTITY_ACCEPT} file={aadhaar} icon={<Fingerprint size={22} />} disabled={saving} onChange={setAadhaar} />
-        <UploadSlot id="candidate-passport" title="Passport" copy="Upload the full passport data page with a readable MRZ." accept={IDENTITY_ACCEPT} file={passport} icon={<ShieldCheck size={22} />} disabled={saving} onChange={setPassport} />
+        <UploadSlot id="candidate-resume" title="Resume" copy="PDF, Word, text or a clear image. Maximum 20 MB." accept={RESUME_ACCEPT} files={resume} icon={<FileText size={22} />} disabled={saving} onChange={setResume} />
+        <UploadSlot id="candidate-aadhaar" title="Aadhaar" copy="Add the front and back as two images, or upload one PDF containing both sides." accept={IDENTITY_ACCEPT} files={aadhaar} maxFiles={2} icon={<Fingerprint size={22} />} disabled={saving} onChange={setAadhaar} />
+        <UploadSlot id="candidate-passport" title="Passport" copy="Add up to two clear passport images, including the data page with a readable MRZ." accept={IDENTITY_ACCEPT} files={passport} maxFiles={2} icon={<ShieldCheck size={22} />} disabled={saving} onChange={setPassport} />
       </div>
 
       <section className="cupload-process" aria-label="Candidate creation process">

@@ -371,8 +371,8 @@ export function updateCandidateProfile(
 /** Create a candidate manually, optionally enriching the profile from documents. */
 export function uploadCandidateDocuments(files: {
   resume?: File | null;
-  aadhaar?: File | null;
-  passport?: File | null;
+  aadhaar?: File[];
+  passport?: File[];
   full_name?: string;
   email?: string;
   phone?: string;
@@ -381,8 +381,8 @@ export function uploadCandidateDocuments(files: {
 }): Promise<CandidateUploadResponse> {
   const body = new FormData();
   if (files.resume) body.append("resume", files.resume);
-  if (files.aadhaar) body.append("aadhaar", files.aadhaar);
-  if (files.passport) body.append("passport", files.passport);
+  files.aadhaar?.forEach((file) => body.append("aadhaar", file));
+  files.passport?.forEach((file) => body.append("passport", file));
   if (files.full_name) body.append("full_name", files.full_name);
   if (files.email) body.append("email", files.email);
   if (files.phone) body.append("phone", files.phone);

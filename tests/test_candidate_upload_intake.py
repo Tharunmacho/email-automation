@@ -126,7 +126,10 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
     }
 
     def run_job(_data, _filename, mode, _key, **_kwargs):
-        result = aadhaar_result if mode == "aadhaar" else passport_result
+        if _filename == "passport-address.jpg":
+            result = {"fields": {"address": "Kochi"}, "confidence": 0.91}
+        else:
+            result = aadhaar_result if mode == "aadhaar" else passport_result
         return SimpleNamespace(job_id=f"job-{mode}"), SimpleNamespace(
             succeeded=True,
             timed_out=False,
@@ -142,14 +145,22 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
          patch("app.services.candidate_upload_intake.identity_records.store_passport_record") as store_passport:
         result = intake_uploaded_candidate(
             resume=upload("meera.pdf", b"resume"),
-            aadhaar=upload("aadhaar.jpg", b"aadhaar", "image/jpeg"),
-            passport=upload("passport.jpg", b"passport", "image/jpeg"),
+            aadhaar=[
+                upload("aadhaar-front.jpg", b"aadhaar-front", "image/jpeg"),
+                upload("aadhaar-back.jpg", b"aadhaar-back", "image/jpeg"),
+            ],
+            passport=[
+                upload("passport-address.jpg", b"passport-address", "image/jpeg"),
+                upload("passport-data.jpg", b"passport-data", "image/jpeg"),
+            ],
             repository=repository,
             uploader_id="admin-1",
             parser=ParsedResume(),
         )
 
-    assert [call.args[2] for call in gateway.call_args_list] == ["aadhaar", "passport"]
+    assert [call.args[2] for call in gateway.call_args_list] == [
+        "aadhaar", "aadhaar", "passport", "passport",
+    ]
     assert result.candidate.profile.full_name == "Meera Nair"
     assert result.candidate.profile.raw_ocr is None
     assert result.candidate.profile.additional_info == {}
@@ -161,14 +172,19 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
     assert result.candidate.cv_required is True
 
     assert set(result.identity) == {"aadhaar", "passport"}
+    assert len(result.identity["aadhaar"]) == 2
+    assert len(result.identity["passport"]) == 2
+    assert result.identity["passport"][0]["printed_fields"] == {"address": "Kochi"}
     assert "provider_debug" not in result.identity["aadhaar"][0]
     assert "aadhaar_number" not in result.identity["aadhaar"][0]
     assert "vid" not in result.identity["aadhaar"][0]
     assert result.identity["aadhaar"][0]["masked_aadhaar_number"] == "XXXXXXXX9017"
-    assert "raw_mrz" not in result.identity["passport"][0]
-    assert result.identity["passport"][0]["check_digits_valid"] is True
+    assert "raw_mrz" not in result.identity["passport"][1]
+    assert result.identity["passport"][1]["check_digits_valid"] is True
     assert store_aadhaar.call_args.kwargs["provider"] == "manual_upload"
     assert store_passport.call_args.kwargs["account_id"] == "admin-1"
+    assert store_aadhaar.call_count == 2
+    assert store_passport.call_count == 2
 
 
 def test_upload_intake_refuses_resume_parser_fallback_instead_of_saving_lower_quality_data():

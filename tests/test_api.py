@@ -282,11 +282,13 @@ def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_res
         assign.return_value = MagicMock(assigned=False)
         response = test_client.post(
             "/candidates/upload",
-            files={
-                "resume": ("meera.pdf", b"resume-bytes", "application/pdf"),
-                "aadhaar": ("aadhaar.jpg", b"aadhaar-bytes", "image/jpeg"),
-                "passport": ("passport.png", b"passport-bytes", "image/png"),
-            },
+            files=[
+                ("resume", ("meera.pdf", b"resume-bytes", "application/pdf")),
+                ("aadhaar", ("aadhaar-front.jpg", b"aadhaar-front", "image/jpeg")),
+                ("aadhaar", ("aadhaar-back.jpg", b"aadhaar-back", "image/jpeg")),
+                ("passport", ("passport-data.png", b"passport-data", "image/png")),
+                ("passport", ("passport-address.png", b"passport-address", "image/png")),
+            ],
         )
 
     assert response.status_code == 201
@@ -301,8 +303,8 @@ def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_res
 
     sent = intake.call_args.kwargs
     assert sent["resume"].data == b"resume-bytes"
-    assert sent["aadhaar"].data == b"aadhaar-bytes"
-    assert sent["passport"].data == b"passport-bytes"
+    assert [upload.data for upload in sent["aadhaar"]] == [b"aadhaar-front", b"aadhaar-back"]
+    assert [upload.data for upload in sent["passport"]] == [b"passport-data", b"passport-address"]
     assert sent["uploader_id"] == "test-user"
     assign.assert_called_once()
 
@@ -397,6 +399,23 @@ def test_upload_candidate_translates_intake_refusal(test_client):
 
     assert response.status_code == 422
     assert "passport MRZ checksum failed" in response.json()["detail"]
+
+
+def test_upload_candidate_refuses_more_than_two_identity_images(test_client):
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate"
+    ) as intake:
+        response = test_client.post(
+            "/candidates/upload",
+            files=[
+                ("aadhaar", (f"aadhaar-{side}.jpg", side.encode(), "image/jpeg"))
+                for side in ("front", "back", "extra")
+            ],
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Upload no more than two Aadhaar files."
+    intake.assert_not_called()
 
 
 def test_import_candidate_preserves_record_and_stores_matching_resume(test_client):

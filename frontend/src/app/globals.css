@@ -12147,6 +12147,11 @@ body {
   font-weight: 650;
 }
 
+.cupload-files {
+  display: grid;
+  gap: 4px;
+}
+
 .cupload-file span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -12157,6 +12162,25 @@ body {
   flex: 0 0 auto;
   color: #64748b;
   font-weight: 500;
+}
+
+.cupload-file-remove {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 7px;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.cupload-file-remove:hover:not(:disabled) {
+  color: #b91c1c;
+  background: #fee2e2;
 }
 
 .cupload-remove {
