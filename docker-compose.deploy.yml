@@ -1,0 +1,105 @@
+# Server deployment: API + Celery worker + Celery beat, against a Redis and a
+# MongoDB that already exist.
+#
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# This is the file to point a Coolify/Portainer stack at. The sibling
+# `docker-compose.yml` is for a laptop: it *provides* Mongo and Redis as
+# containers and pins the services to them. Here both are managed elsewhere and
+# reached over the network, so nothing is declared for them and nothing depends
+# on them starting — the app already survives either being briefly unreachable.
+#
+# All three services run the same image and the same code. Only the command
+# differs, which is the point: a worker that drifts from the API it serves
+# deserializes tasks it does not have.
+#
+#   api     serves HTTP
+#   worker  runs the ingestion tasks the API queues
+#   beat    the timer — the reconciler sweep and the SLA check
+#
+# Without `worker` and `beat` the app still works, but every poll runs inline in
+# the API process and no scheduled sweep ever fires. That is a supported mode,
+# not a broken one; it is simply the one that does not scale past a single
+# server. See `/` on the running API, which reports which mode it is in.
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    # Set these in the deployment's own environment. `REDIS_URL` drives the
+    # distributed locks and `CELERY_BROKER_URL` drives the queue; they address
+    # the same Redis, and leaving REDIS_URL at its localhost default while the
+    # broker points at a real host is the mistake this file exists to prevent —
+    # inside a container `localhost` is that container, so the lock silently
+    # degrades to a per-process one that cannot see the other replicas.
+    REDIS_URL: ${REDIS_URL:?set REDIS_URL to the same Redis as CELERY_BROKER_URL}
+    CELERY_BROKER_URL: ${CELERY_BROKER_URL:?set CELERY_BROKER_URL}
+    CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?set CELERY_RESULT_BACKEND}
+  volumes:
+    # Mailbox credentials and the OAuth token, mounted rather than baked in.
+    - ./secrets:/app/secrets
+    # Shared so a résumé stored by the worker is downloadable through the API
+    # when the storage backend is `local`. On `gridfs` this is unused and
+    # harmless — leave it, so switching backends is a config change only.
+    - app_data:/app/data
+
+services:
+  api:
+    <<: *app
+    container_name: resume_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      # `/` deliberately, not `/health`: this one answers without touching the
+      # database, so a Mongo outage does not also get the container killed and
+      # restarted in a loop while it is trying to reconnect.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  worker:
+    <<: *app
+    container_name: resume_worker
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - worker
+      - --loglevel=INFO
+      # OCR is CPU-bound and each task can hold a core for the better part of a
+      # minute, so this wants to track the host's cores rather than the usual
+      # generous default for I/O-bound queues.
+      - --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
+
+  beat:
+    <<: *app
+    container_name: resume_beat
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/var/lib/resume-ingest/celerybeat-schedule
+    volumes:
+      - ./secrets:/app/secrets
+      - app_data:/app/data
+      # The schedule file records when each periodic task last ran. On a fresh
+      # volume beat fires everything immediately on boot; persisting it keeps
+      # the cadence across a redeploy.
+      - celerybeat_data:/var/lib/resume-ingest
+    # Exactly one beat, ever. Two schedulers against one broker queue every
+    # periodic task twice, which means two reconciler sweeps racing for the same
+    # rows. Scale `worker`; never scale this.
+    deploy:
+      replicas: 1
+
+volumes:
+  app_data:
+  celerybeat_data:

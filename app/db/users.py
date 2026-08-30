@@ -122,8 +122,25 @@ def _normalize(email: str) -> str:
 
 
 class UserRepository:
+    """Repository for user accounts.
+
+    The collection is resolved lazily on every access so that this class can be
+    instantiated at import time (e.g. as a module-level singleton) without
+    opening a MongoClient.  A ``_fixed_coll`` may be supplied by tests that
+    want to inject a mock; callers that don't supply one always get the
+    process-wide shared client.
+    """
+
     def __init__(self, collection=None):
-        self._coll = collection if collection is not None else get_users_collection()
+        # ``None`` means "resolve via get_db() on every call" — see ``_coll``.
+        self._fixed_coll = collection
+
+    @property
+    def _coll(self):
+        """Return the injected collection (tests) or the live one (production)."""
+        if self._fixed_coll is not None:
+            return self._fixed_coll
+        return get_users_collection()
 
     def find_by_email(self, email: str) -> Optional[dict]:
         return self._coll.find_one({"email": _normalize(email)})

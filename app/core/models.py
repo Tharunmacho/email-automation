@@ -75,6 +75,19 @@ class ExtractedDocument(BaseModel):
     classification_confidence: Optional[float] = None
     classification_reason: str = ""
 
+    # The résumé extraction, already paid for.
+    #
+    # Locating the résumé sends its pages to the Veris résumé endpoint for a
+    # better read, and that job's answer carries the structured fields as well
+    # as the text. The parser then used to send the very same pages to the very
+    # same endpoint again for the fields alone — one upload, one extraction and
+    # one wait, all duplicated, differing only in idempotency key. Keeping the
+    # payload here lets the parser use the answer instead of buying it twice.
+    #
+    # None when nothing was uploaded (no API key, a local read, a synchronous
+    # call), and the parser then does exactly what it always did.
+    veris_resume_result: Optional[dict] = None
+
     @property
     def resume_text(self) -> str:
         """Only the pages carrying candidate profile data (all of it if unknown)."""

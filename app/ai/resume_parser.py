@@ -445,30 +445,43 @@ class ResumeParser:
                     from app.extraction.jobs import AsyncOCRJobClient, current_job_context, content_key, OCRJobError
                     from recursai.veris_ocr.models import ResumeResult
 
-                    # The digest of what is actually being uploaded, always:
-                    # the résumé pages are carved out of the bundle here, and
-                    # two carves of the same page are not byte-identical, so a
-                    # key without it is a promise this call cannot keep.
-                    ctx = current_job_context()
-                    digest = content_key(parse_data)
-                    idempotency_key = ctx.key_for("resume_parse", digest) if ctx else digest
-                    
-                    with AsyncOCRJobClient() as job_client:
-                        handle, outcome = job_client.run(
-                            parse_data,
-                            parse_name,
-                            mode="resume",
-                            idempotency_key=idempotency_key,
-                            budget_seconds=settings.veris_timeout_seconds
+                    # Already extracted, when locating the résumé sent these
+                    # same pages to this same endpoint. That job's answer holds
+                    # the structured fields as well as the text it was fetched
+                    # for, so asking again buys nothing: the same upload, the
+                    # same extraction and the same wait, billed a second time.
+                    already = getattr(extracted, "veris_resume_result", None)
+                    if already:
+                        log.info(
+                            "Reusing the résumé extraction already returned for '%s' "
+                            "instead of a second Veris job", filename,
                         )
-                        
-                        if outcome.timed_out:
-                            raise TimeoutError(f"Veris OCR async job timed out after {settings.veris_timeout_seconds}s")
-                        
-                        if not outcome.succeeded:
-                            raise OCRJobError(f"Veris OCR job failed: {outcome.error}")
-                        
-                        res = ResumeResult.from_dict(outcome.result or {})
+                        res = ResumeResult.from_dict(already)
+                    else:
+                        # The digest of what is actually being uploaded, always:
+                        # the résumé pages are carved out of the bundle here, and
+                        # two carves of the same page are not byte-identical, so a
+                        # key without it is a promise this call cannot keep.
+                        ctx = current_job_context()
+                        digest = content_key(parse_data)
+                        idempotency_key = ctx.key_for("resume_parse", digest) if ctx else digest
+
+                        with AsyncOCRJobClient() as job_client:
+                            handle, outcome = job_client.run(
+                                parse_data,
+                                parse_name,
+                                mode="resume",
+                                idempotency_key=idempotency_key,
+                                budget_seconds=settings.veris_timeout_seconds
+                            )
+
+                            if outcome.timed_out:
+                                raise TimeoutError(f"Veris OCR async job timed out after {settings.veris_timeout_seconds}s")
+
+                            if not outcome.succeeded:
+                                raise OCRJobError(f"Veris OCR job failed: {outcome.error}")
+
+                            res = ResumeResult.from_dict(outcome.result or {})
 
                     veris_text = resume_text or ""
                     veris_extracted = extracted.model_copy(update={

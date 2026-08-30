@@ -35,6 +35,7 @@ def _setup_dns_resolver() -> None:
         pass
 
 
+
 @lru_cache(maxsize=1)
 def get_client() -> MongoClient:
     _setup_dns_resolver()

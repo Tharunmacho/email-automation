@@ -18,6 +18,7 @@ and every page is judged before anything is uploaded:
 A file therefore cannot be billed as a resume extraction because of what it was
 called, and an Aadhaar card on the last page of a forty-page bundle cannot be
 missed because the CV was found on page three.
+
 """
 from __future__ import annotations
 
@@ -30,7 +31,7 @@ from app.extraction import file_type as ft
 from app.extraction import local_ocr
 from app.extraction import page_classifier as pc
 from app.extraction import pdf_pages
-from app.extraction.ocr import ocr_via_veris_pages
+from app.extraction.ocr import ocr_via_veris_pages, ocr_via_veris_read
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -132,7 +133,8 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
             "Reading %d of %d page(s) of '%s' locally (no usable text layer)",
             len(targets), page_count, filename or "attachment",
         )
-        fresh = local_ocr.ocr_pdf_page_texts(data, pages=set(targets), filename=filename)
+        reads = local_ocr.ocr_pdf_page_reads(data, pages=set(targets), filename=filename)
+        fresh = {number: read.text for number, read in reads.items()}
         page_texts, ocr_pages = _merge_pages(page_texts, fresh)
         if ocr_pages:
             method = "pdf_ocr"
@@ -167,7 +169,7 @@ def _merge_pages(
 
 def _refine_resume_pages(
     data: bytes, filename: str, page_texts: list[str], resume_pages: list[int],
-) -> list[str]:
+) -> "tuple[list[str], dict | None]":
     """Re-read the résumé pages — and only those — through the Veris endpoint.
 
     This is the one place anything is uploaded, and it runs *after* the local
@@ -177,9 +179,9 @@ def _refine_resume_pages(
     still gets the better read on the two pages that hold it.
     """
     if not (settings.veris_refine_resume_pages and settings.veris_ocr_api_key):
-        return page_texts
+        return page_texts, None
     if not resume_pages:
-        return page_texts
+        return page_texts, None
 
     # Page trim, then size trim — the same treatment the Aadhaar and passport
     # payloads get, for the same reason: a trimmed page still carries the
@@ -190,14 +192,16 @@ def _refine_resume_pages(
         settings.ocr_payload_dpi,
     )
     try:
-        texts = [t or "" for t in ocr_via_veris_pages(payload, filename or "resume.pdf")]
+        read = ocr_via_veris_read(payload, filename or "resume.pdf")
+        texts = [t or "" for t in read.pages]
+        extraction = read.result
     except Exception as exc:  # noqa: BLE001 — the local read already stands
         log.warning("Veris refinement of pages %s failed (%s); keeping the local read",
                     resume_pages, exc)
-        return page_texts
+        return page_texts, None
 
     if not any(t.strip() for t in texts):
-        return page_texts
+        return page_texts, extraction
 
     refined = list(page_texts)
     if len(texts) == len(resume_pages):
@@ -212,7 +216,7 @@ def _refine_resume_pages(
         if len(combined.strip()) > len(refined[resume_pages[0] - 1].strip()):
             refined[resume_pages[0] - 1] = combined
     log.info("Refined résumé page(s) %s of '%s' through Veris", resume_pages, filename)
-    return refined
+    return refined, extraction
 
 
 
@@ -250,8 +254,11 @@ def _classified(
 
     # Only now — with the whole document read and the résumé located — is
     # anything sent out for a better read, and only the pages that hold it.
+    veris_resume_result: dict | None = None
     if data is not None and result.is_resume and result.resume_pages and ocr_pages:
-        refined = _refine_resume_pages(data, filename, page_texts, result.resume_pages)
+        refined, veris_resume_result = _refine_resume_pages(
+            data, filename, page_texts, result.resume_pages
+        )
         if refined is not page_texts:
             page_texts = refined
             result = pc.classify_document(page_texts)
@@ -282,6 +289,7 @@ def _classified(
         is_resume=result.is_resume,
         classification_confidence=result.confidence,
         classification_reason=result.reason,
+        veris_resume_result=veris_resume_result,
     )
 
 

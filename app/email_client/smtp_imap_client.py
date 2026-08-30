@@ -14,6 +14,7 @@ import email.utils
 import imaplib
 import smtplib
 import threading
+from collections import OrderedDict
 from typing import Callable, List, Optional
 
 from app.config import settings
@@ -23,6 +24,29 @@ from app.extraction.file_type import ext_for_mime, is_document_mime
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+class _BoundedBytesCache(OrderedDict):
+    """Fetched message bodies, capped so a long-lived client cannot grow forever.
+
+    A client used to be rebuilt for every poll, which bounded this by accident —
+    the whole object was thrown away. Now that clients survive between polls (so
+    that their connections do), the bound has to be a real one: the values are
+    entire RFC822 messages, attachments included, and a mailbox of scanned
+    bundles is tens of megabytes a cycle.
+
+    Small on purpose. The cache exists so that fetching a message and then
+    labelling it does not go back to the server twice; it was never meant to
+    hold a whole batch.
+    """
+
+    _MAX = 8
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.move_to_end(key)
+        while len(self) > self._MAX:
+            self.popitem(last=False)
 
 
 class _ImapPool:
@@ -144,7 +168,7 @@ class SMTPIMAPClient:
             self.smtp_use_ssl = settings.smtp_use_ssl
 
         # In-memory cache for fetched messages during batch run to avoid re-fetching
-        self._fetched_bytes_cache: dict[str, bytes] = {}
+        self._fetched_bytes_cache: dict[str, bytes] = _BoundedBytesCache()
 
     def _connect_imap(self) -> imaplib.IMAP4:
         if self.imap_use_ssl:

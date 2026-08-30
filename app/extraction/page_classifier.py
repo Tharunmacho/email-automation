@@ -650,6 +650,11 @@ _ID_SEED_SCORE = 3.0
 # the issuing authority — outranks the résumé reading.
 _ID_OVERRIDE_SCORE = 5.0
 
+#: The seed score, published for the extractor's escalation pass. A page that
+#: scores near this but not over it is the case where a better read decides the
+#: outcome, and the extractor needs the number to recognise one.
+ID_SEED_SCORE = _ID_SEED_SCORE
+
 _AADHAAR_MARKERS = {
     "strong": (
         r"unique\s+identification\s+authority\s+of\s+india",
@@ -691,6 +696,18 @@ _PASSPORT_MARKERS = {
         r"type\s*/\s*type[\s\S]{0,80}?country\s+code",
         r"country\s+code\s*/\s*code\s+du\s+pays",
         r"republic\s+of\s+india[\s\S]{0,120}?passport",
+        # The request page, printed inside every Indian passport and on no other
+        # document in the world. It was missing, and its absence is what lost a
+        # real passport: the page read at *ten times* the OCR quality floor, in
+        # clean English, and still scored 0.0 for every kind because the only
+        # "republic of india" marker above also demanded the literal word
+        # "passport" within 120 characters — which sits on the cover, a
+        # different page, and which OCR had rendered as "PAS 5 sf CO @ tT".
+        #
+        # The lesson is in where the bug was. It was never the reader; the text
+        # was perfect. Nothing was looking for it.
+        r"these\s+are\s+to\s+request\s+and\s+require",
+        r"president\s+of\s+the\s+republic\s+of\s+india",
         r"machine\s+readable\s+zone",
         r"holder.?s\s+signature",
         r"place\s+of\s+issue[\s\S]{0,240}?date\s+of\s+expiry",
@@ -714,6 +731,11 @@ _PASSPORT_MARKERS = {
     ),
     "weak": (
         r"passport\s+no\.?",
+        # Weak on its own — it is printed on the passport cover and the request
+        # page, but also crops up in citations on other Indian paperwork. It
+        # earns its half point next to a strong marker rather than deciding
+        # anything by itself.
+        r"republic\s+of\s+india",
         r"date\s+of\s+expiry",
         r"place\s+of\s+issue",
         r"place\s+of\s+birth",
@@ -990,6 +1012,81 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
 
         log.info("Page %d successfully classified as %s!", number, " + ".join(added) if added else "ignored foreign passport")
         page.kind = added[0] if added else ID_DOCUMENT
+
+    # Nationality belongs to the passport, not to the page.
+    #
+    # The filter that holds back a foreign passport reads the issuing country
+    # off the page in front of it — but only the data page carries a nationality
+    # field. The back page of the very same booklet, listing the holder's
+    # parents, has nothing to read, comes back "undetermined", and was dropped:
+    # a genuine Indian passport page, sitting fourteen pages from the data page
+    # that had already been confirmed India at 0.96 confidence.
+    #
+    # So the bundle decides. A page that could not speak for itself takes the
+    # answer from the pages that could — and only when they agree on India. A
+    # page that *did* identify a foreign issuer keeps its own verdict and stays
+    # held back, which is the case the filter exists for.
+    if foreign_passport_pages and passport_pages:
+        confirmed = [
+            passport_verdicts[n].country
+            for n in passport_pages
+            if passport_verdicts.get(n) and passport_verdicts[n].country not in ("", "unknown")
+        ]
+        if confirmed and len(set(confirmed)) == 1:
+            speaks_for_itself = {
+                n for n in foreign_passport_pages
+                if passport_verdicts.get(n) and passport_verdicts[n].country not in ("", "unknown")
+            }
+            adopted = [n for n in foreign_passport_pages if n not in speaks_for_itself]
+            if adopted:
+                log.info(
+                    "Page(s) %s carry no nationality of their own and take the "
+                    "bundle's: %s, settled on page(s) %s",
+                    adopted, confirmed[0], passport_pages,
+                )
+                passport_pages.extend(adopted)
+                passport_pages.sort()
+                foreign_passport_pages = sorted(speaks_for_itself)
+
+    # The inside of the booklet.
+    #
+    # A passport identifies itself on two pages — the request page and the data
+    # page at the front, the parents-and-address page at the back — and says
+    # nothing readable in between. The pages between them are visa stickers and
+    # immigration stamps: small, low-contrast, rotated, printed over security
+    # guilloche, and they OCR to noise however hard the reader is pushed. One of
+    # them carries a Cambodian visa naming the holder and quoting the passport
+    # number, and Tesseract recovers not one word of it.
+    #
+    # They are still passport pages, and the endpoint that reads passports can
+    # read them far better than the local reader can. So they are identified by
+    # position and by silence rather than by content: inside the bracket the
+    # confirmed pages define, and yielding almost nothing readable.
+    #
+    # Both conditions carry weight. The bracket cannot reach past the last page
+    # that proved itself a passport, so it cannot run away down the bundle; and
+    # the certificates in this bundle read 13 to 41 words each, so they exclude
+    # themselves even where one is filed between two passport pages.
+    if settings.passport_include_booklet_interior and len(passport_pages) >= 2:
+        from app.extraction.local_ocr import word_evidence
+
+        first, last = min(passport_pages), max(passport_pages)
+        scored = set(aadhaar_pages) | set(passport_pages) | set(document_pages)
+        interior = []
+        for number in range(first + 1, last):
+            if number in claimed or number in scored:
+                continue
+            text = texts[number - 1] if number - 1 < len(texts) else ""
+            if word_evidence(text) <= settings.passport_booklet_max_words:
+                interior.append(number)
+        if interior:
+            log.info(
+                "Page(s) %s lie between confirmed passport page(s) %s and read as "
+                "nothing: the inside of the same booklet, sent with it",
+                interior, passport_pages,
+            )
+            ignored_pages = [n for n in ignored_pages if n not in set(interior)]
+            passport_pages = sorted(set(passport_pages) | set(interior))
 
     reason = base.reason
     extra = []
