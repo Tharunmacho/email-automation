@@ -169,12 +169,9 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
     return () => { cancelled = true; };
   }, []);
 
-  const manualIdentityComplete = Boolean(fullName.trim() && (email.trim() || phone.trim()));
-  const canSubmit = Boolean(resume.length || manualIdentityComplete);
-
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit || saving) return;
+    if (saving) return;
     onSubmit({
       resume: resume[0] ?? null,
       aadhaar,
@@ -200,7 +197,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
             {saving ? "Creation continues if you leave this section." : "One candidate per submission."}
           </span>
         )}
-        <button type="submit" className="cscreen-btn is-primary" disabled={!canSubmit || saving}>
+        <button type="submit" className="cscreen-btn is-primary" disabled={saving}>
           {saving ? <LoaderCircle className="cupload-spin" size={16} /> : <ScanLine size={16} />}
           {saving ? "Creating candidate..." : resume.length ? "Extract and add candidate" : "Add candidate"}
         </button>
@@ -228,11 +225,11 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
       <section className="cupload-details" aria-labelledby="candidate-details-title">
         <div className="cupload-section-title">
           <h3 id="candidate-details-title">Candidate details</h3>
-          <p>Without a resume, name and either email or phone are required.</p>
+          <p>All details and documents are optional. Add whatever is currently available.</p>
         </div>
         <div className="cupload-form-grid">
           <label className="cupload-field">
-            <span>Full name {!resume.length && <em>Required</em>}</span>
+            <span>Full name</span>
             <input className="modal-input" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Candidate name" autoComplete="name" disabled={saving} />
           </label>
           <label className="cupload-field">

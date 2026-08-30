@@ -101,6 +101,27 @@ def test_manual_intake_creates_candidate_with_preferences_and_no_resume_or_ocr_k
     assert candidate.profile.destination_country == "UAE"
 
 
+def test_manual_intake_allows_an_empty_placeholder_candidate():
+    repository = MemoryRepository()
+
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", ""):
+        result = intake_uploaded_candidate(
+            resume=None,
+            repository=repository,
+            uploader_id="staff-1",
+        )
+
+    candidate = result.candidate
+    assert candidate.source == "manual"
+    assert candidate.profile.full_name is None
+    assert candidate.profile.email is None
+    assert candidate.profile.phone is None
+    assert candidate.email_key is None
+    assert candidate.phone_key is None
+    assert candidate.status == "needs_review"
+    assert repository.get(candidate.id) == candidate
+
+
 def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declared_profile_fields():
     repository = MemoryRepository()
     aadhaar_result = {

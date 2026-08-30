@@ -247,7 +247,12 @@ def intake_uploaded_candidate(
     job_title: str | None = None,
     destination_country: str | None = None,
 ) -> CandidateUploadResult:
-    """Extract uploaded documents or create a manual, CV-less candidate."""
+    """Create a candidate from any available details or documents.
+
+    Every business field is optional. An empty submission intentionally creates
+    a placeholder record that staff can complete later; uploaded files still
+    go through their normal safety and OCR validation.
+    """
     def identity_uploads(
         value: UploadedDocument | Sequence[UploadedDocument] | None,
         document_type: str,
@@ -339,17 +344,6 @@ def intake_uploaded_candidate(
         cleaned = value.strip() if isinstance(value, str) else value
         if cleaned:
             setattr(profile, field, cleaned)
-    if not profile.full_name:
-        raise CandidateUploadError(
-            "Enter the candidate's name or upload a resume containing it.",
-            code="missing_candidate_name",
-        )
-    if not profile.email and not profile.phone:
-        raise CandidateUploadError(
-            "Enter the candidate's email or phone, or upload a resume containing one.",
-            code="missing_candidate_contact",
-        )
-
     email_key = normalize_email(profile.email)
     phone_key = normalize_phone(profile.phone)
     was_deleted = getattr(repository, "was_deleted", None)
