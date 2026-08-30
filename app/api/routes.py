@@ -1423,6 +1423,30 @@ def import_existing_candidate(
     }
 
 
+@app.post("/admin/database/consolidate-adira")
+def consolidate_legacy_database(
+    confirm: str = Form(...),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    """Move the legacy ``adira`` database into canonical ``resume_ats``.
+
+    The confirmation phrase is deliberately specific because a successful
+    verified merge drops the legacy database. The operation is idempotent: if
+    a request is retried before the drop, same-id rows are replaced and unique
+    rows are merged rather than duplicated.
+    """
+    if confirm != "MOVE_ADIRA_TO_RESUME_ATS":
+        raise HTTPException(status_code=400, detail="Invalid database consolidation confirmation.")
+
+    from app.db.consolidation import consolidate_adira_into_resume_ats
+    from app.db.mongo import get_client
+
+    result = consolidate_adira_into_resume_ats(get_client(), drop_legacy=True)
+    if not result["verified"] or not result["legacy_dropped"]:
+        raise HTTPException(status_code=500, detail={"message": "Database consolidation incomplete", **result})
+    return result
+
+
 @app.post("/candidates/{candidate_id}/verify")
 def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
     """Verify a candidate's profile, marking their status as 'verified'."""
