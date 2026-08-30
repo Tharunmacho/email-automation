@@ -5,6 +5,7 @@ ever stored — see app.core.security.
 """
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,6 +24,7 @@ log = get_logger(__name__)
 ADMIN_ROLE = "admin"
 STAFF_ROLE = "staff"
 USERS_COLLECTION = "users"
+USER_DELETIONS_COLLECTION = "user_deletions"
 LEGACY_DEMO_STAFF_EMAIL = "staff@gmail.com"
 
 #: Every page a permission can be granted for.
@@ -121,6 +123,21 @@ def _normalize(email: str) -> str:
     return (email or "").strip().lower()
 
 
+def _email_fingerprint(email: str) -> str:
+    return hashlib.sha256(_normalize(email).encode("utf-8")).hexdigest()
+
+
+def ensure_user_deletion_indexes() -> None:
+    from app.db.mongo import ensure_index
+
+    ensure_index(
+        get_db()[USER_DELETIONS_COLLECTION],
+        [("email_fingerprint", ASCENDING)],
+        "user_deletion_email_idx",
+        unique=True,
+    )
+
+
 class UserRepository:
     """Repository for user accounts.
 
@@ -144,6 +161,11 @@ class UserRepository:
 
     def find_by_email(self, email: str) -> Optional[dict]:
         return self._coll.find_one({"email": _normalize(email)})
+
+    def was_deleted_email(self, email: str) -> bool:
+        return self._coll.database[USER_DELETIONS_COLLECTION].count_documents(
+            {"email_fingerprint": _email_fingerprint(email)}, limit=1
+        ) > 0
 
     def get(self, user_id: str) -> Optional[User]:
         doc = self._coll.find_one({"_id": user_id})
@@ -210,6 +232,12 @@ class UserRepository:
         if role == STAFF_ROLE:
             doc["staff_code"] = staff_code(user_id)
         self._coll.insert_one(doc)
+        # An administrator explicitly creating this address is an intentional
+        # restoration. Automatic startup seeding checks the tombstone first and
+        # never reaches this method for a deleted seed account.
+        self._coll.database[USER_DELETIONS_COLLECTION].delete_one(
+            {"email_fingerprint": _email_fingerprint(email)}
+        )
         log.info("Created user %s (%s)", email, role)
         return self._to_user(doc)
 
@@ -273,6 +301,9 @@ class UserRepository:
             "last_login_at": None,
         }
         self._coll.insert_one(doc)
+        self._coll.database[USER_DELETIONS_COLLECTION].delete_one(
+            {"email_fingerprint": _email_fingerprint(email)}
+        )
         log.info("Created staff user %s", email)
         return self._to_user(doc)
 
@@ -374,9 +405,43 @@ class UserRepository:
         self._coll.update_one({"_id": staff_id}, {"$set": updates})
         return self.get(staff_id)
 
+    def delete_user(self, user_id: str, *, role: str | None = None) -> bool:
+        """Hard-delete an account and invalidate its sessions immediately.
+
+        A one-way email fingerprint prevents startup seeding from silently
+        restoring a deleted configured/demo account. An admin can still restore
+        it deliberately by creating the address again through User Management.
+        """
+        query: dict = {"_id": user_id}
+        if role:
+            query["role"] = role
+        doc = self._coll.find_one(query)
+        if not doc:
+            return False
+
+        tombstone = {
+            "_id": user_id,
+            "email_fingerprint": _email_fingerprint(doc.get("email", "")),
+            "deleted_at": utcnow(),
+        }
+        deletions = self._coll.database[USER_DELETIONS_COLLECTION]
+        deletions.replace_one({"_id": user_id}, tombstone, upsert=True)
+        try:
+            res = self._coll.delete_one(query)
+        except Exception:
+            deletions.delete_one({"_id": user_id})
+            raise
+        if not res.deleted_count:
+            deletions.delete_one({"_id": user_id})
+            return False
+
+        # A deleted account has no notification feed. Removing these rows also
+        # keeps user-specific data from surviving after the account is gone.
+        self._coll.database["notifications"].delete_many({"user_id": user_id})
+        return True
+
     def delete_staff(self, staff_id: str) -> bool:
-        res = self._coll.delete_one({"_id": staff_id, "role": STAFF_ROLE})
-        return res.deleted_count > 0
+        return self.delete_user(staff_id, role=STAFF_ROLE)
 
     def set_password(self, email: str, password: str) -> bool:
         res = self._coll.update_one(
@@ -391,19 +456,20 @@ class UserRepository:
 
 def ensure_seed_user(email: str, password: str, name: str = "Administrator") -> None:
     repo = UserRepository()
+    was_deleted = getattr(repo, "was_deleted_email", lambda _email: False)
     if email and password:
         existing = repo.find_by_email(email)
-        if not existing:
+        if not existing and not was_deleted(email):
             repo.create(email=email, password=password, name=name, role="admin")
             log.info("Seeded initial admin account: %s", email)
-        else:
+        elif existing:
             repo.set_password(email, password)
 
     from app.config import settings
 
     if settings.demo_admin_email and settings.demo_admin_password:
         existing_demo_admin = repo.find_by_email(settings.demo_admin_email)
-        if not existing_demo_admin:
+        if not existing_demo_admin and not was_deleted(settings.demo_admin_email):
             repo.create(
                 email=settings.demo_admin_email,
                 password=settings.demo_admin_password,
@@ -411,7 +477,7 @@ def ensure_seed_user(email: str, password: str, name: str = "Administrator") -> 
                 role="admin",
             )
             log.info("Seeded demo admin account: %s", settings.demo_admin_email)
-        else:
+        elif existing_demo_admin:
             repo.set_password(settings.demo_admin_email, settings.demo_admin_password)
 
 def ensure_demo_accounts(
@@ -427,8 +493,14 @@ def ensure_demo_accounts(
     Returns the addresses actually created, so a boot log can say what it did.
     """
     repo = UserRepository()
+    was_deleted = getattr(repo, "was_deleted_email", lambda _email: False)
     created: list[str] = []
-    if admin_email and admin_password and not repo.find_by_email(admin_email):
+    if (
+        admin_email
+        and admin_password
+        and not repo.find_by_email(admin_email)
+        and not was_deleted(admin_email)
+    ):
         repo.create(
             email=admin_email,
             password=admin_password,

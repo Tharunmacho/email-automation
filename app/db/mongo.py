@@ -174,12 +174,15 @@ def ensure_indexes() -> None:
     from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
     from app.db.notifications import ensure_notification_indexes
+    from app.db.repository import ensure_candidate_deletion_indexes
     from app.db.taxonomy import ensure_taxonomy_indexes, seed_taxonomy
-    from app.db.users import ensure_user_indexes
+    from app.db.users import ensure_user_deletion_indexes, ensure_user_indexes
 
     ensure_ledger_indexes()
     ensure_user_indexes()
+    ensure_user_deletion_indexes()
     ensure_notification_indexes()
+    ensure_candidate_deletion_indexes()
     # Manpower requirements the bot collects from agents. The unique index on
     # `idempotency_key` is the one that matters: without it a retried
     # submission becomes a second vacancy and the agency fills one job twice.

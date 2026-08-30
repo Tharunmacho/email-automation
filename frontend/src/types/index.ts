@@ -477,7 +477,7 @@ export interface IdentityDocuments {
   passport: PassportRecord[];
 }
 
-/** Curated result returned after VeriIS processes candidate uploads. */
+/** Curated result returned after manual entry and any optional OCR. */
 export interface CandidateUploadResponse {
   candidate: CandidateRecord;
   identity: {
@@ -485,7 +485,7 @@ export interface CandidateUploadResponse {
     passport: PassportRecord[];
   };
   processed: Array<"resume" | "aadhaar" | "passport">;
-  ocr_provider: "VeriIS";
+  ocr_provider: "VeriIS" | "manual";
 }
 
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */

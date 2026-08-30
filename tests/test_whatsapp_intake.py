@@ -39,7 +39,7 @@ from app.core.models import (
     StoredResume,
 )
 from app.policy.cv_policy import is_cv_required, reset_policy_cache
-from app.services.candidate_intake import intake_whatsapp_candidate
+from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
 
 SERVICE_KEY = "test-service-key-12345"
 
@@ -180,6 +180,24 @@ def wa_profile(**overrides) -> CandidateProfile:
     )
     base.update(overrides)
     return CandidateProfile(**base)
+
+
+def test_deleted_whatsapp_candidate_cannot_be_recreated_by_a_retry():
+    class DeletedRepo(FakeRepo):
+        def was_deleted(self, **signals):
+            assert signals["idempotency_key"] == "whatsapp/111/919876543210"
+            assert signals["phone_key"] == "9876543210"
+            return True
+
+    with pytest.raises(IntakeError) as excinfo:
+        intake_whatsapp_candidate(
+            profile=wa_profile(),
+            idempotency_key="whatsapp/111/919876543210",
+            repo=DeletedRepo(),
+        )
+
+    assert excinfo.value.status_code == 410
+    assert excinfo.value.code == "CANDIDATE_DELETED"
 
 
 @pytest.fixture(autouse=True)

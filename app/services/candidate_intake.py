@@ -114,6 +114,16 @@ def intake_whatsapp_candidate(
     # Before anything else, and before any policy work: a retry must be cheap
     # and must not re-run decisions that were already made and recorded.
     phone_key = normalize_phone(profile.phone)
+    was_deleted = getattr(repo, "was_deleted", None)
+    if callable(was_deleted) and was_deleted(
+        idempotency_key=idempotency_key,
+        phone_key=phone_key,
+    ):
+        raise IntakeError(
+            "this candidate was deleted in the CRM and cannot be recreated by a bot retry",
+            410,
+            "CANDIDATE_DELETED",
+        )
     existing, matched_on = _resolve_identity(repo, profile, phone_key, idempotency_key)
     if existing:
         return _refresh_existing(

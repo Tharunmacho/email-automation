@@ -24,6 +24,7 @@ import {
   Lock,
   Pencil,
   RefreshCw,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -34,6 +35,7 @@ import Select from "@/components/ui/Select";
 import { initialsOf, timeAgo } from "@/lib/format";
 import {
   createUserAPI,
+  deleteUserAPI,
   listUsersAPI,
   updateUserAPI,
   type ManagedUser,
@@ -231,6 +233,29 @@ export default function UserManagementScreen({
     }
   };
 
+  const remove = async (user: ManagedUser) => {
+    if (user.id === currentUserId) {
+      say("You cannot delete your own signed-in account.", "error");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Permanently delete ${user.name || user.email}? The account will be removed from the database and cannot sign in again.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await deleteUserAPI(user.id);
+      const moved = result.reallocated ? ` ${result.reallocated} candidate(s) were reassigned.` : "";
+      say(`${user.email} deleted permanently.${moved}`, "success");
+      if (editing?.id === user.id) setEditing(null);
+      await load();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "Could not delete the user", "error");
+    }
+  };
+
   if (loading) {
     return (
       <section className="db-card">
@@ -366,6 +391,25 @@ export default function UserManagementScreen({
                         >
                           <Pencil size={14} />
                           Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="ds-ghost-btn is-sm is-danger"
+                          onClick={() => void remove(user)}
+                          disabled={
+                            user.id === currentUserId
+                            || (user.role === "admin" && user.active && activeAdmins <= 1)
+                          }
+                          title={
+                            user.id === currentUserId
+                              ? "You cannot delete your own account"
+                              : user.role === "admin" && user.active && activeAdmins <= 1
+                                ? "Promote another administrator before deleting this account"
+                                : "Permanently delete this account"
+                          }
+                        >
+                          <Trash2 size={14} />
+                          Delete
                         </button>
                       </div>
                     </td>

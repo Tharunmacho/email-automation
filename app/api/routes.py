@@ -560,6 +560,8 @@ def _post_delete_cleanup(
     storage_key: str | None,
     message_ids: list[str],
     identity: dict | None = None,
+    storage_backend: str | None = None,
+    linked_storage: list[dict] | None = None,
 ) -> None:
     """Slow, best-effort cleanup for a deleted candidate.
 
@@ -568,11 +570,28 @@ def _post_delete_cleanup(
     of network time would otherwise be charged to the caller. Neither step
     changes what the API returned, and both are safe to lose.
     """
+    storage_refs = list(linked_storage or [])
     if storage_key:
+        storage_refs.append({
+            "storage_key": storage_key,
+            "storage_backend": storage_backend,
+            "shared_with_resume": False,
+        })
+
+    deleted_keys: set[tuple[str, str]] = set()
+    for item in storage_refs:
+        key = item.get("storage_key")
+        backend_name = item.get("storage_backend") or settings.storage_backend
+        if not key or item.get("shared_with_resume"):
+            continue
+        identity_key = (backend_name, key)
+        if identity_key in deleted_keys:
+            continue
         try:
-            get_storage_backend().delete(storage_key)
+            get_storage_backend(backend_name).delete(key)
+            deleted_keys.add(identity_key)
         except Exception as err:
-            log.warning("Could not delete stored resume %s: %s", storage_key, err)
+            log.warning("Could not delete stored candidate file %s: %s", key, err)
 
     if message_ids:
         try:
@@ -631,18 +650,37 @@ def delete_candidate(
     background: BackgroundTasks,
     _user: dict = Depends(require_admin),
 ) -> dict:
-    rec = repo().get(candidate_id)
+    repository = repo()
+    rec = repository.get(candidate_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     msg_id = rec.source_email.message_id if rec.source_email else None
     res_hash = rec.resume.sha256 if (rec.resume and rec.resume.sha256) else rec.resume_hash
 
-    # Drop the document first: it is the authoritative step, so nothing else in
-    # the handler can widen the window for a concurrent delete.
+    # Record privacy-safe source fingerprints first. The full candidate is still
+    # hard-deleted; this tiny tombstone is what prevents Gmail or the WhatsApp
+    # bot from recreating the person on their next retry.
+    record_deletion = getattr(repository, "record_deletion", None)
+    if callable(record_deletion):
+        try:
+            record_deletion(rec)
+        except Exception as err:
+            log.exception("Could not record deletion guard for candidate %s", candidate_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Candidate was not deleted because suppression could not be recorded: {err}",
+            ) from err
+
     try:
-        removed = repo().delete(candidate_id)
+        removed = repository.delete(candidate_id)
     except Exception as err:
+        discard_deletion = getattr(repository, "discard_deletion", None)
+        if callable(discard_deletion):
+            try:
+                discard_deletion(candidate_id)
+            except Exception:  # noqa: BLE001 - retain the original delete error
+                log.exception("Could not roll back candidate deletion guard %s", candidate_id)
         log.exception("Deleting candidate %s failed", candidate_id)
         raise HTTPException(status_code=500, detail=f"Failed to delete candidate: {err}") from err
 
@@ -667,7 +705,26 @@ def delete_candidate(
     # window re-ingested the candidate that was just deleted.
     cleared = ledger.retire_candidate(candidate_id, message_ids, resume_hash=res_hash)
 
+    related = {
+        "identity_records": 0,
+        "notifications": 0,
+        "sla_alerts": 0,
+        "ingestion_state": 0,
+        "storage_refs": [],
+    }
+    delete_related = getattr(repository, "delete_related", None)
+    if callable(delete_related):
+        try:
+            related = delete_related(candidate_id)
+        except Exception as err:
+            log.exception("Candidate %s was deleted but related-row cleanup failed", candidate_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Candidate deleted, but related database cleanup failed: {err}",
+            ) from err
+
     storage_key = rec.resume.storage_key if rec.resume else None
+    storage_backend = rec.resume.storage_backend if rec.resume else None
     source = rec.source_email
     identity = {
         # `thread_id` is where the IMAP client stores the RFC822 Message-ID.
@@ -675,12 +732,23 @@ def delete_candidate(
         "subject": getattr(source, "subject", "") or "",
         "from_addr": getattr(source, "from_addr", "") or "",
     } if source else {}
-    background.add_task(_post_delete_cleanup, storage_key, message_ids, identity)
+    background.add_task(
+        _post_delete_cleanup,
+        storage_key,
+        message_ids,
+        identity,
+        storage_backend,
+        related.get("storage_refs") or [],
+    )
 
     return {
         "status": "success",
         "message": f"Candidate {candidate_id} deleted permanently",
         "cleared_entries": cleared,
+        "deleted_related": {
+            key: related.get(key, 0)
+            for key in ("identity_records", "notifications", "sla_alerts", "ingestion_state")
+        },
     }
 
 
@@ -1251,16 +1319,21 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
 
 @app.post("/candidates/upload", status_code=201)
 def create_candidate_from_uploads(
-    resume: UploadFile = File(...),
+    resume: UploadFile | None = File(default=None),
     aadhaar: UploadFile | None = File(default=None),
     passport: UploadFile | None = File(default=None),
+    full_name: str = Form(default=""),
+    email: str = Form(default=""),
+    phone: str = Form(default=""),
+    job_id: str = Form(default=""),
+    destination_country: str = Form(default=""),
     uploader: dict = Depends(require_page("candidate-entry")),
 ) -> dict:
-    """Create a candidate from files whose facts are extracted by VeriIS.
+    """Create a candidate manually, with optional VeriIS document extraction.
 
-    The route intentionally accepts no profile JSON.  Candidate, passport and
-    Aadhaar fields originate from the uploaded documents and the API response
-    contains only their curated projections, never VeriIS' raw payload.
+    Recruiter-entered job and country preferences are resolved against active
+    taxonomy rows. Uploaded files remain optional and the response contains
+    only curated projections, never VeriIS' raw payload.
     """
     from app.services.candidate_upload_intake import (
         CandidateUploadError,
@@ -1275,14 +1348,48 @@ def create_candidate_from_uploads(
             mime_type=file.content_type or "application/octet-stream",
         )
 
+    from app.db.taxonomy import get_job, list_countries
+
+    chosen_job = None
+    if job_id.strip():
+        chosen_job = get_job(job_id.strip())
+        if not chosen_job or not chosen_job.get("active", True):
+            raise HTTPException(status_code=422, detail="Select an active job preference.")
+
+    chosen_country = None
+    if destination_country.strip():
+        requested_country = destination_country.strip().casefold()
+        chosen_country = next(
+            (
+                country
+                for country in list_countries(active_only=True)
+                if requested_country
+                in {
+                    str(country.get("id") or "").casefold(),
+                    str(country.get("name") or "").casefold(),
+                }
+            ),
+            None,
+        )
+        if not chosen_country:
+            raise HTTPException(status_code=422, detail="Select an active country preference.")
+
     repository = repo()
     try:
         result = intake_uploaded_candidate(
-            resume=uploaded(resume, "resume.pdf"),
+            resume=uploaded(resume, "resume.pdf") if resume else None,
             aadhaar=uploaded(aadhaar, "aadhaar.jpg") if aadhaar else None,
             passport=uploaded(passport, "passport.jpg") if passport else None,
             repository=repository,
             uploader_id=str(uploader.get("id") or ""),
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            job_id=str(chosen_job.get("id") or "") if chosen_job else None,
+            job_title=str(chosen_job.get("title") or "") if chosen_job else None,
+            destination_country=(
+                str(chosen_country.get("name") or "") if chosen_country else None
+            ),
         )
     except CandidateUploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
@@ -1332,11 +1439,11 @@ def create_candidate_from_uploads(
         "candidate": candidate,
         "identity": result.identity,
         "processed": [
-            "resume",
+            *(["resume"] if resume else []),
             *(["aadhaar"] if aadhaar else []),
             *(["passport"] if passport else []),
         ],
-        "ocr_provider": "VeriIS",
+        "ocr_provider": "VeriIS" if (resume or aadhaar or passport) else "manual",
     }
 
 
@@ -3074,7 +3181,9 @@ class JobQuestionIn(BaseModel):
 
 
 @app.get("/job-designations")
-def list_job_designations(_user: dict = Depends(require_page("data-management"))) -> dict:
+def list_job_designations(
+    _user: dict = Depends(require_page("data-management", "candidate-entry")),
+) -> dict:
     from app.db.taxonomy import list_jobs
 
     return {"items": list_jobs()}
@@ -3148,7 +3257,9 @@ def retire_job_designation(job_id: str, _user: dict = Depends(require_page("data
 
 
 @app.get("/countries")
-def list_country_rows(_user: dict = Depends(require_page("data-management"))) -> dict:
+def list_country_rows(
+    _user: dict = Depends(require_page("data-management", "candidate-entry")),
+) -> dict:
     from app.db.taxonomy import list_countries
 
     return {"items": list_countries()}
@@ -3559,6 +3670,43 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
 
     log.info("User %s updated by %s", updated.email, admin.get("email"))
     return {"status": "ok", "user": updated.to_public()}
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> dict:
+    """Permanently remove an account from MongoDB.
+
+    Existing bearer tokens stop working immediately because every authenticated
+    request resolves its subject against the ``users`` collection. Staff-owned
+    queues are redistributed using the same rules as the Staff screen.
+    """
+    target = users.get(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_id == admin.get("id"):
+        raise HTTPException(status_code=409, detail="You cannot delete your own signed-in account.")
+    if target.role == ADMIN_ROLE and target.active and users.count_active_admins() <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This is the last active administrator; promote someone else first.",
+        )
+
+    deleted = users.delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    outcome = (
+        redistribute_from_staff(user_id, repo=repo(), users=users)
+        if target.role == STAFF_ROLE
+        else {"reallocated": 0, "orphaned": 0}
+    )
+    log.info("User %s permanently deleted by %s", target.email, admin.get("email"))
+    return {
+        "status": "deleted",
+        "id": user_id,
+        "reallocated": outcome.get("reallocated", 0),
+        "orphaned": outcome.get("orphaned", 0),
+    }
 
 
 # Serve the static files from the Next.js export, when the build produced any.

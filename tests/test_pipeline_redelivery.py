@@ -1,10 +1,7 @@
-"""Deleting a candidate must let the same resume in again.
+"""Deleting a candidate must prevent automated ingestion from restoring it.
 
-The rule the app promises: a *deleted* candidate's original emails are retired
-(labelled `Resumes/Deleted`, excluded by the Gmail query), but if that person
-sends the very same file again from a new email, it ingests as a brand-new
-candidate. That only holds if the delete cleared the ledger rows keyed on the
-resume hash — these tests pin both halves.
+The original emails and the content hash are both suppressed, so mailbox
+retries and forwarded copies cannot recreate a permanently deleted candidate.
 """
 from typing import Optional
 
@@ -69,7 +66,7 @@ class FakeLedger:
                           "candidate_id": candidate_id, "status": status, "suppressed": False})
 
     def retire_candidate(self, candidate_id, message_ids, resume_hash=None):
-        """Mirrors IngestLedger: hash-keyed rows go, message tombstones arrive."""
+        """Mirrors IngestLedger: message and hash tombstones both survive."""
         self.rows = [r for r in self.rows
                      if r["candidate_id"] != candidate_id
                      and r["resume_hash"] != resume_hash
@@ -78,7 +75,11 @@ class FakeLedger:
             self.rows.append({"message_id": mid, "resume_hash": "__deleted__",
                               "candidate_id": candidate_id, "status": "deleted",
                               "suppressed": True})
-        return len(message_ids)
+        if resume_hash:
+            self.rows.append({"message_id": "__manual__", "resume_hash": resume_hash,
+                              "candidate_id": candidate_id, "status": "deleted",
+                              "suppressed": True})
+        return len(message_ids) + int(bool(resume_hash))
 
 
 class FakeStorage:
@@ -136,7 +137,7 @@ def test_same_file_from_a_new_email_is_a_duplicate_while_the_candidate_lives(par
     assert len(repo.records) == 1
 
 
-def test_same_file_ingests_as_new_after_the_candidate_is_deleted(parts):
+def test_same_file_from_a_new_email_stays_deleted(parts):
     pipeline, repo, ledger = parts
     first = pipeline.process_email(_email("msg-original"))
     candidate_id = first.ingested_ids[0]
@@ -145,12 +146,12 @@ def test_same_file_ingests_as_new_after_the_candidate_is_deleted(parts):
     repo.delete(candidate_id)
     ledger.retire_candidate(candidate_id, ["msg-original"], resume_hash=RESUME_HASH)
 
-    # A new email carrying the identical file ingests as a new candidate.
+    # A new email carrying the identical file must not recreate the candidate.
     again = pipeline.process_email(_email("msg-sent-again"))
 
-    assert again.status == "processed", "re-sent resume must ingest as a new candidate"
-    assert again.ingested_ids and again.ingested_ids[0] != candidate_id
-    assert len(repo.records) == 1
+    assert again.status == "skipped"
+    assert again.attachments[0].status == "suppressed"
+    assert repo.records == {}
 
 
 def test_the_deleted_candidates_own_email_is_never_ingested_again(parts):

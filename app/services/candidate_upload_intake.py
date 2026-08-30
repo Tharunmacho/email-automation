@@ -197,7 +197,8 @@ def _rollback_created_candidate(repository, candidate_id: str, resume, files: li
         log.exception("Could not remove identity rows while rolling back candidate %s", candidate_id)
 
     seen: set[tuple[str, str]] = set()
-    for block in [*files, resume.model_dump(mode="python")]:
+    resume_block = resume.model_dump(mode="python") if resume is not None else None
+    for block in [*files, resume_block]:
         if not block or block.get("shared_with_resume"):
             continue
         key = block.get("storage_key")
@@ -219,15 +220,21 @@ def _rollback_created_candidate(repository, candidate_id: str, resume, files: li
 
 def intake_uploaded_candidate(
     *,
-    resume: UploadedDocument,
+    resume: UploadedDocument | None,
     repository,
     uploader_id: str,
     aadhaar: UploadedDocument | None = None,
     passport: UploadedDocument | None = None,
     parser: ResumeParser | None = None,
+    full_name: str | None = None,
+    email: str | None = None,
+    phone: str | None = None,
+    job_id: str | None = None,
+    job_title: str | None = None,
+    destination_country: str | None = None,
 ) -> CandidateUploadResult:
-    """Extract, validate and persist one candidate from uploaded documents."""
-    if not settings.veris_ocr_api_key:
+    """Extract uploaded documents or create a manual, CV-less candidate."""
+    if (resume or aadhaar or passport) and not settings.veris_ocr_api_key:
         raise CandidateUploadError(
             "VeriIS OCR is not configured. Add VERIS_OCR_API_KEY before uploading candidates.",
             status_code=503,
@@ -235,7 +242,8 @@ def intake_uploaded_candidate(
         )
 
     try:
-        validate_resume(resume.data, resume.mime_type)
+        if resume:
+            validate_resume(resume.data, resume.mime_type)
         if aadhaar:
             identity_files.validate_identity(aadhaar.data, aadhaar.mime_type)
         if passport:
@@ -243,55 +251,91 @@ def intake_uploaded_candidate(
     except (ResumeRejected, identity_files.IdentityRejected) as exc:
         raise CandidateUploadError(exc.message, code=exc.code) from exc
 
-    resume_hash = sha256_hex(resume.data)
-    existing = repository.find_by_resume_hash(resume_hash)
-    if existing:
-        raise CandidateUploadError(
-            f"This resume already belongs to {existing.profile.full_name or existing.candidate_code}.",
-            status_code=409,
-            code="duplicate_resume",
+    resume_hash = sha256_hex(resume.data) if resume else None
+    extracted_resume = None
+    if resume:
+        existing = repository.find_by_resume_hash(resume_hash)
+        if existing:
+            raise CandidateUploadError(
+                f"This resume already belongs to {existing.profile.full_name or existing.candidate_code}.",
+                status_code=409,
+                code="duplicate_resume",
+            )
+
+        try:
+            parsed, extracted_resume = (parser or ResumeParser()).parse_file(
+                resume.data, resume.filename
+            )
+        except Exception as exc:  # noqa: BLE001 - expose a stable upload contract
+            raise CandidateUploadError(
+                f"VeriIS could not read the resume: {exc}",
+                status_code=502,
+                code="resume_ocr_failed",
+            ) from exc
+
+        source = str((parsed.additional_info or {}).get("extraction_source") or "")
+        if source != "veris_ocr_api":
+            raise CandidateUploadError(
+                "VeriIS did not return a structured resume result. The candidate was not created.",
+                status_code=502,
+                code="resume_veris_failed",
+            )
+        if not parsed.is_resume:
+            raise CandidateUploadError("The uploaded file is not a candidate resume.", code="not_a_resume")
+        if parsed.confidence < settings.min_ingest_confidence:
+            raise CandidateUploadError(
+                f"The resume confidence is too low ({parsed.confidence:.0%}). Upload a clearer resume.",
+                code="low_resume_confidence",
+            )
+        profile = _curated_profile(parsed)
+    else:
+        profile = CandidateProfile(
+            is_resume=False,
+            confidence=0.0,
+            full_name=(full_name or "").strip() or None,
+            email=(email or "").strip() or None,
+            phone=(phone or "").strip() or None,
         )
 
-    try:
-        parsed, extracted_resume = (parser or ResumeParser()).parse_file(
-            resume.data, resume.filename
-        )
-    except Exception as exc:  # noqa: BLE001 - expose a stable upload contract
-        raise CandidateUploadError(
-            f"VeriIS could not read the resume: {exc}",
-            status_code=502,
-            code="resume_ocr_failed",
-        ) from exc
-
-    source = str((parsed.additional_info or {}).get("extraction_source") or "")
-    if source != "veris_ocr_api":
-        raise CandidateUploadError(
-            "VeriIS did not return a structured resume result. The candidate was not created.",
-            status_code=502,
-            code="resume_veris_failed",
-        )
-    if not parsed.is_resume:
-        raise CandidateUploadError("The uploaded file is not a candidate resume.", code="not_a_resume")
-    if parsed.confidence < settings.min_ingest_confidence:
-        raise CandidateUploadError(
-            f"The resume confidence is too low ({parsed.confidence:.0%}). Upload a clearer resume.",
-            code="low_resume_confidence",
-        )
-
-    profile = _curated_profile(parsed)
+    # Recruiter-entered current preferences take precedence over an older CV.
+    manual_overrides = {
+        "full_name": full_name,
+        "email": email,
+        "phone": phone,
+        "job_id": job_id,
+        "job_category": job_id,
+        "job_title": job_title,
+        "job_preference": job_title,
+        "destination_country": destination_country,
+    }
+    for field, value in manual_overrides.items():
+        cleaned = value.strip() if isinstance(value, str) else value
+        if cleaned:
+            setattr(profile, field, cleaned)
     if not profile.full_name:
         raise CandidateUploadError(
-            "VeriIS could not find the candidate's name in the resume.",
+            "Enter the candidate's name or upload a resume containing it.",
             code="missing_candidate_name",
         )
     if not profile.email and not profile.phone:
         raise CandidateUploadError(
-            "VeriIS could not find an email address or phone number in the resume.",
+            "Enter the candidate's email or phone, or upload a resume containing one.",
             code="missing_candidate_contact",
         )
 
     email_key = normalize_email(profile.email)
     phone_key = normalize_phone(profile.phone)
+    was_deleted = getattr(repository, "was_deleted", None)
+    if callable(was_deleted) and was_deleted(
+        email_key=email_key,
+        phone_key=phone_key,
+        resume_hash=resume_hash,
+    ):
+        raise CandidateUploadError(
+            "This candidate was deleted from the CRM and cannot be imported again.",
+            status_code=410,
+            code="candidate_deleted",
+        )
     person = repository.find_by_email_or_phone(email_key, phone_key)
     if person:
         raise CandidateUploadError(
@@ -318,19 +362,21 @@ def intake_uploaded_candidate(
         passport_key = normalize_passport(profile.passport_number)
 
     candidate_id = uuid.uuid4().hex
-    stored_resume = store_resume(
-        candidate_id=candidate_id,
-        data=resume.data,
-        filename=resume.filename,
-        mime_type=resume.mime_type,
-    )
-    stored_resume.extraction_method = extracted_resume.method
-    stored_resume.ocr_used = True
+    stored_resume = None
+    if resume:
+        stored_resume = store_resume(
+            candidate_id=candidate_id,
+            data=resume.data,
+            filename=resume.filename,
+            mime_type=resume.mime_type,
+        )
+        stored_resume.extraction_method = extracted_resume.method
+        stored_resume.ocr_used = True
 
     now = utcnow()
     record = CandidateRecord(
         id=candidate_id,
-        source="upload",
+        source="upload" if resume else "manual",
         profile=profile,
         resume=stored_resume,
         resume_hash=resume_hash,
@@ -339,7 +385,7 @@ def intake_uploaded_candidate(
         passport_key=passport_key,
         passport_key_source="ocr" if passport_key else None,
         status="needs_review" if profile.confidence < 0.55 else "ingested",
-        cv_required=True,
+        cv_required=bool(resume),
         ingested_at=now,
         processed_at=now,
         created_at=now,
