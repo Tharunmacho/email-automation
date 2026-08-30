@@ -18,13 +18,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.config import settings
 
-ATLAS_URI = "mongodb+srv://tharunroobika_db_user:tharun2005@cluster0.mklmjv3.mongodb.net/"
-DB_NAME = "resume_ats"
+ATLAS_URI = os.environ.get("OLD_MONGO_URI", "").strip()
+DB_NAME = os.environ.get("OLD_MONGO_DB", "resume_ats").strip()
 BACKUP_DIR = Path("data/atlas_backup")
 
 
 def export_from_atlas():
-    print(f"Connecting to MongoDB Atlas at {ATLAS_URI}...")
+    if not ATLAS_URI:
+        raise SystemExit("Set OLD_MONGO_URI before running this migration.")
+    print(f"Connecting to old MongoDB database '{DB_NAME}'...")
     atlas_client = MongoClient(ATLAS_URI, serverSelectionTimeoutMS=15000)
     atlas_db = atlas_client[DB_NAME]
     
@@ -52,7 +54,7 @@ def export_from_atlas():
 
 def import_to_target(data_by_coll):
     target_uri = settings.mongo_uri
-    print(f"\nAttempting migration to target MongoDB at {target_uri}...")
+    print(f"\nAttempting migration to target database '{settings.mongo_db}'...")
     try:
         target_client = MongoClient(target_uri, serverSelectionTimeoutMS=5000)
         # Test connection
