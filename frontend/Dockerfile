@@ -20,8 +20,14 @@ COPY . .
 
 # NEXT_PUBLIC variables are compiled into the browser bundle. This default is
 # the deployed FastAPI service; override it when building for another environment.
-ARG NEXT_PUBLIC_API_BASE=email-automation-emailbackend-tfykto-dc98c8-147-79-71-40.sslip.io
+ARG NEXT_PUBLIC_API_BASE=https://email-automation-emailbackend-tfykto-dc98c8-147-79-71-40.sslip.io
 ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+
+# An empty value intentionally selects same-origin requests. Any non-empty
+# value must be an absolute browser URL; otherwise fetch() treats it as a path
+# on the frontend host and the image deploys successfully but cannot reach the
+# API.
+RUN node -e "const value = process.env.NEXT_PUBLIC_API_BASE; if (value) { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('NEXT_PUBLIC_API_BASE must use http:// or https://') }"
 
 RUN npm run build
 
