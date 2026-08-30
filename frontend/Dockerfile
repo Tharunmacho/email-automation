@@ -20,7 +20,7 @@ COPY . .
 
 # NEXT_PUBLIC variables are compiled into the browser bundle. This default is
 # the deployed FastAPI service; override it when building for another environment.
-ARG NEXT_PUBLIC_API_BASE=https://mount-road-wa-bot-adira-emailautomation--5c743a-200-234-35-6.sslip.io
+ARG NEXT_PUBLIC_API_BASE=email-automation-emailbackend-tfykto-dc98c8-147-79-71-40.sslip.io
 ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 
 RUN npm run build
