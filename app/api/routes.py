@@ -24,6 +24,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -33,7 +34,7 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
 from app.core.models import EVALUATION_STATUSES, CandidateProfile, CandidateRecord, utcnow
@@ -1324,6 +1325,101 @@ def create_candidate_from_uploads(
             *(["passport"] if passport else []),
         ],
         "ocr_provider": "VeriIS",
+    }
+
+
+@app.post("/candidates/import", status_code=201)
+def import_existing_candidate(
+    record_json: str = Form(...),
+    resume_file: UploadFile | None = File(default=None),
+    allow_missing_resume: bool = Form(default=False),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    """Import an existing candidate without paying for a second extraction.
+
+    This is the database-migration path, not the ordinary candidate-entry
+    path. The complete, already-validated record travels as JSON and the
+    original resume travels as multipart bytes. The hash stored on the record
+    must match those bytes, so an import cannot quietly attach the wrong CV.
+
+    A legacy record whose file was already lost can still be preserved when an
+    administrator explicitly sets ``allow_missing_resume``. Its metadata stays
+    on the record and downloads correctly report the missing file; inventing a
+    replacement document would be worse than an honest 404.
+    """
+    try:
+        record = CandidateRecord.model_validate_json(record_json)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid candidate record: {exc}") from exc
+
+    repository = repo()
+    if repository.get(record.id):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "A candidate with this id already exists.",
+                "candidate_id": record.id,
+            },
+        )
+
+    existing_hash = repository.find_by_resume_hash(record.resume_hash)
+    if existing_hash:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "This resume is already attached to another candidate.",
+                "candidate_id": existing_hash.id,
+            },
+        )
+
+    if resume_file is not None and record.resume is None:
+        raise HTTPException(status_code=422, detail="The record has no resume metadata.")
+    if record.resume is not None and resume_file is None and not allow_missing_resume:
+        raise HTTPException(
+            status_code=422,
+            detail="The original resume file is required unless allow_missing_resume is true.",
+        )
+
+    backend = None
+    stored_key = None
+    resume_stored = False
+    if record.resume is not None:
+        backend = get_storage_backend()
+        filename = os.path.basename(
+            (record.resume.original_filename or "resume.bin").replace("\\", "/")
+        )
+        stored_key = f"imports/{record.id}/{record.resume.sha256[:16]}_{filename}"
+        record.resume.storage_backend = backend.name
+        record.resume.storage_key = stored_key
+
+        if resume_file is not None:
+            payload = resume_file.file.read()
+            digest = hashlib.sha256(payload).hexdigest()
+            if digest != record.resume.sha256 or digest != record.resume_hash:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The uploaded resume does not match the record's SHA-256 hash.",
+                )
+            record.resume.size = len(payload)
+            backend.save(stored_key, payload, content_type=record.resume.mime_type)
+            resume_stored = True
+
+    try:
+        inserted_id = repository.insert(record)
+        if inserted_id != record.id:
+            raise DuplicateKeyError("candidate import resolved to an existing record")
+    except DuplicateKeyError as exc:
+        if resume_stored and backend is not None and stored_key is not None:
+            try:
+                backend.delete(stored_key)
+            except Exception:  # noqa: BLE001 - preserve the conflict response
+                log.exception("Could not roll back imported resume %s", stored_key)
+        raise HTTPException(status_code=409, detail="The candidate conflicts with an existing record.") from exc
+
+    return {
+        "status": "imported",
+        "candidate_id": record.id,
+        "resume_stored": resume_stored,
     }
 
 

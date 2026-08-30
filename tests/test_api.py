@@ -25,6 +25,14 @@ class MockRepository:
         self.candidates[record.id] = record
         return record.id
 
+    def find_by_resume_hash(self, resume_hash):
+        if not resume_hash:
+            return None
+        return next(
+            (record for record in self.candidates.values() if record.resume_hash == resume_hash),
+            None,
+        )
+
     def update_profile(self, candidate_id: str, profile: CandidateProfile):
         if candidate_id in self.candidates:
             self.candidates[candidate_id].profile = profile
@@ -357,6 +365,126 @@ def test_upload_candidate_translates_intake_refusal(test_client):
 
     assert response.status_code == 422
     assert "passport MRZ checksum failed" in response.json()["detail"]
+
+
+def test_import_candidate_preserves_record_and_stores_matching_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "imported-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "imported-hash"
+    payload = b"original-resume-bytes"
+    import hashlib
+
+    digest = hashlib.sha256(payload).hexdigest()
+    imported.resume.sha256 = digest
+    imported.resume_hash = digest
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", payload, "application/pdf")},
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "status": "imported",
+        "candidate_id": "candidate-imported",
+        "resume_stored": True,
+    }
+    storage.save.assert_called_once()
+    saved_key, saved_payload = storage.save.call_args.args[:2]
+    assert saved_key.startswith("imports/candidate-imported/")
+    assert saved_payload == payload
+
+
+def test_import_candidate_rejects_resume_hash_mismatch(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "expected-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "expected-hash"
+
+    with patch("app.api.routes.get_storage_backend") as storage:
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", b"wrong-file", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert "SHA-256" in response.json()["detail"]
+    storage.return_value.save.assert_not_called()
+
+
+def test_import_candidate_requires_explicit_missing_resume_acknowledgement(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+
+    response = test_client.post(
+        "/candidates/import",
+        data={"record_json": imported.model_dump_json()},
+    )
+
+    assert response.status_code == 422
+    assert "allow_missing_resume" in response.json()["detail"]
+
+
+def test_import_candidate_allows_admin_to_preserve_record_with_lost_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["resume_stored"] is False
+    storage.save.assert_not_called()
+
+
+def test_import_candidate_is_forbidden_to_staff(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    previous_user = app.dependency_overrides[current_user]
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "staff-7",
+        "email": "recruiter@example.com",
+        "name": "Recruiter Seven",
+        "role": "staff",
+        "pages": ["candidates", "candidate-entry"],
+    }
+    try:
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+    finally:
+        app.dependency_overrides[current_user] = previous_user
+
+    assert response.status_code == 403
 
 
 def test_manual_candidate_json_endpoint_is_removed(test_client):
