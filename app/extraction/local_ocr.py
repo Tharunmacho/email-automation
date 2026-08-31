@@ -43,6 +43,23 @@ Pages are independent, so they are read in parallel, and `pytesseract` shells
 out — the GIL is released for the part that takes the time. Results are cached
 on the rendered page's own bytes, so re-processing the same mail (a retry, a
 redelivery, a reconciler pass) costs nothing the second time.
+
+Bounds
+------
+Every pass in here has a clock on it, because trying harder has to stop
+somewhere. A page Tesseract cannot segment does not fail fast — it grinds, for
+minutes, at a hundred times what a legible page of the same size costs — and
+with nothing bounding it a single unreadable scan parked the ingestion thread
+indefinitely. Since the inline poll runs inside the API process whenever no
+Celery worker is up, "indefinitely" meant a task stuck PENDING and a dashboard
+polling it until someone restarted the container.
+
+So: `ocr_page_timeout_seconds` bounds one Tesseract invocation and
+`ocr_document_budget_seconds` bounds the document. Both degrade a page to
+*unread* rather than raising — the state every caller here already handles, and
+the one that still lets the résumé through on the pages that did read. Nothing
+is ever dropped silently; unread pages are named in the log with the setting
+that would have bought them.
 """
 from __future__ import annotations
 
@@ -53,6 +70,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -102,6 +120,10 @@ class PageRead:
     dpi: int
     engine: str
     quality: float
+    #: Degrees the page had to be turned to read it. Carried so the escalated
+    #: re-read can apply the answer instead of searching for it again — which
+    #: way up a page goes does not change with the DPI it is rendered at.
+    angle: int = 0
 
 
 # --------------------------------------------------------------------------- #
@@ -192,11 +214,25 @@ def _prepare(image):
     return prepared
 
 
+def _page_timeout() -> float:
+    """Seconds one Tesseract invocation may take. 0 means "no limit".
+
+    `pytesseract` treats 0 as unlimited too, so this value is passed straight
+    through. A read that runs out of time raises, and both call sites already
+    treat a raising read as "this page did not answer" — which is the right
+    outcome: the pass that follows gets its turn, and if none of them answer the
+    page is reported unread rather than silently holding the document open.
+    """
+    return max(0.0, float(getattr(settings, "ocr_page_timeout_seconds", 0) or 0))
+
+
 def _tesseract_read(image, psm: int) -> str:
     pytesseract = _tesseract()
     config = f"--oem 1 --psm {psm}"
     try:
-        return pytesseract.image_to_string(image, lang=settings.ocr_languages, config=config)
+        return pytesseract.image_to_string(
+            image, lang=settings.ocr_languages, config=config, timeout=_page_timeout()
+        )
     except Exception as exc:  # noqa: BLE001
         log.debug("Tesseract psm=%d failed: %s", psm, exc)
         return ""
@@ -305,7 +341,10 @@ def _scored_read(image, psm: int) -> "Tuple[str, float]":
     pytesseract = _tesseract()
     try:
         data = pytesseract.image_to_data(
-            image, config=f"--oem 1 --psm {psm}", output_type=pytesseract.Output.DICT
+            image,
+            config=f"--oem 1 --psm {psm}",
+            output_type=pytesseract.Output.DICT,
+            timeout=_page_timeout(),
         )
     except Exception:  # noqa: BLE001 — no confidence is not an orientation verdict
         return "", 0.0
@@ -343,32 +382,31 @@ def _upright(prepared, original, page_number: int):
     it had — to contain no passport at all. Turned a quarter turn the same page
     reads "Type / Code / Nationality" and carries the full machine-readable zone.
 
-    Orientation is chosen on confidence and never on `text_quality`, because
-    quality picks the wrong way up: it scores this bundle's résumé higher upside
-    down than the right way up, and its certificates too. Confidence gets every
-    one of them right.
+    Orientation is chosen on `word_evidence` and never on `text_quality`,
+    because quality picks the wrong way up: it scores this bundle's résumé
+    higher upside down than the right way up, and its certificates too. Counting
+    words a document page actually contains gets every one of them right.
 
-    Confidence also decides whether to look at all. A page read cleanly upright
-    scores far above anything a rotation could reach — the résumé here comes in
-    at 88 and the certificates at 60 — so the common case pays one extra
-    measurement and no extra OCR, and only a page that already looks doubtful
-    is turned.
+    Recognisable words also decide whether to look at all. A page that reads as
+    language upright is left as it is, so the common case pays one small probe
+    and no rotation at all; only a page that comes back with nothing legible on
+    it is turned.
     """
     if not settings.ocr_detect_rotation:
-        return prepared, 0, ""
+        return prepared, 0
 
-    # Probed small, read big.
+    # Probed small.
     #
     # Which way up a page goes is a coarse property — it is legible at a
-    # fraction of the resolution the words themselves need — so the four probes
-    # run on a thumbnail and only the winner is read at full size. Probing at
-    # full resolution means four real reads of every doubtful page, which took
-    # one thirty-page bundle from 28 seconds to 63 for the same answer.
+    # fraction of the resolution the words themselves need — so all four probes
+    # run on a thumbnail. Probing at full resolution means four real reads of
+    # every doubtful page, which took one thirty-page bundle from 28 seconds to
+    # 63 for the same answer.
     probe = _thumbnail(prepared)
-    text, confidence = _scored_read(probe, settings.ocr_psm)
+    text, _confidence = _scored_read(probe, settings.ocr_psm)
     words = word_evidence(text)
     if words >= settings.ocr_rotation_word_floor:
-        return prepared, 0, ""
+        return prepared, 0
 
     # A turn has to *prove* itself, in words, or the page stays as it is.
     #
@@ -377,38 +415,71 @@ def _upright(prepared, original, page_number: int):
     # names a winner — by half a point, on noise — and turning that page threw
     # away a legible "KINGDOM OF CAMBODIA" that the upright read had. A rotation
     # that cannot show more words than upright is not evidence of anything.
-    best_image, best_angle, best_words = prepared, 0, words
+    # Each candidate is turned from the *prepared* page, not from the original.
+    #
+    # `prepared` is already greyscale and contrast-stretched, and a quarter turn
+    # is lossless on it — PIL transposes exact multiples of 90 rather than
+    # resampling — so re-deriving it from `original` cost a full-resolution RGB
+    # rotate, a greyscale conversion and an autocontrast pass per angle, three
+    # times per doubtful page, for pixels identical to these.
+    #
+    # The thumbnail is taken *after* the turn and never before it. `_thumbnail`
+    # fits a width, so thumbnailing first and rotating second hands a quarter
+    # turn a probe as wide as the page is tall — on a landscape scan that is
+    # 1131px against 1600px, and it cost this bundle's sideways page nine of
+    # the ten recognisable words the decision is made on. The orientation
+    # verdict has to be taken at the resolution it was calibrated at.
+    best_angle, best_words = 0, words
     for angle in (90, 270, 180):
         try:
-            candidate = _prepare(original.rotate(angle, expand=True))
+            turned, _confidence = _scored_read(
+                _thumbnail(prepared.rotate(angle, expand=True)), settings.ocr_psm
+            )
         except Exception:  # noqa: BLE001 — a page that will not turn is not fatal
             break
-        turned, _confidence = _scored_read(_thumbnail(candidate), settings.ocr_psm)
         turned_words = word_evidence(turned)
         if turned_words > best_words:
-            best_image, best_angle, best_words = candidate, angle, turned_words
+            best_angle, best_words = angle, turned_words
 
-    if best_angle:
-        log.info(
-            "Page %d was scanned sideways; read at %d° instead — %d recognisable "
-            "word(s) there against %d upright",
-            page_number, best_angle, best_words, words,
-        )
-    return best_image, best_angle, ""
+    if not best_angle:
+        return prepared, 0
+
+    # Only now, and only once: the winner at full resolution.
+    try:
+        upright = _prepare(original.rotate(best_angle, expand=True))
+    except Exception:  # noqa: BLE001
+        return prepared, 0
+
+    log.info(
+        "Page %d was scanned sideways; read at %d° instead — %d recognisable "
+        "word(s) there against %d upright",
+        page_number, best_angle, best_words, words,
+    )
+    return upright, best_angle
 
 
 # --------------------------------------------------------------------------- #
-def read_image(image, *, dpi: int, page_number: int = 1, escalated: bool = False) -> PageRead:
+def read_image(
+    image, *, dpi: int, page_number: int = 1, known_angle: "int | None" = None,
+) -> PageRead:
     """Read one already-rendered page, trying harder while the result is poor.
 
     The passes are ordered by cost. Most pages are answered by the first one;
     the rest are the reason the others exist.
-    """
-    prepared, turned_by, best_text = _upright(_prepare(image), image, page_number)
 
-    # Already read, by the pass that chose which way up the page goes.
-    if not best_text:
-        best_text = _tesseract_read(prepared, settings.ocr_psm)
+    ``known_angle`` short-circuits the orientation search. Which way up a page
+    goes is a property of the page, not of the DPI it was rendered at, so the
+    escalated re-read is told the answer rather than made to find it again —
+    four Tesseract probes and a full-size rotation per escalated page, for
+    something the base pass already established.
+    """
+    if known_angle is None:
+        prepared, turned_by = _upright(_prepare(image), image, page_number)
+    else:
+        turned_by = known_angle
+        prepared = _prepare(image.rotate(turned_by, expand=True) if turned_by else image)
+
+    best_text = _tesseract_read(prepared, settings.ocr_psm)
     best_quality = text_quality(best_text)
     best_engine = f"tesseract:psm{settings.ocr_psm}"
     if turned_by:
@@ -440,6 +511,7 @@ def read_image(image, *, dpi: int, page_number: int = 1, escalated: bool = False
         dpi=dpi,
         engine=best_engine,
         quality=round(best_quality, 2),
+        angle=turned_by,
     )
 
 
@@ -464,7 +536,9 @@ def ocr_image_bytes(data: bytes) -> str:
             bigger = image.convert("L").resize(
                 (image.width * 2, image.height * 2), _Image.LANCZOS
             )
-            retry = read_image(bigger, dpi=settings.ocr_dpi * 2, escalated=True)
+            retry = read_image(
+                bigger, dpi=settings.ocr_dpi * 2, known_angle=read.angle
+            )
             if retry.quality > read.quality:
                 read = retry
 
@@ -488,7 +562,9 @@ def _render(page, dpi: int):
     return Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples), pixmap.tobytes()
 
 
-def _read_pdf_page(data: bytes, page_number: int) -> PageRead:
+def _read_pdf_page(
+    data: bytes, page_number: int, deadline: "float | None" = None,
+) -> PageRead:
     """One page of a PDF, rendered and read, escalating if it comes back thin.
 
     Opening the document per page rather than sharing one handle is deliberate:
@@ -508,13 +584,30 @@ def _read_pdf_page(data: bytes, page_number: int) -> PageRead:
 
         read = read_image(image, dpi=dpi, page_number=page_number)
 
-        if read.quality < settings.ocr_page_quality_floor and settings.ocr_escalate_dpi > dpi:
+        # Escalation is the expensive half of the page. A document that has
+        # already spent its budget keeps the read it has rather than starting a
+        # second, larger one it cannot finish.
+        out_of_time = deadline is not None and time.monotonic() >= deadline
+        if out_of_time and read.quality < settings.ocr_page_quality_floor:
+            log.info(
+                "Page %d read poorly (quality %.2f) but the document budget is "
+                "spent; not re-reading at %ddpi",
+                page_number, read.quality, settings.ocr_escalate_dpi,
+            )
+
+        if (
+            not out_of_time
+            and read.quality < settings.ocr_page_quality_floor
+            and settings.ocr_escalate_dpi > dpi
+        ):
             # More pixels per character. This is what rescues a faint fax or a
             # small-print experience letter, and it is why no page is written
             # off after one attempt.
             bigger_dpi = settings.ocr_escalate_dpi
             bigger, _raw = _render(page, bigger_dpi)
-            retry = read_image(bigger, dpi=bigger_dpi, page_number=page_number, escalated=True)
+            retry = read_image(
+                bigger, dpi=bigger_dpi, page_number=page_number, known_angle=read.angle,
+            )
             if retry.quality > read.quality:
                 log.info(
                     "Page %d re-read at %ddpi: quality %.2f -> %.2f",
@@ -582,24 +675,51 @@ def ocr_pdf_page_reads(
     workers = max(1, min(local_worker_count(), len(wanted)))
     out: Dict[int, PageRead] = {}
 
+    # A wall clock on the whole document.
+    #
+    # Every pass in here is bounded now, but "bounded" times pages times retries
+    # is still unbounded in practice, and the caller that suffers for it is the
+    # inline poll: it runs on a thread inside the API process, so a document
+    # that will not read leaves its task PENDING and the dashboard polling that
+    # task ID until the container is restarted. Pages that do not fit the budget
+    # come back unread, which is a state every caller already handles — the
+    # text-layer read stands and the pages are named below.
+    budget = max(0.0, float(getattr(settings, "ocr_document_budget_seconds", 0) or 0))
+    deadline = time.monotonic() + budget if budget else None
+    skipped: List[int] = []
+    skipped_lock = threading.Lock()
+
     def _one(number: int) -> Tuple[int, PageRead | None]:
+        if deadline is not None and time.monotonic() >= deadline:
+            with skipped_lock:
+                skipped.append(number)
+            return number, None
         try:
-            return number, _read_pdf_page(data, number)
+            return number, _read_pdf_page(data, number, deadline)
         except TextExtractionError:
             raise
         except Exception as exc:  # noqa: BLE001 — one bad page is not the document
             log.warning("Local OCR failed on page %d of '%s': %s", number, filename, exc)
             return number, None
 
+    started = time.monotonic()
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         for number, read in pool.map(_one, wanted):
             if read is not None:
                 out[number] = read
 
+    if skipped:
+        log.warning(
+            "Local OCR ran out of its %.0fs budget on '%s'; page(s) %s were not read "
+            "(raise OCR_DOCUMENT_BUDGET_SECONDS)",
+            budget, filename or "attachment", sorted(skipped),
+        )
+
     read_chars = sum(len(r.text) for r in out.values())
     log.info(
-        "Local OCR read %d/%d page(s) of '%s' across %d worker(s): %d chars",
+        "Local OCR read %d/%d page(s) of '%s' across %d worker(s): %d chars in %.1fs",
         len(out), total, filename or "attachment", workers, read_chars,
+        time.monotonic() - started,
     )
     # Named explicitly, because "this page was read badly" is the whole basis on
     # which it is later offered to the cloud reader. A page that fails here and

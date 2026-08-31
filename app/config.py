@@ -278,6 +278,27 @@ class Settings(BaseSettings):
     # Try RapidOCR on pages Tesseract reads badly, when it is installed. A host
     # without it is a supported configuration; this only decides whether we look.
     ocr_secondary_engine_enabled: bool = True
+    # A page that will not read is not worth an unbounded wait.
+    #
+    # Nothing on the local path used to have a clock on it. A four-page scanned
+    # CV sat in Tesseract while the inline poll — which runs inside the API
+    # process whenever no Celery worker is up — stayed PENDING, and the
+    # dashboard polled that task ID until someone restarted the container.
+    # `ocr_page_timeout_seconds` bounds one Tesseract invocation;
+    # `ocr_document_budget_seconds` bounds the whole document. Both degrade a
+    # page to "unread", which every caller already handles: the text-layer read
+    # stands, the page is named in the log, and the résumé still lands.
+    #
+    # 45s is roughly fifty times what a real read costs. Measured on a dense,
+    # low-contrast page: psm 6/4/3 all answer in under a second at 300, 450 and
+    # even 600 dpi. What takes minutes is not a slow page, it is Tesseract
+    # failing to segment a page of scanner noise at all — so this cuts the
+    # pathological case and never a legitimate one, with room for a host several
+    # times slower than the one it was calibrated on.
+    #
+    # Set either to 0 to disable it.
+    ocr_page_timeout_seconds: float = 45.0
+    ocr_document_budget_seconds: float = 600.0
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
     # resume can legitimately sit on page 25 of 50, and stopping early would
