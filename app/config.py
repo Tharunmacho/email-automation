@@ -97,6 +97,8 @@ class Settings(BaseSettings):
 
         raw_env_json = (self.email_accounts_json or "").strip()
         if raw_env_json:
+            if (raw_env_json.startswith("'") and raw_env_json.endswith("'")) or (raw_env_json.startswith('"') and raw_env_json.endswith('"')):
+                raw_env_json = raw_env_json[1:-1].strip()
             try:
                 data = json.loads(raw_env_json)
             except Exception as exc:  # noqa: BLE001
