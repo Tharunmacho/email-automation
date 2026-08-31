@@ -200,9 +200,10 @@ async def _startup() -> None:
         asyncio.create_task(autopoll.run_forever())
 
     try:
-        from app.tasks.locks import get_redis
+        from app.tasks.locks import INLINE_POLL_LOCK, get_redis
         client = get_redis()
         client.ping()
+        client.delete(f"lock:{INLINE_POLL_LOCK}")
         logger.info("Redis connected successfully (%s)", settings.redis_url)
     except Exception as err:
         logger.info("Redis status: local direct execution mode active (Redis lock fallback: %s)", err)
