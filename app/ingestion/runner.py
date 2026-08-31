@@ -114,6 +114,24 @@ class BatchSummary:
     results: List[ProcessResult] = field(default_factory=list)
 
 
+def _account_label(client: Any) -> str:
+    """The mailbox a client speaks for, for the log line that counts them.
+
+    Best effort: an IMAP client knows its own username and anything else is
+    named by its type. The bare count was not enough to debug with — "1
+    account(s)" reads the same whether that one is the mailbox you meant or the
+    `.env` fallback quietly standing in for the two you configured.
+
+    The type check is not defensive padding. `getattr` on a client that
+    synthesises attributes — a Mock in the tests, a proxy in principle — hands
+    back an object rather than a name, and joining that raised a `TypeError`
+    from inside the log call, taking the whole batch down. A line that only
+    describes the work must never be able to stop it.
+    """
+    label = getattr(client, "imap_username", None)
+    return label if isinstance(label, str) and label else type(client).__name__
+
+
 class IngestionRunner:
     def __init__(
         self,
@@ -156,7 +174,13 @@ class IngestionRunner:
                     client_messages.extend(fut.result())
                 
         summary.fetched = len(client_messages)
-        log.info("Fetched %d message(s) across %d account(s) matching query '%s'", summary.fetched, len(self.clients), effective_query)
+        log.info(
+            "Fetched %d message(s) across %d account(s) [%s] matching query '%s'",
+            summary.fetched,
+            len(self.clients),
+            ", ".join(_account_label(c) for c in self.clients),
+            effective_query,
+        )
 
         def _process_one_message(client: Any, mid: str) -> ProcessResult | None:
             # Claim the message first. Beat fans out one Celery task per email
