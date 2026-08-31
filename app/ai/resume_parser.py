@@ -21,6 +21,23 @@ log = get_logger(__name__)
 # résumé that really is this long, so truncating the tail is the lesser loss.
 _MAX_INPUT_CHARS = 60_000
 
+#: What the Veris résumé endpoint will accept. Its own words when it refuses:
+#: "Queued OCR supports JPEG, PNG, WebP, PDF, and DOCX files".
+#:
+#: Checked here rather than discovered from the rejection, because the rejection
+#: arrives as a parse failure — and under `require_veris_resume` a parse failure
+#: leaves the mail unlabelled to be retried on the next poll, which retries it
+#: identically. Sending a file the service has already told us it cannot read is
+#: not a transient failure to retry; it is a question not worth asking.
+_VERIS_READABLE = frozenset({".pdf", ".docx", ".jpg", ".jpeg", ".png", ".webp"})
+
+
+def _veris_can_read(name: str) -> bool:
+    """Whether the résumé endpoint accepts a file of this name's type."""
+    from pathlib import Path
+
+    return Path(name or "").suffix.lower() in _VERIS_READABLE
+
 
 # Labels from the contact / personal block. A line like "Mob: 9984013450" is a
 # field, not a project, but it matches the same "Title: body" shape.
@@ -434,8 +451,30 @@ class ResumeParser:
         # Veris answered; dropping its payload would be data loss.
         veris_raw: dict | None = None
 
+        if settings.veris_ocr_api_key and not _veris_can_read(parse_name):
+            # Nothing to OCR, so nothing to send.
+            #
+            # An email with no attachment whose *body* reads as a résumé arrives
+            # here as `email_body.txt`, and the endpoint rejects it outright:
+            # "Queued OCR supports JPEG, PNG, WebP, PDF, and DOCX files". Under
+            # `require_veris_resume` that rejection was raised as a parse
+            # failure, the mail was left unlabelled for the next poll, and the
+            # next poll did exactly the same thing — a candidate that could
+            # never be ingested and an error on every sync for ever.
+            #
+            # The gate exists to stop a *guess* replacing a failed OCR. Here no
+            # OCR was needed: the text arrived as text. It goes to
+            # `parse_text_fallback`, which tries Anthropic before any heuristic,
+            # so this path is the LLM reading real text rather than a
+            # degradation of anything.
+            log.info(
+                "Not sending '%s' to the résumé endpoint — it accepts %s, and a "
+                "document that arrived as text has nothing to OCR",
+                parse_name, ", ".join(sorted(_VERIS_READABLE)),
+            )
+
         # Send to Veris OCR / LLM Resume API endpoint as primary option if key configured
-        if settings.veris_ocr_api_key:
+        if settings.veris_ocr_api_key and _veris_can_read(parse_name):
             suffix = Path(parse_name).suffix or ".pdf"
             with tempfile.TemporaryDirectory() as tmp:
                 temp_file = Path(tmp) / f"temp_ocr{suffix}"
