@@ -31,6 +31,7 @@ from app.extraction import file_type as ft
 from app.extraction import local_ocr
 from app.extraction import page_classifier as pc
 from app.extraction import pdf_pages
+from app.extraction import resume_nationality as rn
 from app.extraction.ocr import ocr_via_veris_pages, ocr_via_veris_read
 from app.logging_config import get_logger
 
@@ -252,10 +253,35 @@ def _classified(
 
     result = pc.classify_document(page_texts)
 
-    # Only now — with the whole document read and the résumé located — is
-    # anything sent out for a better read, and only the pages that hold it.
+    # Whose CV is this? Asked here, of the local read, and before the upload
+    # below — a candidate this desk cannot place must not cost a résumé
+    # extraction. The classifier has already run the passport reader over every
+    # booklet page in the bundle, so an MRZ naming the issuing state is evidence
+    # already in hand rather than evidence to go and fetch.
+    #
+    # The answer is carried on the result, not recomputed by the pipeline: it
+    # has to hold back the upload *and* keep the record out of the database, and
+    # one policy evaluated twice is two chances to disagree with itself.
+    whole_text = "\n\n".join(t for t in page_texts if (t or "").strip())
+    nationality = rn.detect_resume_nationality(
+        whole_text,
+        passport_verdicts=rn.passport_verdicts_from(page_texts, result.page_kinds),
+    )
+    accepted, nationality_reason = rn.should_ingest(nationality)
+    if not accepted:
+        log.info("Nationality filter: %s", nationality_reason)
+
+    # Only now — with the whole document read, the résumé located and the
+    # candidate's nationality established — is anything sent out for a better
+    # read, and only the pages that hold it.
     veris_resume_result: dict | None = None
-    if data is not None and result.is_resume and result.resume_pages and ocr_pages:
+    if (
+        accepted
+        and data is not None
+        and result.is_resume
+        and result.resume_pages
+        and ocr_pages
+    ):
         refined, veris_resume_result = _refine_resume_pages(
             data, filename, page_texts, result.resume_pages
         )
@@ -290,6 +316,9 @@ def _classified(
         classification_confidence=result.confidence,
         classification_reason=result.reason,
         veris_resume_result=veris_resume_result,
+        nationality=nationality.as_dict(),
+        nationality_accepted=accepted,
+        nationality_reason=nationality_reason,
     )
 
 

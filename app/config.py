@@ -133,6 +133,34 @@ class Settings(BaseSettings):
             "smtp_use_tls": self.smtp_use_tls,
         }]
 
+    # ---- Candidate nationality filter ----
+    # Only Indian candidates are placed by this desk, so a CV belonging to
+    # somebody else is refused before it reaches the Veris résumé endpoint or
+    # the candidate database. See `app/extraction/resume_nationality.py`.
+    resume_india_only: bool = True
+    # A CV that says nothing about nationality is accepted.
+    #
+    # This is the setting that decides whether the filter is useful or ruinous,
+    # and it ships True on evidence: most Indian CVs never write "Nationality:
+    # Indian" anywhere. Demanding proof of Indian nationality would therefore
+    # reject the majority of the candidates the filter exists to find, and
+    # reject them invisibly, since nobody reviews what was never filed. Only
+    # positive evidence of *another* country refuses a CV.
+    resume_nationality_allow_undetermined: bool = True
+    # What a country must score before it is named at all, and how far clear of
+    # the runner-up it must be.
+    #
+    # 3.0 is above any pair of weak signals: an address and a phone number in
+    # the same foreign country come to 2.0 and cannot refuse anybody on their
+    # own. That is deliberate — an Indian driver working in Sharjah has a UAE
+    # address and a +971 mobile, and he is exactly who must not be turned away.
+    # A stated nationality (4.0) or a passport (6.0) clears it alone.
+    resume_nationality_min_score: float = 3.0
+    # And the margin, so a CV carrying evidence of two countries — a Dubai
+    # employer and a home town in Kerala — is undetermined rather than a coin
+    # flip. Undetermined is accepted.
+    resume_nationality_margin: float = 1.5
+
     # ---- Legacy Email Provider Choice ----
     # "smtp_imap" | "gmail"
     email_provider: str = "smtp_imap"

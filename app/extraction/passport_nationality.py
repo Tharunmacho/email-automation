@@ -437,6 +437,21 @@ def country_name(code: Optional[str]) -> str:
     return _COUNTRY_NAMES.get(code, code)
 
 
+def place_markers() -> Dict[str, Tuple[re.Pattern, ...]]:
+    """Per-country patterns for the *places* a document mentions.
+
+    The `weak` half of the marker table — cities, regions, an issuing
+    authority's home town. On a passport these are corroboration for an emblem
+    line that has already spoken. `resume_nationality` reads them for a
+    different purpose: a CV has no emblem, and where somebody lived and studied
+    is some of the little a CV says about where they are from.
+
+    Exposed rather than copied so there is one table of what a country's places
+    are called. Adding a country to `_COUNTRY_MARKERS` teaches both readers.
+    """
+    return {code: markers["weak"] for code, markers in _COMPILED_MARKERS.items()}
+
+
 # --------------------------------------------------------------------------- #
 #  MRZ
 # --------------------------------------------------------------------------- #

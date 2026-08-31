@@ -36,6 +36,10 @@ NOTIFICATIONS_COLLECTION = "notifications"
 CANDIDATE_ASSIGNED = "candidate_assigned"
 CANDIDATE_INGESTED = "candidate_ingested"
 SLA_ALERT = "sla_alert"
+#: A CV that was read, understood, and refused — the candidate is not an Indian
+#: national. No candidate row exists for it, so this notification is the only
+#: record a recruiter has that the application arrived at all.
+CANDIDATE_REJECTED = "candidate_rejected"
 
 # A feed nobody has read in a month is noise, and this collection is written on
 # every single ingest. Expiring is a TTL index rather than a cleanup job so it
