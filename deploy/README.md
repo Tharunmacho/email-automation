@@ -114,6 +114,17 @@ Keep Redis's external port disabled. The Compose services join Dokploy's
 internal network and need no public Redis endpoint. Worker and beat expose no
 ports and need no domain.
 
+Copy `secrets/` to the Compose project's directory on the server before
+deploying. `dokploy-compose.yml` mounts it into both task containers, and it is
+in `.dockerignore` and `.gitignore`, so it reaches the server by no other route.
+
+This matters more than it looks. Once a worker is running, pressing Sync no
+longer polls in the API — it queues `run_poll_cycle` and the *worker* reads the
+mailboxes. A worker without `secrets/email_accounts.json` falls back to the
+single account in `.env`, so every manual sync drains one inbox and mail sent
+to any other address is never fetched. The API's own copy of the file does not
+help: by then the API is not the process doing the reading.
+
 ### Docker Compose
 
 The API, worker, beat scheduler and Redis are defined in the root Compose file:

@@ -1,5 +1,16 @@
 # Background services for Dokploy. The API, Redis and MongoDB are managed
 # separately in Dokploy, so this file adds only the worker and scheduler.
+#
+# `secrets/` has to be mounted here even though the API already mounts its own
+# copy, and the reason is easy to miss: once a worker exists, pressing Sync
+# stops running the poll in the API and runs it *here*. The API's view of the
+# mailboxes then decides nothing at all. Without this mount the worker cannot
+# see `email_accounts.json`, falls back to the single account in `.env`, and
+# every manual sync quietly drains one inbox while mail sent to the other is
+# never fetched — with a count in the log as the only clue.
+#
+# It is not in the image: `secrets/` is in `.dockerignore`, and in `.gitignore`
+# besides, so it reaches a server only by being copied there by hand.
 
 services:
   worker:
@@ -16,6 +27,10 @@ services:
       - --concurrency=${CELERY_WORKER_CONCURRENCY:-4}
     env_file:
       - .env
+    volumes:
+      # Mailbox list and the OAuth token. The worker is what reads the
+      # mailboxes, so this is the service that genuinely needs them.
+      - ./secrets:/app/secrets
     networks:
       - dokploy-network
 
@@ -34,7 +49,15 @@ services:
     env_file:
       - .env
     volumes:
+      # The schedule file records when each periodic task last ran. On a fresh
+      # volume beat fires everything immediately on boot; persisting it keeps
+      # the cadence across a redeploy.
       - celerybeat_data:/var/lib/resume-ingest
+      # Beat only *queues* tasks — it never executes one, so it never opens a
+      # mailbox and does not strictly need this. Mounted anyway to match
+      # `docker-compose.deploy.yml`, where all three services share it, so the
+      # two files do not disagree about what a task container is given.
+      - ./secrets:/app/secrets
     networks:
       - dokploy-network
 
