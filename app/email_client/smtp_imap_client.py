@@ -256,16 +256,18 @@ class SMTPIMAPClient:
         try:
             with self._imap() as mail:
                 mail.select(self.imap_folder)
-                # ALL, not UNSEEN. The *folder* is the queue: a message that has
-                # been ingested is moved to `Resumes/Processed` and one whose
-                # candidate was deleted to `Resumes/Deleted`, so whatever is
-                # still sitting here is work — read or unread.
+                # UNSEEN: unread mail is the queue, and a message somebody has
+                # opened is one a human has already dealt with. This is the
+                # desk's rule and it is deliberate.
                 #
-                # Asking for UNSEEN meant anybody opening a CV in Gmail before
-                # the poller reached it removed that résumé from every future
-                # poll, silently and permanently. Nothing logged it, because
-                # from the poller's side the message simply was not in the
-                # answer. That is the "files missed from mails" case.
+                # Know the trade it makes. A résumé that is read before the
+                # poller reaches it — somebody checking the inbox on their
+                # phone — is skipped from then on, silently, because from here
+                # it simply is not in the answer. `ALL` was tried instead and
+                # is worse in practice: it re-offers the entire inbox, so the
+                # poll spends its batch on old mail that has already been dealt
+                # with by hand. Nothing else in the pipeline depends on which
+                # of the two is chosen; it is one line, here.
                 #
                 # The `query` argument is accepted for signature parity with the
                 # Gmail client and deliberately unused: Gmail's search syntax
@@ -276,22 +278,30 @@ class SMTPIMAPClient:
                 # fetched and never paid for. Without it the first poll after
                 # the UNSEEN change set about OCR'ing years of old inbox mail
                 # oldest-first, with today's applicants queued behind it.
-                criteria = ["ALL"]
+                criteria = ["UNSEEN"]
                 days = int(getattr(settings, "mail_lookback_days", 0) or 0)
                 if days > 0:
                     since = datetime.now(timezone.utc) - timedelta(days=days)
                     # IMAP wants `01-Aug-2026`, in English, always.
-                    criteria = ["SINCE", since.strftime("%d-%b-%Y")]
+                    criteria += ["SINCE", since.strftime("%d-%b-%Y")]
 
                 status, data = mail.uid("search", None, *criteria)
                 if status != "OK" or not data or not data[0]:
                     return []
 
-                # Oldest first. A backlog has to drain in the order it arrived,
-                # or a busy inbox starves its oldest applicants for ever — and
-                # those are precisely the ones whose SLA clock has run longest.
+                # Newest first, as it always was. Oldest-first was tried and is
+                # wrong here: it is fair to a backlog but it puts today's
+                # applicant behind every stale message in the window, so a poll
+                # spends its batch on old mail while a CV that arrived a minute
+                # ago waits for the next one. The candidate who just applied is
+                # the one somebody is waiting to hear about.
+                #
+                # Nothing is lost to the ordering. What does not fit in a batch
+                # stays in the folder and is listed again next poll; the older
+                # end of the window drains behind the new mail rather than in
+                # front of it.
                 raw_uids = data[0].split()
-                uids = [u.decode("utf-8") for u in raw_uids]
+                uids = [u.decode("utf-8") for u in reversed(raw_uids)]
                 # No cap unless one is asked for. These are just numbers; the
                 # caller is what decides how many to *work*, after it has
                 # dropped the ones it has already judged.
