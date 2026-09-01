@@ -25,6 +25,7 @@ from pymongo import ASCENDING, DESCENDING
 from app.config import settings
 from app.core.models import utcnow
 from app.db.mongo import get_db
+from app.extraction import ocr_notes
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -123,6 +124,7 @@ def _base_document(
     result: Dict[str, Any],
     file: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    extraction_notes, warnings = ocr_notes.split_service_messages(result.get("warnings"))
     doc = {
         "_id": record_id,
         "document_type": document_type,
@@ -142,7 +144,15 @@ def _base_document(
         # The service's answer, untouched. Every projected field below is
         # derived from it, so a mapping bug is always recoverable.
         "raw": result,
-        "warnings": list(result.get("warnings") or []),
+        # The service returns one `warnings` array holding two unrelated kinds
+        # of message. `extraction_notes` is the recovery log — a page
+        # straightened, an MRZ found, fields rescued by a second look — and
+        # `warnings` is what is left once those are taken out: the things that
+        # actually want a human. See `ocr_notes` for why an unrecognised
+        # message stays a warning. `raw` above keeps the original array either
+        # way, so nothing is lost by the split.
+        "extraction_notes": extraction_notes,
+        "warnings": warnings,
         "updated_at": utcnow(),
     }
     # Only when there is one. Every write here is a `$set` upsert, and a
