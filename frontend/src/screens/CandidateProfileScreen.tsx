@@ -312,6 +312,8 @@ function DocumentCard({
   action,
   source,
   readAt,
+  warnings,
+  extractionNotes,
   children,
 }: {
   title: string;
@@ -321,6 +323,13 @@ function DocumentCard({
   action?: React.ReactNode;
   source?: { filename?: string; pages?: number[] };
   readAt?: string;
+  /** Things that want a human: a field that could not be read, a check that
+      did not pass. Always visible — this is the half worth interrupting for. */
+  warnings?: string[];
+  /** What the OCR had to do to read the document, all of it successful.
+      Folded away: on a clean scan there are five or six of these, and they
+      would otherwise bury the fields somebody opened the card to read. */
+  extractionNotes?: string[];
   children: React.ReactNode;
 }) {
   const pages = source?.pages ?? [];
@@ -344,6 +353,35 @@ function DocumentCard({
       </div>
 
       <div className="cprof-facts">{children}</div>
+
+      {(warnings?.length ?? 0) > 0 && (
+        <ul className="cprof-doc-warnings">
+          {warnings!.map((warning, index) => (
+            <li key={index}>
+              <AlertTriangle size={13} aria-hidden="true" /> {warning}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Deliberately not styled as a warning. Every one of these describes the
+          document being read *successfully* — a page straightened, an MRZ
+          located, a field recovered by a second look. Shown because it is the
+          answer to "why does this field look odd", and shut because on a clean
+          scan it is six lines of housekeeping above the passport number. */}
+      {(extractionNotes?.length ?? 0) > 0 && (
+        <details className="cprof-doc-notes">
+          <summary>
+            How this was read · {extractionNotes!.length} step
+            {extractionNotes!.length === 1 ? "" : "s"}
+          </summary>
+          <ul>
+            {extractionNotes!.map((note, index) => (
+              <li key={index}>{note}</li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {provenance && <p className="cprof-doc-source">{provenance}</p>}
     </article>
@@ -830,6 +868,8 @@ export default function CandidateProfileScreen({
                       }
                       source={passport.source}
                       readAt={passport.updated_at}
+                      warnings={passport.warnings}
+                      extractionNotes={passport.extraction_notes}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -908,6 +948,8 @@ export default function CandidateProfileScreen({
                   }
                   source={aadhaar.source}
                   readAt={aadhaar.updated_at}
+                  warnings={aadhaar.warnings}
+                  extractionNotes={aadhaar.extraction_notes}
                 >
                   <Fact label="Name" value={aadhaar.name} />
                   {/* The full number reaches the browser for administrators

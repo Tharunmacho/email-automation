@@ -8918,6 +8918,71 @@ body {
   color: var(--warning-ink);
 }
 
+/* The OCR's recovery log: what it had to do to read this document, all of it
+   successful. Muted and folded away on purpose — it is the answer to "why does
+   this field look odd", not a problem, and it must never borrow the warning
+   ink above. A clean scan carries five or six of these. */
+.cprof-doc-notes {
+  margin: 0.85rem 0 0;
+  font-size: 0.75rem;
+  color: var(--dash-muted);
+}
+
+.cprof-doc-notes > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: var(--dash-muted);
+}
+
+.cprof-doc-notes > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A caret the row owns, so the affordance survives the marker being hidden. */
+.cprof-doc-notes > summary::before {
+  content: "▸";
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.cprof-doc-notes[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.cprof-doc-notes > summary:hover {
+  color: var(--dash-ink, inherit);
+}
+
+.cprof-doc-notes > summary:focus-visible {
+  outline: 2px solid var(--border-blue-faint);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.cprof-doc-notes ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0 0 0 0.9rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.cprof-doc-notes li {
+  position: relative;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.cprof-doc-notes li::before {
+  content: "·";
+  position: absolute;
+  left: -0.7rem;
+}
+
 /* Which attachment, off which pages, read when. A misread digit is checked by
    opening the page it came off, and that is not findable without this line. */
 .cprof-doc-source {

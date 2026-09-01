@@ -1013,6 +1013,7 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
     is a different question with a different answer.
     """
     from app.db.identity_records import find_for_candidate
+    from app.extraction import ocr_notes
     from app.services import identity_files
 
     # 404s a record that belongs to another staff member, exactly as the
@@ -1042,6 +1043,18 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
         doc = dict(doc)
         # The raw OCR payload carries the unmasked number in a dozen places.
         doc.pop("raw", None)
+
+        # Records written before the split have one mixed `warnings` array and
+        # no `extraction_notes` at all, so the screen would show a clean scan's
+        # six recovery messages — a page straightened, an MRZ found — in warning
+        # ink. Split on the way out rather than migrating: the rule is one
+        # function either way, it costs a pass over a handful of strings, and a
+        # backfill would have to be re-run for every record the service wrote
+        # while it was in flight.
+        if "extraction_notes" not in doc:
+            notes, warnings = ocr_notes.split_service_messages(doc.get("warnings"))
+            doc["extraction_notes"] = notes
+            doc["warnings"] = warnings
         if not is_admin:
             doc.pop("aadhaar_number", None)
             doc.pop("vid", None)

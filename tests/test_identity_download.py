@@ -473,3 +473,39 @@ def test_a_storage_outage_is_a_503_the_whole_way_out(api):
     detail = response.json()["detail"]
     assert "passport scan could not be read just now" in detail
     assert "timed out" in detail
+
+
+def test_the_listing_splits_a_legacy_records_mixed_warning_list(api):
+    """Records written before the split carry one mixed array and no notes.
+
+    Without this the profile screen shows a clean scan's recovery log — a page
+    straightened, an MRZ located — in warning ink, which is the exact reading
+    the split exists to prevent.
+    """
+    api.sign_in_as("admin", "staff-1")
+    api.rows["passport"][0]["warnings"] = [
+        "MRZ recovered from page 2",
+        "page 2 was rotated in the scan — auto-corrected 90° before extraction",
+        "date_of_expiry could not be read",
+    ]
+
+    body = api.get("/candidates/cand-mine/identity").json()
+    passport = body["passport"][0]
+
+    assert passport["warnings"] == ["date_of_expiry could not be read"]
+    assert passport["extraction_notes"] == [
+        "MRZ recovered from page 2",
+        "page 2 was rotated in the scan — auto-corrected 90° before extraction",
+    ]
+
+
+def test_a_record_already_split_is_passed_through_untouched(api):
+    """The endpoint must not re-split what the writer already separated."""
+    api.sign_in_as("admin", "staff-1")
+    api.rows["passport"][0]["extraction_notes"] = ["MRZ recovered from page 2"]
+    api.rows["passport"][0]["warnings"] = ["date_of_expiry could not be read"]
+
+    passport = api.get("/candidates/cand-mine/identity").json()["passport"][0]
+
+    assert passport["extraction_notes"] == ["MRZ recovered from page 2"]
+    assert passport["warnings"] == ["date_of_expiry could not be read"]
