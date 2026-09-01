@@ -283,23 +283,30 @@ class IngestionPipeline:
             email_key = normalize_email(profile.email)
             phone_key = normalize_phone(profile.phone)
 
-            # A person explicitly removed from the CRM must stay removed even
-            # when the same mailbox later receives a renamed or slightly
-            # modified resume with a different file hash.
-            was_deleted = getattr(self.repo, "was_deleted", None)
-            if callable(was_deleted) and was_deleted(
-                email_key=email_key,
-                phone_key=phone_key,
-                resume_hash=resume_hash,
-                message_id=email.message_id,
-            ):
-                self.ledger.suppress_hash(resume_hash)
-                return AttachmentResult(
-                    att.filename,
-                    "suppressed",
-                    detail="candidate was previously deleted from the CRM",
-                )
-
+            # A `was_deleted` gate used to sit here, refusing any résumé whose
+            # email, phone or hash matched a hard-deleted candidate — and
+            # calling `suppress_hash`, which no longer exists, so every delete
+            # raised before it could tombstone anything.
+            #
+            # It is gone because it enforced the opposite of the rule this desk
+            # runs on: a résumé re-sent after a deletion must ingest as a new
+            # candidate. Deleting from the CRM is how a mistake is corrected,
+            # and a gate keyed on the person's own email and phone made that
+            # correction permanent — the candidate could never apply again, from
+            # any address, with any version of their CV.
+            #
+            # What still holds the line is `retire_candidate`: the emails the
+            # deleted candidate came from are tombstoned by message id, so the
+            # poll cannot bring the same mail back while Gmail's index catches
+            # up. The file is deliberately freed.
+            #
+            # The removal is deliberately limited to this path. `repo.was_deleted`
+            # still gates WhatsApp intake and manual upload, and is meant to:
+            # both of those are a person acting deliberately at a keyboard, who
+            # can be told "this candidate was deleted" and do something about
+            # it. A résumé arriving by mail has nobody to tell — refusing it
+            # silently is how a deletion turns into a ban. Same helper, three
+            # entry points, one of which now answers differently on purpose.
             person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
                 self.ledger.record(email.message_id, resume_hash, person_dup.id, "duplicate")

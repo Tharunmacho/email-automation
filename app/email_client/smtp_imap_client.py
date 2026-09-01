@@ -15,9 +15,11 @@ import imaplib
 import smtplib
 import threading
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional
 
 from app.config import settings
+from app.core import message_ids
 from app.core.models import Attachment, EmailMessage
 from app.email_client import imap_folders
 from app.extraction.file_type import ext_for_mime, is_document_mime
@@ -170,6 +172,61 @@ class SMTPIMAPClient:
         # In-memory cache for fetched messages during batch run to avoid re-fetching
         self._fetched_bytes_cache: dict[str, bytes] = _BoundedBytesCache()
 
+    # ---- message identity -------------------------------------------------- #
+    # A UID is only a message *within this account*: every mailbox numbers its
+    # own from 1, so two polled accounts hand out the same ids for unrelated
+    # mail. Everything downstream — the ledger, the deletion tombstones, the
+    # per-message claim — treats the id as global, so the account is attached
+    # here, at the one boundary that knows which account this is, and stripped
+    # again before anything is said to the server.
+    #
+    # Doing it here rather than at the call sites is the whole point: a caller
+    # cannot forget, because there is no unqualified id to forget to qualify.
+
+    @property
+    def account_id(self) -> str:
+        """This mailbox, as it appears in every id this client hands out."""
+        return self.imap_username or self.smtp_username or ""
+
+    def _uid(self, message_id: str) -> str:
+        """The bare UID to send to the server, checked against this account.
+
+        A qualified id belonging to somebody else is a bug in the caller — the
+        runner pairing a message with the wrong client — and stripping it
+        silently would act on whichever unrelated message happens to hold that
+        number here. That is precisely the failure this qualification exists to
+        end, so it is raised rather than absorbed.
+
+        An unqualified id is accepted as-is: rows and queued tasks written
+        before ids carried an account still name a real UID on this server.
+        """
+        owner = message_ids.account_of(message_id)
+        if owner and owner != self.account_id:
+            raise ValueError(
+                f"Message {message_id!r} belongs to {owner!r}, not to "
+                f"{self.account_id!r}; refusing to act on a UID of that number here."
+            )
+        return message_ids.local_id_of(message_id)
+
+    def _uid_hint(self, message_id: str) -> str:
+        """The UID for the label operations, which try every account on purpose.
+
+        The same résumé is normally delivered to every configured mailbox and
+        ingested from one, so filing a delete asks each account in turn and
+        "not mine" is an ordinary answer, not an error. A foreign id therefore
+        yields no hint rather than raising.
+
+        Yielding *nothing* is the point. `find_message` will, as a last resort
+        with no Message-ID to go on, accept a bare UID hint found in INBOX with
+        nothing to verify it against — so an unqualified id from another
+        account could file whichever unrelated message happened to hold that
+        number here. Withholding the hint is what makes that unreachable.
+        """
+        owner = message_ids.account_of(message_id)
+        if owner and owner != self.account_id:
+            return ""
+        return message_ids.local_id_of(message_id)
+
     def _connect_imap(self) -> imaplib.IMAP4:
         if self.imap_use_ssl:
             client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
@@ -255,30 +312,60 @@ class SMTPIMAPClient:
         try:
             with self._imap() as mail:
                 mail.select(self.imap_folder)
-                # ALL, not UNSEEN. The *folder* is the queue: a message that has
-                # been ingested is moved to `Resumes/Processed` and one whose
-                # candidate was deleted to `Resumes/Deleted`, so whatever is
-                # still sitting here is work — read or unread.
+                # UNSEEN: unread mail is the queue, and a message somebody has
+                # opened is one a human has already dealt with. This is the
+                # desk's rule and it is deliberate.
                 #
-                # Asking for UNSEEN meant anybody opening a CV in Gmail before
-                # the poller reached it removed that résumé from every future
-                # poll, silently and permanently. Nothing logged it, because
-                # from the poller's side the message simply was not in the
-                # answer. That is the "files missed from mails" case.
+                # Know the trade it makes. A résumé that is read before the
+                # poller reaches it — somebody checking the inbox on their
+                # phone — is skipped from then on, silently, because from here
+                # it simply is not in the answer. `ALL` was tried instead and
+                # is worse in practice: it re-offers the entire inbox, so the
+                # poll spends its batch on old mail that has already been dealt
+                # with by hand. Nothing else in the pipeline depends on which
+                # of the two is chosen; it is one line, here.
                 #
                 # The `query` argument is accepted for signature parity with the
                 # Gmail client and deliberately unused: Gmail's search syntax
                 # means nothing to IMAP, and the label exclusions it carries are
                 # already expressed by the message not being in this folder.
-                status, data = mail.uid("search", None, "ALL")
+                # ...but not the whole history. `SINCE` is evaluated by the
+                # server, so mail older than the window is never listed, never
+                # fetched and never paid for. Without it the first poll after
+                # the UNSEEN change set about OCR'ing years of old inbox mail
+                # oldest-first, with today's applicants queued behind it.
+                criteria = ["UNSEEN"]
+                days = int(getattr(settings, "mail_lookback_days", 0) or 0)
+                if days > 0:
+                    since = datetime.now(timezone.utc) - timedelta(days=days)
+                    # IMAP wants `01-Aug-2026`, in English, always.
+                    criteria += ["SINCE", since.strftime("%d-%b-%Y")]
+
+                status, data = mail.uid("search", None, *criteria)
                 if status != "OK" or not data or not data[0]:
                     return []
 
-                # Oldest first. A backlog has to drain in the order it arrived,
-                # or a busy inbox starves its oldest applicants for ever — and
-                # those are precisely the ones whose SLA clock has run longest.
+                # Newest first, as it always was. Oldest-first was tried and is
+                # wrong here: it is fair to a backlog but it puts today's
+                # applicant behind every stale message in the window, so a poll
+                # spends its batch on old mail while a CV that arrived a minute
+                # ago waits for the next one. The candidate who just applied is
+                # the one somebody is waiting to hear about.
+                #
+                # Nothing is lost to the ordering. What does not fit in a batch
+                # stays in the folder and is listed again next poll; the older
+                # end of the window drains behind the new mail rather than in
+                # front of it.
                 raw_uids = data[0].split()
-                uids = [u.decode("utf-8") for u in raw_uids]
+                # Qualified with this account. They really are "just numbers"
+                # on the wire, and that was the problem: the caller pools ids
+                # from every mailbox into one list and hands them to a ledger
+                # that assumed they were unique. They are unique per account,
+                # so the account travels with them from here on.
+                uids = [
+                    message_ids.qualify(self.account_id, u.decode("utf-8"))
+                    for u in reversed(raw_uids)
+                ]
                 # No cap unless one is asked for. These are just numbers; the
                 # caller is what decides how many to *work*, after it has
                 # dropped the ones it has already judged.
@@ -289,6 +376,7 @@ class SMTPIMAPClient:
 
     # ---- fetching --------------------------------------------------------- #
     def get_message(self, message_id: str) -> EmailMessage:
+        uid = self._uid(message_id)
         raw_bytes = self._fetched_bytes_cache.get(message_id)
         if not raw_bytes:
             with self._imap() as mail:
@@ -300,7 +388,7 @@ class SMTPIMAPClient:
                 # one that failed mid-parse, could never be reconsidered. Marking
                 # a message read is a decision the runner makes after a
                 # successful ingest, not something reading it does by accident.
-                status, data = mail.uid("fetch", message_id, "(BODY.PEEK[])")
+                status, data = mail.uid("fetch", uid, "(BODY.PEEK[])")
                 if status != "OK" or not data or not data[0] or not isinstance(data[0], tuple):
                     raise RuntimeError(f"Could not fetch message body for UID {message_id}")
                 raw_bytes = data[0][1]
@@ -315,7 +403,12 @@ class SMTPIMAPClient:
         date_str = _decode_header_str(msg.get("Date", ""))
         header_msg_id = _decode_header_str(msg.get("Message-ID", message_id))
 
-        body_text, attachments = self._parse_mime_parts(message_id, msg)
+        # Attachment handles are built from the bare UID, not the qualified id.
+        # They are only ever meaningful inside one message, and the message is
+        # already qualified everywhere they are used as part of a key — so
+        # repeating the account in them would only lengthen the OCR idempotency
+        # keys it appears in.
+        body_text, attachments = self._parse_mime_parts(uid, msg)
         snippet = body_text[:200].replace("\n", " ").strip() if body_text else ""
 
         return EmailMessage(
@@ -447,9 +540,10 @@ class SMTPIMAPClient:
 
     def mark_read(self, message_id: str) -> None:
         try:
+            uid = self._uid(message_id)
             with self._imap() as mail:
                 mail.select(self.imap_folder)
-                mail.uid("store", message_id, "+FLAGS", "(\\Seen)")
+                mail.uid("store", uid, "+FLAGS", "(\\Seen)")
         except Exception as exc:
             log.warning("IMAP mark_read failed for UID %s: %s", message_id, exc)
 
@@ -513,7 +607,7 @@ class SMTPIMAPClient:
                 located = imap_folders.find_message(
                     mail, index,
                     rfc_message_id=rfc_message_id,
-                    uid_hint=message_id,
+                    uid_hint=self._uid_hint(message_id),
                     prefer=self._label_folders(mail, index),
                     subject=subject,
                     from_addr=from_addr,
@@ -590,7 +684,7 @@ class SMTPIMAPClient:
                 located = imap_folders.find_message(
                     mail, index,
                     rfc_message_id=rfc_message_id,
-                    uid_hint=message_id,
+                    uid_hint=self._uid_hint(message_id),
                     prefer=options,
                     subject=subject,
                     from_addr=from_addr,
@@ -656,8 +750,13 @@ class SMTPIMAPClient:
 
         # `get_message` does the parsing; seeding its cache under this UID is
         # what lets it run without going back to the server.
-        self._fetched_bytes_cache[uid] = raw
+        # Qualified, because the message it hands back is the same kind of
+        # object a poll produces and its id has to mean the same thing — this
+        # UID is one from whatever folder the message was found in, so it is
+        # doubly meaningless without the account attached.
+        qualified = message_ids.qualify(self.account_id, uid)
+        self._fetched_bytes_cache[qualified] = raw
         try:
-            return self.get_message(uid)
+            return self.get_message(qualified)
         finally:
-            self._fetched_bytes_cache.pop(uid, None)
+            self._fetched_bytes_cache.pop(qualified, None)

@@ -87,12 +87,23 @@ def mark_message_done(
         if settings.gmail_processed_label:
             gmail.apply_label(message_id, settings.gmail_processed_label, **where)
     elif status == "error":
-        # Left in the inbox on purpose. An error is retryable — OCR was down,
-        # Mongo blinked — and filing it as processed is what would hide it from
-        # the next poll forever. It is only marked read so the operator can see
-        # the runner has been through it.
-        if settings.gmail_mark_read:
-            gmail.mark_read(message_id)
+        # Left in the inbox on purpose, and left *unread*. An error is retryable
+        # — OCR was down, Mongo blinked, the vision model could not transcribe
+        # the pages — so the point of not filing it is that the next poll picks
+        # it up again.
+        #
+        # Marking it read used to happen here anyway, "so the operator can see
+        # the runner has been through it". That was written while the search
+        # asked for ALL, where the read flag was only cosmetic. The search asks
+        # for UNSEEN, and there the flag *is* the queue: read means gone. So the
+        # one branch whose whole purpose was "retry this later" was the branch
+        # that made a retry impossible, silently, and a transient OCR failure
+        # became a lost application. Nothing is stamped on an error now.
+        log.info(
+            "Left %s unread in the inbox after a retryable failure; "
+            "the next poll will offer it again",
+            message_id,
+        )
 
 
 # A dropped connection is not a bad email. Fetching a message is a pure read, so
@@ -206,13 +217,25 @@ class IngestionRunner:
         # handed. That is not redundant: this one is an optimisation over a
         # list of ids, and the one inside is the guarantee.
         waiting = len(client_messages)
+        # Said before the filter runs, not after. This line used to come last,
+        # so a poll that was busy in the step below printed nothing at all and
+        # read as hung.
+        log.info(
+            "Searching %d message(s) across %d account(s) [%s]",
+            waiting, len(self.clients),
+            ", ".join(_account_label(c) for c in self.clients),
+        )
+
         ledger = getattr(self.pipeline, "ledger", None)
         if ledger is not None:
             try:
+                # One query for the whole inbox, never one per message. Asking
+                # individually cost ~340ms each against a remote Mongo, which on
+                # a 1,193-message mailbox was seven and a half minutes of round
+                # trips before the first résumé was even fetched — every poll.
+                seen = ledger.seen_message_ids([mid for _c, mid in client_messages])
                 client_messages = [
-                    (client, mid)
-                    for client, mid in client_messages
-                    if not ledger.message_seen(mid)
+                    (client, mid) for client, mid in client_messages if mid not in seen
                 ]
             except Exception as err:  # noqa: BLE001 — a slow ledger must not stop a poll
                 log.warning(

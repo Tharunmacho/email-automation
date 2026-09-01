@@ -72,6 +72,7 @@ import shutil
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.config import settings
@@ -619,6 +620,52 @@ def _read_pdf_page(
     return read
 
 
+def available_cpus() -> int:
+    """Cores this *process* may actually use — not the ones the machine has.
+
+    `os.cpu_count()` reports the host's cores and knows nothing about cgroups,
+    so inside a container it answers with the whole machine. On a Dokploy host
+    with eight cores and a one-CPU quota it says 8, and every caller that sizes
+    a worker pool from it starts eight Tesseract processes to share one CPU.
+    That is worse than starting two: the work does not go faster, the pages
+    contend, and each concurrent page is holding a 300-DPI raster (~26 MB for
+    A4) plus Tesseract's own working set — so a container that would have been
+    merely slow becomes slow *and* memory-pressured.
+
+    Three sources, smallest wins, each ignored where it does not apply:
+
+    * the cgroup v2 CPU quota (`cpu.max`), which is what a container limit is;
+    * the cgroup v1 equivalent, for older hosts;
+    * the scheduler affinity mask, which catches a pinned process.
+    """
+    limits = [os.cpu_count() or 4]
+
+    # cgroup v2: "<quota> <period>", or "max <period>" when unlimited.
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        if quota != "max":
+            limits.append(max(1, int(float(quota) / float(period))))
+    except Exception:  # noqa: BLE001 — not a cgroup v2 host, or not readable
+        pass
+
+    # cgroup v1: quota and period in separate files, -1 meaning unlimited.
+    try:
+        quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota > 0 and period > 0:
+            limits.append(max(1, quota // period))
+    except Exception:  # noqa: BLE001 — not a cgroup v1 host, or not readable
+        pass
+
+    # Affinity: Linux only, and it respects taskset/CPU pinning.
+    try:
+        limits.append(len(os.sched_getaffinity(0)))
+    except AttributeError:  # not on Windows or macOS
+        pass
+
+    return max(1, min(limits))
+
+
 def local_worker_count() -> int:
     """How many pages to read at once.
 
@@ -628,11 +675,17 @@ def local_worker_count() -> int:
     the host". `pytesseract` shells out, so the GIL is not the limit — the cores
     are — and the cap keeps a big scan from starving the web workers sharing the
     process.
+
+    Sized from what this process may *use*, not what the machine has — see
+    `available_cpus`. The floor is 2 rather than 1 because a page read is not
+    pure CPU: it waits on rasterisation and on a subprocess, so a second worker
+    still earns its place on a one-CPU box. Measured on an 11 MB, 28-page scan:
+    1 worker 7.06 s/page, 2 workers 4.37, 10 workers 2.71.
     """
     configured = int(getattr(settings, "ocr_local_workers", 0) or 0)
     if configured > 0:
         return configured
-    return max(2, min(8, os.cpu_count() or 4))
+    return max(2, min(8, available_cpus()))
 
 
 def ocr_pdf_page_reads(

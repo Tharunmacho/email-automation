@@ -371,6 +371,17 @@ def test_a_failed_email_is_left_in_the_inbox_to_be_retried():
     assert not [c for c in recorder.calls if c[0] == "apply"]
 
 
+def test_a_failed_email_is_not_even_marked_read():
+    """Unread *is* the queue: `search_message_ids` asks for UNSEEN, so marking a
+    failed message read retires it exactly as thoroughly as labelling it would.
+    A resume whose OCR failed once must still be offered to the next poll."""
+    recorder = _Recorder()
+
+    mark_message_done(recorder, "42", "error", email=_Email())
+
+    assert not [c for c in recorder.calls if c[0] == "mark_read"]
+
+
 def test_a_client_that_wants_no_extras_still_gets_a_plain_two_argument_call():
     recorder = _Recorder()
 

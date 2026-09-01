@@ -197,7 +197,28 @@ class Settings(BaseSettings):
     # must never be re-ingested. A *new* email carrying the same resume is
     # unlabelled and ingests normally.
     gmail_deleted_label: str = "Resumes/Deleted"
+    #: How many messages one poll will *work*. Not a limit on what it can see —
+    #: everything still queued is reported and picked up by the next poll.
     gmail_max_results: int = 25
+
+    #: How far back a poll looks, in days. 0 means "the whole folder".
+    #:
+    #: The search asks for every message in the inbox rather than only the
+    #: unread ones, because a résumé somebody opened in Gmail is still a résumé
+    #: nobody has processed. The cost of that is history: these mailboxes had
+    #: 1,193 and 117 messages sitting in them, almost none of it recorded, and
+    #: the poll set about working through all of it oldest-first — paying an OCR
+    #: and a Veris parse for years-old mail while today's applicants queued
+    #: behind it, and saturating a remote Mongo until GridFS writes timed out.
+    #:
+    #: A window keeps both halves of the rule: inside it nothing is missed
+    #: whether or not it has been read; outside it, the past stays the past.
+    #: `SINCE` is evaluated by the IMAP server, so the messages never travel.
+    #:
+    #: Widen it to take in older mail — a one-off `MAIL_LOOKBACK_DAYS=3650`
+    #: sync is how you would backfill an inbox deliberately, rather than by
+    #: accident on every poll.
+    mail_lookback_days: int = 30
 
     # ---- Anthropic Claude ----
     anthropic_api_key: str = ""
@@ -317,6 +338,35 @@ class Settings(BaseSettings):
     storage_backend: str = "gridfs"      # gridfs | local
     storage_local_dir: str = "data/resumes"
     storage_gridfs_bucket: str = "resumes"
+    # GridFS writes go over the same link as every other Mongo call, but they
+    # are the only ones measured in megabytes, so they are the only ones that
+    # need sizing. Against the production host these settle at roughly half a
+    # megabyte a second; an 11 MB scanned bundle is therefore a ~20-second
+    # write on an idle link and considerably longer once several run at once.
+    #
+    # A 255 KB chunk (GridFS's default) spends that link on per-document
+    # overhead. Measured on the same 11 MB file: 255 KB → 24.6s, 1 MB → 18.6s,
+    # 4 MB → 19.7s. 1 MB it is; past that there is nothing left to win.
+    storage_gridfs_chunk_bytes: int = 1024 * 1024
+    # How long one upload may take, as `base + size / throughput`. A flat
+    # timeout cannot be right for both a 150 KB CV and an 11 MB bundle, and
+    # `socketTimeoutMS` (30s) was being asked to serve as both — which is what
+    # made the large ones fail with `NetworkTimeout` mid-`insert_many`. The
+    # assumed floor is deliberately well under what the link actually does, so
+    # the deadline is generous rather than marginal, and only a genuinely stuck
+    # write reaches it.
+    storage_write_base_timeout_seconds: float = 30.0
+    storage_write_min_throughput_bytes: int = 128 * 1024   # 128 KB/s
+    # Uploads in flight at once, across every worker in this process. Not 1:
+    # measured, four concurrent 3 MB writes moved 0.90 MB/s against 0.47 MB/s
+    # done one after another, so serialising would halve the throughput. Not 8
+    # either: the same measurement doubled each *individual* write's latency,
+    # and it is the slowest single write that decides whether anything times
+    # out. Half the worker count keeps the tail bounded without giving up the
+    # aggregate.
+    storage_max_concurrent_writes: int = 4
+    # A dropped connection mid-upload is weather, not a verdict on the file.
+    storage_write_attempts: int = 3
 
     # ---- OCR ----
     tesseract_cmd: str = ""

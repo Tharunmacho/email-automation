@@ -22,7 +22,7 @@ different resumes is tracked as two entries.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 from pymongo import ASCENDING
 
@@ -43,6 +43,11 @@ DELETED_SENTINEL = "__deleted__"
 # the poll stops re-downloading the same non-candidate email on every pass.
 # Like the deleted sentinel it can never match a real file.
 NOT_A_RESUME_SENTINEL = "__not_a_resume__"
+
+#: How many message ids go into one `$in`. Large enough that an ordinary
+#: mailbox is a single round trip, small enough that a very large one does
+#: not build a query document the server refuses.
+_SEEN_CHUNK = 500
 
 
 def get_ledger_collection():
@@ -86,6 +91,32 @@ class IngestLedger:
 
     def message_seen(self, message_id: str) -> bool:
         return self._coll.count_documents({"message_id": message_id}, limit=1) > 0
+
+    def seen_message_ids(self, message_ids: Sequence[str]) -> set:
+        """Which of these have been handled — in one round trip, not one each.
+
+        The poll asks this about every message sitting in the inbox, and that is
+        a much bigger number than the batch it will work: 1,193 in one mailbox
+        here. Asked one at a time against a remote Mongo at ~340ms each, the
+        filter alone took **seven and a half minutes** before a single résumé was
+        fetched, on every poll, and the run looked hung because the line that
+        reports the count comes after it.
+
+        One `$in` over the `message_id` index answers the same question in a
+        single trip. Chunked so the query document cannot grow without bound on
+        a mailbox larger than this one.
+        """
+        ids = [m for m in message_ids if m]
+        if not ids:
+            return set()
+
+        found: set = set()
+        for start in range(0, len(ids), _SEEN_CHUNK):
+            chunk = ids[start:start + _SEEN_CHUNK]
+            found.update(
+                self._coll.distinct("message_id", {"message_id": {"$in": chunk}})
+            )
+        return found
 
     def is_message_suppressed(self, message_id: str) -> bool:
         """True when this exact email belonged to a candidate the user deleted.
@@ -160,18 +191,25 @@ class IngestLedger:
         message_ids: list[str],
         resume_hash: Optional[str] = None,
     ) -> int:
-        """Record that these emails and this file belong to a deleted candidate.
+        """Record that these *emails* are dead, while freeing the *file*.
 
         Deleting a candidate has to satisfy two opposite rules:
 
         * the emails it came from must never be ingested again — even though the
           Gmail label that hides them takes a while to reach Gmail's search
           index, so a poll seconds later still returns them;
-        * the exact same resume arriving on a *new* email must remain deleted,
-          rather than silently recreating the CRM record.
+        * the exact same resume arriving on a *new* email must ingest as a new
+          candidate.
 
-        Message tombstones block the original emails and a hash tombstone blocks
-        the same attachment when it is forwarded or resent under a new message.
+        Both hold if the hash-keyed rows go away and a message-keyed tombstone
+        takes their place: `is_message_suppressed` blocks the old emails, while
+        every hash lookup comes up empty for the file itself.
+
+        The second rule is the one that keeps a mistaken deletion recoverable.
+        A hash tombstone here would block the file for ever, so a candidate
+        removed by accident could never be re-sent, however many times they
+        applied and from whatever address. That is why `suppress_hash` does not
+        exist any more, and why nothing in this method may reintroduce it.
 
         Returns the number of tombstones written.
         """
@@ -206,14 +244,11 @@ class IngestLedger:
                 upsert=True,
             )
 
-        if resume_hash:
-            self.suppress_hash(resume_hash, reason="candidate deleted by user")
-
         log.info(
-            "Ledger: cleared %d row(s) and tombstoned %d source(s) for deleted candidate %s",
-            cleared, len(message_ids) + bool(resume_hash), candidate_id,
+            "Ledger: cleared %d row(s) and tombstoned %d message(s) for deleted candidate %s",
+            cleared, len(message_ids), candidate_id,
         )
-        return len(message_ids) + int(bool(resume_hash))
+        return len(message_ids)
 
     def unsuppress_candidate(
         self,

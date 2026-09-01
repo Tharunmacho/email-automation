@@ -11,6 +11,7 @@ ingest — never something reading it does by accident.
 """
 from __future__ import annotations
 
+from app.config import settings
 from app.email_client.smtp_imap_client import SMTPIMAPClient
 
 RAW = (
@@ -92,14 +93,14 @@ class _SearchingIMAP(_RecordingIMAP):
         return super().uid(command, *args)
 
 
-def test_the_search_asks_for_every_message_in_the_folder():
-    """Asking for UNSEEN is what silently lost résumés.
+def test_only_unread_mail_is_offered_to_the_poll():
+    """Unread is the queue. A message somebody has opened is one a human has
+    already dealt with, and re-ingesting it is not wanted.
 
-    The folder is the queue — an ingested message is moved to
-    `Resumes/Processed` and a retired one to `Resumes/Deleted` — so whatever is
-    still in the inbox is work. While the search asked for UNSEEN, anyone
-    opening a CV in Gmail before the poller reached it removed that résumé from
-    every future poll, with nothing logged anywhere.
+    `ALL` was tried instead — it does not lose a résumé that gets read before
+    the poller reaches it — and it re-offered the whole inbox, so the batch went
+    on old mail that had already been handled by hand. The desk's rule is
+    unread-only; this pins it so it cannot drift back by accident.
     """
     stub = _SearchingIMAP()
     _client_with(stub).search_message_ids()
@@ -107,22 +108,28 @@ def test_the_search_asks_for_every_message_in_the_folder():
     searches = [c for c in stub.commands if c[0] == "search"]
     assert searches, "no search was issued"
     criteria = [str(part).upper() for c in searches for part in c[1:]]
-    assert any("ALL" in part for part in criteria), criteria
-    assert not any("UNSEEN" in part for part in criteria), (
-        "a message that has been read is still an unprocessed résumé"
+    assert any("UNSEEN" in part for part in criteria), criteria
+    assert not any(part == "ALL" for part in criteria), (
+        "read mail must not be re-offered to the poll"
     )
 
 
-def test_the_backlog_is_returned_oldest_first():
-    """A busy inbox must drain in arrival order.
+def test_the_newest_mail_is_returned_first():
+    """Today's applicant must not queue behind the window's stale end.
 
-    Newest-first starves the oldest applicants exactly when their SLA clock has
-    run longest — and if mail arrives faster than a batch is worked, it starves
-    them for ever.
+    Oldest-first is fair to a backlog and wrong for this: a poll would spend
+    its whole batch on old mail while a CV that arrived a minute ago waited for
+    the next one. Nothing is lost to the ordering — what does not fit stays in
+    the folder and is listed again, so the older end drains behind the new mail
+    rather than in front of it.
     """
     stub = _SearchingIMAP(b"1 2 3 10 11")
+    client = _client_with(stub)
+    me = client.account_id
 
-    assert _client_with(stub).search_message_ids() == ["1", "2", "3", "10", "11"]
+    assert client.search_message_ids() == [
+        f"{me}:11", f"{me}:10", f"{me}:3", f"{me}:2", f"{me}:1",
+    ]
 
 
 def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
@@ -132,5 +139,49 @@ def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
     stub = _SearchingIMAP(b" ".join(str(n).encode() for n in range(1, 200)))
     client = _client_with(stub)
 
+    me = client.account_id
+
     assert len(client.search_message_ids()) == 199
-    assert client.search_message_ids(max_results=5) == ["1", "2", "3", "4", "5"]
+    assert client.search_message_ids(max_results=5) == [
+        f"{me}:199", f"{me}:198", f"{me}:197", f"{me}:196", f"{me}:195",
+    ]
+
+
+# --------------------------------------------------------------------------- #
+#  Recent mail, read or unread — but not the whole archive
+# --------------------------------------------------------------------------- #
+def test_the_search_is_bounded_by_the_lookback_window(monkeypatch):
+    """`ALL` without a window meant the entire inbox history.
+
+    These mailboxes held 1,304 messages between them, almost none of it
+    recorded, and the poll set about working through all of it oldest-first —
+    an OCR and a Veris parse for years-old mail while today's applicants queued
+    behind it. `SINCE` is evaluated by the server, so the old mail is never
+    listed and never travels. The same window measured 34 messages.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(settings, "mail_lookback_days", 30)
+    stub = _SearchingIMAP()
+    _client_with(stub).search_message_ids()
+
+    search = next(c for c in stub.commands if c[0] == "search")
+    args = [str(a) for a in search[1:]]
+    assert "SINCE" in args, args
+
+    expected = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%d-%b-%Y")
+    assert expected in args, f"expected {expected} in {args}"
+    assert "UNSEEN" in args, "the window narrows the queue; it does not widen it"
+
+
+def test_zero_days_means_the_whole_folder(monkeypatch):
+    """The escape hatch. A one-off wide window is how an inbox gets backfilled
+    deliberately, rather than by accident on every poll."""
+    monkeypatch.setattr(settings, "mail_lookback_days", 0)
+    stub = _SearchingIMAP()
+    _client_with(stub).search_message_ids()
+
+    # `[1:]` drops the command, `[1:]` again the charset argument IMAP takes
+    # before the criteria.
+    args = [str(a) for a in next(c for c in stub.commands if c[0] == "search")[2:]]
+    assert args == ["UNSEEN"], "no window means unread mail of any age"

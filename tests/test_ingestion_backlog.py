@@ -23,11 +23,19 @@ class FakeLedger:
     def __init__(self, seen=()):
         self.seen = set(seen)
         self.asked: list[str] = []
+        self.bulk_calls = 0
         self.recorded: list[tuple] = []
 
     def message_seen(self, message_id):
         self.asked.append(message_id)
         return message_id in self.seen
+
+    def seen_message_ids(self, message_ids):
+        """One call for the whole list, mirroring the real ledger."""
+        self.bulk_calls += 1
+        ids = list(message_ids)
+        self.asked.extend(ids)
+        return {m for m in ids if m in self.seen}
 
     def is_message_suppressed(self, _message_id):
         return False
@@ -111,7 +119,7 @@ def test_a_broken_ledger_fetches_everything_rather_than_nothing(monkeypatch):
     """Bookkeeping being unavailable must cost money, never messages."""
 
     class Broken(FakeLedger):
-        def message_seen(self, message_id):
+        def seen_message_ids(self, message_ids):
             raise RuntimeError("mongo is down")
 
     runner, _ = _runner(["1", "2", "3"], Broken(), monkeypatch)
@@ -166,3 +174,20 @@ def test_the_non_resume_sentinel_can_never_match_a_real_file():
     assert NOT_A_RESUME_SENTINEL != DELETED_SENTINEL
     assert NOT_A_RESUME_SENTINEL != sha256_hex(b"")
     assert not all(c in "0123456789abcdef" for c in NOT_A_RESUME_SENTINEL)
+
+
+def test_the_whole_inbox_is_filtered_in_one_query(monkeypatch):
+    """The regression that made a poll look hung.
+
+    The filter asked the ledger about each message separately. At ~340ms a
+    round trip against a remote Mongo, a 1,193-message mailbox spent seven and
+    a half minutes on nothing but that — every poll, before the first résumé
+    was fetched — and printed nothing while it did, because the line reporting
+    the count came afterwards.
+    """
+    ledger = FakeLedger()
+    runner, _ = _runner([str(n) for n in range(1, 1311)], ledger, monkeypatch, limit=25)
+
+    runner.run_once()
+
+    assert ledger.bulk_calls == 1, "the inbox must be filtered in a single query"
