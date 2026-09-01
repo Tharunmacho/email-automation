@@ -313,7 +313,6 @@ function DocumentCard({
   source,
   readAt,
   warnings,
-  extractionNotes,
   children,
 }: {
   title: string;
@@ -324,12 +323,13 @@ function DocumentCard({
   source?: { filename?: string; pages?: number[] };
   readAt?: string;
   /** Things that want a human: a field that could not be read, a check that
-      did not pass. Always visible — this is the half worth interrupting for. */
+      did not pass. Always visible — this is the half worth interrupting for.
+      Its counterpart, the OCR's recovery log, is deliberately *not* drawn
+      here: every line of it describes the document being read successfully,
+      which is our plumbing rather than anything a recruiter acts on. It is
+      still stored and still returned as `extraction_notes`, so a misread digit
+      can be traced without putting six lines of housekeeping on the screen. */
   warnings?: string[];
-  /** What the OCR had to do to read the document, all of it successful.
-      Folded away: on a clean scan there are five or six of these, and they
-      would otherwise bury the fields somebody opened the card to read. */
-  extractionNotes?: string[];
   children: React.ReactNode;
 }) {
   const pages = source?.pages ?? [];
@@ -362,25 +362,6 @@ function DocumentCard({
             </li>
           ))}
         </ul>
-      )}
-
-      {/* Deliberately not styled as a warning. Every one of these describes the
-          document being read *successfully* — a page straightened, an MRZ
-          located, a field recovered by a second look. Shown because it is the
-          answer to "why does this field look odd", and shut because on a clean
-          scan it is six lines of housekeeping above the passport number. */}
-      {(extractionNotes?.length ?? 0) > 0 && (
-        <details className="cprof-doc-notes">
-          <summary>
-            How this was read · {extractionNotes!.length} step
-            {extractionNotes!.length === 1 ? "" : "s"}
-          </summary>
-          <ul>
-            {extractionNotes!.map((note, index) => (
-              <li key={index}>{note}</li>
-            ))}
-          </ul>
-        </details>
       )}
 
       {provenance && <p className="cprof-doc-source">{provenance}</p>}
@@ -511,8 +492,15 @@ export default function CandidateProfileScreen({
   const additionalEntries = useMemo(
     () =>
       flattenExtras((profile.additional_info ?? {}) as Record<string, unknown>, [
+        // Skipped because they have dedicated rows of their own above.
         "industry",
         "highest_qualification",
+        // Skipped for a different reason: which service read the file is our
+        // plumbing, and this is the row that put "Extraction source: Veris ocr
+        // api" on a recruiter's screen among the candidate's own details. It
+        // is still stored — the upload gate refuses anything Veris did not
+        // structure, and it reads this field to know.
+        "extraction_source",
       ]),
     [profile.additional_info],
   );
@@ -769,7 +757,12 @@ export default function CandidateProfileScreen({
             <Fact label="Total experience" value={view.experience ? `${view.experience} year(s)` : ""} />
             <Fact label="Languages" value={view.languages} />
             <Fact label="Email" value={view.email} />
-            <Fact label="Received at (To email)" value={candidate.source_email?.to_addr} />
+            {/* "Received at (To email)" used to sit here, showing which of our
+                own inboxes the CV landed in. That is our plumbing, not a fact
+                about the candidate, and it read as one more contact address on
+                a card that is otherwise all of theirs. It is still on the
+                record — `source_email.to_addr` — for anyone tracing where a
+                résumé came in. */}
             <Fact label="Phone" value={view.phone} />
             <Fact label="LinkedIn" value={view.linkedin} />
             <Fact label="GitHub" value={view.github} />
@@ -869,7 +862,6 @@ export default function CandidateProfileScreen({
                       source={passport.source}
                       readAt={passport.updated_at}
                       warnings={passport.warnings}
-                      extractionNotes={passport.extraction_notes}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -949,7 +941,6 @@ export default function CandidateProfileScreen({
                   source={aadhaar.source}
                   readAt={aadhaar.updated_at}
                   warnings={aadhaar.warnings}
-                  extractionNotes={aadhaar.extraction_notes}
                 >
                   <Fact label="Name" value={aadhaar.name} />
                   {/* The full number reaches the browser for administrators
