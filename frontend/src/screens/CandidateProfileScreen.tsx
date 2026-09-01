@@ -14,6 +14,7 @@ import {
   Loader2,
   Mail,
   MapPin,
+  MessageSquareText,
   Phone,
   ShieldCheck,
   Plane,
@@ -204,6 +205,8 @@ export interface Verdict {
  */
 export interface EvaluationSuite {
   saving: boolean;
+  /** Staff can continue through their queue; admins save the current record only. */
+  allowAdvance?: boolean;
   /** The next unopened profile's name, if there is one, for the advance button. */
   nextName?: string | null;
   onSave: (verdict: Verdict, advance: boolean) => void;
@@ -218,7 +221,7 @@ interface CandidateProfileScreenProps {
   onVerify?: (candidateId: string) => void;
   /** Return an admin-verified profile to the review queue. */
   onUnverify?: (candidateId: string) => void;
-  /** Supplied by the staff workspace; omitted everywhere else. */
+  /** Supplied to users who may add candidate remarks and record a verdict. */
   evaluation?: EvaluationSuite;
 }
 
@@ -676,6 +679,14 @@ export default function CandidateProfileScreen({
     document.getElementById(sectionId(id))?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const openRemarks = () => {
+    document.getElementById("cprof-evaluation")?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    window.setTimeout(() => document.getElementById("cprof-eval-remarks")?.focus(), 350);
+  };
+
   const handleDownload = async () => {
     setDownloadError(null);
     setDownloading(true);
@@ -742,6 +753,13 @@ export default function CandidateProfileScreen({
         )}
 
         <div className="cscreen-topbar-actions">
+          {evaluation && (
+            <button type="button" className="cscreen-btn is-primary" onClick={openRemarks}>
+              <MessageSquareText size={15} />
+              {candidate.evaluation_notes ? "Edit remarks" : "Add remarks"}
+            </button>
+          )}
+
           {onEdit && (
             <button type="button" className="cscreen-btn" onClick={onEdit}>
               <Edit3 size={15} /> Edit details
@@ -765,10 +783,17 @@ export default function CandidateProfileScreen({
             <button
               type="button"
               className={`cscreen-btn ${isVerified ? "is-unverify" : "is-primary"}`}
-              onClick={() =>
-                isVerified ? onUnverify?.(candidate.id) : onVerify(candidate.id)
-              }
+              onClick={() => {
+                if (isVerified) onUnverify?.(candidate.id);
+                else if (!(candidate.evaluation_notes || "").trim()) openRemarks();
+                else onVerify(candidate.id);
+              }}
               disabled={verifying || (isVerified && !onUnverify)}
+              title={
+                !isVerified && !(candidate.evaluation_notes || "").trim()
+                  ? "Add and save compulsory remarks before completing the review"
+                  : undefined
+              }
             >
               {isVerified ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />}
               {verifying
@@ -1345,16 +1370,16 @@ export default function CandidateProfileScreen({
         </div>
 
         {evaluation && (
-          <aside className="cprof-verdict" aria-label="Record your evaluation">
+          <aside id="cprof-evaluation" className="cprof-verdict" aria-label="Candidate remarks and evaluation">
             <div className="cprof-verdict-inner">
               <h3 className="cprof-card-title">Your verdict</h3>
               <p className="cprof-verdict-sub">
-                Add remarks first. This unlocks the rating, outcome, and review actions.
+                Remarks are compulsory before you can rate, choose an outcome, or complete this review.
               </p>
 
               <div className="eval-field">
                 <label htmlFor="cprof-eval-remarks">
-                  Staff remarks <span aria-hidden="true">*</span>
+                  Candidate remarks <span aria-hidden="true">*</span>
                 </label>
                 <textarea
                   id="cprof-eval-remarks"
@@ -1371,8 +1396,8 @@ export default function CandidateProfileScreen({
                   className={`eval-field-hint ${hasRemarks ? "is-ready" : "is-required"}`}
                 >
                   {hasRemarks
-                    ? "Remarks added. You can now complete the review."
-                    : "Required before you can rate or submit this review."}
+                    ? "Save these remarks before completing the review."
+                    : "Compulsory before you can rate or submit this review."}
                 </p>
               </div>
 
@@ -1419,27 +1444,29 @@ export default function CandidateProfileScreen({
               )}
 
               <div className="eval-actions is-stacked">
+                {evaluation.allowAdvance && (
+                  <button
+                    type="button"
+                    className="db-btn is-primary"
+                    onClick={() => submit(true)}
+                    disabled={evaluation.saving || !hasRemarks}
+                    title={
+                      evaluation.nextName
+                        ? `Save, then open ${evaluation.nextName}`
+                        : "Save — nothing else is waiting on a first read"
+                    }
+                  >
+                    {evaluation.saving ? (
+                      <Loader2 size={14} className="icon-spin" />
+                    ) : (
+                      <ArrowRight size={14} />
+                    )}
+                    {evaluation.nextName ? "Save & next" : "Save & finish"}
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="db-btn is-primary"
-                  onClick={() => submit(true)}
-                  disabled={evaluation.saving || !hasRemarks}
-                  title={
-                    evaluation.nextName
-                      ? `Save, then open ${evaluation.nextName}`
-                      : "Save — nothing else is waiting on a first read"
-                  }
-                >
-                  {evaluation.saving ? (
-                    <Loader2 size={14} className="icon-spin" />
-                  ) : (
-                    <ArrowRight size={14} />
-                  )}
-                  {evaluation.nextName ? "Save & next" : "Save & finish"}
-                </button>
-                <button
-                  type="button"
-                  className="db-btn"
+                  className={`db-btn ${evaluation.allowAdvance ? "" : "is-primary"}`}
                   onClick={() => submit(false)}
                   disabled={evaluation.saving || !hasRemarks}
                 >

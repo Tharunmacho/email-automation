@@ -1126,10 +1126,8 @@ export default function Home() {
                 Nothing is layered over anything else — the profile, the editor
                 and the activity log are three destinations, not three modes of
                 one. */}
-            {/* One screen, two uses. An admin gets the read-only executive
-                profile with a Verify control; a staff member gets the same
-                profile with the verdict suite live beside it. The evidence and
-                the judgement are never in two places. */}
+            {/* Admins and staff can both record candidate remarks and a verdict.
+                Staff additionally get the queue-oriented Save & next action. */}
             {screenCandidate && screen?.mode === "profile" && (
               <CandidateProfileScreen
                 // Identity, not just data: "Save & next" swaps the candidate
@@ -1144,16 +1142,13 @@ export default function Home() {
                 onEdit={() => handleEditCandidate(screenCandidate)}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
-                evaluation={
-                  user?.role === "staff"
-                    ? {
-                        saving: evaluating,
-                        nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
-                        onSave: (verdict, advance) =>
-                          void handleSaveEvaluation(screenCandidate.id, verdict, advance),
-                      }
-                    : undefined
-                }
+                evaluation={{
+                  saving: evaluating,
+                  allowAdvance: user?.role === "staff",
+                  nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
+                  onSave: (verdict, advance) =>
+                    void handleSaveEvaluation(screenCandidate.id, verdict, advance),
+                }}
               />
             )}
 

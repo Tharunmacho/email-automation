@@ -1612,11 +1612,16 @@ def consolidate_legacy_database(
 
 @app.post("/candidates/{candidate_id}/verify")
 def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
-    """Verify a candidate's profile, marking their status as 'verified'."""
+    """Verify a reviewed profile only after compulsory remarks were saved."""
     repository = repo()
     record = repository.get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    if not (record.evaluation_notes or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Candidate remarks are required before completing the review.",
+        )
     repository.update_status(candidate_id, "verified")
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")

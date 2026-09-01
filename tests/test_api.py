@@ -158,6 +158,7 @@ def test_client():
             "name": "Test User", "role": "admin",
         }
         client = TestClient(app)
+        client.repo = mock_repo  # type: ignore[attr-defined]
         try:
             yield client
         finally:
@@ -550,7 +551,14 @@ def test_manual_candidate_json_endpoint_is_removed(test_client):
 
 def test_verify_candidate(test_client):
     response = test_client.get("/candidates/candidate-alice/verify")
-    # verification POST route
+    # A review cannot be completed without an actual saved remark.
+    response = test_client.post("/candidates/candidate-alice/verify")
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "Candidate remarks are required before completing the review."
+    )
+
+    test_client.repo.get("candidate-alice").evaluation_notes = "Profile checked by admin."
     response = test_client.post("/candidates/candidate-alice/verify")
     assert response.status_code == 200
     data = response.json()
@@ -562,6 +570,7 @@ def test_verify_candidate(test_client):
 
 
 def test_unverify_candidate_returns_profile_to_ingested(test_client):
+    test_client.repo.get("candidate-alice").evaluation_notes = "Profile checked by admin."
     response = test_client.post("/candidates/candidate-alice/verify")
     assert response.status_code == 200
 
