@@ -197,7 +197,28 @@ class Settings(BaseSettings):
     # must never be re-ingested. A *new* email carrying the same resume is
     # unlabelled and ingests normally.
     gmail_deleted_label: str = "Resumes/Deleted"
+    #: How many messages one poll will *work*. Not a limit on what it can see —
+    #: everything still queued is reported and picked up by the next poll.
     gmail_max_results: int = 25
+
+    #: How far back a poll looks, in days. 0 means "the whole folder".
+    #:
+    #: The search asks for every message in the inbox rather than only the
+    #: unread ones, because a résumé somebody opened in Gmail is still a résumé
+    #: nobody has processed. The cost of that is history: these mailboxes had
+    #: 1,193 and 117 messages sitting in them, almost none of it recorded, and
+    #: the poll set about working through all of it oldest-first — paying an OCR
+    #: and a Veris parse for years-old mail while today's applicants queued
+    #: behind it, and saturating a remote Mongo until GridFS writes timed out.
+    #:
+    #: A window keeps both halves of the rule: inside it nothing is missed
+    #: whether or not it has been read; outside it, the past stays the past.
+    #: `SINCE` is evaluated by the IMAP server, so the messages never travel.
+    #:
+    #: Widen it to take in older mail — a one-off `MAIL_LOOKBACK_DAYS=3650`
+    #: sync is how you would backfill an inbox deliberately, rather than by
+    #: accident on every poll.
+    mail_lookback_days: int = 30
 
     # ---- Anthropic Claude ----
     anthropic_api_key: str = ""

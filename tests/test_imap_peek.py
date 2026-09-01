@@ -11,6 +11,7 @@ ingest — never something reading it does by accident.
 """
 from __future__ import annotations
 
+from app.config import settings
 from app.email_client.smtp_imap_client import SMTPIMAPClient
 
 RAW = (
@@ -107,7 +108,9 @@ def test_the_search_asks_for_every_message_in_the_folder():
     searches = [c for c in stub.commands if c[0] == "search"]
     assert searches, "no search was issued"
     criteria = [str(part).upper() for c in searches for part in c[1:]]
-    assert any("ALL" in part for part in criteria), criteria
+    # The invariant is the *absence* of UNSEEN, not the presence of any one
+    # keyword: a date window narrows which messages are listed, and read state
+    # must never be what decides.
     assert not any("UNSEEN" in part for part in criteria), (
         "a message that has been read is still an unprocessed résumé"
     )
@@ -134,3 +137,41 @@ def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
 
     assert len(client.search_message_ids()) == 199
     assert client.search_message_ids(max_results=5) == ["1", "2", "3", "4", "5"]
+
+
+# --------------------------------------------------------------------------- #
+#  Recent mail, read or unread — but not the whole archive
+# --------------------------------------------------------------------------- #
+def test_the_search_is_bounded_by_the_lookback_window(monkeypatch):
+    """`ALL` without a window meant the entire inbox history.
+
+    These mailboxes held 1,304 messages between them, almost none of it
+    recorded, and the poll set about working through all of it oldest-first —
+    an OCR and a Veris parse for years-old mail while today's applicants queued
+    behind it. `SINCE` is evaluated by the server, so the old mail is never
+    listed and never travels. The same window measured 34 messages.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setattr(settings, "mail_lookback_days", 30)
+    stub = _SearchingIMAP()
+    _client_with(stub).search_message_ids()
+
+    search = next(c for c in stub.commands if c[0] == "search")
+    args = [str(a) for a in search[1:]]
+    assert "SINCE" in args, args
+
+    expected = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%d-%b-%Y")
+    assert expected in args, f"expected {expected} in {args}"
+    assert "UNSEEN" not in args, "inside the window, read mail is still work"
+
+
+def test_zero_days_means_the_whole_folder(monkeypatch):
+    """The escape hatch. A one-off wide window is how an inbox gets backfilled
+    deliberately, rather than by accident on every poll."""
+    monkeypatch.setattr(settings, "mail_lookback_days", 0)
+    stub = _SearchingIMAP()
+    _client_with(stub).search_message_ids()
+
+    args = [str(a) for a in next(c for c in stub.commands if c[0] == "search")[1:]]
+    assert "ALL" in args and "SINCE" not in args

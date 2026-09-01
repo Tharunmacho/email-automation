@@ -15,6 +15,7 @@ import imaplib
 import smtplib
 import threading
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional
 
 from app.config import settings
@@ -270,7 +271,19 @@ class SMTPIMAPClient:
                 # Gmail client and deliberately unused: Gmail's search syntax
                 # means nothing to IMAP, and the label exclusions it carries are
                 # already expressed by the message not being in this folder.
-                status, data = mail.uid("search", None, "ALL")
+                # ...but not the whole history. `SINCE` is evaluated by the
+                # server, so mail older than the window is never listed, never
+                # fetched and never paid for. Without it the first poll after
+                # the UNSEEN change set about OCR'ing years of old inbox mail
+                # oldest-first, with today's applicants queued behind it.
+                criteria = ["ALL"]
+                days = int(getattr(settings, "mail_lookback_days", 0) or 0)
+                if days > 0:
+                    since = datetime.now(timezone.utc) - timedelta(days=days)
+                    # IMAP wants `01-Aug-2026`, in English, always.
+                    criteria = ["SINCE", since.strftime("%d-%b-%Y")]
+
+                status, data = mail.uid("search", None, *criteria)
                 if status != "OK" or not data or not data[0]:
                     return []
 
