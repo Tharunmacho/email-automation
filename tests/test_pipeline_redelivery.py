@@ -204,3 +204,32 @@ def test_the_auto_reply_goes_to_the_candidate_not_the_forwarder(parts, monkeypat
 
     assert result.status == "processed"
     assert sent["to"] == "recruiter@agency.com", "must reply to the address the email arrived from"
+
+
+# --------------------------------------------------------------------------- #
+#  A refusal is a finished message, not an unfinished one
+# --------------------------------------------------------------------------- #
+def test_a_nationality_refusal_leaves_a_finished_message_the_runner_can_file(parts):
+    """The contract `mark_message_done` relies on to stop re-reading the CV.
+
+    A résumé refused on nationality is permanent, so the message must come back
+    `skipped` *carrying its attachment verdict* — that pair is what tells the
+    runner to label it. Reported as an error instead, it would be left in the
+    inbox and OCR'd again on every poll for ever.
+    """
+    from app.core.exceptions import ForeignNationalityError
+
+    pipeline, repo, _ = parts
+
+    def refuse(data, filename):
+        raise ForeignNationalityError(
+            "rejected: other nationality (Pakistan) [confidence 0.99]"
+        )
+
+    pipeline.parser.parse_file = refuse
+
+    result = pipeline.process_email(_email("msg-usman"))
+
+    assert result.status == "skipped"
+    assert [a.status for a in result.attachments] == ["rejected_nationality"]
+    assert repo.records == {}, "a refused CV must not become a candidate"

@@ -451,3 +451,68 @@ def test_a_stale_uid_is_never_trusted_when_a_header_id_is_known():
     client.apply_label(innocent, "Resumes/Deleted", rfc_message_id="<gone@example.com>")
 
     assert server.where("<innocent@example.com>") == "INBOX"
+
+
+# --------------------------------------------------------------------------- #
+#  A permanent refusal must stop being re-read
+# --------------------------------------------------------------------------- #
+class _Att:
+    """Stands in for an AttachmentResult; only `status` is read here."""
+
+    def __init__(self, status):
+        self.status = status
+
+
+def test_a_nationality_rejected_resume_is_filed_so_it_is_not_read_again():
+    """The bug this pins: the same CV was OCR'd on every poll, for ever.
+
+    A résumé refused on nationality is a permanent decision — the pipeline says
+    so in as many words — but the message came back `skipped`, and `skipped` had
+    no branch here at all. So it was never labelled, the next poll's query
+    returned it again, and it paid for a full local OCR and a Veris parse to
+    arrive at the same refusal.
+    """
+    recorder = _Recorder()
+
+    mark_message_done(
+        recorder, "42", "skipped", email=_Email(),
+        attachments=[_Att("rejected_nationality")],
+    )
+
+    applied = [c for c in recorder.calls if c[0] == "apply"]
+    assert applied, "a permanently refused résumé must be filed as processed"
+    assert applied[0][2] == settings.gmail_processed_label
+
+
+def test_a_message_that_was_never_a_resume_is_left_alone():
+    """No attachment verdicts means the detector never accepted it: somebody's
+    ordinary mail, which we do not label or mark read."""
+    recorder = _Recorder()
+
+    mark_message_done(recorder, "42", "skipped", email=_Email())
+
+    assert recorder.calls == []
+
+
+def test_a_duplicate_file_is_filed_rather_than_re_fetched_for_ever():
+    recorder = _Recorder()
+
+    mark_message_done(
+        recorder, "42", "skipped", email=_Email(), attachments=[_Att("duplicate")],
+    )
+
+    applied = [c for c in recorder.calls if c[0] == "apply"]
+    assert applied[0][2] == settings.gmail_processed_label
+
+
+def test_an_errored_attachment_still_beats_a_refused_one_to_the_inbox():
+    """A message mixing a refusal with a retryable failure arrives here as
+    `error`, never `skipped`, so it stays unlabelled and is retried."""
+    recorder = _Recorder()
+
+    mark_message_done(
+        recorder, "42", "error", email=_Email(),
+        attachments=[_Att("rejected_nationality"), _Att("error")],
+    )
+
+    assert not [c for c in recorder.calls if c[0] == "apply"]

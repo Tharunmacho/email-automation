@@ -9,7 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, List, Sequence
 
 from app.config import settings
 from app.email_client import get_email_client, GmailClient
@@ -38,7 +38,13 @@ def _identity_kwargs(email: Any) -> dict:
     return found
 
 
-def mark_message_done(gmail, message_id: str, status: str, email: Any = None) -> None:
+def mark_message_done(
+    gmail,
+    message_id: str,
+    status: str,
+    email: Any = None,
+    attachments: Sequence[Any] = (),
+) -> None:
     """Gmail-side bookkeeping for a message the pipeline has finished with.
 
     Only messages that were actually processed as candidate resumes are marked
@@ -48,10 +54,23 @@ def mark_message_done(gmail, message_id: str, status: str, email: Any = None) ->
     is never stamped "processed", which is how a retired email ended up carrying
     both labels at once.
 
+    ``attachments`` is what separates the two kinds of *skip*. A message the
+    detector never accepted has none, and is somebody's ordinary mail that we
+    leave alone. A message that produced attachment verdicts and still skipped
+    is one the pipeline is permanently finished with — every résumé on it was
+    refused on nationality, was not a résumé, or was already ingested — because
+    a single retryable failure would have made the whole message an `error`
+    instead. Those have to be labelled: without it the poll re-fetched a
+    nationality-rejected CV every time and paid for a full local OCR and a
+    Veris parse to reach the same refusal, for ever.
+
     Shared by the batch runner and the per-message Celery task, so the two paths
     cannot drift into labelling the same outcome differently.
     """
     where = _identity_kwargs(email)
+
+    if status == "skipped" and attachments:
+        status = "processed"
 
     if status == "suppressed":
         # Apply before remove, always. On a folder-based account applying the
@@ -205,7 +224,10 @@ class IngestionRunner:
                 # result — that reported "Ingested Candidates=0" for a poll that had
                 # just written a profile.
                 try:
-                    mark_message_done(client, mid, result.status, email=email)
+                    mark_message_done(
+                        client, mid, result.status, email=email,
+                        attachments=result.attachments,
+                    )
                 except Exception as err:  # noqa: BLE001
                     log.warning(
                         "Processed %s but could not mark it done in Gmail (%s); "
