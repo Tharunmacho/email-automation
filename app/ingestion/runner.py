@@ -130,6 +130,9 @@ class BatchSummary:
     suppressed: int = 0
     errors: int = 0
     ingested_candidates: int = 0
+    #: Still queued behind this batch. Non-zero means the inbox is draining
+    #: rather than drained, and the next poll continues where this one stopped.
+    backlog: int = 0
     results: List[ProcessResult] = field(default_factory=list)
 
 
@@ -192,13 +195,52 @@ class IngestionRunner:
                 for fut in concurrent.futures.as_completed(futures):
                     client_messages.extend(fut.result())
                 
+        # Drop what the ledger has already judged, *before* paying to download
+        # it. The folder search now returns everything still sitting in the
+        # inbox — which is right, because a message read by a human is still
+        # work — but that includes every non-résumé email anyone has ever been
+        # sent. Those are decided once and skipped from then on; without this
+        # they would be re-downloaded and re-detected on every poll for ever.
+        #
+        # `process_email` makes the same check again on the message it is
+        # handed. That is not redundant: this one is an optimisation over a
+        # list of ids, and the one inside is the guarantee.
+        waiting = len(client_messages)
+        ledger = getattr(self.pipeline, "ledger", None)
+        if ledger is not None:
+            try:
+                client_messages = [
+                    (client, mid)
+                    for client, mid in client_messages
+                    if not ledger.message_seen(mid)
+                ]
+            except Exception as err:  # noqa: BLE001 — a slow ledger must not stop a poll
+                log.warning(
+                    "Could not pre-filter against the ledger (%s); fetching all %d",
+                    err, waiting,
+                )
+
+        settled = waiting - len(client_messages)
+
+        # Bound the batch, not the queue. Everything left is real work, and what
+        # does not fit is picked up by the next poll in the same order — so a
+        # thousand-message backlog drains steadily instead of being truncated
+        # to the newest few and losing the rest.
+        batch_limit = max(1, int(settings.gmail_max_results))
+        backlog = max(0, len(client_messages) - batch_limit)
+        if backlog:
+            client_messages = client_messages[:batch_limit]
+
         summary.fetched = len(client_messages)
+        summary.backlog = backlog
         log.info(
-            "Fetched %d message(s) across %d account(s) [%s] matching query '%s'",
+            "Fetched %d message(s) across %d account(s) [%s] "
+            "(%d already settled, %d still queued behind this batch)",
             summary.fetched,
             len(self.clients),
             ", ".join(_account_label(c) for c in self.clients),
-            effective_query,
+            settled,
+            backlog,
         )
 
         def _process_one_message(client: Any, mid: str) -> ProcessResult | None:

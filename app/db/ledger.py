@@ -38,6 +38,12 @@ LEDGER_COLLECTION = "ingest_ledger"
 # is keyed by message alone and never matches a real file. See retire_candidate.
 DELETED_SENTINEL = "__deleted__"
 
+# Stands in for the resume hash on a "this email carries no resume" row. There
+# is no file to key it by — that is the whole finding — and the row exists so
+# the poll stops re-downloading the same non-candidate email on every pass.
+# Like the deleted sentinel it can never match a real file.
+NOT_A_RESUME_SENTINEL = "__not_a_resume__"
+
 
 def get_ledger_collection():
     return get_db()[LEDGER_COLLECTION]

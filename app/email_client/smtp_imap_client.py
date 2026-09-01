@@ -252,21 +252,37 @@ class SMTPIMAPClient:
             log.warning("IMAP server or username not configured.")
             return []
 
-        max_results = max_results or settings.gmail_max_results
         try:
             with self._imap() as mail:
                 mail.select(self.imap_folder)
-                status, data = mail.uid("search", None, "UNSEEN")
-                if status != "OK":
-                    status, data = mail.uid("search", None, "ALL")
-
+                # ALL, not UNSEEN. The *folder* is the queue: a message that has
+                # been ingested is moved to `Resumes/Processed` and one whose
+                # candidate was deleted to `Resumes/Deleted`, so whatever is
+                # still sitting here is work — read or unread.
+                #
+                # Asking for UNSEEN meant anybody opening a CV in Gmail before
+                # the poller reached it removed that résumé from every future
+                # poll, silently and permanently. Nothing logged it, because
+                # from the poller's side the message simply was not in the
+                # answer. That is the "files missed from mails" case.
+                #
+                # The `query` argument is accepted for signature parity with the
+                # Gmail client and deliberately unused: Gmail's search syntax
+                # means nothing to IMAP, and the label exclusions it carries are
+                # already expressed by the message not being in this folder.
+                status, data = mail.uid("search", None, "ALL")
                 if status != "OK" or not data or not data[0]:
                     return []
 
+                # Oldest first. A backlog has to drain in the order it arrived,
+                # or a busy inbox starves its oldest applicants for ever — and
+                # those are precisely the ones whose SLA clock has run longest.
                 raw_uids = data[0].split()
-                # Process up to max_results in reverse order (newest first)
-                uids = [u.decode("utf-8") for u in reversed(raw_uids[-max_results:])]
-                return uids
+                uids = [u.decode("utf-8") for u in raw_uids]
+                # No cap unless one is asked for. These are just numbers; the
+                # caller is what decides how many to *work*, after it has
+                # dropped the ones it has already judged.
+                return uids[:max_results] if max_results else uids
         except Exception as exc:
             log.error("IMAP search_message_ids failed: %s", exc)
             return []

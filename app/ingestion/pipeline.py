@@ -37,7 +37,7 @@ from app.core.models import (
 from app.ai.reply_generator import generate_contextual_reply
 from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
-from app.db.ledger import IngestLedger
+from app.db.ledger import NOT_A_RESUME_SENTINEL, IngestLedger
 from app.db.repository import CandidateRepository
 from app.extraction.jobs import JobContext, use_job_context
 from app.ingestion.detector import detect
@@ -142,6 +142,23 @@ class IngestionPipeline:
 
         detection = detect(email)
         if not detection.is_candidate:
+            # Written down so the answer is reached once. Nothing labels a
+            # non-résumé email — it is somebody's ordinary mail and we leave it
+            # where it is — so it stays in the inbox and comes back in every
+            # future search. Without a row here the poll re-downloads and
+            # re-detects the whole accumulated inbox on every pass, which is
+            # what stops the ingestion scaling with the mailbox.
+            #
+            # Keyed by a sentinel rather than a file hash: there is no file, and
+            # the row must never match one that arrives later on a real CV.
+            try:
+                self.ledger.record(
+                    email.message_id, NOT_A_RESUME_SENTINEL, None,
+                    "not_a_resume", detection.reason,
+                )
+            except Exception as err:  # noqa: BLE001 — bookkeeping must not fail a poll
+                log.warning("Could not record the non-résumé verdict for %s: %s",
+                            email.message_id, err)
             return ProcessResult(email.message_id, "skipped", f"not a resume email: {detection.reason}")
 
         results: List[AttachmentResult] = []

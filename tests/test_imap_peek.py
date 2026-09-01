@@ -73,3 +73,64 @@ def test_an_ignored_message_is_still_unseen_on_the_next_poll():
     client.get_message("400")
 
     assert [c for c in stub.commands if c[0] == "store"] == []
+
+
+# --------------------------------------------------------------------------- #
+#  A message somebody has read is still work
+# --------------------------------------------------------------------------- #
+class _SearchingIMAP(_RecordingIMAP):
+    """Answers a search with a fixed UID list, oldest first."""
+
+    def __init__(self, uids=b"3 1 2 10"):
+        super().__init__()
+        self.uids = uids
+
+    def uid(self, command, *args):
+        self.commands.append((command, *args))
+        if command == "search":
+            return ("OK", [self.uids])
+        return super().uid(command, *args)
+
+
+def test_the_search_asks_for_every_message_in_the_folder():
+    """Asking for UNSEEN is what silently lost résumés.
+
+    The folder is the queue — an ingested message is moved to
+    `Resumes/Processed` and a retired one to `Resumes/Deleted` — so whatever is
+    still in the inbox is work. While the search asked for UNSEEN, anyone
+    opening a CV in Gmail before the poller reached it removed that résumé from
+    every future poll, with nothing logged anywhere.
+    """
+    stub = _SearchingIMAP()
+    _client_with(stub).search_message_ids()
+
+    searches = [c for c in stub.commands if c[0] == "search"]
+    assert searches, "no search was issued"
+    criteria = [str(part).upper() for c in searches for part in c[1:]]
+    assert any("ALL" in part for part in criteria), criteria
+    assert not any("UNSEEN" in part for part in criteria), (
+        "a message that has been read is still an unprocessed résumé"
+    )
+
+
+def test_the_backlog_is_returned_oldest_first():
+    """A busy inbox must drain in arrival order.
+
+    Newest-first starves the oldest applicants exactly when their SLA clock has
+    run longest — and if mail arrives faster than a batch is worked, it starves
+    them for ever.
+    """
+    stub = _SearchingIMAP(b"1 2 3 10 11")
+
+    assert _client_with(stub).search_message_ids() == ["1", "2", "3", "10", "11"]
+
+
+def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
+    """The ids are just numbers. How many to *work* is the caller's decision,
+    made after it has dropped the ones it has already judged — capping here
+    would hide messages behind non-résumé mail the poll no longer looks at."""
+    stub = _SearchingIMAP(b" ".join(str(n).encode() for n in range(1, 200)))
+    client = _client_with(stub)
+
+    assert len(client.search_message_ids()) == 199
+    assert client.search_message_ids(max_results=5) == ["1", "2", "3", "4", "5"]
