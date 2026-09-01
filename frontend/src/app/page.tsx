@@ -48,6 +48,7 @@ import {
   markCandidateViewed,
   runPollCycle,
   updateCandidateProfile,
+  unverifyCandidate,
   verifyCandidate,
   type AuthUser,
   type CandidateProfile,
@@ -802,6 +803,36 @@ export default function Home() {
     }
   };
 
+  const handleUnverify = async (candidateId: string) => {
+    setVerifying(true);
+    const who = nameOf(candidateId);
+    try {
+      await unverifyCandidate(candidateId);
+      showToast("Candidate returned to the review queue.", "success");
+      appendCandidateLog(
+        candidateId,
+        "Unverified",
+        "Profile returned to the review queue.",
+        "warn",
+        user?.email,
+      );
+      setDetailNonce((n) => n + 1);
+      await refreshCandidates();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Connection error unverifying candidate.";
+      showToast("Failed to unverify candidate.", "error");
+      appendCandidateLog(
+        candidateId,
+        "Failed",
+        `Unverify failed for ${who} — ${message}`,
+        "error",
+        user?.email,
+      );
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   const handleDeleteCandidate = async (candidateId: string) => {
     if (deletingRef.current.has(candidateId)) return;
     deletingRef.current.add(candidateId);
@@ -932,7 +963,9 @@ export default function Home() {
       await evaluateCandidate(candidateId, {
         status: verdict.status,
         score: verdict.score,
-        notes: verdict.notes,
+        // The API keeps the established `notes` key for compatibility; in the
+        // reviewer-facing language this is the candidate's staff remarks.
+        notes: verdict.remarks,
       });
       appendCandidateLog(
         candidateId,
@@ -1110,6 +1143,7 @@ export default function Home() {
                 onBack={closeScreen}
                 onEdit={() => handleEditCandidate(screenCandidate)}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
+                onUnverify={user?.role === "admin" ? handleUnverify : undefined}
                 evaluation={
                   user?.role === "staff"
                     ? {
@@ -1131,6 +1165,7 @@ export default function Home() {
                 onBack={closeScreen}
                 onSave={handleSave}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
+                onUnverify={user?.role === "admin" ? handleUnverify : undefined}
               />
             )}
 

@@ -244,6 +244,13 @@ class CandidateRepository:
         doc = self._coll.find_one({"idempotency_key": key})
         return CandidateRecord.from_mongo(doc) if doc else None
 
+    def find_by_passport_key(self, key: Optional[str]) -> Optional[CandidateRecord]:
+        """The canonical candidate holding this normalized passport number."""
+        if not key:
+            return None
+        doc = self._coll.find_one({"passport_key": key}, sort=[("created_at", ASCENDING)])
+        return CandidateRecord.from_mongo(doc) if doc else None
+
     def find_by_email_or_phone(
         self, email_key: Optional[str], phone_key: Optional[str]
     ) -> Optional[CandidateRecord]:
@@ -308,14 +315,18 @@ class CandidateRepository:
         try:
             self._coll.insert_one(record.to_mongo())
         except DuplicateKeyError:
-            # Lost a race on a unique index. Two of them can fire here now, so
-            # both are resolved rather than assuming which one it was: the
+            # Lost a race on a unique index. Three of them can fire here now,
+            # so all are resolved rather than assuming which one it was: the
             # idempotency key (two concurrent retries of the same WhatsApp
-            # submission) and the résumé hash (the same file ingested twice).
+            # submission), the passport number (the same person arriving via
+            # two registrations), and the resume hash (the same file ingested twice).
             #
-            # The key is checked first because it is the more specific claim —
-            # it identifies this exact submission, where a matching hash only
-            # says some candidate already has this file.
+            # Passport wins because it identifies the person even if a stale
+            # conversation key points elsewhere. Without a passport, the exact
+            # submission key remains stronger than a matching resume file.
+            existing = self.find_by_passport_key(record.passport_key)
+            if existing:
+                return existing.id
             existing = self.find_by_idempotency_key(record.idempotency_key)
             if existing:
                 return existing.id
@@ -325,6 +336,38 @@ class CandidateRepository:
             raise
         log.info("Inserted candidate %s (%s)", record.id, record.profile.full_name)
         return record.id
+
+    def claim_passport(
+        self,
+        candidate_id: str,
+        passport_number: Optional[str],
+        source: str = "ocr",
+    ) -> Optional[str]:
+        """Assign a passport identity and return the candidate that owns it.
+
+        The unique index makes this safe when two registrations arrive at the
+        same time. If another candidate already owns the number, that
+        candidate's id is returned and the requested record is unchanged.
+        """
+        from app.core.models import utcnow
+        from app.db.dedup import normalize_passport
+
+        key = normalize_passport(passport_number)
+        if not key:
+            return candidate_id
+        try:
+            result = self._coll.update_one(
+                _id_filter(candidate_id),
+                {"$set": {
+                    "passport_key": key,
+                    "passport_key_source": source,
+                    "updated_at": utcnow(),
+                }},
+            )
+        except DuplicateKeyError:
+            existing = self.find_by_passport_key(key)
+            return existing.id if existing else None
+        return candidate_id if result.matched_count else None
 
     def update_status(self, candidate_id: str, status: str, duplicate_of: Optional[str] = None) -> None:
         from app.core.models import utcnow

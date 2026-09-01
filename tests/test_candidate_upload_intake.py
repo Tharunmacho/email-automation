@@ -21,6 +21,12 @@ class MemoryRepository:
     def find_by_email_or_phone(self, _email, _phone):
         return None
 
+    def find_by_passport_key(self, key):
+        return next(
+            (record for record in self.records.values() if record.passport_key == key),
+            None,
+        )
+
     def insert(self, record):
         self.records[record.id] = record
         return record.id
@@ -250,6 +256,48 @@ def test_upload_intake_rejects_failed_passport_checksum_before_creating_candidat
 
     assert raised.value.code == "invalid_passport_mrz"
     assert repository.records == {}
+
+
+def test_upload_intake_rejects_a_passport_already_owned_by_another_candidate():
+    repository = MemoryRepository()
+    outcome = SimpleNamespace(
+        succeeded=True,
+        timed_out=False,
+        job_id="job-passport",
+        result={
+            "mrz": {
+                "passport_number": "z 1234-567",
+                "all_check_digits_valid": True,
+            }
+        },
+    )
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", "test-key"), \
+         patch("app.services.candidate_upload_intake.ocr_gateway.run_job", return_value=(None, outcome)), \
+         patch("app.services.candidate_upload_intake.identity_files.store", return_value={"storage_key": "id/file"}), \
+         patch("app.services.candidate_upload_intake.identity_records.store_passport_record"):
+        first = intake_uploaded_candidate(
+            resume=None,
+            passport=upload("passport-one.jpg", b"passport-one", "image/jpeg"),
+            repository=repository,
+            uploader_id="admin-1",
+            full_name="First Registration",
+        )
+
+        with pytest.raises(CandidateUploadError) as raised:
+            intake_uploaded_candidate(
+                resume=None,
+                passport=upload("passport-two.jpg", b"passport-two", "image/jpeg"),
+                repository=repository,
+                uploader_id="admin-1",
+                full_name="Second Registration",
+                email="different@example.com",
+                phone="+60123456789",
+            )
+
+    assert raised.value.status_code == 409
+    assert raised.value.code == "duplicate_passport"
+    assert len(repository.records) == 1
+    assert next(iter(repository.records)) == first.candidate.id
 
 
 def test_upload_intake_rolls_back_candidate_and_files_when_identity_filing_fails():

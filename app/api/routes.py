@@ -63,6 +63,7 @@ from app.policy.cv_policy import (
     policy_version,
 )
 from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
+from app.services.whatsapp_reply_policy import reply_policy as whatsapp_reply_policy
 from app.services.identity_intake import file_documents as file_identity_documents
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
@@ -1621,6 +1622,22 @@ def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) ->
     return updated_record.model_dump(mode="json")
 
 
+@app.post("/candidates/{candidate_id}/unverify")
+def unverify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Return a verified profile to its pre-verification review state."""
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if record.status != "verified":
+        raise HTTPException(status_code=409, detail="Candidate is not verified")
+
+    restored_status = "needs_review" if record.profile.confidence < 0.55 else "ingested"
+    repository.update_status(candidate_id, restored_status)
+    updated_record = repository.get(candidate_id)
+    return updated_record.model_dump(mode="json")
+
+
 # ---- Sourcing Clients DB Endpoints ---------------------------------------- #
 @app.get("/sourcing-clients")
 def list_sourcing_clients(_user: dict = Depends(require_page("sourcing"))) -> dict:
@@ -2237,12 +2254,22 @@ def evaluate_candidate(
         )
     _owned_or_404(candidate_id, user)
 
+    # Remarks are part of the review, not optional decoration. Enforcing this
+    # here means a direct API call cannot record a verdict that the staff UI
+    # would refuse. Whitespace alone is not a remark.
+    remarks = (payload.notes or "").strip()
+    if not remarks:
+        raise HTTPException(
+            status_code=422,
+            detail="Staff remarks are required before reviewing a candidate.",
+        )
+
     record = repo().save_evaluation(
         candidate_id,
         staff_id=_staff_scope(user),
         status=payload.status,
         score=payload.score,
-        notes=payload.notes,
+        notes=remarks,
     )
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -2389,6 +2416,27 @@ def require_service_key(x_service_key: str | None = Header(default=None)) -> Non
     """
     if not verify_service_key(x_service_key, settings.whatsapp_service_key):
         raise HTTPException(status_code=401, detail="Invalid or missing service key")
+
+
+class WhatsAppReplyPolicyIn(BaseModel):
+    """The sender identity Meta supplies with every inbound message."""
+
+    phone: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/whatsapp/reply-policy")
+def bot_reply_policy(
+    payload: WhatsAppReplyPolicyIn,
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Tell the bot whether it may respond to this sender.
+
+    The bot calls this before creating or resuming conversation state. An
+    ``ignore`` response means no text, template, menu or acknowledgement may be
+    sent. Sourcing Hub contacts and internal user/staff numbers are suppressed;
+    unknown external numbers may continue into the normal bot flow.
+    """
+    return whatsapp_reply_policy(payload.phone, user_repository=users)
 
 
 class WhatsAppResumeIn(BaseModel):
@@ -2593,6 +2641,20 @@ class WhatsAppCandidateIn(BaseModel):
     job: JobSection | None = None
 
 
+def _passport_number_from_identity(section: WhatsAppIdentitySectionIn | None) -> str | None:
+    """First readable passport number in an identity section."""
+    if section is None:
+        return None
+    for document in section.passport:
+        result = document.result
+        if not isinstance(result, dict):
+            continue
+        mrz = result.get("mrz")
+        if isinstance(mrz, dict) and mrz.get("passport_number"):
+            return str(mrz["passport_number"])
+    return None
+
+
 def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
     """One shape for every refusal, with the code at the top level.
 
@@ -2771,6 +2833,7 @@ def create_whatsapp_candidate(
                 if payload.identity and legacy_conversation
                 else None
             ),
+            passport_number=_passport_number_from_identity(payload.identity),
             repo=repository,
         )
     except IntakeError as exc:

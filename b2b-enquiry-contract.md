@@ -14,6 +14,37 @@ The CRM side is built. This file is what the bot has to send.
 
 ---
 
+## Before replying to any inbound message
+
+The bot must check the sender before it creates or resumes conversation state,
+and before it sends text, a template, a menu, or an acknowledgement:
+
+```http
+POST {CRM_API_URL}/whatsapp/reply-policy
+X-Service-Key: {WHATSAPP_SERVICE_KEY}
+Content-Type: application/json
+
+{"phone":"+919876543210"}
+```
+
+The CRM normalises formatting and country-code variants, then checks the number
+against every Sourcing Hub contact and every internal user account, including
+inactive staff. It returns one of these decisions:
+
+```jsonc
+{"should_reply":false,"action":"ignore","reason":"sourcing_contact_number"}
+{"should_reply":false,"action":"ignore","reason":"internal_user_number"}
+{"should_reply":true,"action":"continue","reason":"external_sender"}
+```
+
+`action: "ignore"` means silence: do not send a message and do not mutate that
+sender's conversation state. The policy is fail-closed. A timeout, non-2xx
+response, malformed body, or `policy_lookup_unavailable` must also be treated as
+`ignore`; being unable to check is not permission to reply to a staff member or
+commercial contact.
+
+---
+
 ## The endpoint
 
 ```

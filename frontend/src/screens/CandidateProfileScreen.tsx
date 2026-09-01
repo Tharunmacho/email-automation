@@ -18,6 +18,7 @@ import {
   Phone,
   ShieldCheck,
   Plane,
+  RotateCcw,
   Star,
 } from "lucide-react";
 
@@ -186,7 +187,8 @@ function ScanDownload({
 export interface Verdict {
   status: EvaluationStatus;
   score: number | null;
-  notes: string | null;
+  /** Staff-authored remarks stored with the candidate's evaluation. */
+  remarks: string | null;
 }
 
 /**
@@ -215,6 +217,8 @@ interface CandidateProfileScreenProps {
   /** Opens the separate edit screen; the profile itself remains read-only. */
   onEdit?: () => void;
   onVerify?: (candidateId: string) => void;
+  /** Return an admin-verified profile to the review queue. */
+  onUnverify?: (candidateId: string) => void;
   /** Supplied by the staff workspace; omitted everywhere else. */
   evaluation?: EvaluationSuite;
 }
@@ -507,6 +511,7 @@ export default function CandidateProfileScreen({
   onBack,
   onEdit,
   onVerify,
+  onUnverify,
   evaluation,
 }: CandidateProfileScreenProps) {
 
@@ -545,7 +550,8 @@ export default function CandidateProfileScreen({
       ? candidate.evaluation_status
       : "shortlisted",
   );
-  const [notes, setNotes] = useState(candidate.evaluation_notes ?? "");
+  const [remarks, setRemarks] = useState(candidate.evaluation_notes ?? "");
+  const hasRemarks = remarks.trim().length > 0;
 
   const profile = candidate.profile ?? {};
   const view = useMemo(() => toEditableState(candidate.profile ?? {}, candidate), [candidate]);
@@ -767,7 +773,7 @@ export default function CandidateProfileScreen({
 
   const submit = (advance: boolean) =>
     evaluation?.onSave(
-      { status, score: score > 0 ? score : null, notes: notes.trim() || null },
+      { status, score: score > 0 ? score : null, remarks: remarks.trim() || null },
       advance,
     );
 
@@ -803,12 +809,18 @@ export default function CandidateProfileScreen({
           {onVerify && (
             <button
               type="button"
-              className={`cscreen-btn ${isVerified ? "is-verified" : "is-primary"}`}
-              onClick={() => onVerify(candidate.id)}
-              disabled={verifying || isVerified}
+              className={`cscreen-btn ${isVerified ? "is-unverify" : "is-primary"}`}
+              onClick={() =>
+                isVerified ? onUnverify?.(candidate.id) : onVerify(candidate.id)
+              }
+              disabled={verifying || (isVerified && !onUnverify)}
             >
-              <CheckCircle2 size={15} />
-              {verifying ? "Saving review…" : isVerified ? "Review completed" : "Complete review"}
+              {isVerified ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />}
+              {verifying
+                ? "Updating…"
+                : isVerified
+                  ? "Unverify candidate"
+                  : "Complete review"}
             </button>
           )}
         </div>
@@ -1157,7 +1169,7 @@ export default function CandidateProfileScreen({
               ) : null}
               {candidate.evaluation_notes ? (
                 <React.Fragment>
-                  <div className="cprof-fact-label">Evaluation Notes</div>
+                  <div className="cprof-fact-label">Staff Remarks</div>
                   <div className="cprof-fact-value is-multiline">{candidate.evaluation_notes}</div>
                 </React.Fragment>
               ) : null}
@@ -1390,8 +1402,32 @@ export default function CandidateProfileScreen({
             <div className="cprof-verdict-inner">
               <h3 className="cprof-card-title">Your verdict</h3>
               <p className="cprof-verdict-sub">
-                Rate the fit, record the outcome, and say what you would ask them.
+                Add remarks first. This unlocks the rating, outcome, and review actions.
               </p>
+
+              <div className="eval-field">
+                <label htmlFor="cprof-eval-remarks">
+                  Staff remarks <span aria-hidden="true">*</span>
+                </label>
+                <textarea
+                  id="cprof-eval-remarks"
+                  rows={5}
+                  value={remarks}
+                  onChange={(event) => setRemarks(event.target.value)}
+                  placeholder="Add strengths, concerns, follow-up questions, or other remarks."
+                  aria-describedby="cprof-eval-remarks-hint"
+                  aria-required="true"
+                  required
+                />
+                <p
+                  id="cprof-eval-remarks-hint"
+                  className={`eval-field-hint ${hasRemarks ? "is-ready" : "is-required"}`}
+                >
+                  {hasRemarks
+                    ? "Remarks added. You can now complete the review."
+                    : "Required before you can rate or submit this review."}
+                </p>
+              </div>
 
               <div className="eval-stars">
                 {[1, 2, 3, 4, 5].map((value) => (
@@ -1403,6 +1439,7 @@ export default function CandidateProfileScreen({
                     // because there is otherwise no way back to "not rated".
                     onClick={() => setScore(score === value ? 0 : value)}
                     aria-label={`Rate ${value} star${value === 1 ? "" : "s"}`}
+                    disabled={!hasRemarks || evaluation.saving}
                   >
                     <Star size={20} fill={score >= value ? "currentColor" : "none"} />
                   </button>
@@ -1421,21 +1458,11 @@ export default function CandidateProfileScreen({
                       status === choice.value ? "is-on" : ""
                     }`}
                     onClick={() => setStatus(choice.value)}
+                    disabled={!hasRemarks || evaluation.saving}
                   >
                     {choice.label}
                   </button>
                 ))}
-              </div>
-
-              <div className="eval-field">
-                <label htmlFor="cprof-eval-notes">Notes</label>
-                <textarea
-                  id="cprof-eval-notes"
-                  rows={5}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="What stood out, and what would you ask them."
-                />
               </div>
 
               {candidate.evaluated_at && (
@@ -1449,7 +1476,7 @@ export default function CandidateProfileScreen({
                   type="button"
                   className="db-btn is-primary"
                   onClick={() => submit(true)}
-                  disabled={evaluation.saving}
+                  disabled={evaluation.saving || !hasRemarks}
                   title={
                     evaluation.nextName
                       ? `Save, then open ${evaluation.nextName}`
@@ -1467,7 +1494,7 @@ export default function CandidateProfileScreen({
                   type="button"
                   className="db-btn"
                   onClick={() => submit(false)}
-                  disabled={evaluation.saving}
+                  disabled={evaluation.saving || !hasRemarks}
                 >
                   {evaluation.saving ? (
                     <Loader2 size={14} className="icon-spin" />

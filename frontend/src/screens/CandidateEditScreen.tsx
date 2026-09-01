@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 
 import {
   editableToProfile,
@@ -30,6 +30,8 @@ interface CandidateEditScreenProps {
    * executive view, verify there.
    */
   onVerify?: (candidateId: string) => void;
+  /** Return an admin-verified profile to the review queue. */
+  onUnverify?: (candidateId: string) => void;
 }
 
 function Field({
@@ -93,6 +95,7 @@ export default function CandidateEditScreen({
   onBack,
   onSave,
   onVerify,
+  onUnverify,
 }: CandidateEditScreenProps) {
   const profile = candidate.profile ?? {};
   const isVerified = candidate.status === "verified";
@@ -156,17 +159,21 @@ export default function CandidateEditScreen({
           {onVerify && (
             <button
               type="button"
-              className={`cscreen-btn ${isVerified ? "is-verified" : ""}`}
-              onClick={() => onVerify(candidate.id)}
-              disabled={verifying || saving || isVerified || dirty}
+              className={`cscreen-btn ${isVerified ? "is-unverify" : ""}`}
+              onClick={() =>
+                isVerified ? onUnverify?.(candidate.id) : onVerify(candidate.id)
+              }
+              disabled={verifying || saving || dirty || (isVerified && !onUnverify)}
               title={
                 dirty
-                  ? "Save the changes first — verifying signs off the stored record."
-                  : "Mark this profile as verified"
+                  ? "Save the changes first — verification applies to the stored record."
+                  : isVerified
+                    ? "Return this profile to the review queue"
+                    : "Mark this profile as verified"
               }
             >
-              <CheckCircle2 size={15} />
-              {verifying ? "Verifying…" : isVerified ? "Verified profile" : "Verify profile"}
+              {isVerified ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />}
+              {verifying ? "Updating…" : isVerified ? "Unverify candidate" : "Verify profile"}
             </button>
           )}
 

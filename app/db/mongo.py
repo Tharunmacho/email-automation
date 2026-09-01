@@ -93,6 +93,96 @@ def ensure_index(collection: Collection, keys, name: str, **options) -> bool:
         return False
 
 
+def _prepare_passport_keys(collection: Collection, passport_collection: Collection) -> None:
+    """Backfill passport keys and quarantine legacy collisions before indexing.
+
+    Older records kept the number only in ``profile`` or in the passport
+    collection. If historical records already collide, the oldest remains the
+    canonical owner. Later records keep all their data but are marked as
+    duplicates and no longer claim the unique key.
+    """
+    from app.core.models import utcnow
+    from app.db.dedup import normalize_passport
+
+    rows = list(
+        collection.find(
+            {},
+            {"_id": 1, "created_at": 1, "passport_key": 1, "profile.passport_number": 1},
+        ).sort([("created_at", ASCENDING), ("_id", ASCENDING)])
+    )
+    by_id = {str(row["_id"]): row for row in rows}
+    order = {str(row["_id"]): position for position, row in enumerate(rows)}
+
+    # Email bundles normally keep the number in the separate identity
+    # collection. It is still the same person-level identity.
+    try:
+        identity_rows = passport_collection.find(
+            {"candidate_id": {"$nin": [None, ""]}, "passport_number": {"$nin": [None, ""]}},
+            {"candidate_id": 1, "passport_number": 1},
+        )
+        for identity in identity_rows:
+            candidate_id = str(identity.get("candidate_id"))
+            candidate = by_id.get(candidate_id)
+            if candidate and not candidate.get("_identity_passport_number"):
+                candidate["_identity_passport_number"] = identity.get("passport_number")
+    except Exception as exc:  # noqa: BLE001 - candidate-side values still suffice
+        log.warning("Could not include passport identity rows in key backfill: %s", exc)
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        profile = row.get("profile") or {}
+        key = normalize_passport(
+            row.get("passport_key")
+            or profile.get("passport_number")
+            or row.get("_identity_passport_number")
+        )
+        if key:
+            groups.setdefault(key, []).append(row)
+
+    now = utcnow()
+    for key, candidates in groups.items():
+        candidates.sort(key=lambda row: order[str(row["_id"])])
+        canonical = candidates[0]
+        canonical_id = str(canonical["_id"])
+        collection.update_one(
+            {"_id": canonical["_id"]},
+            {"$set": {"passport_key": key}},
+        )
+        if len(candidates) == 1:
+            continue
+
+        candidate_ids = [str(row["_id"]) for row in candidates]
+        review = {
+            "reason": "duplicate_passport",
+            "passport_key": key,
+            "candidate_ids": candidate_ids,
+            "flagged_at": now,
+        }
+        collection.update_one(
+            {"_id": canonical["_id"]},
+            {"$set": {"identity_review": review}},
+        )
+        for duplicate in candidates[1:]:
+            collection.update_one(
+                {"_id": duplicate["_id"]},
+                {
+                    "$unset": {"passport_key": "", "passport_key_source": ""},
+                    "$set": {
+                        "status": "duplicate",
+                        "duplicate_of": canonical_id,
+                        "identity_review": review,
+                        "updated_at": now,
+                    },
+                },
+            )
+        log.warning(
+            "Passport %s was attached to %d candidates; kept %s as canonical",
+            key,
+            len(candidates),
+            canonical_id,
+        )
+
+
 def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
     db = get_db()
@@ -124,6 +214,14 @@ def ensure_indexes() -> None:
     # Exact-duplicate detection: one candidate per resume file hash.
     ensure_index(coll, [("resume_hash", ASCENDING)], "resume_hash_unique", unique=True, sparse=True)
     # Person-level dedup lookups.
+    _prepare_passport_keys(coll, db[settings.mongo_passport_collection])
+    ensure_index(
+        coll,
+        [("passport_key", ASCENDING)],
+        "passport_key_unique",
+        unique=True,
+        sparse=True,
+    )
     ensure_index(coll, [("email_key", ASCENDING)], "email_key_idx", sparse=True)
     ensure_index(coll, [("phone_key", ASCENDING)], "phone_key_idx", sparse=True)
     # Idempotency: don't reprocess the same Gmail message.
