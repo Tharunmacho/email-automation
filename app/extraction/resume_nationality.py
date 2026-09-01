@@ -591,3 +591,32 @@ def should_ingest(
     if allow_undetermined:
         return True, f"accepted under the undetermined-nationality policy: {verdict.describe()}"
     return False, f"rejected: {verdict.describe()}"
+
+
+def refuse_foreign_candidate(filename: str, extracted) -> None:
+    """Stop a CV this desk cannot place, before it costs anything more.
+
+    Reads the decision `should_ingest` already made and carried on the
+    extraction; it does not re-run the detector. One policy evaluated in one
+    place is what keeps the upload gate and the database gate from ever
+    disagreeing about the same document.
+
+    It lives here rather than in the pipeline because both gates have to reach
+    it: `ResumeParser.parse_file` calls it to avoid paying the résumé endpoint
+    for a refusal already decided, and the pipeline and the manual-upload
+    intake both act on what it raises. The pipeline cannot own it — the parser
+    would have to import the pipeline to ask.
+
+    Safe on an extraction that predates the field — an older cached result, a
+    stub in a test — which comes back with `nationality_accepted` unset and is
+    treated as "nothing to refuse".
+    """
+    from app.core.exceptions import ForeignNationalityError
+
+    if getattr(extracted, "nationality_accepted", None) is not False:
+        return
+    reason = getattr(extracted, "nationality_reason", "") or "candidate is not an Indian national"
+    raise ForeignNationalityError(
+        f"Attachment '{filename}' was not ingested: {reason}",
+        verdict=getattr(extracted, "nationality", None),
+    )

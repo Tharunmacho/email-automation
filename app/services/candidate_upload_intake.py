@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.ai.resume_parser import ResumeParser
 from app.config import settings
+from app.core.exceptions import ForeignNationalityError
 from app.core.models import CandidateProfile, CandidateRecord, utcnow
 from app.db import identity_records
 from app.db.dedup import normalize_email, normalize_passport, normalize_phone, sha256_hex
@@ -256,6 +257,17 @@ def intake_uploaded_candidate(
         parsed, extracted_resume = (parser or ResumeParser()).parse_file(
             resume.data, resume.filename
         )
+    except ForeignNationalityError as exc:
+        # A deliberate refusal, not a failed read. It has to be caught above the
+        # generic handler below or it is reported as "VeriIS could not read the
+        # resume" — a 502 blaming the OCR service for a policy this desk chose,
+        # which sends a recruiter off to re-scan a document that was read
+        # perfectly well.
+        log.info("Refused an uploaded resume on nationality: %s", exc)
+        raise CandidateUploadError(
+            f"This candidate is not placed by this desk: {exc}",
+            code="foreign_nationality",
+        ) from exc
     except Exception as exc:  # noqa: BLE001 - expose a stable upload contract
         raise CandidateUploadError(
             f"VeriIS could not read the resume: {exc}",

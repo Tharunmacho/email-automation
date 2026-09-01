@@ -419,6 +419,7 @@ class ResumeParser:
         import tempfile
         from pathlib import Path
         from app.core.models import ExtractedDocument
+        from app.extraction.resume_nationality import refuse_foreign_candidate
         from app.extraction.text_extractor import extract_text
 
         # First, try fast local text extraction to obtain raw text. This also
@@ -439,6 +440,19 @@ class ResumeParser:
                 ),
                 extracted,
             )
+
+        # One step further on than the rejection above, and for the same reason.
+        # The extractor has already established whose CV this is and declined
+        # its own refinement call on the answer; sending the résumé endpoint a
+        # candidate this desk cannot place is money spent to reach a refusal
+        # that is already decided. The verdict is read off `extracted`, never
+        # recomputed, so the two gates cannot drift apart.
+        #
+        # Raised rather than returned: a refusal is a policy outcome, not a
+        # failed read, and both callers act on it as one. Without this, a
+        # foreign CV paid for a full local OCR *and* a Veris résumé parse on
+        # every poll before the pipeline threw the result away.
+        refuse_foreign_candidate(filename, extracted)
 
         # Only the pages that carry candidate profile data go to the parsers.
         # `extracted.text` still holds every page — nothing is discarded, it is

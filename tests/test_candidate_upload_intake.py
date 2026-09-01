@@ -231,3 +231,40 @@ def test_upload_intake_rolls_back_candidate_and_files_when_identity_filing_fails
         "identity/passport.jpg",
         "2026/08/meera.pdf",
     }
+
+
+class RefusesOnNationality:
+    """A parser that refuses the way `parse_file` now does, before Veris."""
+
+    def parse_file(self, _data, _filename):
+        from app.core.exceptions import ForeignNationalityError
+
+        raise ForeignNationalityError(
+            "Attachment 'usman.pdf' was not ingested: rejected: other "
+            "nationality (Pakistan) [confidence 0.99]"
+        )
+
+
+def test_a_hand_uploaded_foreign_cv_is_refused_as_policy_not_as_a_broken_scan():
+    """One policy, both gates.
+
+    The email path has always refused these; the upload path did not check at
+    all, so a CV the desk cannot place got in by being uploaded rather than
+    emailed. It must also not surface as `resume_ocr_failed`: a 502 blaming
+    VeriIS for a document it read perfectly well sends a recruiter off to
+    re-scan something that was never unreadable.
+    """
+    repository = MemoryRepository()
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", "test-key"):
+        with pytest.raises(CandidateUploadError) as raised:
+            intake_uploaded_candidate(
+                resume=upload("usman.pdf", b"resume"),
+                repository=repository,
+                uploader_id="admin-1",
+                parser=RefusesOnNationality(),
+            )
+
+    assert raised.value.code == "foreign_nationality"
+    assert raised.value.code != "resume_ocr_failed"
+    assert "Pakistan" in str(raised.value)
+    assert repository.records == {}, "a refused CV must not reach the database"

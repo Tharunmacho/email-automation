@@ -69,25 +69,12 @@ class AttachmentResult:
     identity: str = ""
 
 
-def _refuse_foreign_candidate(filename: str, extracted) -> None:
-    """Stop a CV this desk cannot place, before it costs anything more.
-
-    Reads the decision `_classified` already made and carried on the extraction;
-    it does not re-run the detector. One policy evaluated in one place is what
-    keeps the upload gate and the database gate from ever disagreeing about the
-    same document.
-
-    Safe on an extraction that predates the field — an older cached result, a
-    stub in a test — which comes back with `nationality_accepted` unset and is
-    treated as "nothing to refuse".
-    """
-    if getattr(extracted, "nationality_accepted", None) is not False:
-        return
-    reason = getattr(extracted, "nationality_reason", "") or "candidate is not an Indian national"
-    raise ForeignNationalityError(
-        f"Attachment '{filename}' was not ingested: {reason}",
-        verdict=getattr(extracted, "nationality", None),
-    )
+# The policy itself lives with the detector that decides it, so the parser can
+# reach it without importing the pipeline. Re-exported under the old name
+# because this is where the pipeline enforces it.
+from app.extraction.resume_nationality import (  # noqa: E402
+    refuse_foreign_candidate as _refuse_foreign_candidate,
+)
 
 
 @dataclass

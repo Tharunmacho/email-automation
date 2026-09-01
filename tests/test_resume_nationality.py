@@ -298,3 +298,51 @@ def test_prose_about_nationality_never_rejects_an_indian(line):
 def test_a_country_named_later_on_the_line_is_still_read(line):
     """Fencing off prose must not become a way to smuggle a nationality past."""
     assert rn.should_ingest(_field(line))[0] is False
+
+
+# --------------------------------------------------------------------------- #
+#  A refusal already decided must not be paid for again
+# --------------------------------------------------------------------------- #
+def test_a_foreign_cv_is_refused_before_the_resume_endpoint_is_called(no_uploads, monkeypatch):
+    """The waste this closes: the refusal used to land *after* the Veris parse.
+
+    The extractor establishes nationality and declines its own refinement call
+    on the answer, but `parse_file` went on to send the résumé endpoint a CV the
+    desk had already decided it cannot place — a full OCR and a billed parse, on
+    every poll, to reach a refusal that was known seconds earlier.
+    """
+    from app.ai.resume_parser import ResumeParser
+
+    sent: list = []
+
+    def record_send(*args, **kwargs):
+        sent.append(args)
+        raise AssertionError("the résumé endpoint must not be called for a refused CV")
+
+    parser = ResumeParser()
+    monkeypatch.setattr(parser, "_resume_only_document", record_send, raising=False)
+
+    with pytest.raises(ForeignNationalityError) as caught:
+        parser.parse_file(text_pdf(PAKISTANI_CV), "usman.pdf")
+
+    assert "Pakistan" in str(caught.value)
+    assert sent == [], "no work was done past the refusal"
+
+
+def test_an_indian_cv_is_not_stopped_on_its_way_to_the_parsers(no_uploads, monkeypatch):
+    """The regression that would cost placements: the guard must let CVs past."""
+    from app.ai.resume_parser import ResumeParser
+
+    reached = []
+
+    def stop_here(data, filename, extracted):
+        reached.append(filename)
+        raise RuntimeError("far enough — the guard let this through")
+
+    parser = ResumeParser()
+    monkeypatch.setattr(parser, "_resume_only_document", stop_here, raising=False)
+
+    with pytest.raises(RuntimeError):
+        parser.parse_file(text_pdf(INDIAN_CV_SILENT), "cv.pdf")
+
+    assert reached == ["cv.pdf"]
