@@ -63,6 +63,7 @@ from app.policy.cv_policy import (
     policy_version,
 )
 from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
+from app.services.whatsapp_reply_policy import reply_policy as whatsapp_reply_policy
 from app.services.identity_intake import file_documents as file_identity_documents
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
@@ -2415,6 +2416,27 @@ def require_service_key(x_service_key: str | None = Header(default=None)) -> Non
     """
     if not verify_service_key(x_service_key, settings.whatsapp_service_key):
         raise HTTPException(status_code=401, detail="Invalid or missing service key")
+
+
+class WhatsAppReplyPolicyIn(BaseModel):
+    """The sender identity Meta supplies with every inbound message."""
+
+    phone: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/whatsapp/reply-policy")
+def bot_reply_policy(
+    payload: WhatsAppReplyPolicyIn,
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Tell the bot whether it may respond to this sender.
+
+    The bot calls this before creating or resuming conversation state. An
+    ``ignore`` response means no text, template, menu or acknowledgement may be
+    sent. Sourcing Hub contacts and internal user/staff numbers are suppressed;
+    unknown external numbers may continue into the normal bot flow.
+    """
+    return whatsapp_reply_policy(payload.phone, user_repository=users)
 
 
 class WhatsAppResumeIn(BaseModel):
