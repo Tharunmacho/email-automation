@@ -553,10 +553,15 @@ class Settings(BaseSettings):
     passport_allow_undetermined_nationality: bool = False
 
     # ---- Scheduled ingestion ----
-    # Celery beat searches every configured mailbox at this interval and
-    # fans each message out to a worker task. Set to 0 to leave ingestion
-    # manual while retaining the worker for CRM-triggered syncs.
-    gmail_poll_interval_seconds: int = 30
+    # `gmail_poll_interval_seconds` used to live here and is deliberately gone.
+    # Nothing read it: the beat entry is built by `_mail_poll_schedule`, which
+    # reads `mail_poll_interval_seconds` and only contributes anything at all
+    # when `mail_autopoll_enabled` is set. A knob that is still accepted from
+    # `.env` and quietly changes nothing is worse than no knob — somebody tunes
+    # the poll interval, watches it have no effect, and looks everywhere except
+    # at the setting they edited. `GMAIL_POLL_INTERVAL_SECONDS` in a `.env` is
+    # now ignored outright (`extra="ignore"`), which is what it already was in
+    # substance.
 
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last
