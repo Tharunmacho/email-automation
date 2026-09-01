@@ -561,6 +561,18 @@ def test_verify_candidate(test_client):
     assert response.status_code == 404
 
 
+def test_unverify_candidate_returns_profile_to_ingested(test_client):
+    response = test_client.post("/candidates/candidate-alice/verify")
+    assert response.status_code == 200
+
+    response = test_client.post("/candidates/candidate-alice/unverify")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ingested"
+
+    response = test_client.post("/candidates/candidate-alice/unverify")
+    assert response.status_code == 409
+
+
 def test_raw_ocr_persistence(test_client):
     ocr_payload = {
         "name": "Nabeel Noorudheen",

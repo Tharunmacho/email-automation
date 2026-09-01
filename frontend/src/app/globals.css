@@ -8413,6 +8413,17 @@ body {
   color: var(--success-ink);
 }
 
+.cscreen-btn.is-unverify {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning-ink);
+}
+
+.cscreen-btn.is-unverify:hover:not(:disabled) {
+  border-color: var(--warning);
+  background: rgba(245, 158, 11, 0.16);
+}
+
 .cscreen-error {
   padding: 0.7rem 0.95rem;
   border-radius: var(--radius-md);
@@ -11790,6 +11801,12 @@ body {
   background: var(--tint-1);
 }
 
+.eval-choice:disabled,
+.eval-star:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .eval-choice:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -11845,6 +11862,20 @@ body {
   outline: none;
   border-color: var(--primary);
   box-shadow: var(--shadow-glow);
+}
+
+.eval-field-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.eval-field-hint.is-required {
+  color: var(--error-ink);
+}
+
+.eval-field-hint.is-ready {
+  color: var(--success-ink);
 }
 
 /* A photographed CV is as common as a PDF one, and an <object> renders it as a

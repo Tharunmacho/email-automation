@@ -21,6 +21,7 @@ export type CandidateLogAction =
   | "Edited"
   | "Renamed"
   | "Verified"
+  | "Unverified"
   /** A staff verdict recorded against the profile. */
   | "Evaluated"
   | "Deleted"
@@ -55,6 +56,7 @@ const ACTIONS: CandidateLogAction[] = [
   "Edited",
   "Renamed",
   "Verified",
+  "Unverified",
   "Evaluated",
   "Deleted",
   "Failed",

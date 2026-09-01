@@ -311,6 +311,14 @@ def test_admin_marking_viewed_is_not_scoped(api):
     assert api.repo.viewed == [("cand-mine", None)]
 
 
+def test_staff_cannot_unverify_a_candidate(api):
+    api.sign_in_as("staff", "staff-1")
+    api.repo.get("cand-mine").status = "verified"
+    response = api.post("/candidates/cand-mine/unverify")
+    assert response.status_code == 403
+    assert api.repo.get("cand-mine").status == "verified"
+
+
 def test_staff_cannot_evaluate_someone_elses_candidate(api):
     api.sign_in_as("staff", "staff-1")
     response = api.post("/candidates/cand-theirs/evaluate", json={"status": "shortlisted", "score": 4})
@@ -328,6 +336,30 @@ def test_evaluation_records_status_score_and_notes(api):
     assert api.repo.evaluations == [
         ("cand-mine", "staff-1", "shortlisted", 4, "Strong fabrication background.")
     ]
+
+
+def test_evaluation_requires_non_empty_staff_remarks(api):
+    api.sign_in_as("staff", "staff-1")
+    for notes in (None, "", "   "):
+        response = api.post(
+            "/candidates/cand-mine/evaluate",
+            json={"status": "shortlisted", "score": 4, "notes": notes},
+        )
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Staff remarks are required before reviewing a candidate."
+        )
+    assert api.repo.evaluations == []
+
+
+def test_evaluation_trims_staff_remarks(api):
+    api.sign_in_as("staff", "staff-1")
+    response = api.post(
+        "/candidates/cand-mine/evaluate",
+        json={"status": "shortlisted", "notes": "  Strong communicator.  "},
+    )
+    assert response.status_code == 200
+    assert api.repo.evaluations[-1][-1] == "Strong communicator."
 
 
 def test_unknown_evaluation_status_is_rejected(api):
@@ -445,7 +477,10 @@ def test_legacy_staff_reviewer_is_removed_but_a_real_account_is_not():
 @pytest.mark.parametrize("status", ["shortlisted", "interviewing", "rejected"])
 def test_the_three_statuses_the_evaluator_offers_are_accepted(api, status):
     api.sign_in_as("staff", "staff-1")
-    response = api.post("/candidates/cand-mine/evaluate", json={"status": status, "score": 3})
+    response = api.post(
+        "/candidates/cand-mine/evaluate",
+        json={"status": status, "score": 3, "notes": "Reviewed by staff."},
+    )
     assert response.status_code == 200, f"{status} was rejected by the API"
 
 

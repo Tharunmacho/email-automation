@@ -1621,6 +1621,22 @@ def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) ->
     return updated_record.model_dump(mode="json")
 
 
+@app.post("/candidates/{candidate_id}/unverify")
+def unverify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Return a verified profile to its pre-verification review state."""
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if record.status != "verified":
+        raise HTTPException(status_code=409, detail="Candidate is not verified")
+
+    restored_status = "needs_review" if record.profile.confidence < 0.55 else "ingested"
+    repository.update_status(candidate_id, restored_status)
+    updated_record = repository.get(candidate_id)
+    return updated_record.model_dump(mode="json")
+
+
 # ---- Sourcing Clients DB Endpoints ---------------------------------------- #
 @app.get("/sourcing-clients")
 def list_sourcing_clients(_user: dict = Depends(require_page("sourcing"))) -> dict:
@@ -2237,12 +2253,22 @@ def evaluate_candidate(
         )
     _owned_or_404(candidate_id, user)
 
+    # Remarks are part of the review, not optional decoration. Enforcing this
+    # here means a direct API call cannot record a verdict that the staff UI
+    # would refuse. Whitespace alone is not a remark.
+    remarks = (payload.notes or "").strip()
+    if not remarks:
+        raise HTTPException(
+            status_code=422,
+            detail="Staff remarks are required before reviewing a candidate.",
+        )
+
     record = repo().save_evaluation(
         candidate_id,
         staff_id=_staff_scope(user),
         status=payload.status,
         score=payload.score,
-        notes=payload.notes,
+        notes=remarks,
     )
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")

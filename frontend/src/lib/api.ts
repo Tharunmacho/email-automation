@@ -398,6 +398,10 @@ export function verifyCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}/verify`, { method: "POST" });
 }
 
+export function unverifyCandidate(candidateId: string): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/unverify`, { method: "POST" });
+}
+
 export function deleteCandidateAPI(candidateId: string): Promise<{ status: string; message: string }> {
   return request<{ status: string; message: string }>(`/api/v1/candidates/${candidateId}`, {
     method: "DELETE",
