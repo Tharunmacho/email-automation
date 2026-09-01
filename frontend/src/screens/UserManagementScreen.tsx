@@ -20,6 +20,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
+  Eye,
+  EyeOff,
   KeyRound,
   Lock,
   Pencil,
@@ -113,6 +115,43 @@ const ROLE_OPTIONS = [
     hint: "Everything, including this page.",
   },
 ];
+
+function PasswordInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="um-password-control">
+      <input
+        id={id}
+        className="modal-input"
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete="new-password"
+      />
+      <button
+        type="button"
+        className="um-password-reveal"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={visible ? "Hide password" : "Show password"}
+        title={visible ? "Hide password" : "Show password"}
+      >
+        {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  );
+}
 
 /**
  * Pages a role already reaches without being granted anything.
@@ -467,13 +506,18 @@ function CreateUserForm({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [role, setRole] = useState("staff");
   const [grants, setGrants] = useState<string[]>([]);
 
   // Stated once, next to the control it governs, rather than being discovered
   // by pressing a disabled button and guessing why.
   const tooShort = password.length > 0 && password.length < 6;
-  const ready = Boolean(email.trim()) && password.length >= 6;
+  const passwordsDiffer =
+    passwordConfirmation.length > 0 && passwordConfirmation !== password;
+  const passwordConfirmed =
+    password.length >= 6 && passwordConfirmation === password;
+  const ready = Boolean(email.trim()) && passwordConfirmed;
 
   return (
     <div className="db-card um-create-card">
@@ -540,18 +584,34 @@ function CreateUserForm({
             <label className="modal-label" htmlFor="u-password">
               Password
             </label>
-            <input
+            <PasswordInput
               id="u-password"
-              className="modal-input"
-              type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={setPassword}
               placeholder="At least 6 characters"
             />
             <p className={`modal-hint ${tooShort ? "is-warn" : ""}`}>
               {tooShort
                 ? "Six characters minimum."
                 : "Never shown back. You can set a new one from this screen at any time."}
+            </p>
+          </div>
+          <div className="field-group">
+            <label className="modal-label" htmlFor="u-password-confirmation">
+              Confirm password
+            </label>
+            <PasswordInput
+              id="u-password-confirmation"
+              value={passwordConfirmation}
+              onChange={setPasswordConfirmation}
+              placeholder="Enter the same password again"
+            />
+            <p className={`modal-hint ${passwordsDiffer ? "is-warn" : ""}`}>
+              {passwordsDiffer
+                ? "The passwords do not match."
+                : passwordConfirmed
+                  ? "Password confirmed."
+                  : "Required so a typing mistake cannot lock out the new user."}
             </p>
           </div>
           <div className="field-group">
@@ -617,9 +677,12 @@ function EditUserModal({
   const [role, setRole] = useState(user.role);
   const [active, setActive] = useState(user.active);
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [grants, setGrants] = useState<string[]>(user.page_grants ?? []);
 
   const locked = isLastAdmin;
+  const passwordInvalid =
+    password.length > 0 && (password.length < 6 || password !== passwordConfirmation);
 
   return (
     <div className="modal-overlay active" onClick={onCancel}>
@@ -704,15 +767,34 @@ function EditUserModal({
             <label className="modal-label" htmlFor="e-password">
               <KeyRound size={12} /> New password
             </label>
-            <input
+            <PasswordInput
               id="e-password"
-              className="modal-input"
-              type="password"
               value={password}
-              placeholder="leave blank to keep the current one"
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep the current one"
+              onChange={setPassword}
             />
           </div>
+
+          {password && (
+            <div className="field-group">
+              <label className="modal-label" htmlFor="e-password-confirmation">
+                <KeyRound size={12} /> Confirm new password
+              </label>
+              <PasswordInput
+                id="e-password-confirmation"
+                value={passwordConfirmation}
+                placeholder="Enter the new password again"
+                onChange={setPasswordConfirmation}
+              />
+              <p className={`modal-hint ${passwordInvalid ? "is-warn" : ""}`}>
+                {password.length < 6
+                  ? "The new password must contain at least six characters."
+                  : password !== passwordConfirmation
+                    ? "The passwords do not match."
+                    : "Password confirmed."}
+              </p>
+            </div>
+          )}
 
           <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
         </div>
@@ -724,6 +806,7 @@ function EditUserModal({
           <button
             type="button"
             className="db-btn is-primary"
+            disabled={passwordInvalid}
             onClick={() =>
               onSave({
                 name,

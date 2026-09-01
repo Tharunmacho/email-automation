@@ -120,3 +120,53 @@ def test_health_stays_public(client):
 def test_garbage_token_is_rejected(client):
     res = client.get("/candidates", headers={"Authorization": "Bearer not-a-token"})
     assert res.status_code == 401
+
+
+def test_user_created_through_http_can_immediately_log_in():
+    """Exercise the exact create-user to login boundary used by the browser."""
+    import mongomock
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import app, current_user
+    from app.db.users import UserRepository
+
+    users = UserRepository(collection=mongomock.MongoClient()["auth_flow"]["users"])
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "admin-1",
+        "email": "admin@example.com",
+        "name": "Admin",
+        "role": "admin",
+    }
+    try:
+        from unittest.mock import patch
+
+        with patch("app.api.routes.users", users):
+            http = TestClient(app)
+            created = http.post(
+                "/users",
+                json={
+                    "email": " New.Reviewer@Example.com ",
+                    "password": "Exact Password 123",
+                    "name": "New Reviewer",
+                    "role": "staff",
+                },
+            )
+            short_reset = http.patch(
+                f"/users/{created.json()['user']['id']}",
+                json={"password": "short"},
+            )
+            signed_in = http.post(
+                "/auth/login",
+                json={
+                    "email": "new.reviewer@example.com",
+                    "password": "Exact Password 123",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(current_user, None)
+
+    assert created.status_code == 201
+    assert short_reset.status_code == 422
+    assert signed_in.status_code == 200
+    assert signed_in.json()["user"]["email"] == "new.reviewer@example.com"
+    assert signed_in.json()["user"]["role"] == "staff"

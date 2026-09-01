@@ -3693,7 +3693,7 @@ class UserPatch(BaseModel):
     name: str | None = None
     role: str | None = None
     active: bool | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=6)
     page_grants: list[str] | None = None
     keywords: list[str] | None = None
     phone: str | None = Field(default=None, max_length=40)

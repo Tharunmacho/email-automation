@@ -18590,6 +18590,39 @@ a.um-phone:hover {
   background: var(--tint-2);
 }
 
+.um-password-control {
+  position: relative;
+}
+
+.um-password-control .modal-input {
+  padding-right: 2.6rem;
+}
+
+.um-password-reveal {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.um-password-reveal:hover {
+  color: var(--primary);
+}
+
+.um-password-reveal:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
 .auth-remember {
   display: flex;
   align-items: center;
