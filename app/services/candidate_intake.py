@@ -114,16 +114,15 @@ def intake_whatsapp_candidate(
     # Before anything else, and before any policy work: a retry must be cheap
     # and must not re-run decisions that were already made and recorded.
     phone_key = normalize_phone(profile.phone)
-    was_deleted = getattr(repo, "was_deleted", None)
-    if callable(was_deleted) and was_deleted(
-        idempotency_key=idempotency_key,
-        phone_key=phone_key,
-    ):
-        raise IntakeError(
-            "this candidate was deleted in the CRM and cannot be recreated by a bot retry",
-            410,
-            "CANDIDATE_DELETED",
-        )
+    # A `was_deleted` gate used to stand here, refusing anyone whose phone
+    # matched a hard-deleted candidate with a 410. It is gone, along with its
+    # counterparts on the email and manual-upload paths, because all three
+    # enforced the opposite of the rule this desk runs on: deleting from the CRM
+    # is how a mistake is corrected, and a gate keyed on the person's own phone
+    # made the correction permanent — that candidate could never register again.
+    #
+    # A deleted candidate who messages the bot again is now simply a new
+    # candidate, which is what they are.
     existing, matched_on = _resolve_identity(repo, profile, phone_key, idempotency_key)
     if existing:
         return _refresh_existing(

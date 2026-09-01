@@ -75,7 +75,14 @@ class FakeLedger:
                           "candidate_id": candidate_id, "status": status, "suppressed": False})
 
     def retire_candidate(self, candidate_id, message_ids, resume_hash=None):
-        """Mirrors IngestLedger: message and hash tombstones both survive."""
+        """Mirrors IngestLedger: hash-keyed rows go, message tombstones arrive.
+
+        Deliberately has no `suppress_hash`. The fake used to carry one the real
+        `IngestLedger` had not had for some time, so the whole suite went green
+        while every real delete raised `AttributeError` and left the candidate
+        removed with none of its emails retired. A stub may be simpler than the
+        thing it stands for; it may not have methods the real one lacks.
+        """
         self.rows = [r for r in self.rows
                      if r["candidate_id"] != candidate_id
                      and r["resume_hash"] != resume_hash
@@ -84,15 +91,7 @@ class FakeLedger:
             self.rows.append({"message_id": mid, "resume_hash": "__deleted__",
                               "candidate_id": candidate_id, "status": "deleted",
                               "suppressed": True})
-        if resume_hash:
-            self.rows.append({"message_id": "__manual__", "resume_hash": resume_hash,
-                              "candidate_id": candidate_id, "status": "deleted",
-                              "suppressed": True})
-        return len(message_ids) + int(bool(resume_hash))
-
-    def suppress_hash(self, resume_hash, reason="deleted by user"):
-        self.rows.append({"message_id": "__manual__", "resume_hash": resume_hash,
-                          "candidate_id": None, "status": reason, "suppressed": True})
+        return len(message_ids)
 
 
 class FakeStorage:
@@ -150,7 +149,7 @@ def test_same_file_from_a_new_email_is_a_duplicate_while_the_candidate_lives(par
     assert len(repo.records) == 1
 
 
-def test_same_file_from_a_new_email_stays_deleted(parts):
+def test_same_file_ingests_as_new_after_the_candidate_is_deleted(parts):
     pipeline, repo, ledger = parts
     first = pipeline.process_email(_email("msg-original"))
     candidate_id = first.ingested_ids[0]
@@ -159,15 +158,22 @@ def test_same_file_from_a_new_email_stays_deleted(parts):
     repo.delete(candidate_id)
     ledger.retire_candidate(candidate_id, ["msg-original"], resume_hash=RESUME_HASH)
 
-    # A new email carrying the identical file must not recreate the candidate.
+    # A new email carrying the identical file ingests as a new candidate.
     again = pipeline.process_email(_email("msg-sent-again"))
 
-    assert again.status == "skipped"
-    assert again.attachments[0].status == "suppressed"
-    assert repo.records == {}
+    assert again.status == "processed", "re-sent resume must ingest as a new candidate"
+    assert again.ingested_ids and again.ingested_ids[0] != candidate_id
+    assert len(repo.records) == 1
 
 
-def test_modified_resume_with_same_contact_stays_deleted(parts):
+def test_a_modified_resume_from_the_same_person_also_ingests_again(parts):
+    """Same rule, and the case the removed gate was really aimed at.
+
+    It matched on the candidate's own email and phone, so a *different* file
+    from the same person was refused too. That is the deletion becoming
+    permanent for the person rather than for the mail — exactly what must not
+    happen when the deletion was a mistake.
+    """
     pipeline, repo, ledger = parts
     first = pipeline.process_email(_email("msg-original"))
     candidate_id = first.ingested_ids[0]
@@ -179,8 +185,8 @@ def test_modified_resume_with_same_contact_stays_deleted(parts):
     changed.attachments[0].size = len(changed.attachments[0].data)
     again = pipeline.process_email(changed)
 
-    assert again.attachments[0].status == "suppressed"
-    assert repo.records == {}
+    assert again.attachments[0].status == "ingested"
+    assert len(repo.records) == 1
 
 
 def test_the_deleted_candidates_own_email_is_never_ingested_again(parts):
@@ -263,3 +269,65 @@ def test_a_nationality_refusal_leaves_a_finished_message_the_runner_can_file(par
     assert result.status == "skipped"
     assert [a.status for a in result.attachments] == ["rejected_nationality"]
     assert repo.records == {}, "a refused CV must not become a candidate"
+
+
+# --------------------------------------------------------------------------- #
+#  Against the real ledger, not a stand-in for it
+# --------------------------------------------------------------------------- #
+def test_retire_candidate_runs_on_the_real_ledger():
+    """The whole suite was green while every delete raised `AttributeError`.
+
+    `retire_candidate` called `self.suppress_hash(...)`, a method the real
+    `IngestLedger` does not have — but the fake in this file did, so nothing
+    here ever touched the real one. In production the candidate document is
+    dropped *before* the ledger call, so the crash left the record deleted,
+    its emails never retired, and the next poll free to ingest it all over
+    again.
+
+    This exercises the real class against an in-memory collection, so a method
+    that exists only on the stub cannot pass again.
+    """
+    from app.db.ledger import DELETED_SENTINEL, IngestLedger
+
+    class Coll:
+        def __init__(self):
+            self.docs: dict = {}
+
+        def delete_many(self, query):
+            before = len(self.docs)
+            self.docs = {
+                k: d for k, d in self.docs.items()
+                if not any(all(d.get(f) == v for f, v in c.items()) for c in query["$or"])
+            }
+            class R:
+                deleted_count = before - len(self.docs)
+            return R()
+
+        def update_one(self, flt, update, upsert=False):
+            doc = self.docs.setdefault(flt["_id"], dict(update.get("$setOnInsert") or {}))
+            doc.update(update["$set"])
+
+    coll = Coll()
+    ledger = IngestLedger(collection=coll)
+
+    written = ledger.retire_candidate("cand-1", ["msg-a", "msg-b"], resume_hash=RESUME_HASH)
+
+    assert written == 2, "one tombstone per email, and none for the file"
+    tombstones = [d for d in coll.docs.values() if d.get("suppressed")]
+    assert {d["message_id"] for d in tombstones} == {"msg-a", "msg-b"}
+    assert all(d["resume_hash"] == DELETED_SENTINEL for d in tombstones), (
+        "a hash-keyed tombstone would block the file for ever"
+    )
+
+
+def test_the_real_ledger_has_no_hash_suppression_to_call():
+    """Named so the next person to add one has to delete this test first.
+
+    `suppress_hash` blocked a résumé by file hash, which is the one thing
+    deletion must not do: a candidate removed by mistake could never be
+    re-sent, from any address, with any version of their CV.
+    """
+    from app.db.ledger import IngestLedger
+
+    assert not hasattr(IngestLedger, "suppress_hash")
+    assert not hasattr(IngestLedger, "suppress_candidate")

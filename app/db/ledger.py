@@ -160,18 +160,25 @@ class IngestLedger:
         message_ids: list[str],
         resume_hash: Optional[str] = None,
     ) -> int:
-        """Record that these emails and this file belong to a deleted candidate.
+        """Record that these *emails* are dead, while freeing the *file*.
 
         Deleting a candidate has to satisfy two opposite rules:
 
         * the emails it came from must never be ingested again — even though the
           Gmail label that hides them takes a while to reach Gmail's search
           index, so a poll seconds later still returns them;
-        * the exact same resume arriving on a *new* email must remain deleted,
-          rather than silently recreating the CRM record.
+        * the exact same resume arriving on a *new* email must ingest as a new
+          candidate.
 
-        Message tombstones block the original emails and a hash tombstone blocks
-        the same attachment when it is forwarded or resent under a new message.
+        Both hold if the hash-keyed rows go away and a message-keyed tombstone
+        takes their place: `is_message_suppressed` blocks the old emails, while
+        every hash lookup comes up empty for the file itself.
+
+        The second rule is the one that keeps a mistaken deletion recoverable.
+        A hash tombstone here would block the file for ever, so a candidate
+        removed by accident could never be re-sent, however many times they
+        applied and from whatever address. That is why `suppress_hash` does not
+        exist any more, and why nothing in this method may reintroduce it.
 
         Returns the number of tombstones written.
         """
@@ -206,14 +213,11 @@ class IngestLedger:
                 upsert=True,
             )
 
-        if resume_hash:
-            self.suppress_hash(resume_hash, reason="candidate deleted by user")
-
         log.info(
-            "Ledger: cleared %d row(s) and tombstoned %d source(s) for deleted candidate %s",
-            cleared, len(message_ids) + bool(resume_hash), candidate_id,
+            "Ledger: cleared %d row(s) and tombstoned %d message(s) for deleted candidate %s",
+            cleared, len(message_ids), candidate_id,
         )
-        return len(message_ids) + int(bool(resume_hash))
+        return len(message_ids)
 
     def unsuppress_candidate(
         self,

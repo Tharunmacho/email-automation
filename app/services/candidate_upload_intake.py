@@ -366,17 +366,12 @@ def intake_uploaded_candidate(
             setattr(profile, field, cleaned)
     email_key = normalize_email(profile.email)
     phone_key = normalize_phone(profile.phone)
-    was_deleted = getattr(repository, "was_deleted", None)
-    if callable(was_deleted) and was_deleted(
-        email_key=email_key,
-        phone_key=phone_key,
-        resume_hash=resume_hash,
-    ):
-        raise CandidateUploadError(
-            "This candidate was deleted from the CRM and cannot be imported again.",
-            status_code=410,
-            code="candidate_deleted",
-        )
+    # A `was_deleted` gate used to stand here too, refusing an upload whose
+    # email, phone or file hash matched a hard-deleted candidate with a 410.
+    # Removed with its counterparts on the email and WhatsApp paths: a recruiter
+    # re-uploading a CV after a deletion is almost always correcting the
+    # deletion, and refusing them was the one thing they could not work around
+    # from the screen they were on.
     person = repository.find_by_email_or_phone(email_key, phone_key)
     if person:
         raise CandidateUploadError(
