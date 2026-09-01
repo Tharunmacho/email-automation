@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import re
+from typing import Mapping
 
 from app.ai.schema import RESUME_TOOL_NAME, RESUME_TOOL_SCHEMA, SYSTEM_PROMPT
 from app.config import settings
@@ -544,6 +545,7 @@ class ResumeParser:
                         "char_count": len(veris_text),
                     })
                     veris_raw = veris_payload(res) or None
+                    veris_extracted = _reconsider_nationality(veris_extracted, res, veris_text)
                     profile = map_veris_to_profile(res, veris_text=veris_text)
                     if profile.full_name or profile.email or profile.phone:
                         info = dict(profile.additional_info or {})
@@ -1161,6 +1163,67 @@ def _objective_only(summary):
     if found and found.start() > 40:
         text = text[: found.start()].strip()
     return text.strip(" .,-:;") or None
+
+
+def _reconsider_nationality(extracted, res, veris_text: str):
+    """The second look, once the résumé service has answered.
+
+    The first look reads the PDF's own text layer. That is where a two-column
+    CV hides `Nationality : Pakistani` across three lines, the stated-nationality
+    rule matches nothing, and the verdict comes back UNDETERMINED — which is
+    accepted, because most Indian CVs never state a nationality either and
+    refusing every silent one would lose far more placements than it saves.
+
+    By this point there is better evidence. Veris returns its own structured
+    reading of the nationality field — it said "Pakistani" outright on the CV
+    that got in — plus place of birth, passport place of issue, and page text
+    with the columns pulled apart so labels and values are back on one line.
+    None of it was being looked at.
+
+    This can only ever make the answer *stricter*. It runs at all only because
+    the local read already accepted: a local refusal is raised before Veris is
+    called, so nothing that reaches here was refused earlier and there is no
+    verdict to soften. An UNDETERMINED second look leaves the first answer
+    exactly as it was.
+    """
+    from app.extraction import resume_nationality as rn
+
+    if getattr(extracted, "nationality_accepted", None) is False:
+        return extracted  # already refused; the second look has nothing to add
+
+    data = res if isinstance(res, Mapping) else getattr(res, "__dict__", {}) or {}
+    try:
+        pages = data.get("pages") or []
+        page_text = "\n\n".join(
+            d for d in (decolumnize_ocr_page(p) for p in pages) if d
+        ) or veris_text
+        evidence = rn.evidence_from_service(data, page_text)
+        if not evidence.strip():
+            return extracted
+
+        verdict = rn.detect_resume_nationality(evidence)
+        if verdict.verdict != rn.FOREIGN:
+            # INDIAN confirms what was already assumed; UNDETERMINED says the
+            # better evidence still cannot tell, which is not a reason to refuse.
+            return extracted
+
+        accepted, reason = rn.should_ingest(verdict)
+        if accepted:
+            return extracted
+
+        log.info(
+            "Nationality filter, second look: %s — the local read of this file "
+            "could not tell, the résumé service could",
+            reason,
+        )
+        return extracted.model_copy(update={
+            "nationality": verdict.as_dict(),
+            "nationality_accepted": False,
+            "nationality_reason": reason,
+        })
+    except Exception as exc:  # noqa: BLE001 — a second opinion must not fail the parse
+        log.warning("Could not reconsider nationality from the Veris result: %s", exc)
+        return extracted
 
 
 def map_veris_to_profile(res, veris_text: str = "") -> CandidateProfile:

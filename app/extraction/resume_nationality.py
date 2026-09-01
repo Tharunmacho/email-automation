@@ -646,3 +646,43 @@ def refuse_foreign_candidate(filename: str, extracted) -> None:
         f"Attachment '{filename}' was not ingested: {reason}",
         verdict=getattr(extracted, "nationality", None),
     )
+
+
+def evidence_from_service(result: Mapping[str, Any], page_text: str = "") -> str:
+    """The country-naming facts an OCR service returned, as readable text.
+
+    The second look. The first one reads a PDF's own text layer, which is where
+    a two-column CV hides `Nationality : Pakistani` across three lines and the
+    verdict comes back UNDETERMINED. By the time the résumé service has
+    answered there is better evidence to hand, and none of it was being used:
+
+    * ``personal_info.nationality`` — the service's own structured reading of
+      the field, which said "Pakistani" outright on the CV that got in;
+    * ``personal_info.place_of_birth`` and ``passport_details.place_of_issue``;
+    * the de-columnised page text, in which the label, the colon and the value
+      are back on one line.
+
+    Rendered as labelled lines rather than fed in field by field so the existing
+    rules read it — one detector, one set of weights, one place where the
+    policy lives. The caller decides what to do with the verdict.
+    """
+    lines: List[str] = []
+
+    personal = result.get("personal_info")
+    if isinstance(personal, Mapping):
+        for key, label in (("nationality", "Nationality"),
+                           ("place_of_birth", "Place of Birth")):
+            value = personal.get(key)
+            if isinstance(value, str) and value.strip():
+                lines.append(f"{label} : {value.strip()}")
+
+    passport = result.get("passport_details")
+    if isinstance(passport, Mapping):
+        value = passport.get("place_of_issue")
+        if isinstance(value, str) and value.strip():
+            lines.append(f"Place of Issue : {value.strip()}")
+
+    if page_text:
+        lines.append(page_text)
+
+    return "\n".join(lines)
