@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  BadgeCheck,
   CheckCircle2,
   Download,
   Edit3,
@@ -305,24 +304,12 @@ function mrzKey(label: string): string {
   return label.trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
-/**
- * One scanned document, exactly as the OCR read it.
- *
- * Read-only with no edit path anywhere near it, and that is the point: this is
- * evidence about a file somebody sent, not a field of the candidate record. It
- * carries its own provenance — which attachment, off which pages, read when —
- * because a documentation officer checking a misread digit needs to know which
- * page to open, and it carries the service's own integrity verdict rather than
- * presenting a failed checksum as fact.
- */
+/** One scanned document, limited to candidate details staff can act on. */
 function DocumentCard({
   title,
   icon,
   badges,
   action,
-  source,
-  readAt,
-  warnings,
   children,
 }: {
   title: string;
@@ -330,27 +317,8 @@ function DocumentCard({
   badges?: React.ReactNode;
   /** Sits at the far end of the heading. The download, where there is one. */
   action?: React.ReactNode;
-  source?: { filename?: string; pages?: number[] };
-  readAt?: string;
-  /** Things that want a human: a field that could not be read, a check that
-      did not pass. Always visible — this is the half worth interrupting for.
-      Its counterpart, the OCR's recovery log, is deliberately *not* drawn
-      here: every line of it describes the document being read successfully,
-      which is our plumbing rather than anything a recruiter acts on. It is
-      still stored and still returned as `extraction_notes`, so a misread digit
-      can be traced without putting six lines of housekeeping on the screen. */
-  warnings?: string[];
   children: React.ReactNode;
 }) {
-  const pages = source?.pages ?? [];
-  const provenance = [
-    source?.filename,
-    pages.length > 0 ? `page${pages.length === 1 ? "" : "s"} ${pages.join(", ")}` : null,
-    readAt ? `read ${formatDateFull(new Date(readAt))}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   return (
     <article className="cprof-doc">
       <div className="cprof-doc-head">
@@ -363,30 +331,7 @@ function DocumentCard({
       </div>
 
       <div className="cprof-facts">{children}</div>
-
-      {(warnings?.length ?? 0) > 0 && (
-        <ul className="cprof-doc-warnings">
-          {warnings!.map((warning, index) => (
-            <li key={index}>
-              <AlertTriangle size={13} aria-hidden="true" /> {warning}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {provenance && <p className="cprof-doc-source">{provenance}</p>}
     </article>
-  );
-}
-
-/** The OCR's own verdict on whether it read the document correctly. */
-function CheckBadge({ valid, label }: { valid?: boolean | null; label: string }) {
-  if (valid === null || valid === undefined) return null;
-  return (
-    <span className={`cprof-doc-badge ${valid ? "is-ok" : "is-bad"}`}>
-      {valid ? <BadgeCheck size={13} /> : <AlertTriangle size={13} />}
-      {valid ? label : `${label} failed`}
-    </span>
   );
 }
 
@@ -607,6 +552,16 @@ export default function CandidateProfileScreen({
         // is still stored — the upload gate refuses anything Veris did not
         // structure, and it reads this field to know.
         "extraction_source",
+        // Internal CV/OCR bookkeeping. Older records may also contain these
+        // human-readable duplicates of the experience fields shown above.
+        "cv_filename",
+        "cv_sha256",
+        "cv_uploaded_at",
+        "cv_extracted_at",
+        "cv_needs_review",
+        "total_experience_human",
+        "indian_experience_human",
+        "overseas_experience_human",
       ]),
     [profile.additional_info],
   );
@@ -996,7 +951,6 @@ export default function CandidateProfileScreen({
                       icon={<Plane size={15} />}
                       badges={
                         <>
-                          <CheckBadge valid={passport.check_digits_valid} label="MRZ check digits" />
                           {expiry && (
                             <span
                               className={`cprof-doc-badge ${
@@ -1017,9 +971,6 @@ export default function CandidateProfileScreen({
                           />
                         ) : null
                       }
-                      source={passport.source}
-                      readAt={passport.updated_at}
-                      warnings={passport.warnings}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -1079,7 +1030,6 @@ export default function CandidateProfileScreen({
                   icon={<IdCard size={15} />}
                   badges={
                     <>
-                      <CheckBadge valid={aadhaar.aadhaar_number_valid} label="Checksum" />
                       {aadhaar.document_side && (
                         <span className="cprof-doc-badge">
                           {humanizeKey(aadhaar.document_side)}
@@ -1096,9 +1046,6 @@ export default function CandidateProfileScreen({
                       />
                     ) : null
                   }
-                  source={aadhaar.source}
-                  readAt={aadhaar.updated_at}
-                  warnings={aadhaar.warnings}
                 >
                   <Fact label="Name" value={aadhaar.name} />
                   {/* The full number reaches the browser for administrators
