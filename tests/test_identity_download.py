@@ -395,3 +395,81 @@ def test_the_file_block_is_stored_as_given():
     store_aadhaar_record("rec-1", {"aadhaar": {}}, file=stored, collection=coll)
 
     assert coll.updates[0]["file"] == stored
+
+
+# --------------------------------------------------------------------------- #
+#  A storage outage is not a missing document
+# --------------------------------------------------------------------------- #
+def test_a_genuinely_absent_file_is_missing(monkeypatch):
+    """Both backends say the key is not there: that is a 404, and it is true."""
+    from app.services import identity_files as idf
+
+    class Absent:
+        def load(self, key):
+            raise FileNotFoundError(f"no file for {key!r}")
+
+    monkeypatch.setattr(idf, "get_storage_backend", lambda name=None: Absent())
+    with pytest.raises(idf.IdentityFileMissing):
+        idf._load("gridfs", "2026/09/whatever.pdf")
+
+
+@pytest.mark.parametrize(
+    "boom",
+    [TimeoutError("200.234.35.6:27017: timed out"),
+     OSError("[WinError 10051] A socket operation was attempted to an unreachable network"),
+     RuntimeError("connection reset by peer")],
+)
+def test_a_storage_outage_is_not_reported_as_a_missing_document(monkeypatch, boom):
+    """The bug this pins: a database blink told a recruiter the scan did not exist.
+
+    Both backends raise `FileNotFoundError` when a key genuinely is not there,
+    so anything else is the storage failing rather than the file being absent.
+    Collapsing the two returned 404 for a Mongo timeout — permanent-sounding,
+    wrong, and invisible afterwards because the retry succeeds.
+    """
+    from app.services import identity_files as idf
+
+    class Broken:
+        def load(self, key):
+            raise boom
+
+    monkeypatch.setattr(idf, "get_storage_backend", lambda name=None: Broken())
+    with pytest.raises(idf.IdentityFileUnavailable):
+        idf._load("gridfs", "2026/09/whatever.pdf")
+
+
+def test_the_other_backend_is_still_tried_first(monkeypatch):
+    """The fallback that exists for records written before the backend moved."""
+    from app.services import identity_files as idf
+
+    class Only:
+        def __init__(self, name): self.name = name
+        def load(self, key):
+            if self.name != "local":
+                raise FileNotFoundError("not here")
+            return b"%PDF-1.4 the file"
+
+    monkeypatch.setattr(idf, "get_storage_backend", lambda name=None: Only(name))
+    assert idf._load("gridfs", "k") == b"%PDF-1.4 the file"
+
+
+def test_a_storage_outage_is_a_503_the_whole_way_out(api):
+    """The other end of the same wire: what the browser is actually told.
+
+    `_load` raising the right exception only matters if the route turns it into
+    the right status. A 404 here is a permanent-sounding answer to a temporary
+    problem, and the recruiter who retries and succeeds never learns the first
+    answer was wrong.
+    """
+    api.sign_in_as("staff", "staff-1")
+
+    def timed_out(key):
+        raise TimeoutError("200.234.35.6:27017: timed out")
+
+    api.storage.load = timed_out
+
+    response = api.get(url("passport", "rec-passport"))
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "passport scan could not be read just now" in detail
+    assert "timed out" in detail

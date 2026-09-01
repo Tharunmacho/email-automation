@@ -1120,6 +1120,19 @@ def download_identity_document(
 
     try:
         found = identity_files.load(record, doc)
+    except identity_files.IdentityFileUnavailable as exc:
+        # 503, not 404. The scan is on file; storage would not answer just now.
+        # Reporting that as "not found" told a recruiter the document did not
+        # exist because Mongo timed out — and the retry that works leaves no
+        # trace that the first answer was wrong.
+        log.warning(
+            "Identity file for candidate %s (%s %s) is temporarily unreadable: %s",
+            candidate_id, document_type, record_id, exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"The {document_type} scan could not be read just now — {exc}. Try again.",
+        )
     except identity_files.IdentityFileMissing as exc:
         raise HTTPException(
             status_code=404, detail=f"The {document_type} scan could not be served — {exc}"
