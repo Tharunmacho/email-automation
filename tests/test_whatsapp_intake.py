@@ -182,26 +182,22 @@ def wa_profile(**overrides) -> CandidateProfile:
     return CandidateProfile(**base)
 
 
-def test_a_deleted_whatsapp_candidate_may_register_again():
-    """Deleting from the CRM is how a mistake is corrected, not a ban.
-
-    A `was_deleted` gate used to refuse this with a 410, keyed on the
-    candidate's own phone number — so someone removed by accident could never
-    register again from that phone, and the bot gave them a dead end with no
-    way back. Registering again simply makes them a new candidate, which is
-    what they are.
-    """
+def test_deleted_whatsapp_candidate_cannot_be_recreated_by_a_retry():
     class DeletedRepo(FakeRepo):
-        def was_deleted(self, **_signals):
+        def was_deleted(self, **signals):
+            assert signals["idempotency_key"] == "whatsapp/111/919876543210"
+            assert signals["phone_key"] == "9876543210"
             return True
 
-    result = intake_whatsapp_candidate(
-        profile=wa_profile(),
-        idempotency_key="whatsapp/111/919876543210",
-        repo=DeletedRepo(),
-    )
+    with pytest.raises(IntakeError) as excinfo:
+        intake_whatsapp_candidate(
+            profile=wa_profile(),
+            idempotency_key="whatsapp/111/919876543210",
+            repo=DeletedRepo(),
+        )
 
-    assert result.candidate_id
+    assert excinfo.value.status_code == 410
+    assert excinfo.value.code == "CANDIDATE_DELETED"
 
 
 @pytest.fixture(autouse=True)

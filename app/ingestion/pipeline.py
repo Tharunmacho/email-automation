@@ -300,8 +300,13 @@ class IngestionPipeline:
             # poll cannot bring the same mail back while Gmail's index catches
             # up. The file is deliberately freed.
             #
-            # `repo.was_deleted` is left in place and still gates the WhatsApp
-            # and manual-upload paths, which have not been changed.
+            # The removal is deliberately limited to this path. `repo.was_deleted`
+            # still gates WhatsApp intake and manual upload, and is meant to:
+            # both of those are a person acting deliberately at a keyboard, who
+            # can be told "this candidate was deleted" and do something about
+            # it. A résumé arriving by mail has nobody to tell — refusing it
+            # silently is how a deletion turns into a ban. Same helper, three
+            # entry points, one of which now answers differently on purpose.
             person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
                 self.ledger.record(email.message_id, resume_hash, person_dup.id, "duplicate")
