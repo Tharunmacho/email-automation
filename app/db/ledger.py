@@ -224,39 +224,19 @@ class IngestLedger:
         log.info("Ledger: unsuppressed / cleared %d entr(ies) for candidate %s", res.deleted_count, candidate_id)
         return res.deleted_count
 
-    def suppress_candidate(self, candidate_id: str, reason: str = "deleted by user") -> int:
-        """Tombstone every ledger entry for a candidate the user removed.
-
-        Returns the number of entries marked, so callers can log whether the
-        deletion will actually stick.
-        """
-        res = self._coll.update_many(
-            {"candidate_id": candidate_id},
-            {"$set": {"suppressed": True, "reason": reason, "updated_at": utcnow()}},
-        )
-        log.info(
-            "Ledger: suppressed %d entr(ies) for candidate %s (%s)",
-            res.modified_count, candidate_id, reason,
-        )
-        return res.modified_count
-
-    def suppress_hash(self, resume_hash: str, reason: str = "deleted by user") -> None:
-        """Fallback for records that predate the ledger and have no entry yet."""
-        self._coll.update_one(
-            {"_id": _key("__manual__", resume_hash)},
-            {
-                "$set": {
-                    "message_id": "__manual__",
-                    "resume_hash": resume_hash,
-                    "candidate_id": None,
-                    "suppressed": True,
-                    "reason": reason,
-                    "updated_at": utcnow(),
-                },
-                "$setOnInsert": {"created_at": utcnow()},
-            },
-            upsert=True,
-        )
+    # `suppress_candidate` and `suppress_hash` used to live here, and both
+    # suppressed by *file hash* — which is the one thing deletion must not do.
+    # A hash-keyed tombstone blocks the file for ever, so a candidate who was
+    # deleted and then re-applied could never be ingested again, however many
+    # times they sent their CV from a new address.
+    #
+    # `retire_candidate` replaced them and does the opposite on purpose: it
+    # clears the hash-keyed rows and tombstones the *messages*, so the old
+    # emails stay dead while the file itself comes free. Both were unreachable
+    # by the time they were removed, and they are not coming back as a
+    # convenience — a caller reaching for "suppress this candidate" wants
+    # `retire_candidate`, and the two tests in `test_pipeline_redelivery.py`
+    # pin the difference.
 
 
 def ensure_ledger_indexes() -> None:
