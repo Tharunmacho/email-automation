@@ -58,11 +58,47 @@ def _redacted_host(uri: str) -> str:
     return tail.split("/")[0] or "?"
 
 
+#: Collections only the WhatsApp bot's database has. It keeps its own
+#: `candidates`, so the collection name alone cannot tell the two apart.
+_WHATSAPP_ONLY = ("staff_directory", "staff_notices", "processed_events")
+#: Collections only the résumé pipeline has.
+_RESUME_ONLY = ("ingestion_state", "ingest_ledger")
+
+
+def _refuse_if_not_the_resume_database() -> None:
+    """Stop before writing anything if this is not the résumé pipeline's database.
+
+    The bot and the pipeline both keep a `candidates` collection, on the same
+    server, so a wrong `MONGO_DB` would not announce itself — it would simply
+    find no résumé rows, or worse, find something it half recognised. The bot's
+    records are out of scope for this script by instruction and by design, so
+    the check is a refusal rather than a warning.
+
+    In practice the two are unmistakable: the bot's database holds no
+    `ingestion_state` at all, which is the only collection this script writes.
+    """
+    names = set(get_db().list_collection_names())
+    looks_like_bot = [c for c in _WHATSAPP_ONLY if c in names]
+    missing = [c for c in _RESUME_ONLY if c not in names]
+    if looks_like_bot or missing:
+        print("\nREFUSING TO RUN.")
+        if looks_like_bot:
+            print(f"  '{settings.mongo_db}' holds {', '.join(looks_like_bot)} — this is the "
+                  "WhatsApp bot's database, which this script must never touch.")
+        if missing:
+            print(f"  '{settings.mongo_db}' has no {', '.join(missing)}, so it is not the "
+                  "résumé pipeline's database.")
+        print("  Point MONGO_DB at the résumé database and run again.")
+        raise SystemExit(2)
+
+
 def _banner() -> None:
     print("=" * 72)
     print("  server     :", _redacted_host(settings.mongo_uri))
     print("  database   :", settings.mongo_db)
     print("  storage    :", settings.storage_backend)
+    print("  writes     : ingestion_state only, and only with --abandon")
+    print("  never      : candidates, the ledger, stored files, WhatsApp records")
     print("=" * 72)
 
 
@@ -92,6 +128,7 @@ def main() -> int:
     args = parser.parse_args()
 
     _banner()
+    _refuse_if_not_the_resume_database()
 
     store = IngestionStateStore()
     rows = store.find_stuck(args.stuck_after, limit=args.limit)
@@ -120,8 +157,18 @@ def main() -> int:
         # the reconciler's own fallback and it is the half that has been failing
         # on stale attachment ids, so a row with no file is reported as beyond
         # this script's ability to confirm either way.
+        # Belt and braces on top of the database check. The bot creates no
+        # `ingestion_state` rows at all, so this should never fire — which is
+        # the point: if it ever does, the assumption underneath this script has
+        # changed and the row is left alone rather than swept up in a cleanup
+        # that was never meant to reach it.
+        owner = candidates.find_one({"_id": row.candidate_id}, {"source": 1}) or {}
+        from_whatsapp = (owner.get("source") or "").lower() == "whatsapp"
+
         verdict = "has stored file" if has_file else "NO stored file"
-        if not has_file:
+        if from_whatsapp:
+            verdict += "  [WhatsApp candidate — left alone]"
+        elif not has_file:
             unrecoverable.append(row)
 
         print(f"  {str(row.id)[:34]:36} status={row.status:11} {verdict}")
