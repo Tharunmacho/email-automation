@@ -401,6 +401,20 @@ def intake_uploaded_candidate(
         profile.passport_expiry = mrz.get("expiry_date") or None
         passport_key = normalize_passport(profile.passport_number)
 
+    passport_finder = getattr(repository, "find_by_passport_key", None)
+    passport_owner = (
+        passport_finder(passport_key)
+        if callable(passport_finder) and passport_key
+        else None
+    )
+    if passport_owner:
+        raise CandidateUploadError(
+            f"A candidate with this passport already exists: "
+            f"{passport_owner.profile.full_name or passport_owner.candidate_code}.",
+            status_code=409,
+            code="duplicate_passport",
+        )
+
     candidate_id = uuid.uuid4().hex
     stored_resume = None
     if resume:
@@ -434,6 +448,14 @@ def intake_uploaded_candidate(
     stored_id = repository.insert(record)
     if stored_id != candidate_id:
         existing = repository.get(stored_id)
+        _rollback_created_candidate(repository, candidate_id, stored_resume, [])
+        if passport_key and existing and existing.passport_key == passport_key:
+            raise CandidateUploadError(
+                f"A candidate with this passport already exists: "
+                f"{existing.profile.full_name or existing.candidate_code}.",
+                status_code=409,
+                code="duplicate_passport",
+            )
         raise CandidateUploadError(
             f"This resume already belongs to {(existing.profile.full_name if existing else stored_id)}.",
             status_code=409,

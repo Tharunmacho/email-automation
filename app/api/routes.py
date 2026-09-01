@@ -2566,6 +2566,20 @@ class WhatsAppCandidateIn(BaseModel):
     job: JobSection | None = None
 
 
+def _passport_number_from_identity(section: WhatsAppIdentitySectionIn | None) -> str | None:
+    """First readable passport number in an identity section."""
+    if section is None:
+        return None
+    for document in section.passport:
+        result = document.result
+        if not isinstance(result, dict):
+            continue
+        mrz = result.get("mrz")
+        if isinstance(mrz, dict) and mrz.get("passport_number"):
+            return str(mrz["passport_number"])
+    return None
+
+
 def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
     """One shape for every refusal, with the code at the top level.
 
@@ -2744,6 +2758,7 @@ def create_whatsapp_candidate(
                 if payload.identity and legacy_conversation
                 else None
             ),
+            passport_number=_passport_number_from_identity(payload.identity),
             repo=repository,
         )
     except IntakeError as exc:

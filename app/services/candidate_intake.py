@@ -6,11 +6,10 @@ down once instead of being re-derived by every future caller.
 
 What it guarantees, in the order it establishes them:
 
-1. **One phone number is one candidate.** The normalised WhatsApp number is the
-   identity. The idempotency key names a conversation and is checked first
-   because it is the more specific claim, but it is not what makes somebody
-   themselves — the agency's five or six company numbers are five or six
-   sending identities, not five or six people.
+1. **One passport is one candidate.** A normalized passport number is the
+   strongest identity. The conversation key and phone still resolve candidates
+   who have not supplied a passport yet, but neither may create a second person
+   once that passport is already on file.
 2. **Everything a submission carries lands on that one record.** Including the
    twentieth submission of the same conversation. This is the guarantee that
    was missing: the key matched, the function returned, and every answer after
@@ -43,7 +42,7 @@ from app.core.models import (
     StoredResume,
     utcnow,
 )
-from app.db.dedup import normalize_phone
+from app.db.dedup import normalize_passport, normalize_phone
 from app.db.repository import CandidateRepository
 from app.logging_config import get_logger
 from app.policy.cv_policy import get_policy
@@ -82,6 +81,7 @@ def intake_whatsapp_candidate(
     registration: Optional[RegistrationState] = None,
     job: Optional[JobSection] = None,
     identity: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    passport_number: Optional[str] = None,
     repo: Optional[CandidateRepository] = None,
 ) -> IntakeResult:
     """Create or refresh one WhatsApp candidate.
@@ -114,6 +114,10 @@ def intake_whatsapp_candidate(
     # Before anything else, and before any policy work: a retry must be cheap
     # and must not re-run decisions that were already made and recorded.
     phone_key = normalize_phone(profile.phone)
+    extracted_passport_number = passport_number or _passport_number_in_identity(identity)
+    passport_number = extracted_passport_number or profile.passport_number
+    passport_key = normalize_passport(passport_number)
+    passport_source = "ocr" if extracted_passport_number else "typed"
     was_deleted = getattr(repo, "was_deleted", None)
     if callable(was_deleted) and was_deleted(
         idempotency_key=idempotency_key,
@@ -124,7 +128,15 @@ def intake_whatsapp_candidate(
             410,
             "CANDIDATE_DELETED",
         )
-    existing, matched_on = _resolve_identity(repo, profile, phone_key, idempotency_key)
+    existing, matched_on = _resolve_identity(
+        repo,
+        profile,
+        phone_key,
+        idempotency_key,
+        passport_number=passport_number,
+        passport_key=passport_key,
+        passport_source=passport_source,
+    )
     if existing:
         return _refresh_existing(
             repo,
@@ -247,6 +259,8 @@ def intake_whatsapp_candidate(
         source_email=None,
         phone_key=phone_key,
         email_key=None,
+        passport_key=passport_key,
+        passport_key_source=passport_source if passport_key else None,
         resume_hash=resume.sha256 if resume else None,
         cv_required=cv_required,
         cv_policy_version=policy.version,
@@ -290,6 +304,20 @@ def intake_whatsapp_candidate(
         cv_policy_version=policy.version,
         policy_overrode_claim=overrode,
     )
+
+
+def _passport_number_in_identity(
+    identity: Optional[Dict[str, List[Dict[str, Any]]]],
+) -> Optional[str]:
+    """First passport number present in an extractor payload."""
+    for document in (identity or {}).get("passport") or []:
+        result = document.get("result")
+        if not isinstance(result, dict):
+            continue
+        mrz = result.get("mrz")
+        if isinstance(mrz, dict) and mrz.get("passport_number"):
+            return str(mrz["passport_number"])
+    return None
 
 
 def _allocate(candidate_id: str, profile: CandidateProfile, repo: CandidateRepository) -> None:
@@ -402,14 +430,20 @@ def _resolve_identity(
     profile: CandidateProfile,
     phone_key: Optional[str],
     idempotency_key: str,
+    passport_number: Optional[str] = None,
+    passport_key: Optional[str] = None,
+    passport_source: str = "typed",
 ) -> tuple[Optional[CandidateRecord], str]:
     """The candidate this submission belongs to, and which signal found them.
 
-    Two signals, and the order between them is the whole design:
+    Three signals, and the order between them is the whole design:
+
+    **The normalized passport number** identifies the person. It wins even when
+    the conversation key and phone are both different.
 
     **The idempotency key** identifies this exact submission. It is the more
     specific claim — it says "this is the conversation that produced record X" —
-    so it is consulted first and it wins outright.
+    so it is consulted before the phone when no passport is available.
 
     **The normalised phone** identifies the *person*. It is what makes the five
     or six company numbers one identity rather than five: the key carries the
@@ -424,15 +458,60 @@ def _resolve_identity(
 
     Returns `(None, "none")` when neither matches, which is the create path.
     """
+    # Passport is the strongest identity in this system. It deliberately wins
+    # over a different conversation key or phone number: those identify a
+    # contact route, while the passport identifies the person.
+    finder = getattr(repo, "find_by_passport_key", None)
+    by_passport = finder(passport_key) if callable(finder) and passport_key else None
+    if by_passport:
+        return by_passport, "passport"
+
     by_key = repo.find_by_idempotency_key(idempotency_key)
     if by_key:
+        owner = _claim_passport(
+            repo, by_key, passport_number, passport_key, passport_source
+        )
+        if owner:
+            return owner, "passport" if owner.id != by_key.id else "idempotency_key"
         return by_key, "idempotency_key"
 
     by_phone = _find_existing_person(repo, profile, phone_key)
     if by_phone:
+        owner = _claim_passport(
+            repo, by_phone, passport_number, passport_key, passport_source
+        )
+        if owner:
+            return owner, "passport" if owner.id != by_phone.id else "phone"
         return by_phone, "phone"
 
     return None, "none"
+
+
+def _claim_passport(
+    repo: CandidateRepository,
+    candidate: CandidateRecord,
+    passport_number: Optional[str],
+    passport_key: Optional[str],
+    source: str,
+) -> Optional[CandidateRecord]:
+    """Put a newly supplied passport key on an already-existing candidate."""
+    if not passport_key:
+        return candidate
+    claim = getattr(repo, "claim_passport", None)
+    if callable(claim):
+        owner_id = claim(candidate.id, passport_number or passport_key, source)
+        if owner_id and owner_id != candidate.id:
+            return repo.get(owner_id)
+        if owner_id:
+            candidate.passport_key = passport_key
+            candidate.passport_key_source = source
+        return candidate
+
+    # Compatibility for small repository doubles and older integrations. The
+    # production repository always takes the atomic path above.
+    candidate.passport_key = passport_key
+    candidate.passport_key_source = source
+    return candidate
 
 
 def _refresh_existing(

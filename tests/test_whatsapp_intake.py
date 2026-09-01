@@ -75,6 +75,13 @@ class FakeRepo:
             (c for c in self.candidates.values() if c.resume_hash == resume_hash), None
         )
 
+    def find_by_passport_key(self, passport_key):
+        if not passport_key:
+            return None
+        return next(
+            (c for c in self.candidates.values() if c.passport_key == passport_key), None
+        )
+
     def find_by_email_or_phone(self, email_key, phone_key):
         for c in self.candidates.values():
             if phone_key and c.phone_key == phone_key:
@@ -96,8 +103,25 @@ class FakeRepo:
         existing = self.find_by_resume_hash(record.resume_hash)
         if existing:
             return existing.id
+        existing = self.find_by_passport_key(record.passport_key)
+        if existing:
+            return existing.id
         self.candidates[record.id] = record
         return record.id
+
+    def claim_passport(self, candidate_id, passport_number, source="ocr"):
+        from app.db.dedup import normalize_passport
+
+        key = normalize_passport(passport_number)
+        existing = self.find_by_passport_key(key)
+        if existing and existing.id != candidate_id:
+            return existing.id
+        record = self.candidates.get(candidate_id)
+        if not record:
+            return None
+        record.passport_key = key
+        record.passport_key_source = source
+        return candidate_id
 
     def refresh_whatsapp_profile(self, candidate_id: str, profile: CandidateProfile):
         from app.db.repository import CandidateRepository
@@ -663,6 +687,27 @@ def test_passport_details_are_stored(client):
     record = next(iter(client.fake_repo.candidates.values()))
     assert record.profile.passport_number == "Z1234567"
     assert record.profile.passport_expiry == "03/2031"
+
+
+def test_same_passport_with_different_phone_and_registration_reuses_candidate(client):
+    first = post_candidate(
+        client,
+        key="whatsapp/111/919876543210",
+        passport_number="z 1234-567",
+    )
+    second = post_candidate(
+        client,
+        key="whatsapp/222/60123456789",
+        phone="+60123456789",
+        phone_e164="+60123456789",
+        passport_number="Z1234567",
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["created"] is False
+    assert second.json()["candidate_id"] == first.json()["candidate_id"]
+    assert len(client.fake_repo.candidates) == 1
 
 
 # --------------------------------------------------------------------------- #

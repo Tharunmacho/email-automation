@@ -60,6 +60,13 @@ class FakeRepo:
     def find_by_resume_hash(self, resume_hash):
         return None
 
+    def find_by_passport_key(self, passport_key):
+        if not passport_key:
+            return None
+        return next(
+            (c for c in self.candidates.values() if c.passport_key == passport_key), None
+        )
+
     def get(self, candidate_id):
         return self.candidates.get(candidate_id)
 
@@ -67,8 +74,25 @@ class FakeRepo:
         existing = self.find_by_idempotency_key(record.idempotency_key)
         if existing:
             return existing.id
+        existing = self.find_by_passport_key(record.passport_key)
+        if existing:
+            return existing.id
         self.candidates[record.id] = record
         return record.id
+
+    def claim_passport(self, candidate_id, passport_number, source="ocr"):
+        from app.db.dedup import normalize_passport
+
+        key = normalize_passport(passport_number)
+        existing = self.find_by_passport_key(key)
+        if existing and existing.id != candidate_id:
+            return existing.id
+        record = self.candidates.get(candidate_id)
+        if not record:
+            return None
+        record.passport_key = key
+        record.passport_key_source = source
+        return candidate_id
 
     def refresh_whatsapp_profile(self, candidate_id, profile):
         record = self.candidates.get(candidate_id)
@@ -330,6 +354,29 @@ def test_a_passport_sent_over_whatsapp_becomes_a_crm_identity_record(api):
     assert len(api.passport.docs) == 1
 
 
+def test_passport_identity_prevents_second_candidate_with_other_contact_details(api):
+    first = post(api, submission(identity={"passport": [passport_document()]}))
+    second_document = passport_document(
+        record_id="66b1f0c2e4b0a1d2c3e4f599",
+        message_id="wamid.second-registration",
+    )
+    second = post(
+        api,
+        submission(
+            key="whatsapp/222/60123456789",
+            identity={"passport": [second_document]},
+            phone="+60123456789",
+            phone_e164="+60123456789",
+        ),
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["created"] is False
+    assert second.json()["candidate_id"] == first.json()["candidate_id"]
+    assert len(api.fake_repo.candidates) == 1
+
+
 def test_every_field_the_extractor_read_is_stored(api):
     """Not just the number.
 
@@ -430,13 +477,18 @@ def test_a_document_already_filed_under_someone_else_is_refused(api):
     first = post(api, submission(identity={"passport": [passport_document()]}))
     owner = first.json()["candidate_id"]
 
+    # A different passport reusing the same upload id is an ownership conflict.
+    # Reusing the same passport number is now correctly resolved to the first
+    # candidate before document filing begins.
+    other_passport = passport_document()
+    other_passport["result"]["mrz"]["passport_number"] = "P7654321"
     second = post(
         api,
         submission(
             key="whatsapp/111/919000000001",
             phone="+919000000001",
             phone_e164="+919000000001",
-            identity={"passport": [passport_document()]},
+            identity={"passport": [other_passport]},
         ),
     )
 
