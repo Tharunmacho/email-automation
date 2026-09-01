@@ -346,3 +346,66 @@ def test_an_indian_cv_is_not_stopped_on_its_way_to_the_parsers(no_uploads, monke
         parser.parse_file(text_pdf(INDIAN_CV_SILENT), "cv.pdf")
 
     assert reached == ["cv.pdf"]
+
+
+# --------------------------------------------------------------------------- #
+#  What a PDF text layer does to a stated nationality
+# --------------------------------------------------------------------------- #
+# Verbatim from the two-column CV that was ingested despite saying "Pakistani".
+# The label, the colon and the value each land on their own line.
+SPLIT_LABEL_CV = (
+    "Experienced as a Spray painter with 8 years in the industry.\n\n"
+    "CONTACT\n\n"
+    "Father Name  : \nLaiq Shah \nNationality \n: \nPakistani \n"
+    "Gender \n : \nMale \nQ I D \n: \n30058612071 \n"
+    "Contact \n : \n +974 74045265 \nDate of Birth \n: \n02-01-2000 \n"
+)
+
+
+def test_a_nationality_split_across_lines_is_still_stated():
+    """The bug that let a Pakistani CV through.
+
+    Every rule expects `Nationality : Pakistani`. A two-column PDF's text layer
+    gives `Nationality \n : \n Pakistani`, so the stated-nationality rule
+    matched nothing and the verdict came back UNDETERMINED at 0.00 — which the
+    résumé policy admits by default. The same detector on the same résumé,
+    de-columnised, said FOREIGN at 0.92.
+    """
+    verdict = rn.detect_resume_nationality(SPLIT_LABEL_CV)
+    accept, reason = rn.should_ingest(verdict)
+
+    assert verdict.verdict == rn.FOREIGN, verdict.describe()
+    assert accept is False, reason
+    assert "Pakistan" in reason
+
+
+def test_the_gender_male_is_not_the_capital_of_the_maldives():
+    """`\bmal[eé]\b` matched "Gender : Male" on every CV that states one.
+
+    On the Pakistani CV above that invented a second country, and the two
+    competing signals were what pushed a clear FOREIGN down to UNDETERMINED.
+    """
+    verdict = rn.detect_resume_nationality(SPLIT_LABEL_CV)
+
+    assert "Maldives" not in verdict.describe()
+    assert not any("maldiv" in e.lower() or "male" in e.lower() for e in verdict.evidence), (
+        verdict.evidence
+    )
+
+
+def test_a_maldivian_cv_is_still_recognised():
+    """The token was narrowed, not deleted."""
+    verdict = rn.detect_resume_nationality("Nationality : Maldivian\nBorn in Maldives\n")
+
+    assert verdict.verdict == rn.FOREIGN
+    assert "Maldives" in verdict.describe()
+
+
+def test_an_ordinary_indian_cv_is_untouched_by_the_line_joining():
+    verdict = rn.detect_resume_nationality(
+        "Nationality \n: \nIndian \nGender \n : \nMale \nPlace of Birth \n: \nChennai \n"
+    )
+    accept, _ = rn.should_ingest(verdict)
+
+    assert accept is True
+    assert verdict.verdict == rn.INDIAN

@@ -413,6 +413,32 @@ def _resolve_stated(rest: str) -> Optional[Tuple[str, str]]:
     return OTHER_CODE, value
 
 
+#: A field label, its colon and its value, split across lines by the PDF's own
+#: text layer. Two-column CVs produce this constantly — the label and the value
+#: sit in different boxes, and the extracted order is
+#: "Nationality \n : \n Pakistani".
+_SPLIT_LABEL = re.compile(r"[ \t]*\n[ \t]*:[ \t]*\n?[ \t]*")
+
+
+def _joined_labels(text: str) -> str:
+    """Put "Label \\n : \\n Value" back on one line before anything reads it.
+
+    Every pattern below expects a stated field to look like `Nationality :
+    Pakistani`. In a PDF text layer it frequently does not: the label, the colon
+    and the value come out on three separate lines, and the whole
+    stated-nationality rule then matches nothing at all.
+
+    A real Pakistani CV was accepted because of exactly this. The same detector
+    reading the same résumé returned FOREIGN at 0.92 once the text had been
+    de-columnised, and UNDETERMINED at 0.00 straight off the text layer. The
+    difference was three newlines.
+
+    Only newlines that sit immediately around a colon are closed up, so line
+    structure the other rules rely on is left alone.
+    """
+    return _SPLIT_LABEL.sub(" : ", text)
+
+
 def _stated_nationality(text: str, scores: Dict[str, float], evidence: List[str]) -> None:
     """A nationality the CV states outright."""
     for match in _STATED_RE.finditer(text):
@@ -523,7 +549,7 @@ def detect_resume_nationality(
     different answer from FOREIGN and is treated differently downstream.
     """
     result = ResumeNationality()
-    text = text or ""
+    text = _joined_labels(text or "")
     if not text.strip() and not passport_verdicts:
         return result
 

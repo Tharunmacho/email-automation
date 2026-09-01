@@ -207,7 +207,13 @@ _COUNTRY_MARKERS: Dict[str, Dict[str, object]] = {
     "MDV": {
         "name": "Maldives",
         "strong": (r"republic\s+of\s+maldives",),
-        "weak": (r"\bmaldiv(?:es|ian)\b", r"\bmal[eé]\b"),
+        # `male` unaccented is deliberately not here. Every CV carrying
+        # "Gender : Male" scored a Maldives signal off the word, and on a
+        # Pakistani CV that invented country competed with the real one until
+        # the verdict came out UNDETERMINED — which the résumé policy admits by
+        # default. The capital is written "Malé" when it is meant, and
+        # "Maldives"/"Maldivian" carry the rest.
+        "weak": (r"\bmaldiv(?:es|ian)\b", r"\bmalé\b"),
     },
     "AFG": {
         "name": "Afghanistan",

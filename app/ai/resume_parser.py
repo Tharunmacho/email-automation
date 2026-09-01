@@ -840,8 +840,17 @@ _SECTION_ALIASES = {
     "hobbies": ["hobbies", "interests", "hobbies and interests"],
     "personal": ["personal information", "personal details", "personal profile",
                  "personal data", "about me"],
+    # "profile" and its variants matter as much as "objective" here. A CV
+    # headed `PROFILE / Experienced as a Spray painter with 8 years...` stored
+    # no summary at all, because the only headings recognised were "objective"
+    # and "summary" — so the one paragraph describing the candidate was thrown
+    # away while the education and skills beneath it were kept. "Personal
+    # profile" is deliberately left under `personal`, where it names a block of
+    # fields rather than a paragraph.
     "objective": ["objective", "career objective", "summary", "profile summary",
-                  "professional summary"],
+                  "professional summary", "profile", "professional profile",
+                  "career profile", "career summary", "summary of qualifications",
+                  "overview", "synopsis"],
     "skills": ["skills", "key skills", "core competencies", "competencies",
                "areas of expertise", "strengths", "technical skills", "skill set"],
     "projects": ["projects", "projects & hands-on experience", "projects and hands-on experience",
