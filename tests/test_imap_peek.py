@@ -124,8 +124,12 @@ def test_the_newest_mail_is_returned_first():
     rather than in front of it.
     """
     stub = _SearchingIMAP(b"1 2 3 10 11")
+    client = _client_with(stub)
+    me = client.account_id
 
-    assert _client_with(stub).search_message_ids() == ["11", "10", "3", "2", "1"]
+    assert client.search_message_ids() == [
+        f"{me}:11", f"{me}:10", f"{me}:3", f"{me}:2", f"{me}:1",
+    ]
 
 
 def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
@@ -135,8 +139,12 @@ def test_nothing_is_capped_away_unless_a_cap_is_asked_for():
     stub = _SearchingIMAP(b" ".join(str(n).encode() for n in range(1, 200)))
     client = _client_with(stub)
 
+    me = client.account_id
+
     assert len(client.search_message_ids()) == 199
-    assert client.search_message_ids(max_results=5) == ["199", "198", "197", "196", "195"]
+    assert client.search_message_ids(max_results=5) == [
+        f"{me}:199", f"{me}:198", f"{me}:197", f"{me}:196", f"{me}:195",
+    ]
 
 
 # --------------------------------------------------------------------------- #

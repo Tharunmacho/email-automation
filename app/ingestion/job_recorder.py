@@ -57,10 +57,24 @@ class IngestionStateRecorder:
 
     @property
     def account_id(self) -> str:
+        """Which mailbox this attachment's message came from.
+
+        Read off the message id first, because that is the only source that is
+        right per *message*. `mailbox_account_id()` answers from global
+        settings, so with two mailboxes polled by one process it returned the
+        same account for both — and the ingestion row's natural key, whose
+        whole job is to stop two mailboxes colliding on a message id, was
+        being stamped with the wrong half of the pair. A Gmail UID landed on a
+        row labelled `cv@adiragroups.com`.
+
+        The fallback remains for ids written before they carried an account,
+        and for the single-mailbox deployments where it is simply true.
+        """
         if not self._account_id:
+            from app.core.message_ids import account_of
             from app.ingestion.multipass import mailbox_account_id
 
-            self._account_id = mailbox_account_id()
+            self._account_id = account_of(self.message_id) or mailbox_account_id()
         return self._account_id
 
     @property

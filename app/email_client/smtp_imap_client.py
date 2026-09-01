@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional
 
 from app.config import settings
+from app.core import message_ids
 from app.core.models import Attachment, EmailMessage
 from app.email_client import imap_folders
 from app.extraction.file_type import ext_for_mime, is_document_mime
@@ -171,6 +172,61 @@ class SMTPIMAPClient:
         # In-memory cache for fetched messages during batch run to avoid re-fetching
         self._fetched_bytes_cache: dict[str, bytes] = _BoundedBytesCache()
 
+    # ---- message identity -------------------------------------------------- #
+    # A UID is only a message *within this account*: every mailbox numbers its
+    # own from 1, so two polled accounts hand out the same ids for unrelated
+    # mail. Everything downstream — the ledger, the deletion tombstones, the
+    # per-message claim — treats the id as global, so the account is attached
+    # here, at the one boundary that knows which account this is, and stripped
+    # again before anything is said to the server.
+    #
+    # Doing it here rather than at the call sites is the whole point: a caller
+    # cannot forget, because there is no unqualified id to forget to qualify.
+
+    @property
+    def account_id(self) -> str:
+        """This mailbox, as it appears in every id this client hands out."""
+        return self.imap_username or self.smtp_username or ""
+
+    def _uid(self, message_id: str) -> str:
+        """The bare UID to send to the server, checked against this account.
+
+        A qualified id belonging to somebody else is a bug in the caller — the
+        runner pairing a message with the wrong client — and stripping it
+        silently would act on whichever unrelated message happens to hold that
+        number here. That is precisely the failure this qualification exists to
+        end, so it is raised rather than absorbed.
+
+        An unqualified id is accepted as-is: rows and queued tasks written
+        before ids carried an account still name a real UID on this server.
+        """
+        owner = message_ids.account_of(message_id)
+        if owner and owner != self.account_id:
+            raise ValueError(
+                f"Message {message_id!r} belongs to {owner!r}, not to "
+                f"{self.account_id!r}; refusing to act on a UID of that number here."
+            )
+        return message_ids.local_id_of(message_id)
+
+    def _uid_hint(self, message_id: str) -> str:
+        """The UID for the label operations, which try every account on purpose.
+
+        The same résumé is normally delivered to every configured mailbox and
+        ingested from one, so filing a delete asks each account in turn and
+        "not mine" is an ordinary answer, not an error. A foreign id therefore
+        yields no hint rather than raising.
+
+        Yielding *nothing* is the point. `find_message` will, as a last resort
+        with no Message-ID to go on, accept a bare UID hint found in INBOX with
+        nothing to verify it against — so an unqualified id from another
+        account could file whichever unrelated message happened to hold that
+        number here. Withholding the hint is what makes that unreachable.
+        """
+        owner = message_ids.account_of(message_id)
+        if owner and owner != self.account_id:
+            return ""
+        return message_ids.local_id_of(message_id)
+
     def _connect_imap(self) -> imaplib.IMAP4:
         if self.imap_use_ssl:
             client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
@@ -301,7 +357,15 @@ class SMTPIMAPClient:
                 # end of the window drains behind the new mail rather than in
                 # front of it.
                 raw_uids = data[0].split()
-                uids = [u.decode("utf-8") for u in reversed(raw_uids)]
+                # Qualified with this account. They really are "just numbers"
+                # on the wire, and that was the problem: the caller pools ids
+                # from every mailbox into one list and hands them to a ledger
+                # that assumed they were unique. They are unique per account,
+                # so the account travels with them from here on.
+                uids = [
+                    message_ids.qualify(self.account_id, u.decode("utf-8"))
+                    for u in reversed(raw_uids)
+                ]
                 # No cap unless one is asked for. These are just numbers; the
                 # caller is what decides how many to *work*, after it has
                 # dropped the ones it has already judged.
@@ -312,6 +376,7 @@ class SMTPIMAPClient:
 
     # ---- fetching --------------------------------------------------------- #
     def get_message(self, message_id: str) -> EmailMessage:
+        uid = self._uid(message_id)
         raw_bytes = self._fetched_bytes_cache.get(message_id)
         if not raw_bytes:
             with self._imap() as mail:
@@ -323,7 +388,7 @@ class SMTPIMAPClient:
                 # one that failed mid-parse, could never be reconsidered. Marking
                 # a message read is a decision the runner makes after a
                 # successful ingest, not something reading it does by accident.
-                status, data = mail.uid("fetch", message_id, "(BODY.PEEK[])")
+                status, data = mail.uid("fetch", uid, "(BODY.PEEK[])")
                 if status != "OK" or not data or not data[0] or not isinstance(data[0], tuple):
                     raise RuntimeError(f"Could not fetch message body for UID {message_id}")
                 raw_bytes = data[0][1]
@@ -338,7 +403,12 @@ class SMTPIMAPClient:
         date_str = _decode_header_str(msg.get("Date", ""))
         header_msg_id = _decode_header_str(msg.get("Message-ID", message_id))
 
-        body_text, attachments = self._parse_mime_parts(message_id, msg)
+        # Attachment handles are built from the bare UID, not the qualified id.
+        # They are only ever meaningful inside one message, and the message is
+        # already qualified everywhere they are used as part of a key — so
+        # repeating the account in them would only lengthen the OCR idempotency
+        # keys it appears in.
+        body_text, attachments = self._parse_mime_parts(uid, msg)
         snippet = body_text[:200].replace("\n", " ").strip() if body_text else ""
 
         return EmailMessage(
@@ -470,9 +540,10 @@ class SMTPIMAPClient:
 
     def mark_read(self, message_id: str) -> None:
         try:
+            uid = self._uid(message_id)
             with self._imap() as mail:
                 mail.select(self.imap_folder)
-                mail.uid("store", message_id, "+FLAGS", "(\\Seen)")
+                mail.uid("store", uid, "+FLAGS", "(\\Seen)")
         except Exception as exc:
             log.warning("IMAP mark_read failed for UID %s: %s", message_id, exc)
 
@@ -536,7 +607,7 @@ class SMTPIMAPClient:
                 located = imap_folders.find_message(
                     mail, index,
                     rfc_message_id=rfc_message_id,
-                    uid_hint=message_id,
+                    uid_hint=self._uid_hint(message_id),
                     prefer=self._label_folders(mail, index),
                     subject=subject,
                     from_addr=from_addr,
@@ -613,7 +684,7 @@ class SMTPIMAPClient:
                 located = imap_folders.find_message(
                     mail, index,
                     rfc_message_id=rfc_message_id,
-                    uid_hint=message_id,
+                    uid_hint=self._uid_hint(message_id),
                     prefer=options,
                     subject=subject,
                     from_addr=from_addr,
@@ -679,8 +750,13 @@ class SMTPIMAPClient:
 
         # `get_message` does the parsing; seeding its cache under this UID is
         # what lets it run without going back to the server.
-        self._fetched_bytes_cache[uid] = raw
+        # Qualified, because the message it hands back is the same kind of
+        # object a poll produces and its id has to mean the same thing — this
+        # UID is one from whatever folder the message was found in, so it is
+        # doubly meaningless without the account attached.
+        qualified = message_ids.qualify(self.account_id, uid)
+        self._fetched_bytes_cache[qualified] = raw
         try:
-            return self.get_message(uid)
+            return self.get_message(qualified)
         finally:
-            self._fetched_bytes_cache.pop(uid, None)
+            self._fetched_bytes_cache.pop(qualified, None)
