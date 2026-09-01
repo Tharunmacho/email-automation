@@ -932,7 +932,9 @@ export default function Home() {
       await evaluateCandidate(candidateId, {
         status: verdict.status,
         score: verdict.score,
-        notes: verdict.notes,
+        // The API keeps the established `notes` key for compatibility; in the
+        // reviewer-facing language this is the candidate's staff remarks.
+        notes: verdict.remarks,
       });
       appendCandidateLog(
         candidateId,

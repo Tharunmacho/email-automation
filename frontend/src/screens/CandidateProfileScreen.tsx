@@ -186,7 +186,8 @@ function ScanDownload({
 export interface Verdict {
   status: EvaluationStatus;
   score: number | null;
-  notes: string | null;
+  /** Staff-authored remarks stored with the candidate's evaluation. */
+  remarks: string | null;
 }
 
 /**
@@ -545,7 +546,7 @@ export default function CandidateProfileScreen({
       ? candidate.evaluation_status
       : "shortlisted",
   );
-  const [notes, setNotes] = useState(candidate.evaluation_notes ?? "");
+  const [remarks, setRemarks] = useState(candidate.evaluation_notes ?? "");
 
   const profile = candidate.profile ?? {};
   const view = useMemo(() => toEditableState(candidate.profile ?? {}, candidate), [candidate]);
@@ -767,7 +768,7 @@ export default function CandidateProfileScreen({
 
   const submit = (advance: boolean) =>
     evaluation?.onSave(
-      { status, score: score > 0 ? score : null, notes: notes.trim() || null },
+      { status, score: score > 0 ? score : null, remarks: remarks.trim() || null },
       advance,
     );
 
@@ -1157,7 +1158,7 @@ export default function CandidateProfileScreen({
               ) : null}
               {candidate.evaluation_notes ? (
                 <React.Fragment>
-                  <div className="cprof-fact-label">Evaluation Notes</div>
+                  <div className="cprof-fact-label">Staff Remarks</div>
                   <div className="cprof-fact-value is-multiline">{candidate.evaluation_notes}</div>
                 </React.Fragment>
               ) : null}
@@ -1390,7 +1391,7 @@ export default function CandidateProfileScreen({
             <div className="cprof-verdict-inner">
               <h3 className="cprof-card-title">Your verdict</h3>
               <p className="cprof-verdict-sub">
-                Rate the fit, record the outcome, and say what you would ask them.
+                Rate the fit, record the outcome, and add your remarks about the candidate.
               </p>
 
               <div className="eval-stars">
@@ -1428,13 +1429,13 @@ export default function CandidateProfileScreen({
               </div>
 
               <div className="eval-field">
-                <label htmlFor="cprof-eval-notes">Notes</label>
+                <label htmlFor="cprof-eval-remarks">Staff remarks</label>
                 <textarea
-                  id="cprof-eval-notes"
+                  id="cprof-eval-remarks"
                   rows={5}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="What stood out, and what would you ask them."
+                  value={remarks}
+                  onChange={(event) => setRemarks(event.target.value)}
+                  placeholder="Add strengths, concerns, follow-up questions, or other remarks."
                 />
               </div>
 
