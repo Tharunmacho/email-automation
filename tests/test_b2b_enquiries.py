@@ -131,19 +131,35 @@ def client(enquiries, sourcing):
     """
     fake_db = {"b2b_enquiries": enquiries, "sourcing_clients": sourcing, "job_orders": FakeCollection()}
 
-    admin = {"sub": "admin-1", "email": "admin@agency.test", "role": "admin"}
+    admin = {
+        "id": "admin-1",
+        "sub": "admin-1",
+        "email": "admin@agency.test",
+        "name": "admin",
+        "role": "admin",
+        "pages": ["b2b-enquiries"],
+    }
 
     with patch("app.api.routes.ensure_indexes"), \
          patch("app.config.settings.whatsapp_service_key", SERVICE_KEY), \
          patch("app.db.b2b_enquiries.get_db", return_value=fake_db), \
          patch("app.db.mongo.get_db", return_value=fake_db):
-        # `require_admin` resolves a session into a user dict. Overridden rather
+        # `current_user` resolves a session into a user dict. Overridden rather
         # than issued a real token: what these tests are about is what the
         # endpoints do once someone is through the door, and minting a JWT to
         # get there would test `create_token` a fourteenth time.
-        from app.api.routes import require_admin
+        #
+        # It has to be `current_user` and not `require_admin`, which these
+        # endpoints stopped using when they moved behind
+        # `require_page("b2b-enquiries")`. `require_page` is a factory, so every
+        # `Depends(require_page(...))` holds a *different* closure and none of
+        # them is a key anything can override — but they all resolve through
+        # `current_user`, which is the one seam that works for all of them.
+        # Overriding the old dependency simply stopped having any effect, and
+        # the endpoints answered 401 to a suite that believed it was signed in.
+        from app.api.routes import current_user
 
-        fastapi_app.dependency_overrides[require_admin] = lambda: admin
+        fastapi_app.dependency_overrides[current_user] = lambda: admin
         c = TestClient(fastapi_app)
         c.enquiries = enquiries
         c.sourcing = sourcing
@@ -206,11 +222,18 @@ def test_service_key_does_not_open_the_recruiter_endpoints(client):
     what they are hiring for. The bot has no use for that, and a key that opened
     it would make one stolen secret a competitor's client list.
     """
-    from app.api.routes import require_admin
+    from app.api.routes import current_user
 
     # The admin override is what the other tests ride in on. Lifted here so the
     # real dependency runs and the service key is judged on its own merits.
-    fastapi_app.dependency_overrides.pop(require_admin, None)
+    #
+    # It must name the same dependency the fixture overrode. While this popped
+    # `require_admin` — a key nothing had been registered under since these
+    # endpoints moved to `require_page` — the lift was a no-op, and the 401 this
+    # asserts came from the *fixture* failing to sign anybody in rather than
+    # from the service key being turned away. The security claim was true; this
+    # test was not the reason to believe it.
+    fastapi_app.dependency_overrides.pop(current_user, None)
     response = client.get("/b2b-enquiries", headers={"X-Service-Key": SERVICE_KEY})
     assert response.status_code in (401, 403)
 

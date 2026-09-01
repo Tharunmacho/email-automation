@@ -318,6 +318,7 @@ function DocumentCard({
   action,
   source,
   readAt,
+  warnings,
   children,
 }: {
   title: string;
@@ -327,6 +328,14 @@ function DocumentCard({
   action?: React.ReactNode;
   source?: { filename?: string; pages?: number[] };
   readAt?: string;
+  /** Things that want a human: a field that could not be read, a check that
+      did not pass. Always visible — this is the half worth interrupting for.
+      Its counterpart, the OCR's recovery log, is deliberately *not* drawn
+      here: every line of it describes the document being read successfully,
+      which is our plumbing rather than anything a recruiter acts on. It is
+      still stored and still returned as `extraction_notes`, so a misread digit
+      can be traced without putting six lines of housekeeping on the screen. */
+  warnings?: string[];
   children: React.ReactNode;
 }) {
   const pages = source?.pages ?? [];
@@ -350,6 +359,16 @@ function DocumentCard({
       </div>
 
       <div className="cprof-facts">{children}</div>
+
+      {(warnings?.length ?? 0) > 0 && (
+        <ul className="cprof-doc-warnings">
+          {warnings!.map((warning, index) => (
+            <li key={index}>
+              <AlertTriangle size={13} aria-hidden="true" /> {warning}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {provenance && <p className="cprof-doc-source">{provenance}</p>}
     </article>
@@ -573,8 +592,15 @@ export default function CandidateProfileScreen({
   const additionalEntries = useMemo(
     () =>
       flattenExtras((profile.additional_info ?? {}) as Record<string, unknown>, [
+        // Skipped because they have dedicated rows of their own above.
         "industry",
         "highest_qualification",
+        // Skipped for a different reason: which service read the file is our
+        // plumbing, and this is the row that put "Extraction source: Veris ocr
+        // api" on a recruiter's screen among the candidate's own details. It
+        // is still stored — the upload gate refuses anything Veris did not
+        // structure, and it reads this field to know.
+        "extraction_source",
       ]),
     [profile.additional_info],
   );
@@ -877,7 +903,12 @@ export default function CandidateProfileScreen({
             <Fact label="Total experience" value={view.experience ? `${view.experience} year(s)` : ""} />
             <Fact label="Languages" value={view.languages} />
             <Fact label="Email" value={view.email} />
-            <Fact label="Received at (To email)" value={candidate.source_email?.to_addr} />
+            {/* "Received at (To email)" used to sit here, showing which of our
+                own inboxes the CV landed in. That is our plumbing, not a fact
+                about the candidate, and it read as one more contact address on
+                a card that is otherwise all of theirs. It is still on the
+                record — `source_email.to_addr` — for anyone tracing where a
+                résumé came in. */}
             <Fact label="Phone" value={view.phone} />
             <Fact label="LinkedIn" value={view.linkedin} />
             <Fact label="GitHub" value={view.github} />
@@ -976,6 +1007,7 @@ export default function CandidateProfileScreen({
                       }
                       source={passport.source}
                       readAt={passport.updated_at}
+                      warnings={passport.warnings}
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
                       <Fact label="Surname" value={passport.surname} />
@@ -1054,6 +1086,7 @@ export default function CandidateProfileScreen({
                   }
                   source={aadhaar.source}
                   readAt={aadhaar.updated_at}
+                  warnings={aadhaar.warnings}
                 >
                   <Fact label="Name" value={aadhaar.name} />
                   {/* The full number reaches the browser for administrators

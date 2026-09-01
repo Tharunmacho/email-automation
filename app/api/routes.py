@@ -207,9 +207,10 @@ async def _startup() -> None:
         asyncio.create_task(autopoll.run_forever())
 
     try:
-        from app.tasks.locks import get_redis
+        from app.tasks.locks import INLINE_POLL_LOCK, get_redis
         client = get_redis()
         client.ping()
+        client.delete(f"lock:{INLINE_POLL_LOCK}")
         logger.info("Redis connected successfully (%s)", settings.redis_url)
     except Exception as err:
         logger.info("Redis status: local direct execution mode active (Redis lock fallback: %s)", err)
@@ -1094,6 +1095,7 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
     is a different question with a different answer.
     """
     from app.db.identity_records import find_for_candidate
+    from app.extraction import ocr_notes
     from app.services import identity_files
 
     # 404s a record that belongs to another staff member, exactly as the
@@ -1123,6 +1125,18 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
         doc = dict(doc)
         # The raw OCR payload carries the unmasked number in a dozen places.
         doc.pop("raw", None)
+
+        # Records written before the split have one mixed `warnings` array and
+        # no `extraction_notes` at all, so the screen would show a clean scan's
+        # six recovery messages — a page straightened, an MRZ found — in warning
+        # ink. Split on the way out rather than migrating: the rule is one
+        # function either way, it costs a pass over a handful of strings, and a
+        # backfill would have to be re-run for every record the service wrote
+        # while it was in flight.
+        if "extraction_notes" not in doc:
+            notes, warnings = ocr_notes.split_service_messages(doc.get("warnings"))
+            doc["extraction_notes"] = notes
+            doc["warnings"] = warnings
         if not is_admin:
             doc.pop("aadhaar_number", None)
             doc.pop("vid", None)
@@ -1201,6 +1215,19 @@ def download_identity_document(
 
     try:
         found = identity_files.load(record, doc)
+    except identity_files.IdentityFileUnavailable as exc:
+        # 503, not 404. The scan is on file; storage would not answer just now.
+        # Reporting that as "not found" told a recruiter the document did not
+        # exist because Mongo timed out — and the retry that works leaves no
+        # trace that the first answer was wrong.
+        log.warning(
+            "Identity file for candidate %s (%s %s) is temporarily unreadable: %s",
+            candidate_id, document_type, record_id, exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"The {document_type} scan could not be read just now — {exc}. Try again.",
+        )
     except identity_files.IdentityFileMissing as exc:
         raise HTTPException(
             status_code=404, detail=f"The {document_type} scan could not be served — {exc}"

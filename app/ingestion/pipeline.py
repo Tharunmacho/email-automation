@@ -19,6 +19,7 @@ from typing import List, Optional
 from app.ai.resume_parser import ResumeParser
 from app.core.exceptions import (
     AIParseError,
+    ForeignNationalityError,
     NotAResumeError,
     PipelineError,
     TextExtractionError,
@@ -36,14 +37,14 @@ from app.core.models import (
 from app.ai.reply_generator import generate_contextual_reply
 from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
-from app.db.ledger import IngestLedger
+from app.db.ledger import NOT_A_RESUME_SENTINEL, IngestLedger
 from app.db.repository import CandidateRepository
 from app.extraction.jobs import JobContext, use_job_context
 from app.ingestion.detector import detect
 from app.ingestion.job_recorder import IngestionStateRecorder
 from app.logging_config import get_logger
 from app.assignment import assign_candidate
-from app.notifications import notify_candidate_assigned
+from app.notifications import notify_candidate_assigned, notify_candidate_rejected
 from app.storage.base import StorageBackend
 from app.storage.factory import get_storage_backend
 from app.extraction.text_extractor import extract_text
@@ -57,7 +58,8 @@ _MIN_CONFIDENCE = 0.55
 @dataclass
 class AttachmentResult:
     filename: str
-    status: str                       # ingested | duplicate | suppressed | not_resume | error
+    status: str                       # ingested | duplicate | suppressed | not_resume
+                                      # | rejected_nationality | error
     candidate_id: Optional[str] = None
     detail: str = ""
     reply_sent: bool = False
@@ -65,6 +67,14 @@ class AttachmentResult:
     # "aadhaar p54=succeeded; passport p55=pending". Never affects `status`:
     # an unreadable passport does not make an ingested resume a failure.
     identity: str = ""
+
+
+# The policy itself lives with the detector that decides it, so the parser can
+# reach it without importing the pipeline. Re-exported under the old name
+# because this is where the pipeline enforces it.
+from app.extraction.resume_nationality import (  # noqa: E402
+    refuse_foreign_candidate as _refuse_foreign_candidate,
+)
 
 
 @dataclass
@@ -109,14 +119,46 @@ class IngestionPipeline:
         # candidate record: deleting a candidate used to erase the only proof
         # that this message had been handled, so the next poll re-ingested it.
         if self.ledger.message_seen(email.message_id):
+            # Said out loud, because this skip can outlive the record it is
+            # protecting. The ledger deliberately survives a deleted candidate,
+            # so a migration that moves the candidates and leaves the ledger
+            # behind produces a message that is skipped for ever with nothing
+            # in the CRM to show for it. Silent, that reads as "the poll found
+            # nothing"; named, it points at `scripts/clean_ledger_and_verify.py`.
+            log.info(
+                "Message %s skipped: the ledger already records it as handled. "
+                "If no candidate exists for it, the ledger entry is orphaned.",
+                email.message_id,
+            )
             return ProcessResult(email.message_id, "skipped", "already processed (ledger)")
 
         existing = self.repo.find_by_message_id(email.message_id)
         if existing:
+            log.info(
+                "Message %s skipped: candidate %s was already created from it",
+                email.message_id, existing.id,
+            )
             return ProcessResult(email.message_id, "skipped", "already processed")
 
         detection = detect(email)
         if not detection.is_candidate:
+            # Written down so the answer is reached once. Nothing labels a
+            # non-résumé email — it is somebody's ordinary mail and we leave it
+            # where it is — so it stays in the inbox and comes back in every
+            # future search. Without a row here the poll re-downloads and
+            # re-detects the whole accumulated inbox on every pass, which is
+            # what stops the ingestion scaling with the mailbox.
+            #
+            # Keyed by a sentinel rather than a file hash: there is no file, and
+            # the row must never match one that arrives later on a real CV.
+            try:
+                self.ledger.record(
+                    email.message_id, NOT_A_RESUME_SENTINEL, None,
+                    "not_a_resume", detection.reason,
+                )
+            except Exception as err:  # noqa: BLE001 — bookkeeping must not fail a poll
+                log.warning("Could not record the non-résumé verdict for %s: %s",
+                            email.message_id, err)
             return ProcessResult(email.message_id, "skipped", f"not a resume email: {detection.reason}")
 
         results: List[AttachmentResult] = []
@@ -199,11 +241,22 @@ class IngestionPipeline:
                             f"Attachment '{att.filename}' is not a resume: "
                             f"{extracted.classification_reason}"
                         )
+                    # Before the AI structuring below, not after it: a candidate
+                    # this desk cannot place should cost neither the résumé
+                    # endpoint (already declined inside the extractor) nor a
+                    # model call here.
+                    _refuse_foreign_candidate(att.filename, extracted)
                     # (3) AI structuring — résumé pages only, so a 30-page
                     #     bundle costs the two pages that hold the CV, not all
                     #     thirty.
                     hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                     profile = self.parser.parse(extracted.resume_text, hint=hint)
+
+            # The parser-supplied branch above extracts and structures in one
+            # call, so its refusal lands here. Re-asking a decision already made
+            # and carried on `extracted` — never recomputed, so the answer
+            # cannot drift between the two places it is enforced.
+            _refuse_foreign_candidate(att.filename, extracted)
 
             if not profile.is_resume:
                 reason = (profile.additional_info or {}).get("rejection_reason") \
@@ -320,6 +373,16 @@ class IngestionPipeline:
                 identity=identity,
             )
 
+        except ForeignNationalityError as exc:
+            # A permanent, deliberate refusal — the document read perfectly well
+            # and belongs to somebody this desk does not recruit. Nothing was
+            # uploaded and nothing is stored; the mail is still labelled by the
+            # caller so it is not fetched again on every poll for ever.
+            log.info("Rejected on nationality: %s", exc)
+            self._announce_rejection(email, att, exc)
+            return AttachmentResult(
+                att.filename, "rejected_nationality", detail=str(exc),
+            )
         except (NotAResumeError,) as exc:
             log.info("Skipping attachment: %s", exc)
             return AttachmentResult(att.filename, "not_resume", detail=str(exc))
@@ -415,6 +478,25 @@ class IngestionPipeline:
         except Exception as exc:  # noqa: BLE001
             log.warning("Auto-allocation step failed for candidate %s: %s", candidate_id, exc)
         return False
+
+    def _announce_rejection(self, email, att, exc: ForeignNationalityError) -> None:
+        """Tell the admins a CV arrived and was turned away.
+
+        The only trace this refusal leaves where anybody looks: there is no
+        candidate row to find, by design. Best-effort like every other
+        announcement here — a missed notification must not turn a deliberate
+        refusal into a failed batch.
+        """
+        verdict = exc.verdict if isinstance(exc.verdict, dict) else {}
+        try:
+            notify_candidate_rejected(
+                reason=str(exc),
+                filename=att.filename,
+                from_addr=getattr(email, "from_addr", "") or "",
+                country=str(verdict.get("country") or ""),
+            )
+        except Exception as note_exc:  # noqa: BLE001
+            log.debug("Could not announce the rejection of %s: %s", att.filename, note_exc)
 
     def _announce(self, candidate_id: str, profile: CandidateProfile) -> None:
         """Tell the open dashboards that a candidate just landed.

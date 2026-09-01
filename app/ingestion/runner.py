@@ -9,7 +9,7 @@ from __future__ import annotations
 import concurrent.futures
 import time
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, List, Sequence
 
 from app.config import settings
 from app.email_client import get_email_client, GmailClient
@@ -38,7 +38,13 @@ def _identity_kwargs(email: Any) -> dict:
     return found
 
 
-def mark_message_done(gmail, message_id: str, status: str, email: Any = None) -> None:
+def mark_message_done(
+    gmail,
+    message_id: str,
+    status: str,
+    email: Any = None,
+    attachments: Sequence[Any] = (),
+) -> None:
     """Gmail-side bookkeeping for a message the pipeline has finished with.
 
     Only messages that were actually processed as candidate resumes are marked
@@ -48,10 +54,23 @@ def mark_message_done(gmail, message_id: str, status: str, email: Any = None) ->
     is never stamped "processed", which is how a retired email ended up carrying
     both labels at once.
 
+    ``attachments`` is what separates the two kinds of *skip*. A message the
+    detector never accepted has none, and is somebody's ordinary mail that we
+    leave alone. A message that produced attachment verdicts and still skipped
+    is one the pipeline is permanently finished with — every résumé on it was
+    refused on nationality, was not a résumé, or was already ingested — because
+    a single retryable failure would have made the whole message an `error`
+    instead. Those have to be labelled: without it the poll re-fetched a
+    nationality-rejected CV every time and paid for a full local OCR and a
+    Veris parse to reach the same refusal, for ever.
+
     Shared by the batch runner and the per-message Celery task, so the two paths
     cannot drift into labelling the same outcome differently.
     """
     where = _identity_kwargs(email)
+
+    if status == "skipped" and attachments:
+        status = "processed"
 
     if status == "suppressed":
         # Apply before remove, always. On a folder-based account applying the
@@ -111,7 +130,28 @@ class BatchSummary:
     suppressed: int = 0
     errors: int = 0
     ingested_candidates: int = 0
+    #: Still queued behind this batch. Non-zero means the inbox is draining
+    #: rather than drained, and the next poll continues where this one stopped.
+    backlog: int = 0
     results: List[ProcessResult] = field(default_factory=list)
+
+
+def _account_label(client: Any) -> str:
+    """The mailbox a client speaks for, for the log line that counts them.
+
+    Best effort: an IMAP client knows its own username and anything else is
+    named by its type. The bare count was not enough to debug with — "1
+    account(s)" reads the same whether that one is the mailbox you meant or the
+    `.env` fallback quietly standing in for the two you configured.
+
+    The type check is not defensive padding. `getattr` on a client that
+    synthesises attributes — a Mock in the tests, a proxy in principle — hands
+    back an object rather than a name, and joining that raised a `TypeError`
+    from inside the log call, taking the whole batch down. A line that only
+    describes the work must never be able to stop it.
+    """
+    label = getattr(client, "imap_username", None)
+    return label if isinstance(label, str) and label else type(client).__name__
 
 
 class IngestionRunner:
@@ -155,8 +195,53 @@ class IngestionRunner:
                 for fut in concurrent.futures.as_completed(futures):
                     client_messages.extend(fut.result())
                 
+        # Drop what the ledger has already judged, *before* paying to download
+        # it. The folder search now returns everything still sitting in the
+        # inbox — which is right, because a message read by a human is still
+        # work — but that includes every non-résumé email anyone has ever been
+        # sent. Those are decided once and skipped from then on; without this
+        # they would be re-downloaded and re-detected on every poll for ever.
+        #
+        # `process_email` makes the same check again on the message it is
+        # handed. That is not redundant: this one is an optimisation over a
+        # list of ids, and the one inside is the guarantee.
+        waiting = len(client_messages)
+        ledger = getattr(self.pipeline, "ledger", None)
+        if ledger is not None:
+            try:
+                client_messages = [
+                    (client, mid)
+                    for client, mid in client_messages
+                    if not ledger.message_seen(mid)
+                ]
+            except Exception as err:  # noqa: BLE001 — a slow ledger must not stop a poll
+                log.warning(
+                    "Could not pre-filter against the ledger (%s); fetching all %d",
+                    err, waiting,
+                )
+
+        settled = waiting - len(client_messages)
+
+        # Bound the batch, not the queue. Everything left is real work, and what
+        # does not fit is picked up by the next poll in the same order — so a
+        # thousand-message backlog drains steadily instead of being truncated
+        # to the newest few and losing the rest.
+        batch_limit = max(1, int(settings.gmail_max_results))
+        backlog = max(0, len(client_messages) - batch_limit)
+        if backlog:
+            client_messages = client_messages[:batch_limit]
+
         summary.fetched = len(client_messages)
-        log.info("Fetched %d message(s) across %d account(s) matching query '%s'", summary.fetched, len(self.clients), effective_query)
+        summary.backlog = backlog
+        log.info(
+            "Fetched %d message(s) across %d account(s) [%s] "
+            "(%d already settled, %d still queued behind this batch)",
+            summary.fetched,
+            len(self.clients),
+            ", ".join(_account_label(c) for c in self.clients),
+            settled,
+            backlog,
+        )
 
         def _process_one_message(client: Any, mid: str) -> ProcessResult | None:
             # Claim the message first. Beat fans out one Celery task per email
@@ -181,7 +266,10 @@ class IngestionRunner:
                 # result — that reported "Ingested Candidates=0" for a poll that had
                 # just written a profile.
                 try:
-                    mark_message_done(client, mid, result.status, email=email)
+                    mark_message_done(
+                        client, mid, result.status, email=email,
+                        attachments=result.attachments,
+                    )
                 except Exception as err:  # noqa: BLE001
                     log.warning(
                         "Processed %s but could not mark it done in Gmail (%s); "

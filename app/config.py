@@ -7,6 +7,7 @@ singleton so the ``.env`` is parsed only once per process.
 from __future__ import annotations
 
 import logging
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import List
@@ -17,6 +18,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: The value `.env.example` ships and a container can never reach.
 _LOCAL_REDIS = "redis://localhost:6379/0"
+
+
+_ACCOUNT_SOURCE_LOCK = threading.Lock()
+_account_source_reported: "str | None" = None
+
+
+def _report_account_source(level: int, message: str) -> None:
+    """Say where the mailbox list came from — once per distinct answer.
+
+    `email_accounts` is a property and it is read on every poll, so logging
+    unconditionally would put this line in the log every few seconds. Reporting
+    only when the answer *changes* gives one line at startup and one more the
+    moment somebody fixes the file or breaks it, which is when it is wanted.
+    """
+    global _account_source_reported
+    with _ACCOUNT_SOURCE_LOCK:
+        if message == _account_source_reported:
+            return
+        _account_source_reported = message
+    logging.getLogger(__name__).log(level, message)
 
 
 class Settings(BaseSettings):
@@ -32,25 +53,72 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # ---- Email Accounts (Multi-Inbox Configuration) ----
-    # Reads from secrets/email_accounts.json if it exists.
+    # Reads from secrets/email_accounts.json if it exists, or EMAIL_ACCOUNTS_JSON env var.
     # Otherwise, falls back to the legacy single `.env` variables for backward compatibility.
     email_accounts_file: str = "secrets/email_accounts.json"
-    
+    email_accounts_json: str = ""
+
     @property
     def email_accounts(self) -> List[dict]:
+        """Every mailbox to poll.
+
+        The fallback to the single `.env` account used to be silent, and silence
+        here is expensive: `secrets/` is in both `.gitignore` and
+        `.dockerignore` and is bind-mounted over in the deployed compose file,
+        so the accounts file reaches a server only if somebody puts it there by
+        hand. When it is missing, the app does not fail — it quietly polls one
+        mailbox, and mail sent to the other simply never arrives. The only trace
+        was a page count in an unrelated log line.
+
+        So every route through here now says which it took, and taking the
+        fallback is a warning naming the file it wanted and the lone account it
+        settled for.
+        """
         import json
         from pathlib import Path
+
         path = Path(self.email_accounts_file)
+        reason = f"{path} does not exist"
         if path.exists():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(data, list) and len(data) > 0:
+            except Exception as exc:  # noqa: BLE001 — a bad file must not stop the poll
+                reason = f"{path} could not be parsed ({exc})"
+            else:
+                if isinstance(data, list) and data:
+                    _report_account_source(
+                        logging.INFO,
+                        f"Polling {len(data)} mailbox(es) configured in {path}",
+                    )
                     return data
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning("Failed to parse %s: %s", self.email_accounts_file, e)
+                # Parsed, but says nothing. Previously indistinguishable from a
+                # missing file, and it is a different mistake with a different fix.
+                reason = f"{path} holds no accounts"
 
-        # Fallback to single account from .env if json doesn't exist
+        raw_env_json = (self.email_accounts_json or "").strip()
+        if raw_env_json:
+            if (raw_env_json.startswith("'") and raw_env_json.endswith("'")) or (raw_env_json.startswith('"') and raw_env_json.endswith('"')):
+                raw_env_json = raw_env_json[1:-1].strip()
+            try:
+                data = json.loads(raw_env_json)
+            except Exception as exc:  # noqa: BLE001
+                reason = f"EMAIL_ACCOUNTS_JSON env var could not be parsed ({exc})"
+            else:
+                if isinstance(data, list) and data:
+                    _report_account_source(
+                        logging.INFO,
+                        f"Polling {len(data)} mailbox(es) configured in EMAIL_ACCOUNTS_JSON env var",
+                    )
+                    return data
+                reason = "EMAIL_ACCOUNTS_JSON env var holds no accounts"
+
+        _report_account_source(
+            logging.WARNING,
+            f"{reason}; falling back to the single mailbox in .env "
+            f"({self.imap_username or self.smtp_username or 'no account configured'}). "
+            f"Any mail sent to another address will not be ingested — write "
+            f"{path} or set EMAIL_ACCOUNTS_JSON in .env to poll more than one.",
+        )
         return [{
             "provider": self.email_provider,
             "imap_server": self.imap_server,
@@ -66,6 +134,34 @@ class Settings(BaseSettings):
             "smtp_use_ssl": self.smtp_use_ssl,
             "smtp_use_tls": self.smtp_use_tls,
         }]
+
+    # ---- Candidate nationality filter ----
+    # Only Indian candidates are placed by this desk, so a CV belonging to
+    # somebody else is refused before it reaches the Veris résumé endpoint or
+    # the candidate database. See `app/extraction/resume_nationality.py`.
+    resume_india_only: bool = True
+    # A CV that says nothing about nationality is accepted.
+    #
+    # This is the setting that decides whether the filter is useful or ruinous,
+    # and it ships True on evidence: most Indian CVs never write "Nationality:
+    # Indian" anywhere. Demanding proof of Indian nationality would therefore
+    # reject the majority of the candidates the filter exists to find, and
+    # reject them invisibly, since nobody reviews what was never filed. Only
+    # positive evidence of *another* country refuses a CV.
+    resume_nationality_allow_undetermined: bool = True
+    # What a country must score before it is named at all, and how far clear of
+    # the runner-up it must be.
+    #
+    # 3.0 is above any pair of weak signals: an address and a phone number in
+    # the same foreign country come to 2.0 and cannot refuse anybody on their
+    # own. That is deliberate — an Indian driver working in Sharjah has a UAE
+    # address and a +971 mobile, and he is exactly who must not be turned away.
+    # A stated nationality (4.0) or a passport (6.0) clears it alone.
+    resume_nationality_min_score: float = 3.0
+    # And the margin, so a CV carrying evidence of two countries — a Dubai
+    # employer and a home town in Kerala — is undetermined rather than a coin
+    # flip. Undetermined is accepted.
+    resume_nationality_margin: float = 1.5
 
     # ---- Legacy Email Provider Choice ----
     # "smtp_imap" | "gmail"
@@ -278,6 +374,27 @@ class Settings(BaseSettings):
     # Try RapidOCR on pages Tesseract reads badly, when it is installed. A host
     # without it is a supported configuration; this only decides whether we look.
     ocr_secondary_engine_enabled: bool = True
+    # A page that will not read is not worth an unbounded wait.
+    #
+    # Nothing on the local path used to have a clock on it. A four-page scanned
+    # CV sat in Tesseract while the inline poll — which runs inside the API
+    # process whenever no Celery worker is up — stayed PENDING, and the
+    # dashboard polled that task ID until someone restarted the container.
+    # `ocr_page_timeout_seconds` bounds one Tesseract invocation;
+    # `ocr_document_budget_seconds` bounds the whole document. Both degrade a
+    # page to "unread", which every caller already handles: the text-layer read
+    # stands, the page is named in the log, and the résumé still lands.
+    #
+    # 45s is roughly fifty times what a real read costs. Measured on a dense,
+    # low-contrast page: psm 6/4/3 all answer in under a second at 300, 450 and
+    # even 600 dpi. What takes minutes is not a slow page, it is Tesseract
+    # failing to segment a page of scanner noise at all — so this cuts the
+    # pathological case and never a legitimate one, with room for a host several
+    # times slower than the one it was calibrated on.
+    #
+    # Set either to 0 to disable it.
+    ocr_page_timeout_seconds: float = 45.0
+    ocr_document_budget_seconds: float = 600.0
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
     # mis-send cannot run forever. Set above the largest real bundle: the
     # resume can legitimately sit on page 25 of 50, and stopping early would
@@ -436,10 +553,15 @@ class Settings(BaseSettings):
     passport_allow_undetermined_nationality: bool = False
 
     # ---- Scheduled ingestion ----
-    # Celery beat searches every configured mailbox at this interval and
-    # fans each message out to a worker task. Set to 0 to leave ingestion
-    # manual while retaining the worker for CRM-triggered syncs.
-    gmail_poll_interval_seconds: int = 30
+    # `gmail_poll_interval_seconds` used to live here and is deliberately gone.
+    # Nothing read it: the beat entry is built by `_mail_poll_schedule`, which
+    # reads `mail_poll_interval_seconds` and only contributes anything at all
+    # when `mail_autopoll_enabled` is set. A knob that is still accepted from
+    # `.env` and quietly changes nothing is worse than no knob — somebody tunes
+    # the poll interval, watches it have no effect, and looks everywhere except
+    # at the setting they edited. `GMAIL_POLL_INTERVAL_SECONDS` in a `.env` is
+    # now ignored outright (`extra="ignore"`), which is what it already was in
+    # substance.
 
     # ---- Reconciler ----
     # A row untouched for this long is assumed stuck. Measured from the last

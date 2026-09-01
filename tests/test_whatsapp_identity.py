@@ -283,6 +283,12 @@ def api():
             "email": f"{user_id}@x.com",
             "name": user_id,
             "role": role,
+            # The candidate endpoints sit behind `require_page("candidates")`,
+            # and a session without the page is refused with a 404 — the same
+            # answer as a document that does not exist. Omitting this did not
+            # read as a permissions failure; it read as the scan having gone
+            # missing, which is exactly what these tests are here to detect.
+            "pages": ["candidates", "settings"],
         }
 
     with patch("app.api.routes.ensure_indexes"), patch(

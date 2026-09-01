@@ -88,6 +88,19 @@ class ExtractedDocument(BaseModel):
     # call), and the parser then does exactly what it always did.
     veris_resume_result: Optional[dict] = None
 
+    # Whose CV this is, decided from the local read before anything was
+    # uploaded. `nationality` is the verdict and its evidence;
+    # `nationality_accepted` is the gate's answer and `nationality_reason` the
+    # sentence shown to whoever asks why a candidate never appeared.
+    #
+    # Decided once, in `_classified`, and carried rather than recomputed: the
+    # same answer has to hold the Veris upload back and keep the record out of
+    # the database, and two evaluations of one policy are two chances to
+    # disagree. See `app/extraction/resume_nationality.py`.
+    nationality: Optional[dict] = None
+    nationality_accepted: Optional[bool] = None
+    nationality_reason: str = ""
+
     @property
     def resume_text(self) -> str:
         """Only the pages carrying candidate profile data (all of it if unknown)."""

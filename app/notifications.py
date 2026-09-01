@@ -125,6 +125,75 @@ def notify_candidate_assigned(
     return notified
 
 
+def notify_candidate_rejected(
+    *,
+    reason: str,
+    filename: str = "",
+    from_addr: str = "",
+    country: str = "",
+    repo: NotificationRepository | None = None,
+    users: UserRepository | None = None,
+) -> int:
+    """Record and push "a CV arrived and was refused".
+
+    The admins only. A rejection is not work being handed to anybody — it is the
+    sync reporting what it declined, which is the admin's question.
+
+    This notification carries more weight than the others in this module,
+    because it is the *only* trace the refusal leaves anywhere a recruiter
+    looks. An accepted candidate is a row in the CRM whether or not the pop-up
+    arrives; a refused one is a log line on a server. If somebody sent a CV and
+    is waiting to hear back, this is what tells the desk it happened.
+
+    Never raises, for the same reason as its neighbours: the mail has already
+    been dealt with and failing here would only take the batch down.
+    """
+    from app.api import websocket as ws  # imported here: routes import both ways
+
+    who = from_addr or "an unknown sender"
+    label = filename or "a CV"
+    title = "Candidate rejected — other nationality" if country else "Candidate rejected"
+    message = f"{label} from {who} was not ingested: {reason}"
+    notified = 0
+
+    try:
+        repo = repo or NotificationRepository()
+        users = users or UserRepository()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not open the notification store (%s); pushing only", exc)
+        repo = None
+
+    if repo is not None:
+        try:
+            for admin_id in _admin_ids(users):
+                repo.record(
+                    admin_id,
+                    type=store.CANDIDATE_REJECTED,
+                    title=title,
+                    message=message,
+                )
+                notified += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not store the rejection notification: %s", exc)
+
+    try:
+        ws.publish_event(
+            {
+                "type": store.CANDIDATE_REJECTED,
+                "title": title,
+                "message": message,
+                "filename": filename,
+                "from_addr": from_addr,
+                "country": country,
+                "reason": reason,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not push the rejection event: %s", exc)
+
+    return notified
+
+
 def notify_sla_breaches(
     alerts: List[dict],
     threshold_hours: float,

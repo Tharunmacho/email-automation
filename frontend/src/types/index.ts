@@ -412,7 +412,18 @@ export interface AadhaarRecord {
   vid?: string | null;
   enrollment_id?: string | null;
   document_side?: string | null;
+  /**
+   * Problems that want a human: a field the service could not read, a check
+   * that did not pass. Safe to surface in warning styling — it no longer
+   * carries the recovery log, which lives in `extraction_notes`.
+   */
   warnings?: string[];
+  /**
+   * What the OCR service had to do to read the document, all of it successful
+   * — a page straightened, an MRZ located, fields rescued by a second look.
+   * Provenance, not a problem: never style this as a warning.
+   */
+  extraction_notes?: string[];
   source?: IdentityDocumentSource;
   /**
    * Whether there is a scan behind this row that this caller may download.
@@ -454,7 +465,18 @@ export interface PassportRecord {
   confidence?: number | null;
   /** Read off the printed page rather than the MRZ — carries place of issue. */
   printed_fields?: Record<string, unknown> | null;
+  /**
+   * Problems that want a human: a field the service could not read, a check
+   * that did not pass. Safe to surface in warning styling — it no longer
+   * carries the recovery log, which lives in `extraction_notes`.
+   */
   warnings?: string[];
+  /**
+   * What the OCR service had to do to read the document, all of it successful
+   * — a page straightened, an MRZ located, fields rescued by a second look.
+   * Provenance, not a problem: never style this as a warning.
+   */
+  extraction_notes?: string[];
   source?: IdentityDocumentSource;
   /**
    * Whether there is a scan behind this row that this caller may download.

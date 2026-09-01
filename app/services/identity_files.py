@@ -74,6 +74,20 @@ class IdentityFileMissing(Exception):
     """
 
 
+class IdentityFileUnavailable(Exception):
+    """The file could not be read *right now*, and may be there all the same.
+
+    Kept apart from `IdentityFileMissing` because the two deserve opposite
+    answers. A missing file is permanent and 404 is the truth about it. A
+    Mongo timeout, a dropped connection, a GridFS read that failed mid-flight —
+    those are 503, and the caller should try again.
+
+    Collapsing them told a recruiter a scan did not exist because the database
+    blinked. They click again, it downloads, and nothing anywhere records that
+    the first answer was a lie.
+    """
+
+
 def validate_identity(data: bytes, mime_type: Optional[str]) -> str:
     """Validate an identity scan before OCR or storage and return its media type."""
     if not data:
@@ -139,17 +153,30 @@ def _load(backend_name: str, key: str) -> bytes:
     `download_resume` already does this, for a real reason: a deployment that
     moved from local disk to GridFS left records naming the backend they were
     written under, and the file is in one of the two. Same situation, same fix.
+
+    Both backends raise `FileNotFoundError` for a key that genuinely is not
+    there — GridFS translates `NoFile`, and the local backend gets it from
+    `read_bytes`. Anything else is the storage itself failing: a Mongo timeout,
+    a dropped connection, an auth error. The two are separated here because
+    they deserve opposite answers, and treating every failure as "missing"
+    reported a scan as gone whenever the database blinked.
     """
-    try:
-        return get_storage_backend(backend_name).load(key)
-    except Exception as first:  # noqa: BLE001
-        alternate = "local" if backend_name == "gridfs" else "gridfs"
+    failures: list = []
+    absent = True
+    for name in (backend_name, "local" if backend_name == "gridfs" else "gridfs"):
         try:
-            return get_storage_backend(alternate).load(key)
-        except Exception as second:  # noqa: BLE001
-            raise IdentityFileMissing(
-                f"the file is not in storage ({backend_name}: {first}; {alternate}: {second})"
-            ) from second
+            return get_storage_backend(name).load(key)
+        except FileNotFoundError as miss:
+            failures.append(f"{name}: {miss}")
+        except Exception as broke:  # noqa: BLE001
+            failures.append(f"{name}: {broke}")
+            absent = False
+
+    if absent:
+        raise IdentityFileMissing(f"the file is not in storage ({'; '.join(failures)})")
+    raise IdentityFileUnavailable(
+        f"storage could not be read ({'; '.join(failures)})"
+    )
 
 
 def _stem(name: Optional[str]) -> str:
@@ -177,7 +204,12 @@ def available(record: CandidateRecord, doc: Dict[str, Any]) -> bool:
 
 
 def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
-    """The scan itself. Raises `IdentityFileMissing` when there isn't one."""
+    """The scan itself.
+
+    Raises `IdentityFileMissing` when there is no such scan, and
+    `IdentityFileUnavailable` when there is one storage cannot read just
+    now. Callers must answer the two differently — 404 against 503.
+    """
     document_type = doc.get("document_type") or "document"
 
     block = _stored(doc)
