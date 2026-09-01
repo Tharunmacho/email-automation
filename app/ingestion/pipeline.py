@@ -132,10 +132,25 @@ class IngestionPipeline:
         # candidate record: deleting a candidate used to erase the only proof
         # that this message had been handled, so the next poll re-ingested it.
         if self.ledger.message_seen(email.message_id):
+            # Said out loud, because this skip can outlive the record it is
+            # protecting. The ledger deliberately survives a deleted candidate,
+            # so a migration that moves the candidates and leaves the ledger
+            # behind produces a message that is skipped for ever with nothing
+            # in the CRM to show for it. Silent, that reads as "the poll found
+            # nothing"; named, it points at `scripts/clean_ledger_and_verify.py`.
+            log.info(
+                "Message %s skipped: the ledger already records it as handled. "
+                "If no candidate exists for it, the ledger entry is orphaned.",
+                email.message_id,
+            )
             return ProcessResult(email.message_id, "skipped", "already processed (ledger)")
 
         existing = self.repo.find_by_message_id(email.message_id)
         if existing:
+            log.info(
+                "Message %s skipped: candidate %s was already created from it",
+                email.message_id, existing.id,
+            )
             return ProcessResult(email.message_id, "skipped", "already processed")
 
         detection = detect(email)
