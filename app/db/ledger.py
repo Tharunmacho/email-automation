@@ -22,7 +22,7 @@ different resumes is tracked as two entries.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence
 
 from pymongo import ASCENDING
 
@@ -43,6 +43,11 @@ DELETED_SENTINEL = "__deleted__"
 # the poll stops re-downloading the same non-candidate email on every pass.
 # Like the deleted sentinel it can never match a real file.
 NOT_A_RESUME_SENTINEL = "__not_a_resume__"
+
+#: How many message ids go into one `$in`. Large enough that an ordinary
+#: mailbox is a single round trip, small enough that a very large one does
+#: not build a query document the server refuses.
+_SEEN_CHUNK = 500
 
 
 def get_ledger_collection():
@@ -86,6 +91,32 @@ class IngestLedger:
 
     def message_seen(self, message_id: str) -> bool:
         return self._coll.count_documents({"message_id": message_id}, limit=1) > 0
+
+    def seen_message_ids(self, message_ids: Sequence[str]) -> set:
+        """Which of these have been handled — in one round trip, not one each.
+
+        The poll asks this about every message sitting in the inbox, and that is
+        a much bigger number than the batch it will work: 1,193 in one mailbox
+        here. Asked one at a time against a remote Mongo at ~340ms each, the
+        filter alone took **seven and a half minutes** before a single résumé was
+        fetched, on every poll, and the run looked hung because the line that
+        reports the count comes after it.
+
+        One `$in` over the `message_id` index answers the same question in a
+        single trip. Chunked so the query document cannot grow without bound on
+        a mailbox larger than this one.
+        """
+        ids = [m for m in message_ids if m]
+        if not ids:
+            return set()
+
+        found: set = set()
+        for start in range(0, len(ids), _SEEN_CHUNK):
+            chunk = ids[start:start + _SEEN_CHUNK]
+            found.update(
+                self._coll.distinct("message_id", {"message_id": {"$in": chunk}})
+            )
+        return found
 
     def is_message_suppressed(self, message_id: str) -> bool:
         """True when this exact email belonged to a candidate the user deleted.

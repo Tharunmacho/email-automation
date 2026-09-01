@@ -206,13 +206,25 @@ class IngestionRunner:
         # handed. That is not redundant: this one is an optimisation over a
         # list of ids, and the one inside is the guarantee.
         waiting = len(client_messages)
+        # Said before the filter runs, not after. This line used to come last,
+        # so a poll that was busy in the step below printed nothing at all and
+        # read as hung.
+        log.info(
+            "Searching %d message(s) across %d account(s) [%s]",
+            waiting, len(self.clients),
+            ", ".join(_account_label(c) for c in self.clients),
+        )
+
         ledger = getattr(self.pipeline, "ledger", None)
         if ledger is not None:
             try:
+                # One query for the whole inbox, never one per message. Asking
+                # individually cost ~340ms each against a remote Mongo, which on
+                # a 1,193-message mailbox was seven and a half minutes of round
+                # trips before the first résumé was even fetched — every poll.
+                seen = ledger.seen_message_ids([mid for _c, mid in client_messages])
                 client_messages = [
-                    (client, mid)
-                    for client, mid in client_messages
-                    if not ledger.message_seen(mid)
+                    (client, mid) for client, mid in client_messages if mid not in seen
                 ]
             except Exception as err:  # noqa: BLE001 — a slow ledger must not stop a poll
                 log.warning(

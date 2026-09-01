@@ -331,3 +331,53 @@ def test_the_real_ledger_has_no_hash_suppression_to_call():
 
     assert not hasattr(IngestLedger, "suppress_hash")
     assert not hasattr(IngestLedger, "suppress_candidate")
+
+
+def test_seen_message_ids_answers_for_a_whole_inbox_at_once():
+    """Against the real ledger, so the bulk form cannot drift from the single one."""
+    from app.db.ledger import IngestLedger
+
+    class Coll:
+        def __init__(self, known):
+            self.known = set(known)
+            self.queries: list = []
+
+        def distinct(self, field, query):
+            self.queries.append(query)
+            wanted = set(query["message_id"]["$in"])
+            return sorted(self.known & wanted)
+
+    coll = Coll({"msg-b", "msg-d"})
+    ledger = IngestLedger(collection=coll)
+
+    assert ledger.seen_message_ids(["msg-a", "msg-b", "msg-c", "msg-d"]) == {"msg-b", "msg-d"}
+    assert len(coll.queries) == 1, "one round trip, not one per message"
+
+
+def test_seen_message_ids_chunks_a_very_large_mailbox():
+    """Chunked so the query document cannot grow without bound."""
+    from app.db.ledger import IngestLedger, _SEEN_CHUNK
+
+    class Coll:
+        def __init__(self):
+            self.sizes: list[int] = []
+
+        def distinct(self, _field, query):
+            self.sizes.append(len(query["message_id"]["$in"]))
+            return []
+
+    coll = Coll()
+    IngestLedger(collection=coll).seen_message_ids([f"m{i}" for i in range(_SEEN_CHUNK * 2 + 7)])
+
+    assert max(coll.sizes) <= _SEEN_CHUNK
+    assert sum(coll.sizes) == _SEEN_CHUNK * 2 + 7, "every id must be asked about exactly once"
+
+
+def test_an_empty_inbox_asks_nothing():
+    from app.db.ledger import IngestLedger
+
+    class Coll:
+        def distinct(self, *_a, **_k):
+            raise AssertionError("no query should be issued for an empty list")
+
+    assert IngestLedger(collection=Coll()).seen_message_ids([]) == set()
