@@ -283,6 +283,23 @@ class IngestionPipeline:
             email_key = normalize_email(profile.email)
             phone_key = normalize_phone(profile.phone)
 
+            # A person explicitly removed from the CRM must stay removed even
+            # when the same mailbox later receives a renamed or slightly
+            # modified resume with a different file hash.
+            was_deleted = getattr(self.repo, "was_deleted", None)
+            if callable(was_deleted) and was_deleted(
+                email_key=email_key,
+                phone_key=phone_key,
+                resume_hash=resume_hash,
+                message_id=email.message_id,
+            ):
+                self.ledger.suppress_hash(resume_hash)
+                return AttachmentResult(
+                    att.filename,
+                    "suppressed",
+                    detail="candidate was previously deleted from the CRM",
+                )
+
             person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
                 self.ledger.record(email.message_id, resume_hash, person_dup.id, "duplicate")

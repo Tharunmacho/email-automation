@@ -24,6 +24,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -33,10 +34,16 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
-from app.core.models import EVALUATION_STATUSES, CandidateProfile, CandidateRecord, utcnow
+from app.core.models import (
+    EVALUATION_STATUSES,
+    CandidateProfile,
+    CandidateRecord,
+    JobSection,
+    RegistrationState,
+)
 from app.core.security import create_token, read_token, verify_service_key
 from app.assignment.balancer import (
     allocate_unassigned,
@@ -256,7 +263,14 @@ def _has_page(user: dict, *pages: str) -> bool:
     """Whether this session may reach at least one named application page."""
     if user.get("role") == ADMIN_ROLE:
         return True
-    allowed = set(user.get("pages") or [])
+    declared = user.get("pages")
+    if declared is None:
+        # Compatibility for service/tests and tokens created before `pages`
+        # was embedded in the public user shape: derive the role defaults.
+        from app.db.users import pages_for
+
+        declared = pages_for(user.get("role", STAFF_ROLE), user.get("page_grants") or [])
+    allowed = set(declared)
     # Sessions issued before My Candidates and Candidates became one page may
     # still carry the old id until their next refresh.
     if "my-queue" in allowed:
@@ -548,6 +562,8 @@ def _post_delete_cleanup(
     storage_key: str | None,
     message_ids: list[str],
     identity: dict | None = None,
+    storage_backend: str | None = None,
+    linked_storage: list[dict] | None = None,
 ) -> None:
     """Slow, best-effort cleanup for a deleted candidate.
 
@@ -556,11 +572,28 @@ def _post_delete_cleanup(
     of network time would otherwise be charged to the caller. Neither step
     changes what the API returned, and both are safe to lose.
     """
+    storage_refs = list(linked_storage or [])
     if storage_key:
+        storage_refs.append({
+            "storage_key": storage_key,
+            "storage_backend": storage_backend,
+            "shared_with_resume": False,
+        })
+
+    deleted_keys: set[tuple[str, str]] = set()
+    for item in storage_refs:
+        key = item.get("storage_key")
+        backend_name = item.get("storage_backend") or settings.storage_backend
+        if not key or item.get("shared_with_resume"):
+            continue
+        identity_key = (backend_name, key)
+        if identity_key in deleted_keys:
+            continue
         try:
-            get_storage_backend().delete(storage_key)
+            get_storage_backend(backend_name).delete(key)
+            deleted_keys.add(identity_key)
         except Exception as err:
-            log.warning("Could not delete stored resume %s: %s", storage_key, err)
+            log.warning("Could not delete stored candidate file %s: %s", key, err)
 
     if message_ids:
         try:
@@ -619,18 +652,37 @@ def delete_candidate(
     background: BackgroundTasks,
     _user: dict = Depends(require_admin),
 ) -> dict:
-    rec = repo().get(candidate_id)
+    repository = repo()
+    rec = repository.get(candidate_id)
     if not rec:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     msg_id = rec.source_email.message_id if rec.source_email else None
     res_hash = rec.resume.sha256 if (rec.resume and rec.resume.sha256) else rec.resume_hash
 
-    # Drop the document first: it is the authoritative step, so nothing else in
-    # the handler can widen the window for a concurrent delete.
+    # Record privacy-safe source fingerprints first. The full candidate is still
+    # hard-deleted; this tiny tombstone is what prevents Gmail or the WhatsApp
+    # bot from recreating the person on their next retry.
+    record_deletion = getattr(repository, "record_deletion", None)
+    if callable(record_deletion):
+        try:
+            record_deletion(rec)
+        except Exception as err:
+            log.exception("Could not record deletion guard for candidate %s", candidate_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Candidate was not deleted because suppression could not be recorded: {err}",
+            ) from err
+
     try:
-        removed = repo().delete(candidate_id)
+        removed = repository.delete(candidate_id)
     except Exception as err:
+        discard_deletion = getattr(repository, "discard_deletion", None)
+        if callable(discard_deletion):
+            try:
+                discard_deletion(candidate_id)
+            except Exception:  # noqa: BLE001 - retain the original delete error
+                log.exception("Could not roll back candidate deletion guard %s", candidate_id)
         log.exception("Deleting candidate %s failed", candidate_id)
         raise HTTPException(status_code=500, detail=f"Failed to delete candidate: {err}") from err
 
@@ -655,7 +707,26 @@ def delete_candidate(
     # window re-ingested the candidate that was just deleted.
     cleared = ledger.retire_candidate(candidate_id, message_ids, resume_hash=res_hash)
 
+    related = {
+        "identity_records": 0,
+        "notifications": 0,
+        "sla_alerts": 0,
+        "ingestion_state": 0,
+        "storage_refs": [],
+    }
+    delete_related = getattr(repository, "delete_related", None)
+    if callable(delete_related):
+        try:
+            related = delete_related(candidate_id)
+        except Exception as err:
+            log.exception("Candidate %s was deleted but related-row cleanup failed", candidate_id)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Candidate deleted, but related database cleanup failed: {err}",
+            ) from err
+
     storage_key = rec.resume.storage_key if rec.resume else None
+    storage_backend = rec.resume.storage_backend if rec.resume else None
     source = rec.source_email
     identity = {
         # `thread_id` is where the IMAP client stores the RFC822 Message-ID.
@@ -663,12 +734,23 @@ def delete_candidate(
         "subject": getattr(source, "subject", "") or "",
         "from_addr": getattr(source, "from_addr", "") or "",
     } if source else {}
-    background.add_task(_post_delete_cleanup, storage_key, message_ids, identity)
+    background.add_task(
+        _post_delete_cleanup,
+        storage_key,
+        message_ids,
+        identity,
+        storage_backend,
+        related.get("storage_refs") or [],
+    )
 
     return {
         "status": "success",
         "message": f"Candidate {candidate_id} deleted permanently",
         "cleared_entries": cleared,
+        "deleted_related": {
+            key: related.get(key, 0)
+            for key in ("identity_records", "notifications", "sla_alerts", "ingestion_state")
+        },
     }
 
 
@@ -1252,12 +1334,18 @@ def ingest_task_status(task_id: str, _user: dict = Depends(require_admin)) -> di
 
 
 @app.put("/candidates/{candidate_id}")
-def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user: dict = Depends(require_admin)) -> dict:
-    """Update a candidate's structured profile (e.g. to correct fields during verification)."""
+def update_candidate_profile(
+    candidate_id: str,
+    profile: CandidateProfile,
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Update a candidate profile within the caller's candidate scope.
+
+    Administrators may edit any candidate. Staff may edit only the candidates
+    assigned to them, using the same 404 isolation as profile viewing.
+    """
     repository = repo()
-    record = repository.get(candidate_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    _owned_or_404(candidate_id, user)
     repository.update_profile(candidate_id, profile)
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
@@ -1265,16 +1353,21 @@ def update_candidate_profile(candidate_id: str, profile: CandidateProfile, _user
 
 @app.post("/candidates/upload", status_code=201)
 def create_candidate_from_uploads(
-    resume: UploadFile = File(...),
-    aadhaar: UploadFile | None = File(default=None),
-    passport: UploadFile | None = File(default=None),
+    resume: UploadFile | None = File(default=None),
+    aadhaar: list[UploadFile] | None = File(default=None),
+    passport: list[UploadFile] | None = File(default=None),
+    full_name: str = Form(default=""),
+    email: str = Form(default=""),
+    phone: str = Form(default=""),
+    job_id: str = Form(default=""),
+    destination_country: str = Form(default=""),
     uploader: dict = Depends(require_page("candidate-entry")),
 ) -> dict:
-    """Create a candidate from files whose facts are extracted by VeriIS.
+    """Create a candidate manually, with optional VeriIS document extraction.
 
-    The route intentionally accepts no profile JSON.  Candidate, passport and
-    Aadhaar fields originate from the uploaded documents and the API response
-    contains only their curated projections, never VeriIS' raw payload.
+    Recruiter-entered job and country preferences are resolved against active
+    taxonomy rows. Uploaded files remain optional and the response contains
+    only curated projections, never VeriIS' raw payload.
     """
     from app.services.candidate_upload_intake import (
         CandidateUploadError,
@@ -1289,14 +1382,57 @@ def create_candidate_from_uploads(
             mime_type=file.content_type or "application/octet-stream",
         )
 
+    def uploaded_many(files: list[UploadFile] | None, fallback: str) -> list[UploadedDocument]:
+        if len(files or []) > 2:
+            document_type = fallback.removesuffix(".jpg").capitalize()
+            raise CandidateUploadError(
+                f"Upload no more than two {document_type} files.",
+                code=f"too_many_{document_type.lower()}_files",
+            )
+        return [uploaded(file, fallback) for file in (files or [])]
+
+    from app.db.taxonomy import get_job, list_countries
+
+    chosen_job = None
+    if job_id.strip():
+        chosen_job = get_job(job_id.strip())
+        if not chosen_job or not chosen_job.get("active", True):
+            raise HTTPException(status_code=422, detail="Select an active job preference.")
+
+    chosen_country = None
+    if destination_country.strip():
+        requested_country = destination_country.strip().casefold()
+        chosen_country = next(
+            (
+                country
+                for country in list_countries(active_only=True)
+                if requested_country
+                in {
+                    str(country.get("id") or "").casefold(),
+                    str(country.get("name") or "").casefold(),
+                }
+            ),
+            None,
+        )
+        if not chosen_country:
+            raise HTTPException(status_code=422, detail="Select an active country preference.")
+
     repository = repo()
     try:
         result = intake_uploaded_candidate(
-            resume=uploaded(resume, "resume.pdf"),
-            aadhaar=uploaded(aadhaar, "aadhaar.jpg") if aadhaar else None,
-            passport=uploaded(passport, "passport.jpg") if passport else None,
+            resume=uploaded(resume, "resume.pdf") if resume else None,
+            aadhaar=uploaded_many(aadhaar, "aadhaar.jpg"),
+            passport=uploaded_many(passport, "passport.jpg"),
             repository=repository,
             uploader_id=str(uploader.get("id") or ""),
+            full_name=full_name,
+            email=email,
+            phone=phone,
+            job_id=str(chosen_job.get("id") or "") if chosen_job else None,
+            job_title=str(chosen_job.get("title") or "") if chosen_job else None,
+            destination_country=(
+                str(chosen_country.get("name") or "") if chosen_country else None
+            ),
         )
     except CandidateUploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
@@ -1346,12 +1482,131 @@ def create_candidate_from_uploads(
         "candidate": candidate,
         "identity": result.identity,
         "processed": [
-            "resume",
+            *(["resume"] if resume else []),
             *(["aadhaar"] if aadhaar else []),
             *(["passport"] if passport else []),
         ],
-        "ocr_provider": "VeriIS",
+        "ocr_provider": "VeriIS" if (resume or aadhaar or passport) else "manual",
     }
+
+
+@app.post("/candidates/import", status_code=201)
+def import_existing_candidate(
+    record_json: str = Form(...),
+    resume_file: UploadFile | None = File(default=None),
+    allow_missing_resume: bool = Form(default=False),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    """Import an existing candidate without paying for a second extraction.
+
+    This is the database-migration path, not the ordinary candidate-entry
+    path. The complete, already-validated record travels as JSON and the
+    original resume travels as multipart bytes. The hash stored on the record
+    must match those bytes, so an import cannot quietly attach the wrong CV.
+
+    A legacy record whose file was already lost can still be preserved when an
+    administrator explicitly sets ``allow_missing_resume``. Its metadata stays
+    on the record and downloads correctly report the missing file; inventing a
+    replacement document would be worse than an honest 404.
+    """
+    try:
+        record = CandidateRecord.model_validate_json(record_json)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid candidate record: {exc}") from exc
+
+    repository = repo()
+    if repository.get(record.id):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "A candidate with this id already exists.",
+                "candidate_id": record.id,
+            },
+        )
+
+    existing_hash = repository.find_by_resume_hash(record.resume_hash)
+    if existing_hash:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "This resume is already attached to another candidate.",
+                "candidate_id": existing_hash.id,
+            },
+        )
+
+    if resume_file is not None and record.resume is None:
+        raise HTTPException(status_code=422, detail="The record has no resume metadata.")
+    if record.resume is not None and resume_file is None and not allow_missing_resume:
+        raise HTTPException(
+            status_code=422,
+            detail="The original resume file is required unless allow_missing_resume is true.",
+        )
+
+    backend = None
+    stored_key = None
+    resume_stored = False
+    if record.resume is not None:
+        backend = get_storage_backend()
+        filename = os.path.basename(
+            (record.resume.original_filename or "resume.bin").replace("\\", "/")
+        )
+        stored_key = f"imports/{record.id}/{record.resume.sha256[:16]}_{filename}"
+        record.resume.storage_backend = backend.name
+        record.resume.storage_key = stored_key
+
+        if resume_file is not None:
+            payload = resume_file.file.read()
+            digest = hashlib.sha256(payload).hexdigest()
+            if digest != record.resume.sha256 or digest != record.resume_hash:
+                raise HTTPException(
+                    status_code=422,
+                    detail="The uploaded resume does not match the record's SHA-256 hash.",
+                )
+            record.resume.size = len(payload)
+            backend.save(stored_key, payload, content_type=record.resume.mime_type)
+            resume_stored = True
+
+    try:
+        inserted_id = repository.insert(record)
+        if inserted_id != record.id:
+            raise DuplicateKeyError("candidate import resolved to an existing record")
+    except DuplicateKeyError as exc:
+        if resume_stored and backend is not None and stored_key is not None:
+            try:
+                backend.delete(stored_key)
+            except Exception:  # noqa: BLE001 - preserve the conflict response
+                log.exception("Could not roll back imported resume %s", stored_key)
+        raise HTTPException(status_code=409, detail="The candidate conflicts with an existing record.") from exc
+
+    return {
+        "status": "imported",
+        "candidate_id": record.id,
+        "resume_stored": resume_stored,
+    }
+
+
+@app.post("/admin/database/consolidate-adira")
+def consolidate_legacy_database(
+    confirm: str = Form(...),
+    _user: dict = Depends(require_admin),
+) -> dict:
+    """Move the legacy ``Adira`` database into canonical ``resume_ats``.
+
+    The confirmation phrase is deliberately specific because a successful
+    verified merge drops the legacy database. The operation is idempotent: if
+    a request is retried before the drop, same-id rows are replaced and unique
+    rows are merged rather than duplicated.
+    """
+    if confirm != "MOVE_ADIRA_TO_RESUME_ATS":
+        raise HTTPException(status_code=400, detail="Invalid database consolidation confirmation.")
+
+    from app.db.consolidation import consolidate_adira_into_resume_ats
+    from app.db.mongo import get_client
+
+    result = consolidate_adira_into_resume_ats(get_client(), drop_legacy=True)
+    if not result["verified"] or not result["legacy_dropped"]:
+        raise HTTPException(status_code=500, detail={"message": "Database consolidation incomplete", **result})
+    return result
 
 
 @app.post("/candidates/{candidate_id}/verify")
@@ -2239,67 +2494,63 @@ class WhatsAppProfileIn(BaseModel):
     passport_expiry: str | None = None
 
 
-class WhatsAppIdentityDocumentIn(BaseModel):
-    """One Aadhaar or passport the bot read, as it files it here.
-
-    `result` travels untouched and is deliberately not an allow-list: it is the
-    extractor's own payload, and the CRM already owns the code that projects an
-    Aadhaar or a passport out of exactly this shape — `store_aadhaar_record`
-    and `store_passport_record`, the same two the mailbox pipeline feeds.
-    Naming the fields again here would be a second implementation of one
-    projection, and the extractors gain fields.
-
-    That is a different judgement from `WhatsAppProfileIn`, and the difference
-    is where the data lands. The profile is projected onto the candidate
-    document that every recruiter list reads wholesale, so an Aadhaar number
-    arriving there would be served to a browser; these go to their own
-    collections, masked on the way out, which is what those collections are
-    for.
-
-    No file. The bytes are their own request — see
-    `POST /candidates/{id}/identity/{type}/{record_id}/file`. A partial sync
-    runs on every answered question and inlining a passport photograph would
-    put it on the wire twenty times for one registration.
-    """
+class WhatsAppCvIn(BaseModel):
+    """The candidate profile fields extracted from an optional CV."""
 
     model_config = ConfigDict(extra="ignore")
 
-    #: The bot's upload id. Doubles as this record's `_id`, so a re-send
-    #: overwrites its own row rather than adding another — the same idea as the
-    #: email path's `(message, attachment, mode)` key, with the ids this path
-    #: has.
-    #: Not required, and that is the point: a malformed document must not cost
-    #: a candidate their registration. One without an id is skipped and
-    #: reported in the response — see `identity_intake.file_documents` — while
-    #: the profile and the documents beside it land as normal.
+    filename: str | None = None
+    mime_type: str | None = None
+    sha256: str | None = None
+    uploaded_at: str | None = None
+    extracted_at: str | None = None
+    confidence: float | None = None
+    needs_review: bool | None = None
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    phone_numbers: list[str] = Field(default_factory=list)
+    location: str | None = None
+    current_company: str | None = None
+    current_designation: str | None = None
+    industry: str | None = None
+    resume_summary: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    technical_skills: list[str] = Field(default_factory=list)
+    trade_skills: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    achievements: list[str] = Field(default_factory=list)
+    work_experience: list[dict] = Field(default_factory=list)
+    education: list[dict] = Field(default_factory=list)
+    licenses: list[dict] = Field(default_factory=list)
+    projects: list[dict] = Field(default_factory=list)
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    portfolio_url: str | None = None
+    total_experience_years: float | None = None
+    total_experience_band: str | None = None
+    additional_info: dict | None = None
+    raw_ocr: dict | None = None
+
+
+class WhatsAppIdentityDocumentIn(BaseModel):
+    """One extractor result; malformed documents are skipped, not fatal."""
+
+    model_config = ConfigDict(extra="ignore")
+
     record_id: str = Field(default="", max_length=128)
-    #: Which slot it arrived in: `aadhaar`, `aadhaar_back`, `passport`.
     slot: str | None = Field(default=None, max_length=64)
     filename: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=128)
     sha256: str | None = Field(default=None, max_length=128)
-    #: The message the file arrived on, so provenance names it the way the
-    #: email path names a Gmail message id.
     message_id: str | None = Field(default=None, max_length=255)
     uploaded_at: str | None = None
     extracted_at: str | None = None
-    #: Untyped on purpose. This is an extractor's payload and the CRM's job is
-    #: to project it, not to police its shape — and a `dict` here would turn an
-    #: OCR service returning something unexpected into a 422 that refuses the
-    #: whole submission, profile included. A payload the projection cannot read
-    #: costs one document and is reported as such.
     result: Any = None
 
 
 class WhatsAppIdentitySectionIn(BaseModel):
-    """The Aadhaar and passport documents on one submission.
-
-    Two lists rather than one, because the type is what decides which
-    collection a document goes to and reading it off a field inside `result`
-    would let a mislabelled payload file a passport as an Aadhaar. The key is
-    the type, and it is the route that says so.
-    """
-
     model_config = ConfigDict(extra="ignore")
 
     aadhaar: list[WhatsAppIdentityDocumentIn] = Field(default_factory=list)
@@ -2307,8 +2558,6 @@ class WhatsAppIdentitySectionIn(BaseModel):
 
 
 class WhatsAppIdentityFileIn(BaseModel):
-    """The bytes of one identity document, for the JSON upload path."""
-
     filename: str | None = Field(default=None, max_length=255)
     mime_type: str | None = Field(default=None, max_length=128)
     content_base64: str
@@ -2318,7 +2567,9 @@ class WhatsAppCandidateIn(BaseModel):
     source: str = "whatsapp"
     profile: WhatsAppProfileIn
     #: Stable per candidate: `whatsapp/{phone_number_id}/{wa_user_id}`. The
-    #: unique index on it is what makes a retry idempotent.
+    #: unique index on it is what makes a retry idempotent — and, now that a
+    #: registration is delivered while it is still being answered, what makes
+    #: the tenth delivery fill the same record in rather than create a tenth.
     idempotency_key: str = Field(min_length=1)
     #: What the bot believes about the CV requirement. Recorded and compared,
     #: never trusted — the CRM derives its own answer from the policy table.
@@ -2329,7 +2580,17 @@ class WhatsAppCandidateIn(BaseModel):
     #: sends their passport on Friday has to reach the record that was created
     #: on Tuesday — and re-sending is free: each document overwrites its own
     #: row.
+    #: How far through the conversation the candidate is. Absent means finished:
+    #: every submission that predates mid-conversation delivery was one.
+    registration: RegistrationState | None = None
+    #: The CV as the extractor read it. Merged into the profile, so a WhatsApp
+    #: candidate's résumé shows the way an emailed one does.
+    cv: WhatsAppCvIn | None = None
+    #: The Aadhaar and the passport, filed in their own collections and never on
+    #: the candidate document — see `_store_identity_documents`.
     identity: WhatsAppIdentitySectionIn | None = None
+    #: What the conversation established about the work.
+    job: JobSection | None = None
 
 
 def _intake_error_response(exc: IntakeError, cv_required: bool | None = None) -> JSONResponse:
@@ -2432,15 +2693,45 @@ def create_whatsapp_candidate(
             },
         )
 
+    # The profile the candidate answered, and then the CV they sent, in that
+    # order.
+    #
+    # The order is the point. Both describe the same person and they disagree
+    # constantly — a CV two years old names an employer the candidate has since
+    # left. What the candidate typed into the bot is what they say about
+    # themselves *today*, and a résumé is a document about their past, so an
+    # answer is never overwritten by an extraction. What the CV supplies is
+    # everything the questions never asked for: the employment history, the
+    # education, the certificates.
+    #
+    # The overlay drops empty values as well as absent ones, and that is not a
+    # nicety. `skills`, `certifications`, `languages` and `trade_skills` all
+    # default to `[]` on the profile model, so an unconditional overlay would
+    # have every CV's certificate list wiped out by the empty list the profile
+    # carries — the data would arrive, be parsed, and be overwritten with
+    # nothing in the same request.
+    fields: dict = {}
+    if payload.cv is not None:
+        fields.update(_cv_profile_fields(payload.cv))
+
+    for key, value in payload.profile.model_dump(exclude_none=True).items():
+        if value in (None, "", [], {}):
+            continue
+        fields[key] = value
+
     profile = CandidateProfile(
-        # Nothing here was parsed out of a résumé, and saying otherwise would
-        # put a confidence score on a form somebody filled in by tapping.
-        is_resume=False,
-        confidence=0.0,
-        **payload.profile.model_dump(exclude_none=True),
+        # True only when a résumé was actually read. A profile assembled from
+        # tapped answers is not a parsed résumé, and saying otherwise would put
+        # a confidence score on a form somebody filled in by tapping.
+        is_resume=payload.cv is not None,
+        confidence=payload.cv.confidence or 0.0 if payload.cv is not None else 0.0,
+        **fields,
     )
 
     repository = repo()
+    legacy_conversation = (
+        payload.registration is not None or payload.job is not None or payload.cv is not None
+    )
 
     # The file, if one came with the submission. Written before the record so a
     # storage failure refuses the intake rather than leaving a candidate whose
@@ -2473,6 +2764,13 @@ def create_whatsapp_candidate(
             idempotency_key=payload.idempotency_key,
             cv_required_claim=payload.cv_required_claim,
             resume=stored_resume,
+            registration=payload.registration,
+            job=payload.job,
+            identity=(
+                payload.identity.model_dump(mode="python")
+                if payload.identity and legacy_conversation
+                else None
+            ),
             repo=repository,
         )
     except IntakeError as exc:
@@ -2499,7 +2797,7 @@ def create_whatsapp_candidate(
     # Failures here are reported, not raised. The profile is written by the
     # time this runs and an unreadable passport must not undo a registration.
     identity_filed: list[dict] = []
-    if payload.identity is not None:
+    if payload.identity is not None and not legacy_conversation:
         identity_filed = [
             {
                 "document_type": entry.document_type,
@@ -2531,6 +2829,54 @@ def create_whatsapp_candidate(
         # ones that did. An empty list is a submission that carried none.
         "identity_documents": identity_filed,
     }
+
+
+def _cv_profile_fields(cv: "WhatsAppCvIn") -> dict:
+    """The parts of a read CV that belong on the profile.
+
+    A rename layer and nothing more: the bot already sends these under this
+    system's own names, so what this does is drop the fields that describe the
+    *file* — its name, its digest, when it was read — from the fields that
+    describe the *person*. Those belong in `additional_info`, where a recruiter
+    can see which document a value came off without them cluttering the profile.
+
+    Empty values are dropped rather than sent as blanks. A CV that named no
+    employers must not overwrite an employer the candidate typed in, and on this
+    path an empty list would do exactly that.
+    """
+    ABOUT_THE_FILE = {
+        "filename",
+        "mime_type",
+        "sha256",
+        "uploaded_at",
+        "extracted_at",
+        "confidence",
+        "needs_review",
+        "industry",
+        "additional_info",
+    }
+
+    values = cv.model_dump(exclude_none=True)
+    fields = {
+        key: value
+        for key, value in values.items()
+        if key not in ABOUT_THE_FILE and value not in (None, "", [], {})
+    }
+
+    # Where the CV came from, kept with whatever else had no field of its own.
+    # A recruiter looking at an employment history needs to be able to ask
+    # "off which document?", and this is the answer.
+    extra = dict(cv.additional_info or {})
+    for key in ("filename", "sha256", "uploaded_at", "extracted_at", "industry"):
+        value = values.get(key)
+        if value:
+            extra[f"cv_{key}" if key != "industry" else "industry"] = value
+    if cv.needs_review is not None:
+        extra["cv_needs_review"] = cv.needs_review
+    if extra:
+        fields["additional_info"] = extra
+
+    return fields
 
 
 def _resume_owner_hint(idempotency_key: str) -> str:
@@ -2878,7 +3224,9 @@ class JobQuestionIn(BaseModel):
 
 
 @app.get("/job-designations")
-def list_job_designations(_user: dict = Depends(require_page("data-management"))) -> dict:
+def list_job_designations(
+    _user: dict = Depends(require_page("data-management", "candidate-entry")),
+) -> dict:
     from app.db.taxonomy import list_jobs
 
     return {"items": list_jobs()}
@@ -2952,7 +3300,9 @@ def retire_job_designation(job_id: str, _user: dict = Depends(require_page("data
 
 
 @app.get("/countries")
-def list_country_rows(_user: dict = Depends(require_page("data-management"))) -> dict:
+def list_country_rows(
+    _user: dict = Depends(require_page("data-management", "candidate-entry")),
+) -> dict:
     from app.db.taxonomy import list_countries
 
     return {"items": list_countries()}
@@ -3363,6 +3713,43 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
 
     log.info("User %s updated by %s", updated.email, admin.get("email"))
     return {"status": "ok", "user": updated.to_public()}
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> dict:
+    """Permanently remove an account from MongoDB.
+
+    Existing bearer tokens stop working immediately because every authenticated
+    request resolves its subject against the ``users`` collection. Staff-owned
+    queues are redistributed using the same rules as the Staff screen.
+    """
+    target = users.get(user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user_id == admin.get("id"):
+        raise HTTPException(status_code=409, detail="You cannot delete your own signed-in account.")
+    if target.role == ADMIN_ROLE and target.active and users.count_active_admins() <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This is the last active administrator; promote someone else first.",
+        )
+
+    deleted = users.delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    outcome = (
+        redistribute_from_staff(user_id, repo=repo(), users=users)
+        if target.role == STAFF_ROLE
+        else {"reallocated": 0, "orphaned": 0}
+    )
+    log.info("User %s permanently deleted by %s", target.email, admin.get("email"))
+    return {
+        "status": "deleted",
+        "id": user_id,
+        "reallocated": outcome.get("reallocated", 0),
+        "orphaned": outcome.get("orphaned", 0),
+    }
 
 
 # Serve the static files from the Next.js export, when the build produced any.

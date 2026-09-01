@@ -5,6 +5,7 @@ storage engine could change without touching business logic.
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -16,10 +17,33 @@ from pymongo.errors import DuplicateKeyError
 from app.core.crm_ids import candidate_code
 from app.core.models import CandidateProfile, CandidateRecord, StoredResume
 from app.db import whatsapp_compat
-from app.db.mongo import get_candidates_collection
+from app.db.mongo import get_candidates_collection, get_db
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+CANDIDATE_DELETIONS_COLLECTION = "candidate_deletions"
+
+
+def _fingerprint(value: Optional[str]) -> Optional[str]:
+    """One-way deletion key; enough to block a retry without retaining PII."""
+    cleaned = (value or "").strip().lower()
+    return hashlib.sha256(cleaned.encode("utf-8")).hexdigest() if cleaned else None
+
+
+def ensure_candidate_deletion_indexes() -> None:
+    """Indexes for the source fingerprints checked on automated intake."""
+    from app.db.mongo import ensure_index
+
+    coll = get_db()[CANDIDATE_DELETIONS_COLLECTION]
+    for field in (
+        "idempotency_fingerprint",
+        "phone_fingerprint",
+        "email_fingerprint",
+        "resume_hash",
+        "message_fingerprint",
+    ):
+        ensure_index(coll, [(field, ASCENDING)], f"candidate_deletion_{field}_idx", sparse=True)
 
 
 def _id_filter(candidate_id: str) -> dict:
@@ -431,6 +455,31 @@ class CandidateRepository:
         "total_experience_years",
         "passport_number",
         "passport_expiry",
+        # ---- read off the CV -------------------------------------------- #
+        # A résumé sent over WhatsApp is parsed into the same shape a résumé
+        # sent by email is, and until these were listed here that parse was
+        # arriving and being dropped: the candidate's employers, their
+        # education and their certificates were all in the submission and none
+        # of them were written. A recruiter opening a WhatsApp candidate saw
+        # six fields where an emailed one showed a career.
+        #
+        # `education` is not repeated here: it is already listed above, where it
+        # has always been, and the field is the same one.
+        "work_experience",
+        "certifications",
+        "licenses",
+        "projects",
+        "achievements",
+        "technical_skills",
+        "phone_numbers",
+        "current_company",
+        "current_designation",
+        "resume_summary",
+        "linkedin_url",
+        "github_url",
+        "portfolio_url",
+        "additional_info",
+        "raw_ocr",
     )
 
     def refresh_whatsapp_profile(self, candidate_id: str, profile: CandidateProfile) -> None:
@@ -477,6 +526,46 @@ class CandidateRepository:
         updates["updated_at"] = utcnow()
         self._coll.update_one(_id_filter(candidate_id), {"$set": updates})
         log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
+
+    def refresh_whatsapp_sections(
+        self,
+        candidate_id: str,
+        *,
+        registration=None,
+        job=None,
+    ) -> None:
+        """Update the two sections the conversation owns, and nothing else.
+
+        The same rule `refresh_whatsapp_profile` follows, for the same reason:
+        what the candidate says about themselves may be restated as often as
+        they like, and what the agency decided about them may not be touched
+        from here at all. These two objects are entirely the bot's — a
+        registration's progress and the answers it collected about the job — so
+        they are replaced wholesale rather than merged field by field. Merging
+        would make an answer the candidate changed impossible to unset: someone
+        who corrects "strict" to "any country" would keep the strict flag
+        forever.
+
+        Absent means "not sent", never "cleared". A caller that has nothing to
+        say about a section leaves it exactly as it was, which is what lets an
+        older bot — or a delivery built before these sections existed — go on
+        working against this endpoint without erasing what a newer one wrote.
+        """
+        from app.core.models import utcnow
+
+        updates: dict = {}
+        if registration is not None:
+            updates["registration"] = registration.model_dump(mode="python")
+        if job is not None:
+            updates["job"] = job.model_dump(mode="python")
+
+        if not updates:
+            return
+
+        updates["updated_at"] = utcnow()
+        self._coll.update_one({"_id": candidate_id}, {"$set": updates})
+        log.info("Refreshed WhatsApp sections on candidate %s: %s",
+                 candidate_id, ", ".join(k for k in updates if k != "updated_at"))
 
     def attach_resume(self, candidate_id: str, resume: "StoredResume") -> bool:
         """Hang a stored résumé on a candidate that already exists.
@@ -595,6 +684,106 @@ class CandidateRepository:
     def delete(self, candidate_id: str) -> bool:
         res = self._coll.delete_one(_id_filter(candidate_id))
         return res.deleted_count > 0
+
+    def record_deletion(self, record: CandidateRecord) -> None:
+        """Persist only fingerprints needed to prevent automated resurrection.
+
+        The candidate document itself is hard-deleted.  This deliberately does
+        not retain their name, phone, email, profile, CV or identity data.
+        """
+        from app.core.models import utcnow
+
+        doc = {
+            "_id": record.id,
+            "source": record.source,
+            "idempotency_fingerprint": _fingerprint(record.idempotency_key),
+            "phone_fingerprint": _fingerprint(record.phone_key),
+            "email_fingerprint": _fingerprint(record.email_key),
+            # A resume hash is already a one-way SHA-256 content fingerprint.
+            "resume_hash": record.resume_hash or (record.resume.sha256 if record.resume else None),
+            "message_fingerprint": _fingerprint(
+                record.source_email.message_id if record.source_email else None
+            ),
+            "deleted_at": utcnow(),
+        }
+        self._coll.database[CANDIDATE_DELETIONS_COLLECTION].replace_one(
+            {"_id": record.id},
+            {key: value for key, value in doc.items() if value is not None},
+            upsert=True,
+        )
+
+    def discard_deletion(self, candidate_id: str) -> None:
+        """Rollback helper when the authoritative candidate delete fails."""
+        self._coll.database[CANDIDATE_DELETIONS_COLLECTION].delete_one({"_id": candidate_id})
+
+    def was_deleted(
+        self,
+        *,
+        idempotency_key: Optional[str] = None,
+        phone_key: Optional[str] = None,
+        email_key: Optional[str] = None,
+        resume_hash: Optional[str] = None,
+        message_id: Optional[str] = None,
+    ) -> bool:
+        """Whether any stable signal belongs to a hard-deleted candidate."""
+        candidates = [
+            ("idempotency_fingerprint", _fingerprint(idempotency_key)),
+            ("phone_fingerprint", _fingerprint(phone_key)),
+            ("email_fingerprint", _fingerprint(email_key)),
+            ("resume_hash", (resume_hash or "").strip() or None),
+            ("message_fingerprint", _fingerprint(message_id)),
+        ]
+        query = [{field: value} for field, value in candidates if value]
+        if not query:
+            return False
+        return self._coll.database[CANDIDATE_DELETIONS_COLLECTION].count_documents(
+            {"$or": query}, limit=1
+        ) > 0
+
+    def delete_related(self, candidate_id: str) -> dict:
+        """Hard-delete database rows owned by a candidate.
+
+        Returns storage pointers captured before the identity rows disappear so
+        the route can remove the underlying GridFS/local files afterwards.
+        """
+        from app.config import settings
+
+        db = self._coll.database
+        identity_names = (
+            settings.mongo_aadhaar_collection,
+            settings.mongo_passport_collection,
+            settings.mongo_document_collection,
+        )
+        storage_refs: list[dict] = []
+        identity_deleted = 0
+        for name in identity_names:
+            collection = db[name]
+            for doc in collection.find({"candidate_id": candidate_id}, {"file": 1}):
+                file = doc.get("file") or {}
+                if file.get("storage_key"):
+                    storage_refs.append({
+                        "storage_backend": file.get("storage_backend"),
+                        "storage_key": file["storage_key"],
+                        "shared_with_resume": bool(file.get("shared_with_resume")),
+                    })
+            identity_deleted += collection.delete_many({"candidate_id": candidate_id}).deleted_count
+
+        notifications_deleted = db["notifications"].delete_many(
+            {"candidate_id": candidate_id}
+        ).deleted_count
+        alerts_deleted = db["sla_alerts"].delete_many(
+            {"candidate_id": candidate_id}
+        ).deleted_count
+        state_deleted = db["ingestion_state"].delete_many(
+            {"candidate_id": candidate_id}
+        ).deleted_count
+        return {
+            "identity_records": identity_deleted,
+            "notifications": notifications_deleted,
+            "sla_alerts": alerts_deleted,
+            "ingestion_state": state_deleted,
+            "storage_refs": storage_refs,
+        }
 
     def count(self, query: Optional[dict] = None, staff_id: Optional[str] = None) -> int:
         return self._coll.count_documents(_scoped(query, staff_id))

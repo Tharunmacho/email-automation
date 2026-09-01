@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   CheckCircle2,
   Download,
+  Edit3,
   FolderGit2,
   IdCard,
   Link as LinkIcon,
@@ -15,6 +16,7 @@ import {
   Mail,
   MapPin,
   Phone,
+  ShieldCheck,
   Plane,
   Star,
 } from "lucide-react";
@@ -30,6 +32,8 @@ import {
   toEditableState,
 } from "@/lib/candidateProfile";
 import {
+  type AnsweredQuestion,
+  type IdentityDocument,
   getCandidateIdentity,
   identityFileUrl,
   resumeDownloadUrl,
@@ -208,6 +212,8 @@ interface CandidateProfileScreenProps {
   candidate: CandidateRecord;
   verifying?: boolean;
   onBack?: () => void;
+  /** Opens the separate edit screen; the profile itself remains read-only. */
+  onEdit?: () => void;
   onVerify?: (candidateId: string) => void;
   /** Supplied by the staff workspace; omitted everywhere else. */
   evaluation?: EvaluationSuite;
@@ -394,18 +400,112 @@ function BulletText({ text }: { text: string }) {
 }
 
 /**
+ * A question and its answer, side by side.
+ *
+ * The question is shown, not assumed. Some of the bot's trade questions are
+ * written for one candidate — for a job no standard pack covers — so their text
+ * exists nowhere but on that record: "TIG, MIG" with no question above it is a
+ * value nobody can interpret. Their own wording is kept underneath where they
+ * typed rather than tapped, because a standardised answer loses the detail and
+ * the detail is often the point.
+ */
+function QuestionList({ items }: { items: AnsweredQuestion[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="cprof-entries">
+      {items.map((item) => (
+        <article key={item.id} className="cprof-entry">
+          <h4 className="cprof-entry-title">{item.question}</h4>
+          <p className="cprof-prose">{item.answer}</p>
+          {item.raw && item.raw.trim() && item.raw.trim() !== item.answer.trim() ? (
+            <p className="cprof-entry-meta">In their words: “{item.raw.trim()}”</p>
+          ) : null}
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One identity document, as much of it as the reader is allowed to see.
+ *
+ * The masked number is what is drawn wherever both exist. A recruiter has to
+ * know *which* card is on file and that it reads correctly; the full number is
+ * a different question with a different answer, and the endpoint only sends it
+ * to an administrator — so when it is here at all, it is here deliberately.
+ *
+ * `check_digits_valid: false` and `aadhaar_number_valid: false` are surfaced
+ * rather than hidden. They mean the OCR misread a character, which matters
+ * precisely because the number is what somebody will key into a visa
+ * application from this screen.
+ */
+function IdentityCard({ document }: { document: IdentityDocument }) {
+  const aadhaar = document.document_type !== "passport";
+  const suspect = aadhaar
+    ? document.aadhaar_number_valid === false
+    : document.check_digits_valid === false;
+
+  return (
+    <article className="cprof-entry">
+      <h4 className="cprof-entry-title">
+        {aadhaar
+          ? document.masked_aadhaar_number || document.aadhaar_number || "Aadhaar card"
+          : document.passport_number || "Passport"}
+        {document.document_side ? (
+          <span className="cprof-entry-at"> · {document.document_side}</span>
+        ) : null}
+      </h4>
+
+      <div className="cprof-facts">
+        {aadhaar ? (
+          <>
+            <Fact label="Name" value={document.name} />
+            <Fact label="Date of birth" value={document.date_of_birth} />
+            <Fact label="Gender" value={document.gender} />
+            <Fact label="Address" value={document.address} />
+            <Fact label="Care of" value={document.care_of} />
+            <Fact label="PIN code" value={document.pincode} />
+            {/* Present only for an administrator. */}
+            <Fact label="Number" value={document.aadhaar_number} />
+          </>
+        ) : (
+          <>
+            <Fact
+              label="Name"
+              value={[document.given_names, document.surname].filter(Boolean).join(" ")}
+            />
+            <Fact label="Date of birth" value={document.date_of_birth} />
+            <Fact label="Nationality" value={document.nationality} />
+            <Fact label="Issued" value={document.date_of_issue} />
+            <Fact label="Expires" value={document.expiry_date} />
+            <Fact label="Issuing country" value={document.issuing_country} />
+          </>
+        )}
+        <Fact label="File" value={document.source?.filename} />
+      </div>
+
+      {suspect ? (
+        <p className="cprof-entry-meta">
+          The number failed its own check — the scan was probably misread. Confirm it against
+          the document before using it.
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+/**
  * The executive profile, read-only by construction.
  *
- * There is no edit control anywhere on this screen and no editable state behind
- * it — changing a candidate is a different screen with a different job. That
- * separation is the point: this one can be read, scrolled and shown to someone
- * without any risk that a stray click alters the record. Verifying is the one
- * exception, and it changes a status rather than any of the parsed fields.
+ * There is no editable state behind this screen — changing a candidate opens a
+ * separate editor with a different job. That separation means this profile can
+ * be read and scrolled without a stray click altering the record.
  */
 export default function CandidateProfileScreen({
   candidate,
   verifying = false,
   onBack,
+  onEdit,
   onVerify,
   evaluation,
 }: CandidateProfileScreenProps) {
@@ -422,7 +522,7 @@ export default function CandidateProfileScreen({
    * against this one's name. Comparing ids covers both, and is the only thing
    * that does.
    */
-  const [identity, setIdentity] = useState<{
+  const [identityState, setIdentityState] = useState<{
     candidateId: string;
     documents: IdentityDocuments | null;
     error: string | null;
@@ -456,14 +556,14 @@ export default function CandidateProfileScreen({
 
     getCandidateIdentity(candidateId)
       .then((documents) => {
-        if (!cancelled) setIdentity({ candidateId, documents, error: null });
+        if (!cancelled) setIdentityState({ candidateId, documents, error: null });
       })
       .catch((err) => {
         // A profile is still worth reading when the identity lookup fails, so
         // this reports rather than throws — the document sections simply say
         // they could not be loaded.
         if (!cancelled) {
-          setIdentity({
+          setIdentityState({
             candidateId,
             documents: null,
             error: err instanceof Error ? err.message : "Could not load identity documents.",
@@ -477,7 +577,7 @@ export default function CandidateProfileScreen({
   }, [candidate.id]);
 
   /** Only this candidate's answer counts; an older one is still in flight. */
-  const identityFor = identity?.candidateId === candidate.id ? identity : null;
+  const identityFor = identityState?.candidateId === candidate.id ? identityState : null;
   const identityError = identityFor?.error ?? null;
 
   const skills = useMemo(
@@ -543,6 +643,40 @@ export default function CandidateProfileScreen({
   const isVerified = candidate.status === "verified";
   const ingestedOn = candidate.created_at ? formatDateFull(new Date(candidate.created_at)) : "—";
 
+  /**
+   * The Aadhaar and passport, fetched separately because they are stored
+   * separately — see `fetchIdentityDocuments`. Empty until it answers, and
+   * empty for good if there are none, which is most candidates.
+   */
+  // Reuse the identity request above. The old second request ran only for
+  // WhatsApp candidates, hiding files added through manual candidate entry.
+  const identityDocuments = useMemo(
+    () => [
+      ...(identityFor?.documents?.aadhaar ?? []),
+      ...(identityFor?.documents?.passport ?? []),
+    ],
+    [identityFor],
+  );
+
+  const job = candidate.job ?? null;
+  const registration = candidate.registration ?? null;
+
+  /** Everything the job panel would draw, so an empty one is never drawn. */
+  const hasJob = Boolean(
+    job &&
+      (job.job ||
+        job.job_category ||
+        job.availability?.band ||
+        job.availability?.date ||
+        job.country?.destination_country ||
+        job.country?.preference ||
+        (job.country?.selected?.length ?? 0) > 0 ||
+        (job.questions?.length ?? 0) > 0 ||
+        job.course_or_trade?.course ||
+        job.course_or_trade?.primary_trade ||
+        (job.course_or_trade?.questions?.length ?? 0) > 0),
+  );
+
   const reviewing = Boolean(evaluation);
   // The stored verdict is worth showing on its own only when nothing on screen
   // can change it. In review mode the live suite is the verdict, and a card
@@ -558,6 +692,12 @@ export default function CandidateProfileScreen({
     { id: "passport", label: "Passport", present: hasPassportSection },
     { id: "aadhaar", label: "Aadhaar", present: hasAadhaarSection },
     { id: "verdict", label: "Verdict & Evaluation", present: hasVerdict },
+    { id: "job", label: "Job", present: hasJob && !hasJobDetails },
+    {
+      id: "identity",
+      label: "Identity documents",
+      present: Boolean(identityError) && identityDocuments.length > 0,
+    },
     { id: "summary", label: "Summary", present: Boolean(view.summary.trim()) },
     { id: "experience", label: "Experience", present: view.work_experience.length > 0 },
     { id: "skills", label: "Skills", present: skills.length > 0 },
@@ -641,6 +781,12 @@ export default function CandidateProfileScreen({
         )}
 
         <div className="cscreen-topbar-actions">
+          {onEdit && (
+            <button type="button" className="cscreen-btn" onClick={onEdit}>
+              <Edit3 size={15} /> Edit details
+            </button>
+          )}
+
           {/* Only offered when a file exists. See `hasResume`. */}
           {hasResume && (
             <button
@@ -1015,6 +1161,106 @@ export default function CandidateProfileScreen({
                   <div className="cprof-fact-value is-multiline">{candidate.evaluation_notes}</div>
                 </React.Fragment>
               ) : null}
+            </div>
+          </section>
+        )}
+
+        {hasJob && job && !hasJobDetails && (
+          <section className="cprof-card" id={sectionId("job")}>
+            <h3 className="cprof-card-title">Job</h3>
+
+            <div className="cprof-facts">
+              <Fact label="Job wanted" value={job.job} />
+              <Fact label="Category" value={job.job_category_title || job.job_category} />
+              <Fact
+                label="Course / trade"
+                value={
+                  [job.course_or_trade?.course, job.course_or_trade?.primary_trade_title]
+                    .filter(Boolean)
+                    .join(" · ") || null
+                }
+              />
+              <Fact label="Highest qualification" value={job.course_or_trade?.education} />
+              <Fact
+                label="Destination"
+                value={job.country?.destination_country || job.country?.preference}
+              />
+              <Fact
+                label="Countries chosen"
+                value={
+                  (job.country?.selected_names?.length
+                    ? job.country.selected_names
+                    : job.country?.selected ?? []
+                  ).join(", ") || null
+                }
+              />
+              {/* Spelled out rather than shown as a code, because it is the one
+                  line on this panel that constrains what a recruiter may do:
+                  a strict candidate must not be shortlisted outside their list
+                  without being asked first. */}
+              <Fact
+                label="Country preference"
+                value={
+                  job.country?.strict
+                    ? "Strict — do not shortlist outside the countries listed without asking"
+                    : job.country?.strictness
+                      ? "Open to other countries"
+                      : null
+                }
+              />
+              <Fact
+                label="Can join"
+                value={
+                  [job.availability?.band, job.availability?.date]
+                    .filter(Boolean)
+                    .join(" · ") || job.availability?.note || null
+                }
+              />
+            </div>
+
+            {(job.course_or_trade?.questions?.length ?? 0) > 0 && (
+              <>
+                <h4 className="cprof-entry-title" style={{ marginTop: "1rem" }}>
+                  About the course and trade
+                </h4>
+                <QuestionList items={job.course_or_trade!.questions!} />
+              </>
+            )}
+
+            {(job.questions?.length ?? 0) > 0 && (
+              <>
+                <h4 className="cprof-entry-title" style={{ marginTop: "1rem" }}>
+                  About the job
+                </h4>
+                <QuestionList items={job.questions!} />
+              </>
+            )}
+
+            {/* Said once, at the foot of the panel it qualifies. A blank on a
+                half-finished registration is a question nobody has asked yet,
+                not an answer of "none". */}
+            {registration && !registration.complete ? (
+              <p className="cprof-entry-meta" style={{ marginTop: "1rem" }}>
+                This registration is still in progress
+                {registration.outstanding_documents?.length
+                  ? ` — still to come: ${registration.outstanding_documents.join(", ")}`
+                  : ""}
+                . Anything blank here has not been asked yet.
+              </p>
+            ) : null}
+          </section>
+        )}
+
+        {identityError && identityDocuments.length > 0 && (
+          <section className="cprof-card" id={sectionId("identity")}>
+            <h3 className="cprof-card-title">
+              <ShieldCheck size={15} style={{ verticalAlign: "-2px", marginRight: "6px" }} />
+              Identity documents
+            </h3>
+            <div className="cprof-entries">
+              {identityDocuments.map((document, index) => (
+                <IdentityCard key={document._id ?? index} document={document} />
+              ))}
             </div>
           </section>
         )}

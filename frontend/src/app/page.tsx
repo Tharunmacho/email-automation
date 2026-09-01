@@ -723,50 +723,53 @@ export default function Home() {
   const handleCreateCandidate = async (files: CandidateUploadFiles) => {
     if (candidateExtraction?.status === "extracting") return;
     const runId = candidateExtractionRunRef.current + 1;
+    const displayName = files.resume?.name || files.full_name || "Manual candidate";
+    const hasDocuments = Boolean(files.resume || files.aadhaar?.length || files.passport?.length);
     candidateExtractionRunRef.current = runId;
     setCreationError(null);
     setCandidateExtraction({
       status: "extracting",
-      filename: files.resume.name,
-      title: "VeriIS extracting",
-      detail: "The documents are queued or being extracted. You can continue working.",
+      filename: displayName,
+      title: hasDocuments ? "VeriIS extracting" : "Creating candidate",
+      detail: hasDocuments
+        ? "The documents are queued or being extracted. You can continue working."
+        : "The candidate is being added. You can continue working.",
     });
-    showToast("Candidate extraction started. You can continue working.", "info");
+    showToast(hasDocuments ? "Candidate extraction started." : "Candidate creation started.", "info");
     try {
       const result = await uploadCandidateDocuments(files);
       if (candidateExtractionRunRef.current !== runId) return;
       const created = result.candidate;
       setCandidateExtraction({
         status: "complete",
-        filename: files.resume.name,
+        filename: displayName,
         title: `${candidateNameOf(created)} is ready`,
-        detail: "Extraction finished. Open the completed candidate profile.",
+        detail: hasDocuments
+          ? "Extraction finished. Open the completed candidate profile."
+          : "Candidate created. Open the completed profile.",
         candidateId: created.id,
       });
       setCandidateEntryReset((nonce) => nonce + 1);
       setRealtimeNonce((nonce) => nonce + 1);
       void refreshCandidates();
-      appendCandidateLog(
-        created.id,
-        "Created",
-        `Candidate extracted from ${result.processed.join(", ")} by VeriIS.`,
-        "success",
-        user?.email,
-      );
-      log(`Added candidate from document upload: ${candidateNameOf(created)}.`, "success");
+      const creationDetail = result.processed.length
+        ? `Candidate created from ${result.processed.join(", ")} using VeriIS.`
+        : `Candidate created manually${files.job_title ? ` for ${files.job_title}` : ""}.`;
+      appendCandidateLog(created.id, "Created", creationDetail, "success", user?.email);
+      log(`Added candidate: ${candidateNameOf(created)}.`, "success");
       const identityNames = result.processed.filter((item) => item !== "resume");
       const identityCopy = identityNames.length
         ? ` ${identityNames.map((item) => item === "aadhaar" ? "Aadhaar" : "passport").join(" and ")} extracted.`
         : "";
-      showToast(`Candidate extracted successfully.${identityCopy}`, "success");
+      showToast(`${hasDocuments ? "Candidate extracted" : "Candidate created"} successfully.${identityCopy}`, "success");
     } catch (err) {
       if (candidateExtractionRunRef.current !== runId) return;
       const message = err instanceof Error ? err.message : "Could not add the candidate.";
       setCreationError(message);
       setCandidateExtraction({
         status: "error",
-        filename: files.resume.name,
-        title: "Extraction needs attention",
+        filename: displayName,
+        title: hasDocuments ? "Extraction needs attention" : "Candidate was not created",
         detail: message,
       });
       showToast(message, "error");
@@ -1105,6 +1108,7 @@ export default function Home() {
                 candidate={screenCandidate}
                 verifying={verifying}
                 onBack={closeScreen}
+                onEdit={() => handleEditCandidate(screenCandidate)}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
                 evaluation={
                   user?.role === "staff"

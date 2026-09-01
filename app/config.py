@@ -655,6 +655,19 @@ class Settings(BaseSettings):
         return Path(self.storage_local_dir)
 
     @model_validator(mode="after")
+    def _use_canonical_mongo_database(self) -> "Settings":
+        """The production CRM has one database name: ``resume_ats``.
+
+        A short-lived deployment used ``adira`` and split new registrations
+        away from the existing CRM data. Keep accepting that stale environment
+        value during rollout, but route it to the canonical database so future
+        deploys cannot recreate the split.
+        """
+        if self.mongo_db.strip().lower() == "adira":
+            object.__setattr__(self, "mongo_db", "resume_ats")
+        return self
+
+    @model_validator(mode="after")
     def _redis_url_follows_the_broker(self) -> "Settings":
         """One Redis, configured once.
 

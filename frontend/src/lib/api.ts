@@ -26,6 +26,9 @@ import type {
   AadhaarRecord,
   PassportRecord,
   IdentityDocuments,
+  IdentityDocument,
+  AnsweredQuestion,
+  CandidateUploadResponse,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
@@ -43,7 +46,6 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  CandidateUploadResponse,
 } from "@/types";
 
 export type {
@@ -59,6 +61,9 @@ export type {
   AadhaarRecord,
   PassportRecord,
   IdentityDocuments,
+  IdentityDocument,
+  AnsweredQuestion,
+  CandidateUploadResponse,
   PollAttachmentResult,
   PollMessageResult,
   PollSummary,
@@ -76,7 +81,6 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
-  CandidateUploadResponse,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -225,22 +229,20 @@ export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
 }
 
-/**
- * The Aadhaar and passport scans read out of this candidate's application.
- *
- * A separate call rather than part of the record, because they are stored in
- * their own collections precisely so the reads that build the candidate list
- * cannot serve a government identity number to a browser. The server masks the
- * Aadhaar number and the MRZ for anyone who is not an administrator, so what
- * comes back depends on who is asking.
- *
- * A candidate with no scans on file is the normal case, not a failure — it
- * returns two empty lists.
- */
+/** Fetch the separately stored Aadhaar and passport records for one candidate. */
 export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
   return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
     cache: "no-store",
   });
+}
+
+/** Backward-compatible identity lookup used by older profile views. */
+export async function fetchIdentityDocuments(candidateId: string): Promise<IdentityDocuments> {
+  try {
+    return await getCandidateIdentity(candidateId);
+  } catch {
+    return { candidate_id: candidateId, aadhaar: [], passport: [] };
+  }
 }
 
 /** Runs the poll inline; the request is held open for the whole batch. */
@@ -366,16 +368,26 @@ export function updateCandidateProfile(
   });
 }
 
-/** Upload documents and let VeriIS create the structured candidate profile. */
+/** Create a candidate manually, optionally enriching the profile from documents. */
 export function uploadCandidateDocuments(files: {
-  resume: File;
-  aadhaar?: File | null;
-  passport?: File | null;
+  resume?: File | null;
+  aadhaar?: File[];
+  passport?: File[];
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  job_id?: string;
+  destination_country?: string;
 }): Promise<CandidateUploadResponse> {
   const body = new FormData();
-  body.append("resume", files.resume);
-  if (files.aadhaar) body.append("aadhaar", files.aadhaar);
-  if (files.passport) body.append("passport", files.passport);
+  if (files.resume) body.append("resume", files.resume);
+  files.aadhaar?.forEach((file) => body.append("aadhaar", file));
+  files.passport?.forEach((file) => body.append("passport", file));
+  if (files.full_name) body.append("full_name", files.full_name);
+  if (files.email) body.append("email", files.email);
+  if (files.phone) body.append("phone", files.phone);
+  if (files.job_id) body.append("job_id", files.job_id);
+  if (files.destination_country) body.append("destination_country", files.destination_country);
   return request<CandidateUploadResponse>("/candidates/upload", {
     method: "POST",
     body,
@@ -983,6 +995,15 @@ export function updateUserAPI(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+}
+
+export function deleteUserAPI(userId: string): Promise<{
+  status: string;
+  id: string;
+  reallocated: number;
+  orphaned: number;
+}> {
+  return request(`/users/${userId}`, { method: "DELETE" });
 }
 
 

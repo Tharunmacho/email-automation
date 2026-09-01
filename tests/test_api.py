@@ -25,6 +25,14 @@ class MockRepository:
         self.candidates[record.id] = record
         return record.id
 
+    def find_by_resume_hash(self, resume_hash):
+        if not resume_hash:
+            return None
+        return next(
+            (record for record in self.candidates.values() if record.resume_hash == resume_hash),
+            None,
+        )
+
     def update_profile(self, candidate_id: str, profile: CandidateProfile):
         if candidate_id in self.candidates:
             self.candidates[candidate_id].profile = profile
@@ -274,11 +282,13 @@ def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_res
         assign.return_value = MagicMock(assigned=False)
         response = test_client.post(
             "/candidates/upload",
-            files={
-                "resume": ("meera.pdf", b"resume-bytes", "application/pdf"),
-                "aadhaar": ("aadhaar.jpg", b"aadhaar-bytes", "image/jpeg"),
-                "passport": ("passport.png", b"passport-bytes", "image/png"),
-            },
+            files=[
+                ("resume", ("meera.pdf", b"resume-bytes", "application/pdf")),
+                ("aadhaar", ("aadhaar-front.jpg", b"aadhaar-front", "image/jpeg")),
+                ("aadhaar", ("aadhaar-back.jpg", b"aadhaar-back", "image/jpeg")),
+                ("passport", ("passport-data.png", b"passport-data", "image/png")),
+                ("passport", ("passport-address.png", b"passport-address", "image/png")),
+            ],
         )
 
     assert response.status_code == 201
@@ -293,8 +303,8 @@ def test_upload_candidate_sends_files_to_document_intake_and_returns_curated_res
 
     sent = intake.call_args.kwargs
     assert sent["resume"].data == b"resume-bytes"
-    assert sent["aadhaar"].data == b"aadhaar-bytes"
-    assert sent["passport"].data == b"passport-bytes"
+    assert [upload.data for upload in sent["aadhaar"]] == [b"aadhaar-front", b"aadhaar-back"]
+    assert [upload.data for upload in sent["passport"]] == [b"passport-data", b"passport-address"]
     assert sent["uploader_id"] == "test-user"
     assign.assert_called_once()
 
@@ -332,12 +342,44 @@ def test_staff_upload_is_assigned_to_the_uploader(test_client):
     balance.assert_not_called()
 
 
-def test_upload_candidate_requires_a_resume(test_client):
-    response = test_client.post(
-        "/candidates/upload",
-        files={"passport": ("passport.jpg", b"passport", "image/jpeg")},
-    )
-    assert response.status_code == 422
+def test_upload_candidate_allows_manual_entry_without_a_resume(test_client):
+    result = _uploaded_candidate_result()
+    result.candidate.resume = None
+    result.candidate.resume_hash = None
+    result.candidate.source = "manual"
+    result.candidate.profile.job_id = "electrician"
+    result.candidate.profile.job_title = "Electrician"
+    result.candidate.profile.destination_country = "UAE"
+
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        return_value=result,
+    ) as intake, patch(
+        "app.db.taxonomy.get_job",
+        return_value={"id": "electrician", "title": "Electrician", "active": True},
+    ), patch(
+        "app.db.taxonomy.list_countries",
+        return_value=[{"id": "uae", "name": "UAE", "active": True}],
+    ), patch("app.api.routes.assign_candidate") as assign:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/upload",
+            data={
+                "full_name": "Meera Nair",
+                "email": "meera@example.com",
+                "job_id": "electrician",
+                "destination_country": "uae",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["processed"] == []
+    assert response.json()["ocr_provider"] == "manual"
+    sent = intake.call_args.kwargs
+    assert sent["resume"] is None
+    assert sent["job_id"] == "electrician"
+    assert sent["job_title"] == "Electrician"
+    assert sent["destination_country"] == "UAE"
 
 
 def test_upload_candidate_translates_intake_refusal(test_client):
@@ -357,6 +399,143 @@ def test_upload_candidate_translates_intake_refusal(test_client):
 
     assert response.status_code == 422
     assert "passport MRZ checksum failed" in response.json()["detail"]
+
+
+def test_upload_candidate_refuses_more_than_two_identity_images(test_client):
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate"
+    ) as intake:
+        response = test_client.post(
+            "/candidates/upload",
+            files=[
+                ("aadhaar", (f"aadhaar-{side}.jpg", side.encode(), "image/jpeg"))
+                for side in ("front", "back", "extra")
+            ],
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Upload no more than two Aadhaar files."
+    intake.assert_not_called()
+
+
+def test_import_candidate_preserves_record_and_stores_matching_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "imported-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "imported-hash"
+    payload = b"original-resume-bytes"
+    import hashlib
+
+    digest = hashlib.sha256(payload).hexdigest()
+    imported.resume.sha256 = digest
+    imported.resume_hash = digest
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", payload, "application/pdf")},
+        )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "status": "imported",
+        "candidate_id": "candidate-imported",
+        "resume_stored": True,
+    }
+    storage.save.assert_called_once()
+    saved_key, saved_payload = storage.save.call_args.args[:2]
+    assert saved_key.startswith("imports/candidate-imported/")
+    assert saved_payload == payload
+
+
+def test_import_candidate_rejects_resume_hash_mismatch(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "expected-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "expected-hash"
+
+    with patch("app.api.routes.get_storage_backend") as storage:
+        response = test_client.post(
+            "/candidates/import",
+            data={"record_json": imported.model_dump_json()},
+            files={"resume_file": ("meera.pdf", b"wrong-file", "application/pdf")},
+        )
+
+    assert response.status_code == 422
+    assert "SHA-256" in response.json()["detail"]
+    storage.return_value.save.assert_not_called()
+
+
+def test_import_candidate_requires_explicit_missing_resume_acknowledgement(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+
+    response = test_client.post(
+        "/candidates/import",
+        data={"record_json": imported.model_dump_json()},
+    )
+
+    assert response.status_code == 422
+    assert "allow_missing_resume" in response.json()["detail"]
+
+
+def test_import_candidate_allows_admin_to_preserve_record_with_lost_resume(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    storage = MagicMock(name="import-storage")
+    storage.name = "gridfs"
+
+    with patch("app.api.routes.get_storage_backend", return_value=storage):
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["resume_stored"] is False
+    storage.save.assert_not_called()
+
+
+def test_import_candidate_is_forbidden_to_staff(test_client):
+    imported = _uploaded_candidate_result().candidate.model_copy(
+        update={"id": "candidate-imported", "resume_hash": "missing-hash"},
+        deep=True,
+    )
+    imported.resume.sha256 = "missing-hash"
+    previous_user = app.dependency_overrides[current_user]
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "staff-7",
+        "email": "recruiter@example.com",
+        "name": "Recruiter Seven",
+        "role": "staff",
+        "pages": ["candidates", "candidate-entry"],
+    }
+    try:
+        response = test_client.post(
+            "/candidates/import",
+            data={
+                "record_json": imported.model_dump_json(),
+                "allow_missing_resume": "true",
+            },
+        )
+    finally:
+        app.dependency_overrides[current_user] = previous_user
+
+    assert response.status_code == 403
 
 
 def test_manual_candidate_json_endpoint_is_removed(test_client):

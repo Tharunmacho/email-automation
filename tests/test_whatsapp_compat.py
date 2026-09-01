@@ -256,6 +256,34 @@ def test_it_validates_as_a_candidate_record():
     assert record.profile.full_name == "SATHISH SAKKARABANI"
 
 
+def test_bot_resume_pointer_cannot_break_the_candidate_detail_read():
+    """The bot's document reference is not a CRM StoredResume.
+
+    It may carry a URL, upload id, or status object under the same field name.
+    The list endpoint never validates that unprojected value, but the detail
+    endpoint does; keeping it therefore made the row visible and impossible to
+    open. Nothing is lost by dropping it because no bytes were stored through
+    this CRM's storage backend.
+    """
+    bot = dict(
+        BOT_DOC,
+        resume={"fileName": "cv.pdf", "url": "https://bot.invalid/cv.pdf"},
+        resume_hash="bot-owned-hash",
+        cv_required=True,
+        cv_policy_version="bot-claim",
+        contacts={"primary": "9199"},
+    )
+
+    from app.core.models import CandidateRecord
+
+    record = CandidateRecord.from_mongo(whatsapp_compat.normalize(bot))
+    assert record.resume is None
+    assert record.resume_hash is None
+    assert record.contacts == []
+    assert record.cv_required is False
+    assert record.cv_policy_version is None
+
+
 def test_no_cv_requirement_is_claimed_for_a_record_that_was_never_assessed():
     """Deriving the requirement is something the intake endpoint does, and this
     record did not go through it. An empty `cv_policy_version` beside a False
