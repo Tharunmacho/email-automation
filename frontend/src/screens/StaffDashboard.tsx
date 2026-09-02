@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 
 import { fetchUiConfig, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
+import Select from "@/components/ui/Select";
 import { formatInt, initialsOf, timeAgo } from "@/lib/format";
 
 interface StaffDashboardProps {
@@ -475,18 +476,14 @@ export default function StaffDashboard({
                 aria-label="Search your queue"
               />
             </label>
-            <select
-              className="ds-select"
+            <Select
+              className="ds-select-control"
+              size="sm"
               value={sort}
-              onChange={(event) => setSort(event.target.value as QueueSort)}
-              aria-label="Sort the queue"
-            >
-              {SORTS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              options={SORTS.map((option) => ({ value: option.id, label: option.label }))}
+              onChange={(value) => setSort(value as QueueSort)}
+              ariaLabel="Sort the queue"
+            />
           </div>
         </div>
 

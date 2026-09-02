@@ -23,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
+import Select from "@/components/ui/Select";
 import {
   assignCandidate,
   listStaff,
@@ -837,20 +838,17 @@ export default function CandidatesView({
                     <Loader2 size={16} className="icon-spin" /> Loading staff…
                   </div>
                 ) : (
-                  <select
+                  <Select
                     id="candidate-owner"
-                    className="modal-select"
                     value={selectedStaffId}
-                    onChange={(event) => setSelectedStaffId(event.target.value)}
-                    autoFocus
-                  >
-                    <option value="">Select an active staff member</option>
-                    {staff.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name || member.email}
-                      </option>
-                    ))}
-                  </select>
+                    options={staff.map((member) => ({
+                      value: member.id,
+                      label: member.name || member.email,
+                    }))}
+                    onChange={setSelectedStaffId}
+                    placeholder="Select an active staff member"
+                    ariaLabel="Assign to"
+                  />
                 )}
                 <span className="modal-hint">
                   New candidates continue to be distributed automatically to the least-loaded active staff member.

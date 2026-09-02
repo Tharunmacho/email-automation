@@ -54,8 +54,15 @@ def reply_policy(
 
         db = database if database is not None else get_db()
         sourcing = db["sourcing_clients"]
-        for contact in sourcing.find({}, {"_id": 0, "phone": 1}):
-            if normalize_phone(contact.get("phone")) == phone_key:
+        projection = {"_id": 0, "phone": 1, "contacts.phone": 1}
+        for account in sourcing.find({}, projection):
+            phones = [account.get("phone")]
+            phones.extend(
+                contact.get("phone")
+                for contact in account.get("contacts", [])
+                if isinstance(contact, dict)
+            )
+            if any(normalize_phone(contact_phone) == phone_key for contact_phone in phones):
                 return {
                     "should_reply": False,
                     "action": "ignore",

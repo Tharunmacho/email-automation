@@ -242,8 +242,15 @@ def attach_sourcing_match(doc: Dict[str, Any]) -> Dict[str, Any]:
         if phone_key:
             # `sourcing_clients` stores phones as typed, so the comparison has
             # to happen here rather than in the query.
-            for client in clients.find({}, {"_id": 0, "id": 1, "name": 1, "phone": 1}):
-                if normalize_phone(client.get("phone")) == phone_key:
+            projection = {"_id": 0, "id": 1, "name": 1, "phone": 1, "contacts.phone": 1}
+            for client in clients.find({}, projection):
+                phones = [client.get("phone")]
+                phones.extend(
+                    contact.get("phone")
+                    for contact in client.get("contacts", [])
+                    if isinstance(contact, dict)
+                )
+                if any(normalize_phone(contact_phone) == phone_key for contact_phone in phones):
                     match = client
                     break
         if match is None and name_key:

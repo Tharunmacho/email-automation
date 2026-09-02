@@ -3369,7 +3369,7 @@ def retire_job_designation(job_id: str, _user: dict = Depends(require_page("data
 
 @app.get("/countries")
 def list_country_rows(
-    _user: dict = Depends(require_page("data-management", "candidate-entry")),
+    _user: dict = Depends(require_page("data-management", "candidate-entry", "sourcing")),
 ) -> dict:
     from app.db.taxonomy import list_countries
 

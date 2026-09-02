@@ -22,12 +22,12 @@ class FakeUsers:
 
 
 class FakeSourcingCollection:
-    def __init__(self, *phones: str):
-        self.rows = [{"phone": phone} for phone in phones]
+    def __init__(self, *phones: str | dict):
+        self.rows = [phone if isinstance(phone, dict) else {"phone": phone} for phone in phones]
 
     def find(self, query, projection):
         assert query == {}
-        assert projection == {"_id": 0, "phone": 1}
+        assert projection == {"_id": 0, "phone": 1, "contacts.phone": 1}
         return list(self.rows)
 
 
@@ -59,6 +59,22 @@ def test_sourcing_hub_number_is_ignored_across_phone_formatting():
         "action": "ignore",
         "reason": "sourcing_contact_number",
     }
+
+
+def test_every_sourcing_contact_number_is_ignored():
+    response, _ = call_policy(
+        "+91 97777 77777",
+        sourcing=({
+            "phone": "+91 96666 66666",
+            "contacts": [
+                {"name": "Primary HR", "phone": "+91 96666 66666"},
+                {"name": "Second HR", "phone": "+91 97777 77777"},
+            ],
+        },),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["reason"] == "sourcing_contact_number"
 
 
 def test_staff_number_is_ignored_including_inactive_accounts():

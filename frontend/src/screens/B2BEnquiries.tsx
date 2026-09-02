@@ -9,7 +9,6 @@ import {
   Calendar,
   Check,
   CheckCircle,
-  ChevronDown,
   Clock,
   Copy,
   Hash,
@@ -28,6 +27,7 @@ import {
 } from "lucide-react";
 
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
+import Select from "@/components/ui/Select";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf, timeAgo } from "@/lib/format";
 import {
@@ -747,20 +747,17 @@ export default function B2BEnquiries({ onActivity }: B2BEnquiriesProps) {
             )}
           </div>
 
-          <div className="sh-select">
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              aria-label="Sort enquiries"
-            >
-              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
-                <option key={key} value={key}>
-                  {SORT_LABELS[key]}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </div>
+          <Select
+            className="sh-sort-select"
+            size="sm"
+            value={sortKey}
+            options={(Object.keys(SORT_LABELS) as SortKey[]).map((key) => ({
+              value: key,
+              label: SORT_LABELS[key],
+            }))}
+            onChange={(value) => setSortKey(value as SortKey)}
+            ariaLabel="Sort enquiries"
+          />
 
           <button className="sh-new-btn" onClick={() => setLogOpen(true)}>
             <Plus size={16} />
@@ -1308,16 +1305,17 @@ function LogEnquiryDialog({ busy, onClose, onSubmit }: LogEnquiryDialogProps) {
                 <label className="modal-label" htmlFor="be-log-type">
                   Type
                 </label>
-                <select
+                <Select
                   id="be-log-type"
-                  className="modal-select"
                   value={partyType}
-                  onChange={(e) => setPartyType(e.target.value)}
-                >
-                  <option value="agent">Agent — introduces candidates</option>
-                  <option value="association">Associate — represents a membership</option>
-                  <option value="client">Client — a company hiring under contract</option>
-                </select>
+                  options={[
+                    { value: "agent", label: "Agent", hint: "Introduces candidates" },
+                    { value: "association", label: "Associate", hint: "Represents a membership" },
+                    { value: "client", label: "Client", hint: "A company hiring under contract" },
+                  ]}
+                  onChange={setPartyType}
+                  ariaLabel="Enquiry party type"
+                />
               </div>
               <div className="sh-field">
                 <label className="modal-label" htmlFor="be-log-company">

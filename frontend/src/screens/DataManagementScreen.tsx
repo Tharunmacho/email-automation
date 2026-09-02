@@ -46,6 +46,7 @@ import {
   type JobDesignation,
   type JobQuestion,
 } from "@/lib/api";
+import Select from "@/components/ui/Select";
 
 /**
  * WhatsApp shows at most ten rows in a list and rejects an eleventh outright,
@@ -836,14 +837,15 @@ function JobEditor({
 
         <div className="field-group">
           <div className="modal-label">Does this job need a CV?</div>
-          <select
-            className="modal-select"
+          <Select
             value={defaultRequired ? "required" : "not_required"}
-            onChange={(e) => setDefaultRequired(e.target.value === "required")}
-          >
-            <option value="required">CV required</option>
-            <option value="not_required">CV not required</option>
-          </select>
+            options={[
+              { value: "required", label: "CV required" },
+              { value: "not_required", label: "CV not required" },
+            ]}
+            onChange={(value) => setDefaultRequired(value === "required")}
+            ariaLabel="Default CV requirement"
+          />
           <div className="modal-hint">
             The answer everywhere, unless a country below says otherwise.
           </div>
@@ -861,19 +863,21 @@ function JobEditor({
                 <tr key={country.id}>
                   <td className="dm-cell-strong">{country.name}</td>
                   <td>
-                    <select
-                      className="modal-select"
+                    <Select
                       value={ruleFor(country)}
-                      onChange={(e) =>
-                        setRule(country, e.target.value as "default" | "required" | "not_required")
+                      options={[
+                        {
+                          value: "default",
+                          label: `Follows default (${defaultRequired ? "required" : "not required"})`,
+                        },
+                        { value: "required", label: "CV required" },
+                        { value: "not_required", label: "CV not required" },
+                      ]}
+                      onChange={(value) =>
+                        setRule(country, value as "default" | "required" | "not_required")
                       }
-                    >
-                      <option value="default">
-                        Follows the default ({defaultRequired ? "required" : "not required"})
-                      </option>
-                      <option value="required">CV required</option>
-                      <option value="not_required">CV not required</option>
-                    </select>
+                      ariaLabel={`CV rule for ${country.name}`}
+                    />
                   </td>
                 </tr>
               ))}
@@ -1048,18 +1052,13 @@ function QuestionEditor({
           <label className="modal-label" htmlFor="q-job">
             Asked of candidates who choose
           </label>
-          <select
+          <Select
             id="q-job"
-            className="modal-select"
             value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-          >
-            {jobs.map((job) => (
-              <option key={job.id} value={job.id}>
-                {job.title}
-              </option>
-            ))}
-          </select>
+            options={jobs.map((job) => ({ value: job.id, label: job.title }))}
+            onChange={setJobId}
+            ariaLabel="Job for this question"
+          />
         </div>
 
         <div className="field-group">
@@ -1084,15 +1083,16 @@ function QuestionEditor({
             <label className="modal-label" htmlFor="q-kind">
               Answer
             </label>
-            <select
+            <Select
               id="q-kind"
-              className="modal-select"
               value={kind}
-              onChange={(e) => setKind(e.target.value as "text" | "choice")}
-            >
-              <option value="text">They type it</option>
-              <option value="choice">They tap one of your options</option>
-            </select>
+              options={[
+                { value: "text", label: "They type it" },
+                { value: "choice", label: "They tap one of your options" },
+              ]}
+              onChange={(value) => setKind(value as "text" | "choice")}
+              ariaLabel="Answer type"
+            />
           </div>
           <div className="field-group">
             <label className="modal-label" htmlFor="q-order">

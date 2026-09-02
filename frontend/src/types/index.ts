@@ -708,6 +708,13 @@ export interface AuthUser {
 /** Who a sourcing relationship is with. */
 export type SourcingType = "agent" | "association" | "client";
 
+/** One person the agency can contact at a sourcing partner. */
+export interface SourcingContact {
+  name: string;
+  phone: string;
+  email: string;
+}
+
 /**
  * One party in the sourcing network, as it round-trips through the API.
  *
@@ -727,6 +734,12 @@ export interface SourcingClientRecord {
   industryOrCategory?: string;
   regNo?: string;
   address?: string;
+  country?: string;
+  /**
+   * All known contacts, with the primary contact first. The three top-level
+   * contact fields above mirror that first entry for older API consumers.
+   */
+  contacts?: SourcingContact[];
 }
 
 /**
@@ -802,6 +815,8 @@ export interface JobOrderRecord {
   dueDate: string;
   status: "OPEN" | "IN PROGRESS" | "FILLED" | "CLOSED";
   minExperience?: string;
+  minAge?: number;
+  maxAge?: number;
   industry?: string;
   designation?: string;
   fulfilledCount?: number;

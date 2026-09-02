@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 
 import DatePicker from "@/components/ui/DatePicker";
+import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf, formatDateFull, formatInt, initialsOf } from "@/lib/format";
@@ -44,6 +45,7 @@ import {
   createJobOrderAPI,
   updateJobOrderAPI,
   deleteJobOrderAPI,
+  listSourcingClientsAPI,
   type CandidateRecord,
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
@@ -56,6 +58,15 @@ import type { JobOrderRecord, JobOrderStatus } from "@/types";
 export type { JobOrderRecord, JobOrderStatus };
 
 const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
+
+const EXPERIENCE_OPTIONS = [
+  "Freshers (0 yrs)", "1-2 Years", "3-5 Years", "5-8 Years", "8+ Years",
+].map((value) => ({ value, label: value }));
+
+const INDUSTRY_OPTIONS = [
+  "IT Services & Consulting", "Software & Technology", "Logistics & Transport",
+  "Healthcare", "Finance & Banking", "Manufacturing", "Oil & Gas", "Construction",
+].map((value) => ({ value, label: value }));
 
 const STATUS_TONE: Record<JobOrderStatus, StatTone> = {
   OPEN: "blue",
@@ -454,6 +465,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [selectedClient, setSelectedClient] = useState("");
   const [designationRole, setDesignationRole] = useState("");
   const [minExperience, setMinExperience] = useState("");
+  const [minAge, setMinAge] = useState("");
+  const [maxAge, setMaxAge] = useState("");
   const [industry, setIndustry] = useState("");
   const [requiredSkills, setRequiredSkills] = useState("");
   const [salaryRange, setSalaryRange] = useState("");
@@ -467,6 +480,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [editIndustry, setEditIndustry] = useState("");
   const [editDesignation, setEditDesignation] = useState("");
   const [editMinExperience, setEditMinExperience] = useState("");
+  const [editMinAge, setEditMinAge] = useState("");
+  const [editMaxAge, setEditMaxAge] = useState("");
   const [editSalary, setEditSalary] = useState("");
   const [editSkills, setEditSkills] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
@@ -513,20 +528,22 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   }, [hasParentCandidates]);
 
   useEffect(() => {
-    const namesOf = (records: { name?: string }[]) =>
+    const namesOf = (records: { name?: string; type?: string }[]) =>
       Array.from(new Set(records.map((r) => r.name).filter(Boolean) as string[]));
 
     let active = true;
-    import("@/lib/api").then(({ listSourcingClientsAPI }) => {
-      listSourcingClientsAPI()
-        .then((res) => {
-          if (active) setClientOptions(namesOf(res.items ?? []));
-        })
-        .catch(() => {
-          const cached = readCache<{ name?: string }>(CACHE_KEYS.sourcingClients);
-          if (active && cached) setClientOptions(namesOf(cached));
-        });
-    });
+    listSourcingClientsAPI()
+      .then((res) => {
+        // Agents introduce candidates; they are not the hiring party on a job
+        // order. Associations and clients are both valid requisition owners.
+        const eligible = (res.items ?? []).filter((record) => record.type !== "agent");
+        if (active) setClientOptions(namesOf(eligible));
+      })
+      .catch(() => {
+        const cached = readCache<{ name?: string; type?: string }>(CACHE_KEYS.sourcingClients);
+        const eligible = (cached ?? []).filter((record) => record.type !== "agent");
+        if (active) setClientOptions(namesOf(eligible));
+      });
 
     return () => {
       active = false;
@@ -573,6 +590,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setEditIndustry(item.industry || "");
     setEditDesignation(item.designation || item.title);
     setEditMinExperience(item.minExperience || "");
+    setEditMinAge(item.minAge == null ? "" : String(item.minAge));
+    setEditMaxAge(item.maxAge == null ? "" : String(item.maxAge));
     setEditSalary(item.salary);
     setEditSkills(item.skills.join(", "));
     setEditRemarks(item.description || "");
@@ -602,6 +621,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       industry: editIndustry || "General",
       designation: editDesignation || editTitle,
       minExperience: editMinExperience || "Any",
+      minAge: editMinAge ? Math.max(18, parseInt(editMinAge, 10) || 18) : undefined,
+      maxAge: editMaxAge ? Math.min(99, parseInt(editMaxAge, 10) || 99) : undefined,
       salary: editSalary || "Not disclosed",
       skills: parsedSkills.length > 0 ? parsedSkills : ["General"],
       description: editRemarks,
@@ -737,7 +758,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
 
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!designationRole.trim()) return;
+    if (!designationRole.trim() || !selectedClient) return;
 
     const uniqueNum = Math.floor(100 + Math.random() * 900);
     const id = `ORD-${uniqueNum}-${Date.now().toString().slice(-4)}`;
@@ -758,6 +779,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       dueDate: newDueDate || defaultDueDate(),
       status: "OPEN",
       minExperience: minExperience || "Any",
+      minAge: minAge ? Math.max(18, parseInt(minAge, 10) || 18) : undefined,
+      maxAge: maxAge ? Math.min(99, parseInt(maxAge, 10) || 99) : undefined,
       industry: industry || "General",
       designation: designationRole,
       shortlistedCandidateIds: [],
@@ -771,6 +794,8 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setSelectedClient("");
     setDesignationRole("");
     setMinExperience("");
+    setMinAge("");
+    setMaxAge("");
     setIndustry("");
     setRequiredSkills("");
     setSalaryRange("");
@@ -950,6 +975,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     if (!isEditModalOpen) return null;
 
     const editingDueMeta = getDueMeta(editDueDate);
+    const editExperienceOptions = editMinExperience && !EXPERIENCE_OPTIONS.some((option) => option.value === editMinExperience)
+      ? [{ value: editMinExperience, label: editMinExperience }, ...EXPERIENCE_OPTIONS]
+      : EXPERIENCE_OPTIONS;
+    const editIndustryOptions = editIndustry && !INDUSTRY_OPTIONS.some((option) => option.value === editIndustry)
+      ? [{ value: editIndustry, label: editIndustry }, ...INDUSTRY_OPTIONS]
+      : INDUSTRY_OPTIONS;
 
     return (
       <div className="cm-overlay active" onClick={closeEditModal}>
@@ -1033,11 +1064,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               <div className="modal-row-2">
                 <div>
                   <label className="modal-label">Required Industry</label>
-                  <input
-                    type="text"
-                    className="modal-input"
+                  <Select
                     value={editIndustry}
-                    onChange={(e) => setEditIndustry(e.target.value)}
+                    options={editIndustryOptions}
+                    onChange={setEditIndustry}
+                    placeholder="Select industry"
+                    ariaLabel="Required industry"
                   />
                 </div>
                 <div>
@@ -1054,11 +1086,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               <div className="modal-row-2">
                 <div>
                   <label className="modal-label">Min. Experience (Years)</label>
-                  <input
-                    type="text"
-                    className="modal-input"
+                  <Select
                     value={editMinExperience}
-                    onChange={(e) => setEditMinExperience(e.target.value)}
+                    options={editExperienceOptions}
+                    onChange={setEditMinExperience}
+                    placeholder="Select experience"
+                    ariaLabel="Minimum experience"
                   />
                 </div>
                 <div>
@@ -1069,6 +1102,37 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                     value={editSalary}
                     onChange={(e) => setEditSalary(e.target.value)}
                   />
+                </div>
+              </div>
+
+              <div>
+                <span className="modal-label">Age limit (Years)</span>
+                <div className="jo-age-range">
+                  <label>
+                    <span>From</span>
+                    <input
+                      type="number"
+                      min="18"
+                      max={editMaxAge || "99"}
+                      className="modal-input"
+                      placeholder="18"
+                      value={editMinAge}
+                      onChange={(e) => setEditMinAge(e.target.value)}
+                    />
+                  </label>
+                  <span className="jo-age-separator">to</span>
+                  <label>
+                    <span>To</span>
+                    <input
+                      type="number"
+                      min={editMinAge || "18"}
+                      max="99"
+                      className="modal-input"
+                      placeholder="60"
+                      value={editMaxAge}
+                      onChange={(e) => setEditMaxAge(e.target.value)}
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -1463,6 +1527,15 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             </div>
 
             <div className="jod-spec">
+              <dt>Age limit</dt>
+              <dd>
+                {selectedOrder.minAge || selectedOrder.maxAge
+                  ? `${selectedOrder.minAge ?? "Any"}–${selectedOrder.maxAge ?? "Any"} years`
+                  : "Any"}
+              </dd>
+            </div>
+
+            <div className="jod-spec">
               <dt>Expected salary</dt>
               <dd>₹ {formatSalary(selectedOrder.salary)}</dd>
             </div>
@@ -1554,18 +1627,17 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               <span className="jo-filters-label">
                 <ArrowUpDown size={14} /> SORT
               </span>
-              <div className="sh-select">
-                <select
-                  value={matchSort}
-                  onChange={(e) => setMatchSort(e.target.value as typeof matchSort)}
-                  aria-label="Sort candidate matches"
-                >
-                  <option value="SCORE">Match score (high to low)</option>
-                  <option value="EXP">Experience (high to low)</option>
-                  <option value="NAME">Candidate name (A–Z)</option>
-                </select>
-                <ChevronDown size={14} />
-              </div>
+              <Select
+                size="sm"
+                value={matchSort}
+                options={[
+                  { value: "SCORE", label: "Match score (high to low)" },
+                  { value: "EXP", label: "Experience (high to low)" },
+                  { value: "NAME", label: "Candidate name (A–Z)" },
+                ]}
+                onChange={(value) => setMatchSort(value as typeof matchSort)}
+                ariaLabel="Sort candidate matches"
+              />
             </div>
 
             {(selectedOrder.skills || []).length > 0 && (
@@ -2135,7 +2207,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               <div>
                 <h3 className="sh-modal-title">New job order</h3>
                 <p className="sh-modal-sub">
-                  Raise a requisition against a sourcing client — candidates are matched to it automatically.
+                  Raise a requisition for an associate or client — candidates are matched to it automatically.
                 </p>
               </div>
               <button className="sh-modal-close" onClick={() => setIsCreateModalOpen(false)} aria-label="Close">
@@ -2147,23 +2219,14 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
               <div className="modal-body sh-modal-body">
                 <div className="modal-row-2">
                   <div>
-                    <label className="modal-label">Client (Company)</label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        type="text"
-                        list="job-client-datalist"
-                        className="modal-input"
-                        placeholder="Select or type Client name..."
-                        required
-                        value={selectedClient}
-                        onChange={(e) => setSelectedClient(e.target.value)}
-                      />
-                      <datalist id="job-client-datalist">
-                        {clientOptions.map((client) => (
-                          <option key={client} value={client} />
-                        ))}
-                      </datalist>
-                    </div>
+                    <label className="modal-label">Associate / Client</label>
+                    <Select
+                      value={selectedClient}
+                      options={clientOptions.map((client) => ({ value: client, label: client }))}
+                      onChange={setSelectedClient}
+                      placeholder="Select an associate or client"
+                      ariaLabel="Client company"
+                    />
                   </div>
 
                   <div>
@@ -2182,45 +2245,55 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 <div className="modal-row-2">
                   <div>
                     <label className="modal-label">Min. Experience (Years)</label>
-                    <div style={{ position: "relative" }}>
-                      <input
-                        type="text"
-                        list="job-exp-datalist"
-                        className="modal-input"
-                        placeholder="Select or type Experience..."
-                        value={minExperience}
-                        onChange={(e) => setMinExperience(e.target.value)}
-                      />
-                      <datalist id="job-exp-datalist">
-                        <option value="Freshers (0 yrs)" />
-                        <option value="1-2 Years" />
-                        <option value="3-5 Years" />
-                        <option value="5-8 Years" />
-                        <option value="8+ Years" />
-                      </datalist>
-                    </div>
+                    <Select
+                      value={minExperience}
+                      options={EXPERIENCE_OPTIONS}
+                      onChange={setMinExperience}
+                      placeholder="Select experience"
+                      ariaLabel="Minimum experience"
+                    />
                   </div>
 
                   <div>
                     <label className="modal-label">Industry</label>
-                    <div style={{ position: "relative" }}>
+                    <Select
+                      value={industry}
+                      options={INDUSTRY_OPTIONS}
+                      onChange={setIndustry}
+                      placeholder="Select industry"
+                      ariaLabel="Industry"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <span className="modal-label">Age limit (Years)</span>
+                  <div className="jo-age-range">
+                    <label>
+                      <span>From</span>
                       <input
-                        type="text"
-                        list="job-industry-datalist"
+                        type="number"
+                        min="18"
+                        max={maxAge || "99"}
                         className="modal-input"
-                        placeholder="Select or type Industry..."
-                        value={industry}
-                        onChange={(e) => setIndustry(e.target.value)}
+                        placeholder="18"
+                        value={minAge}
+                        onChange={(e) => setMinAge(e.target.value)}
                       />
-                      <datalist id="job-industry-datalist">
-                        <option value="IT Services & Consulting" />
-                        <option value="Software & Technology" />
-                        <option value="Logistics & Transport" />
-                        <option value="Healthcare" />
-                        <option value="Finance & Banking" />
-                        <option value="Manufacturing" />
-                      </datalist>
-                    </div>
+                    </label>
+                    <span className="jo-age-separator">to</span>
+                    <label>
+                      <span>To</span>
+                      <input
+                        type="number"
+                        min={minAge || "18"}
+                        max="99"
+                        className="modal-input"
+                        placeholder="60"
+                        value={maxAge}
+                        onChange={(e) => setMaxAge(e.target.value)}
+                      />
+                    </label>
                   </div>
                 </div>
 
@@ -2293,7 +2366,11 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 >
                   Cancel
                 </button>
-                <button type="submit" className="modal-submit-btn">
+                <button
+                  type="submit"
+                  className="modal-submit-btn"
+                  disabled={!selectedClient || !designationRole.trim()}
+                >
                   Create order
                 </button>
               </div>

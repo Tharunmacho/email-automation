@@ -13,7 +13,6 @@ import {
   Mail,
   X,
   Trash2,
-  ChevronDown,
   Pencil,
   Copy,
   Check,
@@ -21,19 +20,27 @@ import {
   Target,
   Inbox,
   AlertTriangle,
+  Globe2,
   type LucideIcon,
 } from "lucide-react";
 
 import { type StatTone } from "@/components/ui/StatTile";
+import Select from "@/components/ui/Select";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import { deriveStatus } from "@/screens/JobOrders";
-import type { JobOrderRecord, SourcingClientRecord, SourcingType } from "@/types";
+import type {
+  JobOrderRecord,
+  SourcingClientRecord,
+  SourcingContact,
+  SourcingType,
+} from "@/types";
 import {
   listSourcingClientsAPI,
   createSourcingClientAPI,
   deleteSourcingClientAPI,
   listJobOrdersAPI,
+  listCountriesAPI,
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 
@@ -138,6 +145,21 @@ const SORT_LABELS: Record<SortKey, string> = {
   demand: "Most demand",
 };
 
+const TYPE_OPTIONS = [
+  { value: "agent", label: "Agent", hint: "Introduces candidates" },
+  { value: "association", label: "Associate", hint: "Represents a membership" },
+  { value: "client", label: "Client", hint: "A company hiring under contract" },
+];
+
+const SECTOR_OPTIONS: Record<SourcingType, string[]> = {
+  client: [
+    "IT Services", "Software & Tech", "Healthcare", "Finance & Banking",
+    "Manufacturing", "Consulting", "Logistics & Transport", "Oil & Gas",
+  ],
+  agent: ["General Recruitment", "Skilled Trades", "Technical Recruitment", "Overseas Recruitment"],
+  association: ["Professional Guild", "Technology Hub", "Trade Association", "Educational Network", "Non-Profit"],
+};
+
 /** Records created before dates were normalised still carry M/D/YYYY. */
 function parseRecordDate(value: string | undefined): Date | null {
   if (!value) return null;
@@ -163,6 +185,24 @@ function todayISO(): string {
 function hasValue(value: string | undefined): boolean {
   const v = (value || "").trim();
   return v !== "" && v.toUpperCase() !== "N/A";
+}
+
+const EMPTY_CONTACT: SourcingContact = { name: "", phone: "", email: "" };
+
+/** Read both new multi-contact records and rows created by older builds. */
+function contactsOf(record: SourcingRecord): SourcingContact[] {
+  if (record.contacts?.length) {
+    return record.contacts.map((contact) => ({
+      name: contact.name || "",
+      phone: contact.phone || "N/A",
+      email: contact.email || "N/A",
+    }));
+  }
+  return [{
+    name: record.contact || "",
+    phone: record.phone || "N/A",
+    email: record.email || "N/A",
+  }];
 }
 
 function toneOf(engagement: Engagement | undefined): ClientTone {
@@ -203,10 +243,10 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [newName, setNewName] = useState("");
   const [newIndustryOrCategory, setNewIndustryOrCategory] = useState("");
   const [newRegNo, setNewRegNo] = useState("");
-  const [newContact, setNewContact] = useState("");
-  const [newPhone, setNewPhone] = useState("");
-  const [newEmail, setNewEmail] = useState("");
+  const [newCountry, setNewCountry] = useState("");
+  const [newContacts, setNewContacts] = useState<SourcingContact[]>([{ ...EMPTY_CONTACT }]);
   const [newAddress, setNewAddress] = useState("");
+  const [countryOptions, setCountryOptions] = useState<string[]>([]);
 
   // Job orders carry a `client` name, which is what ties a sourcing record to
   // real demand. Without this the hub is just an address book.
@@ -214,6 +254,16 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     listJobOrdersAPI()
       .then((res) => setJobOrders(res.items ?? []))
       .catch(() => setJobOrders([]));
+  }, []);
+
+  // Use the shared country register for suggestions. The field stays editable
+  // if this lookup fails or the required country has not been registered yet.
+  useEffect(() => {
+    listCountriesAPI()
+      .then((res) => setCountryOptions(
+        (res.items ?? []).filter((item) => item.active).map((item) => item.name),
+      ))
+      .catch(() => setCountryOptions([]));
   }, []);
 
   // The DB is the source of truth. Whatever it returns replaces the table
@@ -285,9 +335,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewName("");
     setNewIndustryOrCategory("");
     setNewRegNo("");
-    setNewContact("");
-    setNewPhone("");
-    setNewEmail("");
+    setNewCountry("");
+    setNewContacts([{ ...EMPTY_CONTACT }]);
     setNewAddress("");
     setFormError("");
   }, []);
@@ -307,9 +356,12 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewName(item.name);
     setNewIndustryOrCategory(item.industryOrCategory || "");
     setNewRegNo(item.regNo || "");
-    setNewContact(item.contact);
-    setNewPhone(hasValue(item.phone) ? item.phone : "");
-    setNewEmail(hasValue(item.email) ? item.email : "");
+    setNewCountry(item.country || "");
+    setNewContacts(contactsOf(item).map((contact) => ({
+      name: contact.name,
+      phone: hasValue(contact.phone) ? contact.phone : "",
+      email: hasValue(contact.email) ? contact.email : "",
+    })));
     setNewAddress(item.address || "");
     setFormError("");
     setIsModalOpen(true);
@@ -363,11 +415,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       if (!q) return true;
       return (
         rec.name.toLowerCase().includes(q) ||
-        rec.contact.toLowerCase().includes(q) ||
-        rec.phone.toLowerCase().includes(q) ||
-        rec.email.toLowerCase().includes(q) ||
+        contactsOf(rec).some((contact) =>
+          [contact.name, contact.phone, contact.email].some((value) =>
+            value.toLowerCase().includes(q),
+          ),
+        ) ||
         rec.id.toLowerCase().includes(q) ||
         (rec.regNo || "").toLowerCase().includes(q) ||
+        (rec.country || "").toLowerCase().includes(q) ||
         (rec.address || "").toLowerCase().includes(q) ||
         (rec.industryOrCategory || "").toLowerCase().includes(q)
       );
@@ -431,10 +486,21 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       setFormError("A client name is required.");
       return;
     }
-    if (!newContact.trim()) {
+    if (!newContacts[0]?.name.trim()) {
       setFormError("A contact person is required — it is who the job order gets chased through.");
       return;
     }
+    if (newContacts.some((contact) => !contact.name.trim())) {
+      setFormError("Enter a name for each contact, or remove the empty contact.");
+      return;
+    }
+
+    const contacts = newContacts.map((contact) => ({
+      name: contact.name.trim(),
+      phone: contact.phone.trim() || "N/A",
+      email: contact.email.trim() || "N/A",
+    }));
+    const primaryContact = contacts[0];
 
     // Two clients with the same name cannot be told apart by the job orders,
     // which match on name alone. Catch it here rather than silently merging
@@ -456,11 +522,13 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         ...existing,
         name: newName.trim(),
         type: newType,
-        contact: newContact.trim(),
-        phone: newPhone.trim() || "N/A",
-        email: newEmail.trim() || "N/A",
+        contact: primaryContact.name,
+        phone: primaryContact.phone,
+        email: primaryContact.email,
+        contacts,
         industryOrCategory: newIndustryOrCategory.trim(),
         regNo: newRegNo.trim(),
+        country: newCountry.trim(),
         address: newAddress.trim(),
       };
 
@@ -482,13 +550,15 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         id,
         name: newName.trim(),
         type: newType,
-        contact: newContact.trim(),
-        phone: newPhone.trim() || "N/A",
-        email: newEmail.trim() || "N/A",
+        contact: primaryContact.name,
+        phone: primaryContact.phone,
+        email: primaryContact.email,
+        contacts,
         date: todayISO(),
         status: "ACTIVE",
         industryOrCategory: newIndustryOrCategory.trim(),
         regNo: newRegNo.trim(),
+        country: newCountry.trim(),
         address: newAddress.trim(),
       };
 
@@ -529,6 +599,20 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setEditingId(null);
   };
 
+  const updateContact = (index: number, field: keyof SourcingContact, value: string) => {
+    setNewContacts((contacts) => contacts.map((contact, contactIndex) =>
+      contactIndex === index ? { ...contact, [field]: value } : contact,
+    ));
+  };
+
+  const addContact = () => {
+    setNewContacts((contacts) => [...contacts, { ...EMPTY_CONTACT }]);
+  };
+
+  const removeContact = (index: number) => {
+    setNewContacts((contacts) => contacts.filter((_, contactIndex) => contactIndex !== index));
+  };
+
   /**
    * Whether the party being added is a company.
    *
@@ -559,6 +643,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     association: "e.g. Professional Guild",
     client: "e.g. Oil & Gas",
   }[newType];
+  const sectorOptions = Array.from(new Set([
+    ...(newIndustryOrCategory ? [newIndustryOrCategory] : []),
+    ...SECTOR_OPTIONS[newType],
+  ])).map((value) => ({ value, label: value }));
+  const selectableCountries = Array.from(new Set([
+    ...(newCountry ? [newCountry] : []),
+    ...countryOptions,
+  ])).map((value) => ({ value, label: value }));
 
   // ---- pieces ------------------------------------------------------------ //
 
@@ -568,6 +660,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     const seats = e?.seats ?? 0;
     const filled = e?.filled ?? 0;
     const pct = seats > 0 ? Math.min(100, Math.round((filled / seats) * 100)) : 0;
+    const contacts = contactsOf(item);
+    const primaryContact = contacts[0];
 
     return (
       <tr className={`sh-table-row tone-${CLIENT_TONE[tone]}`} key={item.id}>
@@ -589,18 +683,18 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         </td>
         <td>
           <span className="sh-table-contact">
-            <strong title={item.contact}>{item.contact || "No contact name"}</strong>
-            {hasValue(item.phone) ? (
-              <a className="sh-link" href={`tel:${item.phone.replace(/\s+/g, "")}`} title={item.phone}>
-                <Phone size={12} /> {item.phone}
+            <strong title={primaryContact.name}>{primaryContact.name || "No contact name"}</strong>
+            {hasValue(primaryContact.phone) ? (
+              <a className="sh-link" href={`tel:${primaryContact.phone.replace(/\s+/g, "")}`} title={primaryContact.phone}>
+                <Phone size={12} /> {primaryContact.phone}
               </a>
             ) : (
               <small>No phone provided</small>
             )}
-            {hasValue(item.email) ? (
+            {hasValue(primaryContact.email) ? (
               <span className="sh-table-email">
-                <a className="sh-link" href={`mailto:${item.email}`} title={item.email}>
-                  <Mail size={12} /> {item.email}
+                <a className="sh-link" href={`mailto:${primaryContact.email}`} title={primaryContact.email}>
+                  <Mail size={12} /> {primaryContact.email}
                 </a>
                 <button
                   type="button"
@@ -615,11 +709,21 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             ) : (
               <small>No email provided</small>
             )}
+            {contacts.length > 1 && (
+              <small title={contacts.slice(1).map((contact) => contact.name).join(", ")}>
+                +{contacts.length - 1} more {item.type === "client" ? "HR " : ""}contact{contacts.length === 2 ? "" : "s"}
+              </small>
+            )}
           </span>
         </td>
         <td className="is-wrap">
-          <span className="sh-table-office" title={item.address || undefined}>
-            {item.address || "Not provided"}
+          <span className="sh-table-office-cell">
+            {item.country && (
+              <strong className="sh-table-country"><Globe2 size={12} />{item.country}</strong>
+            )}
+            <span className="sh-table-office" title={item.address || undefined}>
+              {item.address || "Not provided"}
+            </span>
           </span>
         </td>
         <td>
@@ -862,20 +966,17 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             <span>Hiring now</span>
           </button>
 
-          <div className="sh-select">
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              aria-label="Sort clients"
-            >
-              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
-                <option key={key} value={key}>
-                  {SORT_LABELS[key]}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </div>
+          <Select
+            className="sh-sort-select"
+            size="sm"
+            value={sortKey}
+            options={(Object.keys(SORT_LABELS) as SortKey[]).map((key) => ({
+              value: key,
+              label: SORT_LABELS[key],
+            }))}
+            onChange={(value) => setSortKey(value as SortKey)}
+            ariaLabel="Sort clients"
+          />
 
           </div>
         </div>
@@ -934,20 +1035,13 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                   <label className="modal-label" htmlFor="sh-type">
                     Type
                   </label>
-                  {/*
-                    A dropdown rather than a row of buttons. The order is how
-                    often each is added, not alphabetical.
-                  */}
-                  <select
+                  <Select
                     id="sh-type"
-                    className="modal-select"
                     value={newType}
-                    onChange={(e) => setNewType(e.target.value as SourcingType)}
-                  >
-                    <option value="agent">Agent — introduces candidates</option>
-                    <option value="association">Associate — represents a membership</option>
-                    <option value="client">Client — a company hiring under contract</option>
-                  </select>
+                    options={TYPE_OPTIONS}
+                    onChange={(value) => setNewType(value as SourcingType)}
+                    ariaLabel="Sourcing partner type"
+                  />
                 </div>
 
                 <div className="modal-row-2">
@@ -970,52 +1064,29 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                     <label className="modal-label" htmlFor="sh-industry">
                       {sectorLabel}
                     </label>
-                    <input
+                    <Select
                       id="sh-industry"
-                      type="text"
-                      list="sourcing-industry-datalist"
-                      className="modal-input"
                       placeholder={sectorPlaceholder}
                       value={newIndustryOrCategory}
-                      onChange={(e) => setNewIndustryOrCategory(e.target.value)}
+                      options={sectorOptions}
+                      onChange={setNewIndustryOrCategory}
+                      ariaLabel={sectorLabel}
                     />
-                    <datalist id="sourcing-industry-datalist">
-                      {isCompany ? (
-                        <>
-                          <option value="IT Services" />
-                          <option value="Software & Tech" />
-                          <option value="Healthcare" />
-                          <option value="Finance & Banking" />
-                          <option value="Manufacturing" />
-                          <option value="Consulting" />
-                          <option value="Logistics & Transport" />
-                        </>
-                      ) : (
-                        <>
-                          <option value="Professional Guild" />
-                          <option value="Technology Hub" />
-                          <option value="Trade Association" />
-                          <option value="Educational Network" />
-                          <option value="Non-Profit" />
-                        </>
-                      )}
-                    </datalist>
                   </div>
                 </div>
 
                 <div className="modal-row-2">
                   <div className="sh-field">
-                    <label className="modal-label" htmlFor="sh-contact">
-                      {isCompany ? "HR contact person *" : "Primary contact person *"}
+                    <label className="modal-label" htmlFor="sh-country">
+                      Country
                     </label>
-                    <input
-                      id="sh-contact"
-                      type="text"
-                      className="modal-input"
-                      placeholder="e.g. Jane Doe"
-                      required
-                      value={newContact}
-                      onChange={(e) => setNewContact(e.target.value)}
+                    <Select
+                      id="sh-country"
+                      placeholder="e.g. United Arab Emirates"
+                      value={newCountry}
+                      options={selectableCountries}
+                      onChange={setNewCountry}
+                      ariaLabel="Country"
                     />
                   </div>
 
@@ -1034,35 +1105,81 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                   </div>
                 </div>
 
-                <div className="modal-row-2">
-                  <div className="sh-field">
-                    <label className="modal-label" htmlFor="sh-phone">
-                      Phone number
-                    </label>
-                    <input
-                      id="sh-phone"
-                      type="tel"
-                      className="modal-input"
-                      placeholder="e.g. +91 90976 45780"
-                      value={newPhone}
-                      onChange={(e) => setNewPhone(e.target.value)}
-                    />
+                <section className="sh-contacts" aria-labelledby="sh-contacts-title">
+                  <div className="sh-contacts-head">
+                    <div>
+                      <span className="modal-label" id="sh-contacts-title">
+                        {isCompany ? "HR contact people *" : "Contact people *"}
+                      </span>
+                      <small>The first person is the primary contact.</small>
+                    </div>
+                    <button type="button" className="sh-add-contact" onClick={addContact}>
+                      <Plus size={14} /> Add contact
+                    </button>
                   </div>
 
-                  <div className="sh-field">
-                    <label className="modal-label" htmlFor="sh-email">
-                      Email address
-                    </label>
-                    <input
-                      id="sh-email"
-                      type="email"
-                      className="modal-input"
-                      placeholder="e.g. contact@company.com"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                    />
+                  <div className="sh-contact-list">
+                    {newContacts.map((contact, index) => (
+                      <div className="sh-contact-card" key={index}>
+                        <div className="sh-contact-card-head">
+                          <strong>Contact {index + 1}{index === 0 ? " · Primary" : ""}</strong>
+                          {index > 0 && (
+                            <button
+                              type="button"
+                              className="sh-remove-contact"
+                              onClick={() => removeContact(index)}
+                              aria-label={`Remove contact ${index + 1}`}
+                            >
+                              <Trash2 size={13} /> Remove
+                            </button>
+                          )}
+                        </div>
+                        <div className="sh-contact-fields">
+                          <div className="sh-field">
+                            <label className="modal-label" htmlFor={`sh-contact-${index}`}>
+                              Name *
+                            </label>
+                            <input
+                              id={`sh-contact-${index}`}
+                              type="text"
+                              className="modal-input"
+                              placeholder="e.g. Jane Doe"
+                              required
+                              value={contact.name}
+                              onChange={(e) => updateContact(index, "name", e.target.value)}
+                            />
+                          </div>
+                          <div className="sh-field">
+                            <label className="modal-label" htmlFor={`sh-phone-${index}`}>
+                              Phone number
+                            </label>
+                            <input
+                              id={`sh-phone-${index}`}
+                              type="tel"
+                              className="modal-input"
+                              placeholder="e.g. +91 90976 45780"
+                              value={contact.phone}
+                              onChange={(e) => updateContact(index, "phone", e.target.value)}
+                            />
+                          </div>
+                          <div className="sh-field">
+                            <label className="modal-label" htmlFor={`sh-email-${index}`}>
+                              Email address
+                            </label>
+                            <input
+                              id={`sh-email-${index}`}
+                              type="email"
+                              className="modal-input"
+                              placeholder="e.g. jane@company.com"
+                              value={contact.email}
+                              onChange={(e) => updateContact(index, "email", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                </section>
 
                 <div className="sh-field">
                   <label className="modal-label" htmlFor="sh-address">

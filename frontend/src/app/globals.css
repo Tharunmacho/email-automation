@@ -3513,6 +3513,12 @@ body {
   background: var(--primary-hover);
 }
 
+.modal-submit-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 /* Two submits side by side need a ranking, or the reader has to read both to
    find the ordinary one. "Save" is the quiet half; "Save & next" carries the
    fill because continuing is what a queue is for. */
@@ -4480,7 +4486,7 @@ body {
 
 /* --- create / edit dialog ------------------------------------------------ */
 .sh-modal {
-  max-width: 640px;
+  max-width: 760px;
 }
 
 /* White like the rest of the screen — the dialog is separated by its hairline
@@ -4540,6 +4546,130 @@ body {
 
 .sh-field {
   min-width: 0;
+}
+
+.sh-sort-select {
+  width: 180px;
+}
+
+.sh-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sh-contacts-head,
+.sh-contact-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.sh-contacts-head .modal-label {
+  margin-bottom: 0.12rem;
+}
+
+.sh-contacts-head small {
+  color: var(--text-light);
+  font-size: 0.72rem;
+}
+
+.sh-add-contact,
+.sh-remove-contact {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sh-add-contact {
+  padding: 0.48rem 0.72rem;
+  border: 1px solid var(--border-blue-strong);
+  background: var(--tint-1);
+  color: var(--primary);
+}
+
+.sh-add-contact:hover {
+  background: var(--primary-glow);
+  border-color: var(--primary);
+}
+
+.sh-contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.sh-contact-card {
+  padding: 0.78rem;
+  border: 1px solid var(--border-blue-faint);
+  border-radius: 12px;
+  background: var(--tint-1);
+}
+
+.sh-contact-card-head {
+  margin-bottom: 0.58rem;
+}
+
+.sh-contact-card-head strong {
+  color: var(--text-muted);
+  font-size: 0.73rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+.sh-remove-contact {
+  padding: 0.25rem 0.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--error-ink);
+}
+
+.sh-remove-contact:hover {
+  background: var(--error-fill);
+}
+
+.sh-contact-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.25fr;
+  gap: 0.7rem;
+}
+
+.sh-contact-card .modal-input {
+  background: var(--bg-card);
+}
+
+.jo-age-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 0.65rem;
+}
+
+.jo-age-range label {
+  min-width: 0;
+}
+
+.jo-age-range label > span {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--text-light);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.jo-age-separator {
+  padding-bottom: 0.72rem;
+  color: var(--text-light);
+  font-size: 0.75rem;
+  font-weight: 650;
 }
 
 .sh-type-switch {
@@ -4654,6 +4784,14 @@ body {
 
   .sh-modal-body .modal-row-2 {
     grid-template-columns: 1fr;
+  }
+
+  .sh-contact-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .sh-sort-select {
+    width: 100%;
   }
 }
 
@@ -17631,6 +17769,29 @@ a.um-phone:hover {
 .sh-table-email .sh-copy {
   width: 20px;
   height: 20px;
+}
+
+.sh-table-office-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ds-select-control {
+  width: 190px;
+}
+
+.sh-table-country {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-main);
+  font-size: 0.75rem;
+}
+
+.sh-table-country svg {
+  flex: none;
+  color: var(--primary);
 }
 
 .sh-table-office {

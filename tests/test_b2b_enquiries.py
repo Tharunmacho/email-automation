@@ -407,6 +407,23 @@ def test_a_known_agent_is_named(client, sourcing):
     assert stored["sourcing_client_name"] == "Ravi Manpower Services"
 
 
+def test_an_additional_hr_contact_is_matched(client, sourcing):
+    sourcing.docs.append({
+        "id": "CLI-101-2233",
+        "name": "Gulf Steel Works",
+        "phone": "+91 96666 66666",
+        "contacts": [
+            {"name": "Primary HR", "phone": "+91 96666 66666"},
+            {"name": "Second HR", "phone": "+91 98765 43210"},
+        ],
+    })
+
+    post_enquiry(client, company_name="Gulf Steel Works")
+
+    stored = client.enquiries.docs[0]
+    assert stored["sourcing_client_id"] == "CLI-101-2233"
+
+
 def test_an_unknown_sender_is_not_added_to_the_hub(client, sourcing):
     """Matching is a label, never an account.
 
