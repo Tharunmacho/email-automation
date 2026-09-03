@@ -65,6 +65,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import hashlib
+from contextlib import contextmanager
 import io
 import os
 import re
@@ -215,19 +216,105 @@ def _prepare(image):
     return prepared
 
 
-def _page_timeout() -> float:
+#: A 300-DPI A4 page — the size `ocr_page_timeout_seconds` was calibrated on.
+_REFERENCE_PIXELS = 2481 * 3507
+
+_SLOTS_LOCK = threading.Lock()
+_SLOTS: "threading.BoundedSemaphore | None" = None
+_SLOT_COUNT = 0
+
+
+def ocr_slot_count() -> int:
+    """How many Tesseract processes may run at once in this process."""
+    configured = int(getattr(settings, "ocr_max_concurrent_pages", 0) or 0)
+    if configured > 0:
+        return configured
+    # The floor is 2 for the same reason `local_worker_count` uses one: a page
+    # read waits on rasterisation and on a subprocess, so a second slot still
+    # earns its place on a one-CPU box.
+    return max(2, available_cpus())
+
+
+def _engine_slots() -> "threading.BoundedSemaphore":
+    """The process-wide admission gate, built once.
+
+    Sized on first use rather than at import: `available_cpus` reads cgroup
+    files, and at import time under a test runner that is neither cheap nor
+    meaningful.
+    """
+    global _SLOTS, _SLOT_COUNT
+    with _SLOTS_LOCK:
+        if _SLOTS is None:
+            _SLOT_COUNT = ocr_slot_count()
+            _SLOTS = threading.BoundedSemaphore(_SLOT_COUNT)
+            log.info(
+                "Local OCR admits %d concurrent page read(s) in this process",
+                _SLOT_COUNT,
+            )
+        return _SLOTS
+
+
+#: Whether *this* thread already holds a slot. See `_engine_slot`.
+_HELD = threading.local()
+
+
+@contextmanager
+def _engine_slot():
+    """Admit this thread to the engine, once, however deeply it asks.
+
+    Re-entrant on purpose. A slot is taken around a whole page in
+    `_read_pdf_page` — rasterising included, because a page waiting its turn
+    with a 300-DPI bitmap already in hand costs ~26 MB of a container that is
+    short of memory precisely when it is short of CPU — and taken again around
+    each Tesseract call, so the standalone-image path is bounded too. Without
+    the re-entrancy check those two would deadlock the moment the ceiling was
+    one, which is exactly the single-CPU container this exists to protect.
+
+    Counted rather than flagged so nesting can be arbitrary, and reset in a
+    `finally` so a raising read cannot leak the slot and wedge the process.
+    """
+    if getattr(_HELD, "depth", 0):
+        _HELD.depth += 1
+        try:
+            yield
+        finally:
+            _HELD.depth -= 1
+        return
+
+    slots = _engine_slots()
+    slots.acquire()
+    _HELD.depth = 1
+    try:
+        yield
+    finally:
+        _HELD.depth = 0
+        slots.release()
+
+
+def _page_timeout(image=None) -> float:
     """Seconds one Tesseract invocation may take. 0 means "no limit".
 
-    `pytesseract` treats 0 as unlimited too, so this value is passed straight
-    through. A read that runs out of time raises, and both call sites already
-    treat a raising read as "this page did not answer" — which is the right
-    outcome: the pass that follows gets its turn, and if none of them answer the
-    page is reported unread rather than silently holding the document open.
+    Scaled by the size of the page actually being read. A flat 45s was
+    calibrated on a 300-DPI A4 page, and then applied unchanged to the 450-DPI
+    re-read of the same page — 2.25x the pixels for the same clock. The
+    escalation pass that exists to *rescue* a poor page was therefore the pass
+    most likely to time out and return nothing at all, which is the opposite of
+    what it is for.
+
+    Capped at 4x. Beyond that the page is not slow, it is unreadable, and the
+    document budget should have it rather than one invocation.
     """
-    return max(0.0, float(getattr(settings, "ocr_page_timeout_seconds", 0) or 0))
+    base = max(0.0, float(getattr(settings, "ocr_page_timeout_seconds", 0) or 0))
+    if not base or image is None:
+        return base
+    try:
+        pixels = int(image.width) * int(image.height)
+    except Exception:  # noqa: BLE001 — not a PIL image; the flat budget stands
+        return base
+    return round(base * min(4.0, max(1.0, pixels / _REFERENCE_PIXELS)), 1)
 
 
-def _tesseract_read(image, psm: int) -> str:
+def _tesseract_read(image, psm: int, seconds: "float | None" = None) -> str:
     """One Tesseract pass, or "" and a reason in the log.
 
     The reason used to be at DEBUG, which is not on in production, and that made
@@ -243,16 +330,18 @@ def _tesseract_read(image, psm: int) -> str:
     """
     pytesseract = _tesseract()
     config = f"--oem 1 --psm {psm}"
+    budget = _page_timeout(image) if seconds is None else seconds
     try:
-        return pytesseract.image_to_string(
-            image, lang=settings.ocr_languages, config=config, timeout=_page_timeout()
-        )
+        with _engine_slot():
+            return pytesseract.image_to_string(
+                image, lang=settings.ocr_languages, config=config, timeout=budget
+            )
     except RuntimeError as exc:  # pytesseract raises this on its own timeout
         log.warning(
-            "Tesseract psm=%d gave up after %.0fs on a %dx%d page: %s — the page "
-            "reads as empty from here (raise OCR_PAGE_TIMEOUT_SECONDS, or give "
-            "the container more CPU)",
-            psm, _page_timeout(), image.width, image.height, exc,
+            "Tesseract psm=%d gave up after %.0fs on a %dx%d page: %s — retrying "
+            "smaller before the page is given up on (raise "
+            "OCR_PAGE_TIMEOUT_SECONDS, or give the container more CPU)",
+            psm, budget, image.width, image.height, exc,
         )
         return ""
     except Exception as exc:  # noqa: BLE001
@@ -362,12 +451,13 @@ def _scored_read(image, psm: int) -> "Tuple[str, float]":
     """
     pytesseract = _tesseract()
     try:
-        data = pytesseract.image_to_data(
-            image,
-            config=f"--oem 1 --psm {psm}",
-            output_type=pytesseract.Output.DICT,
-            timeout=_page_timeout(),
-        )
+        with _engine_slot():
+            data = pytesseract.image_to_data(
+                image,
+                config=f"--oem 1 --psm {psm}",
+                output_type=pytesseract.Output.DICT,
+                timeout=_page_timeout(image),
+            )
     except Exception:  # noqa: BLE001 — no confidence is not an orientation verdict
         return "", 0.0
 
@@ -481,6 +571,63 @@ def _upright(prepared, original, page_number: int):
 
 
 # --------------------------------------------------------------------------- #
+def _rescue_read(prepared, page_number: int) -> str:
+    """A page that read as *nothing* tried again smaller.
+
+    This is the last rung, and it goes down rather than up. Every other pass in
+    this module assumes the page was read badly and answers with more effort —
+    another segmentation, another engine, more pixels. None of them help the
+    failure that actually empties a page in production, which is that the read
+    did not finish: on a container where Tesseract is contending for a core, the
+    passes do not read the page poorly, they time out one after another and each
+    returns "".
+
+    Fewer pixels is the only move that makes a read *finish*. Half the width is
+    a quarter of the work, and a page that comes back readable at half size is
+    worth immeasurably more than a perfect read nobody ever receives — it is the
+    difference between a passport this pipeline can classify and a blank one it
+    files as a certificate.
+
+    Never below `_MIN_READABLE_WIDTH`: past that Tesseract cannot segment
+    characters at all and the retry would be a slower way of returning "".
+    """
+    if not getattr(settings, "ocr_rescue_enabled", True):
+        return ""
+    from PIL import Image
+
+    width = prepared.width
+    if width <= _MIN_READABLE_WIDTH:
+        return ""
+
+    # The budget the read that just failed was given — not the smaller one this
+    # page would otherwise qualify for.
+    #
+    # `_page_timeout` scales upward with pixels, so shrinking the page also
+    # shrinks its allowance: measured, a 3400x4400 page got 2.2s and its own
+    # rescue at 1700x2200 got 1.3s. Handing the retry *less* wall time than the
+    # attempt it exists to rescue is self-defeating — the point is a quarter of
+    # the work in the same seconds, not a quarter of both.
+    floor = _page_timeout(prepared)
+
+    for divisor in (2, 3):
+        target = max(_MIN_READABLE_WIDTH, int(width / divisor))
+        if target >= width:
+            continue
+        scale = target / width
+        smaller = prepared.resize(
+            (target, max(1, int(prepared.height * scale))), Image.LANCZOS
+        )
+        text = _tesseract_read(smaller, settings.ocr_psm, seconds=floor)
+        if text.strip():
+            log.info(
+                "Page %d read as empty at %dpx but answered at %dpx: %d chars "
+                "recovered by reading it smaller",
+                page_number, width, target, len(text),
+            )
+            return text
+    return ""
+
+
 def read_image(
     image, *, dpi: int, page_number: int = 1, known_angle: "int | None" = None,
 ) -> PageRead:
@@ -526,6 +673,15 @@ def read_image(
         quality = text_quality(text)
         if quality > best_quality:
             best_text, best_quality, best_engine = text, quality, "rapidocr"
+
+    # Nothing at all came back. Not "read badly" — *nothing*, which on a busy
+    # host means the passes timed out rather than that the page is blank.
+    if not (best_text or "").strip():
+        rescued = _rescue_read(prepared, page_number)
+        if rescued.strip():
+            best_text = rescued
+            best_quality = text_quality(rescued)
+            best_engine = "tesseract:rescue"
 
     return PageRead(
         page_number=page_number,
@@ -596,7 +752,12 @@ def _read_pdf_page(
     import fitz  # PyMuPDF
 
     dpi = settings.ocr_dpi
-    with fitz.open(stream=data, filetype="pdf") as doc:
+    # One slot for the whole page — the raster and every pass over it. Taking it
+    # here rather than only around Tesseract is what bounds *memory* as well as
+    # CPU: otherwise every queued thread sits on a full-size bitmap waiting for
+    # a turn, and the container runs out of the resource it was already short
+    # of. Re-entrant, so the inner acquisitions below are free.
+    with _engine_slot(), fitz.open(stream=data, filetype="pdf") as doc:
         page = doc[page_number - 1]
         image, raw = _render(page, dpi)
         key = _cache_key(raw, dpi)
@@ -617,8 +778,17 @@ def _read_pdf_page(
                 page_number, read.quality, settings.ocr_escalate_dpi,
             )
 
+        # Escalation answers a page that read *poorly*. A page that read as
+        # nothing, or one that only answered after being shrunk, did not run out
+        # of pixels — it ran out of time, and re-rendering it at 2.25x the pixels
+        # is a slower way to get the same empty string back. Those go down, not
+        # up, and `read_image` has already taken them there.
+        readable = bool((read.text or "").strip())
+        rescued = read.engine == "tesseract:rescue"
         if (
             not out_of_time
+            and readable
+            and not rescued
             and read.quality < settings.ocr_page_quality_floor
             and settings.ocr_escalate_dpi > dpi
         ):
@@ -760,6 +930,36 @@ def ocr_pdf_page_reads(
     # text-layer read stands and the pages are named below.
     budget = max(0.0, float(getattr(settings, "ocr_document_budget_seconds", 0) or 0))
     deadline = time.monotonic() + budget if budget else None
+
+    # Say so *before* the pages are lost, not after.
+    #
+    # There is already a warning for a budget that ran out, but by the time it
+    # fires the document has been truncated and the operator is reading it as
+    # the report of an accident. A budget too small for the page count is not an
+    # accident — it is arithmetic, and it is knowable here. 90 seconds for a
+    # 28-page scan cannot succeed on any host, and the log should say that in
+    # the line before the work starts rather than in the post-mortem.
+    if deadline is not None:
+        # The test is whether the two settings contradict each other, not
+        # whether this particular scan is slow. `ocr_page_timeout_seconds` is
+        # the time one page is *allowed*; if every page took it, the document
+        # would need `pages x timeout / lanes`. A budget below that cannot
+        # finish a document whose pages actually use their allowance — so on any
+        # bundle of hard scans, truncation is guaranteed rather than risked, and
+        # the two numbers should be reconciled before the mail arrives.
+        lanes = max(1, min(workers, ocr_slot_count()))
+        per_page = _page_timeout()
+        worst = len(wanted) * per_page / lanes if per_page else 0.0
+        if worst > budget:
+            log.warning(
+                "'%s': OCR_DOCUMENT_BUDGET_SECONDS is %.0fs, but %d page(s) each "
+                "allowed %.0fs across %d lane(s) need up to %.0fs. Pages past the "
+                "deadline come back unread, and on a bundle of scans that is every "
+                "page after the first few. Raise the budget to ~%.0fs, lower "
+                "OCR_PAGE_TIMEOUT_SECONDS, or add CPU.",
+                filename or "attachment", budget, len(wanted), per_page, lanes,
+                worst, worst,
+            )
     skipped: List[int] = []
     skipped_lock = threading.Lock()
 
@@ -839,6 +1039,14 @@ def engine_report() -> Dict[str, object]:
         "base_dpi": settings.ocr_dpi,
         "escalate_dpi": settings.ocr_escalate_dpi,
         "workers": local_worker_count(),
+        # What the host may actually run at once, and what one page is allowed.
+        # A support question that begins "pages are coming back empty" is
+        # answered by these two numbers more often than by any other pair.
+        "cpus_available": available_cpus(),
+        "concurrent_pages": ocr_slot_count(),
+        "page_timeout_seconds": settings.ocr_page_timeout_seconds,
+        "document_budget_seconds": settings.ocr_document_budget_seconds,
+        "rescue_enabled": bool(getattr(settings, "ocr_rescue_enabled", True)),
         "secondary_engine": "rapidocr" if _secondary() is not None else "none",
         "cached_pages": len(_CACHE),
     }

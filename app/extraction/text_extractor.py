@@ -121,11 +121,13 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
     # reader so the limit holds however the pages are read, and it is always
     # reported with the page numbers that went unread.
     ceiling = max(1, settings.ocr_max_pages)
+    beyond_ceiling: list[int] = []
     if len(targets) > ceiling:
+        beyond_ceiling = targets[ceiling:]
         log.warning(
             "'%s' needs %d page(s) read but the safety ceiling is %d; pages %s were "
-            "not read (raise OCR_MAX_PAGES)",
-            filename or "attachment", len(targets), ceiling, targets[ceiling:],
+            "not read locally (raise OCR_MAX_PAGES)",
+            filename or "attachment", len(targets), ceiling, beyond_ceiling,
         )
         targets = targets[:ceiling]
 
@@ -147,7 +149,15 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
         # document only reaches the endpoint that can extract it if the local
         # read was already good enough to name it, so every page lost here was
         # lost silently and permanently.
-        unread = [n for n in targets if not page_texts[n - 1].strip()]
+        # Pages the ceiling cut belong here too. The ceiling bounds *local CPU*,
+        # which is a reason not to read a page here — not a reason to publish a
+        # bundle with a hole in it. Whichever way a page ended up with no text,
+        # the question the classifier is about to ask of it is the same one, and
+        # it cannot be answered from an empty string. `veris_recover_max_pages`
+        # is what bounds the cost of saying so.
+        unread = sorted(
+            set(n for n in targets if not page_texts[n - 1].strip()) | set(beyond_ceiling)
+        )
         if unread:
             page_texts, recovered = _recover_unread_pages(
                 data, filename, page_texts, unread

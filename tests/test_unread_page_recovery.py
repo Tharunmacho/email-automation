@@ -171,3 +171,32 @@ def test_a_failing_veris_call_does_not_lose_the_local_read(starved, monkeypatch)
 
     assert doc.is_resume is True
     assert doc.resume_pages == [1, 2]
+
+
+def test_pages_cut_by_the_local_ceiling_are_recovered_too(starved, monkeypatch):
+    """OCR_MAX_PAGES bounds local CPU — it is not a reason to publish a hole.
+
+    A page the ceiling refused and a page Tesseract fumbled arrive at the
+    classifier identically: as an empty string it cannot score. The reason the
+    text is missing does not change the question being asked of it.
+    """
+    _blank_out, uploaded = starved
+    monkeypatch.setattr(settings, "ocr_max_pages", 10)
+
+    doc = tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded, "the pages past the ceiling were never offered to Veris"
+    page = doc.pages[19]
+    assert page.text.strip(), "the passport sat past the ceiling and stayed lost"
+    assert pc.id_document_scores(page.text)[pc.PASSPORT] > 0
+
+
+def test_recovery_stays_within_its_own_ceiling(starved, monkeypatch):
+    """The cloud call is bounded even when the local one refused everything."""
+    _blank_out, uploaded = starved
+    monkeypatch.setattr(settings, "ocr_max_pages", 1)
+    monkeypatch.setattr(settings, "veris_recover_max_pages", 5)
+
+    tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded == [5], f"{uploaded} uploaded against a recovery ceiling of 5"

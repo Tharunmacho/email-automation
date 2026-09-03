@@ -443,6 +443,30 @@ class Settings(BaseSettings):
     # times slower than the one it was calibrated on.
     #
     # Set either to 0 to disable it.
+    # A ceiling on Tesseract processes running at once, across the *whole*
+    # process. 0 sizes it from the CPUs this container may actually use.
+    #
+    # Without it two independent pools multiply. `ingestion_max_workers`
+    # messages are processed at once, each opening its own pool of
+    # `local_worker_count()` page readers, so eight bundles on a four-worker
+    # pool is thirty-two Tesseract processes — on a box with two cores. None of
+    # them go faster; they simply all miss `ocr_page_timeout_seconds` together,
+    # and a missed timeout returns an empty page. That is the mechanism behind
+    # a bundle whose pages read at 147 and 312 characters on one poll and zero
+    # on the next: the work never fit, so which pages finished was a race.
+    #
+    # Admission control fixes what worker counts cannot, because it is the only
+    # bound that sees both pools. Pages queue instead of thrashing, each read
+    # gets a real core, and a page that would have timed out simply waits.
+    ocr_max_concurrent_pages: int = 0
+    # A page that read as nothing is retried smaller before it is given up on.
+    #
+    # Downscaling is the opposite of the DPI escalation above and answers the
+    # opposite failure: escalation buys pixels for a page too faint to segment,
+    # while this buys *time* for a page too large to finish. A quarter of the
+    # pixels is roughly a quarter of the work, and a page that reads at all is
+    # worth more than a perfect read that never returns.
+    ocr_rescue_enabled: bool = True
     ocr_page_timeout_seconds: float = 45.0
     ocr_document_budget_seconds: float = 600.0
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page
