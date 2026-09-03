@@ -438,9 +438,17 @@ class AsyncOCRJobClient:
                 duplicate=bool(getattr(accepted, "duplicate", False)),
                 status_url=str(getattr(accepted, "status_url", "") or ""),
             )
+            # One line per endpoint call, carrying what an operator actually
+            # asks after the fact: which of the three endpoints was used, which
+            # pages of which file went to it, and how much was uploaded. The
+            # filename is built by `multipass._payload_for` and names the pages
+            # it carved out, so "did the passport go?" is answerable from the
+            # log alone rather than by re-deriving it from the classifier.
             log.info(
-                "Queued OCR job %s mode=%s duplicate=%s key=%s",
-                handle.job_id, handle.mode, handle.duplicate, idempotency_key,
+                "OCR endpoint -> mode=%s job=%s duplicate=%s file='%s' "
+                "payload=%.1fKB key=%s",
+                handle.mode, handle.job_id, handle.duplicate, filename,
+                len(data) / 1024.0, idempotency_key,
             )
             return handle
 
@@ -525,8 +533,22 @@ class AsyncOCRJobClient:
     ) -> tuple[JobHandle, JobOutcome]:
         """Submit and wait. The handle is returned even when the wait times out,
         because the job id is the only thing that makes the work recoverable."""
+        started = time.monotonic()
         handle = self.submit(data, filename, mode, idempotency_key, lang=lang)
         outcome = self.wait(handle.job_id, mode, budget_seconds)
+        # The other half of the endpoint line: what came back, and how long the
+        # round trip took. Submitted-but-never-reported was the shape of the
+        # question "did the passport go to Veris or not", and one line at each
+        # end answers it without reading the state store.
+        pages = (outcome.result or {}).get("pages") or []
+        chars = sum(
+            len(p if isinstance(p, str) else (p or {}).get("text") or "") for p in pages
+        )
+        log.info(
+            "OCR endpoint <- mode=%s job=%s status=%s %.1fs pages=%d chars=%d%s",
+            mode, handle.job_id, outcome.status, time.monotonic() - started,
+            len(pages), chars, f" error={outcome.error}" if outcome.error else "",
+        )
         return handle, outcome
 
     def retry_job(self, job_id: str) -> JobHandle:

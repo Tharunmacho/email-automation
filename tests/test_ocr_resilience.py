@@ -15,6 +15,7 @@ rather than giving up on it.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -148,9 +149,11 @@ def test_a_page_that_times_out_is_retried_smaller(monkeypatch):
     def fake_read(image, psm, seconds=None):
         seen.append(image.width)
         # Times out at full size, exactly as a contended host does.
-        return "" if image.width > 2000 else "PASSPORT Republic of India"
+        if image.width > 2000:
+            return "", True
+        return "PASSPORT Republic of India", False
 
-    monkeypatch.setattr(local_ocr, "_tesseract_read", fake_read)
+    monkeypatch.setattr(local_ocr, "_tesseract_try", fake_read)
 
     text = local_ocr._rescue_read(page(4000), page_number=20)
 
@@ -164,7 +167,7 @@ def test_a_page_that_times_out_is_retried_smaller(monkeypatch):
 def test_the_rescue_never_shrinks_below_what_tesseract_can_segment(monkeypatch):
     """Past the minimum readable width a retry is a slower way of returning ''."""
     monkeypatch.setattr(settings, "ocr_rescue_enabled", True)
-    monkeypatch.setattr(local_ocr, "_tesseract_read", lambda image, psm, seconds=None: "")
+    monkeypatch.setattr(local_ocr, "_tesseract_try", lambda image, psm, seconds=None: ("", True))
 
     assert local_ocr._rescue_read(page(local_ocr._MIN_READABLE_WIDTH), 1) == ""
 
@@ -175,9 +178,9 @@ def test_the_rescue_can_be_switched_off(monkeypatch):
 
     def fake_read(image, psm, seconds=None):
         called.append(1)
-        return ""
+        return "", True
 
-    monkeypatch.setattr(local_ocr, "_tesseract_read", fake_read)
+    monkeypatch.setattr(local_ocr, "_tesseract_try", fake_read)
 
     assert local_ocr._rescue_read(page(4000), 1) == ""
     assert not called, "the rescue ran while disabled"
@@ -190,9 +193,11 @@ def test_read_image_falls_back_to_the_rescue_when_everything_returns_empty(monke
     monkeypatch.setattr(local_ocr, "_read_with_secondary", lambda image: "")
 
     def fake_read(image, psm, seconds=None):
-        return "" if image.width > 2000 else "Republic of India Passport"
+        if image.width > 2000:
+            return "", True
+        return "Republic of India Passport", False
 
-    monkeypatch.setattr(local_ocr, "_tesseract_read", fake_read)
+    monkeypatch.setattr(local_ocr, "_tesseract_try", fake_read)
 
     read = local_ocr.read_image(page(4000), dpi=300, page_number=20)
 
@@ -204,9 +209,9 @@ def test_a_page_that_reads_fine_never_reaches_the_rescue(monkeypatch):
     """The common case must not pay for the failure case."""
     monkeypatch.setattr(settings, "ocr_detect_rotation", False)
     monkeypatch.setattr(
-        local_ocr, "_tesseract_read",
+        local_ocr, "_tesseract_try",
         lambda image, psm, seconds=None: (
-            "Curriculum Vitae of a perfectly legible candidate here"
+            "Curriculum Vitae of a perfectly legible candidate here", False
         ),
     )
     rescued = []
@@ -343,16 +348,157 @@ def test_the_rescue_is_not_given_less_time_than_the_read_it_rescues(monkeypatch)
 
     def fake_read(image, psm, seconds=None):
         budgets.append(seconds if seconds is not None else local_ocr._page_timeout(image))
-        return ""
+        return "", True
 
-    monkeypatch.setattr(local_ocr, "_tesseract_read", fake_read)
+    monkeypatch.setattr(local_ocr, "_tesseract_try", fake_read)
 
     big = page(4000, 5200)
     granted_to_the_original = local_ocr._page_timeout(big)
     local_ocr._rescue_read(big, page_number=20)
 
     assert budgets, "the rescue never read anything"
-    assert min(budgets) >= granted_to_the_original, (
-        f"the rescue got {min(budgets)}s against the {granted_to_the_original}s "
-        "the read it is rescuing was given"
+    # The property is that the allowance is not scaled *down with the pixels*
+    # (measured: 1.3s against 2.2s, a 0.58x cut). Attempts share one budget, so
+    # later ones are shorter by whatever the earlier ones actually spent — hence
+    # a tolerance rather than a strict >=.
+    assert budgets[0] >= granted_to_the_original * 0.99, (
+        f"the rescue opened with {budgets[0]}s against the "
+        f"{granted_to_the_original}s the read it is rescuing was given"
+    )
+
+
+# --------------------------------------------------------------------------- #
+#  A page may not cost more than its share
+# --------------------------------------------------------------------------- #
+
+def test_a_timeout_does_not_drag_the_whole_segmentation_ladder_behind_it(monkeypatch):
+    """Observed in production: one page, five timeouts, 225 seconds, no text.
+
+    psm 6 timed out at 45s, then psm 4 at 45s, then psm 3 at 45s, then two
+    shrinking retries at 45s each. They are the same engine on the same pixels
+    and psm 3 is the dearest of the three, so none of them could have finished
+    what psm 6 could not. A page that ran out of time needs less work, not a
+    different segmentation.
+    """
+    monkeypatch.setattr(settings, "ocr_detect_rotation", False)
+    monkeypatch.setattr(settings, "ocr_rescue_enabled", False)
+    monkeypatch.setattr(settings, "ocr_page_total_seconds", 90.0)
+    monkeypatch.setattr(local_ocr, "_read_with_secondary", lambda image: "")
+    attempted: list[int] = []
+
+    def always_times_out(image, psm, seconds=None):
+        attempted.append(psm)
+        return "", True
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", always_times_out)
+
+    local_ocr.read_image(page(2550, 3300), dpi=300, page_number=8)
+
+    assert attempted == [settings.ocr_psm], (
+        f"the ladder kept climbing after a timeout: psm passes {attempted}"
+    )
+
+
+def test_a_poor_read_still_tries_the_other_segmentations(monkeypatch):
+    """The ladder must still exist — it is only the timeout path that skips it."""
+    monkeypatch.setattr(settings, "ocr_detect_rotation", False)
+    monkeypatch.setattr(settings, "ocr_page_total_seconds", 90.0)
+    monkeypatch.setattr(local_ocr, "_read_with_secondary", lambda image: "")
+    attempted: list[int] = []
+
+    def poor_but_finished(image, psm, seconds=None):
+        attempted.append(psm)
+        return "x y z", False  # real output, just far below the quality floor
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", poor_but_finished)
+
+    local_ocr.read_image(page(2550, 3300), dpi=300, page_number=8)
+
+    assert len(attempted) > 1, "a page that read poorly was not offered psm 4 or 3"
+
+
+def test_no_pass_may_outlive_the_page_budget(monkeypatch):
+    """Each pass is capped by what the page has left, not only by its own limit."""
+    monkeypatch.setattr(settings, "ocr_detect_rotation", False)
+    monkeypatch.setattr(settings, "ocr_page_timeout_seconds", 45.0)
+    monkeypatch.setattr(settings, "ocr_page_total_seconds", 10.0)
+    monkeypatch.setattr(local_ocr, "_read_with_secondary", lambda image: "")
+    granted: list[float] = []
+
+    def record(image, psm, seconds=None):
+        granted.append(seconds)
+        return "x y z", False
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", record)
+
+    local_ocr.read_image(page(2550, 3300), dpi=300, page_number=8)
+
+    assert granted, "no pass ran"
+    assert all(g is not None and g <= 10.0 for g in granted), (
+        f"a pass was allowed to outlive the page's own budget: {granted}"
+    )
+
+
+def test_the_rescue_is_skipped_once_the_page_budget_is_gone(monkeypatch):
+    """Spending more on a page that will not answer only delays the cloud read."""
+    monkeypatch.setattr(settings, "ocr_rescue_enabled", True)
+    tried = []
+
+    def fake_read(image, psm, seconds=None):
+        tried.append(image.width)
+        return "", True
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", fake_read)
+
+    assert local_ocr._rescue_read(page(4000), page_number=20, budget=0.0) == ""
+    assert not tried, "the rescue ran with no budget left"
+
+
+def test_the_budget_is_unlimited_when_set_to_zero(monkeypatch):
+    """Opting out must not accidentally mean 'no time at all'."""
+    monkeypatch.setattr(settings, "ocr_detect_rotation", False)
+    monkeypatch.setattr(settings, "ocr_page_total_seconds", 0)
+    monkeypatch.setattr(settings, "ocr_page_timeout_seconds", 45.0)
+    monkeypatch.setattr(local_ocr, "_read_with_secondary", lambda image: "")
+    granted: list[float] = []
+
+    def record(image, psm, seconds=None):
+        granted.append(seconds)
+        return "Curriculum Vitae legible enough to stop the ladder here", False
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", record)
+
+    local_ocr.read_image(page(2550, 3300), dpi=300, page_number=1)
+
+    assert granted and all(g is None or g > 0 for g in granted), granted
+
+
+def test_the_rescue_budget_is_spent_once_not_once_per_attempt(monkeypatch):
+    """Measured: a 3s page budget bought 4.1s of reading.
+
+    `_rescue_read` tries two sizes. Handing each the same allowance means the
+    second cannot see that the first has already spent it, so the page overruns
+    the only bound that was supposed to hold it.
+    """
+    monkeypatch.setattr(settings, "ocr_rescue_enabled", True)
+    granted: list[float] = []
+
+    def burner(image, psm, seconds=None):
+        granted.append(seconds)
+        # A pass that uses every second it is given, as a timing-out one does.
+        time.sleep(seconds)
+        return "", True
+
+    monkeypatch.setattr(local_ocr, "_tesseract_try", burner)
+
+    local_ocr._rescue_read(page(4000), page_number=20, budget=0.30)
+
+    # Reading time is what the budget governs; the LANCZOS resize between
+    # attempts is real work but not Tesseract's, and is not what ran away.
+    # One attempt that used the whole budget, or two that shared it — either is
+    # correct. What must not happen is each attempt receiving the full 0.30s
+    # again, which is what the old fixed floor did (0.60s for a 0.30s budget).
+    assert sum(granted) <= 0.31, (
+        f"the rescue handed out {sum(granted):.2f}s of a 0.30s budget "
+        f"({granted}) — each attempt got the whole allowance again"
     )

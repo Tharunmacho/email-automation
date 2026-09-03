@@ -25,6 +25,9 @@ docx2txt>=0.8            # fallback .docx text
 # ---- OCR (scanned PDFs / images) ----
 pytesseract>=0.3.10      # requires Tesseract-OCR binary installed on the host
 Pillow>=10.3
+# Local (Sauvola) thresholding in app/extraction/local_ocr.py: summed-area
+# tables, so a whole page costs two cumulative sums rather than a convolution.
+numpy>=1.26
 veriis>=0.1.2
 
 # ---- REST API (extension seam) ----

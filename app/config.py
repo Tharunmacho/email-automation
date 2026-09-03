@@ -374,11 +374,100 @@ class Settings(BaseSettings):
     ocr_min_text_chars: int = 120
     # The DPI a page is first rendered at. Pages that read poorly are re-read at
     # `ocr_escalate_dpi` — see `app/extraction/local_ocr.py`.
+    # Triage: read every page cheaply first, then spend the real budget on the
+    # few pages that turned out to matter.
+    #
+    # Every page this pipeline actually cares about is re-read in the cloud —
+    # the résumé through the résumé endpoint, the Aadhaar and passport through
+    # theirs. So the local read's job is not to produce good text, it is to
+    # decide *which pages to send*. Measured on the two bundles from production,
+    # one cheap 150-DPI pass over all 28 pages costs 23s against 78s for the
+    # full-quality pass, and picks out the same résumé and Aadhaar.
+    #
+    # It does not, on its own, pick out the same passports — which is why this
+    # is a triage and not a replacement. At 200 DPI the passport on page 27 of
+    # the Saravanan bundle disappears entirely, and at 120 DPI a page that is
+    # not a passport is added. Classification is not stable across resolution,
+    # so triage only ever *nominates*: every page it finds interesting, and
+    # every page it could not read confidently, is then re-read at `ocr_dpi`
+    # and the routing decision is taken from that text.
+    #
+    # DEFAULT OFF, because on the documents this desk actually receives it made
+    # things worse and the measurement is not close. On the two production
+    # bundles it nominated 28 pages out of 28 — nothing was excluded, so the
+    # cheap pass bought nothing and cost a whole extra read of every page:
+    # 37s became 49s, 24s became 34s. The reason it cannot exclude anything is
+    # that 17 of those 28 pages classify as `unknown` (real content, commits to
+    # nothing), and an `unknown` page is precisely one nobody may skip.
+    #
+    # The premise was wrong too. A cheap pass looked ~6x cheaper on synthetic
+    # text, where cost tracks pixel count; on real noisy scans it is only ~1.6x,
+    # because Tesseract spends its time on layout analysis and speckle rather
+    # than on pixels. Triage would have to eliminate more than 60% of the full
+    # reads to break even, and it eliminates none.
+    #
+    # Left in, off, because the shape is sound for a bundle that really is
+    # mostly clearly-typed pages. Turn it on only with a measurement in hand.
+    # The second look: a page showing any hint of an identity document is
+    # re-read carefully before the bundle is allowed to conclude it has none.
+    #
+    # The scores are coarse by design — a strong marker is 2.0, a weak one 0.5,
+    # and a page needs 3.0 to be routed. So a page carrying a single weak trace
+    # of a passport scores 0.5 and is dropped without anything ever looking at
+    # it properly. That is the wrong way round: a hint is precisely the signal
+    # that this page deserves *more* effort, not the signal to stop.
+    #
+    # So anything at or above `ocr_deep_read_score` that has not already cleared
+    # the seed is rendered again at `ocr_deep_read_dpi` and put through the full
+    # ladder. Bounded by `ocr_deep_read_max_pages`, because "look harder at
+    # everything" is how a bundle costs an hour.
+    ocr_deep_read_enabled: bool = True
+    #: The lowest *scored* evidence that earns a second look. A page scoring
+    #: nothing at all still gets one when `has_identity_hint` finds a bare
+    #: trace on it, so this is a floor on the scored path only.
+    ocr_deep_read_score: float = 0.5
+    #: More pixels per character, which is what settles a marker OCR half-read.
+    ocr_deep_read_dpi: int = 450
+    #: A ceiling on the second look, not a budget for it.
+    ocr_deep_read_max_pages: int = 12
+    ocr_triage_enabled: bool = False
+    ocr_triage_dpi: int = 150
+    # Below this many characters a triage read is not trusted, and the page is
+    # confirmed at full resolution whatever it appeared to say. Deliberately
+    # generous: a page wrongly nominated costs one read, a page wrongly dropped
+    # costs a passport.
+    ocr_triage_min_chars: int = 200
     ocr_dpi: int = 300
     ocr_escalate_dpi: int = 450
     # Tesseract page-segmentation modes. 6 (one uniform block) is right for most
     # pages; 4 (variable-width columns) and 3 (fully automatic) rescue the
     # two-column résumés and the mixed certificate scans it gets wrong.
+    # Local (adaptive) thresholding before Tesseract sees the page.
+    #
+    # `autocontrast` stretches one histogram over the whole sheet, which is the
+    # wrong model for the documents that actually arrive: a phone photograph of
+    # a CV under a desk lamp is bright at the top and grey at the bottom, and a
+    # single global cut-off either loses the dark half or fills the light half
+    # with speckle. Sauvola computes a threshold per neighbourhood instead, so
+    # each part of the page is judged against its own background.
+    #
+    # Applied only where it helps — see `_prepare`. A clean 300-DPI scan is
+    # already separable and pays nothing for this.
+    #
+    # DEFAULT OFF on the same evidence. Measured over both production bundles it
+    # changed neither the extracted text (17711 and 14979 chars, to the
+    # character) nor the routing, and on one of them it cost 27% more time
+    # (19.9s -> 25.4s). These are flatbed scans with even lighting, which is the
+    # case Tesseract's own global threshold already handles well.
+    #
+    # It is kept for the case it was written for and which this desk does also
+    # receive: phone photographs of a document, lit from one side, where a
+    # single global cut-off loses half the page. Turn it on for those, having
+    # measured; do not turn it on for flatbed scans.
+    ocr_adaptive_threshold: bool = False
+    #: Neighbourhood, in pixels, for the local threshold. Roughly a character
+    #: height at 300 DPI; smaller starts eating the insides of bold strokes.
+    ocr_adaptive_window: int = 31
     ocr_psm: int = 6
     ocr_alternate_psms: List[int] = [4, 3]
     # Below this reading-quality score a page is retried — a different
@@ -467,6 +556,22 @@ class Settings(BaseSettings):
     # pixels is roughly a quarter of the work, and a page that reads at all is
     # worth more than a perfect read that never returns.
     ocr_rescue_enabled: bool = True
+    # The wall clock ONE page may spend in the local reader, across every pass.
+    #
+    # `ocr_page_timeout_seconds` bounds a single Tesseract invocation, and that
+    # turned out not to bound anything that matters: the ladder runs psm 6, then
+    # psm 4, then psm 3, then two shrinking retries, so a page that times out at
+    # every rung costs five times the per-pass limit. At 45s each that is 225
+    # seconds — for one page, which then returns empty anyway. Four such pages
+    # in the four concurrent slots is fifteen minutes of a 30-page bundle spent
+    # producing nothing.
+    #
+    # The per-pass limit cannot express "stop working on this page"; only a
+    # total can. When it runs out the page is unread, which is a state the
+    # pipeline now handles properly — Veris is asked for it, and it comes back.
+    # Trying locally for longer than this buys nothing the cloud reader will not
+    # deliver faster.
+    ocr_page_total_seconds: float = 90.0
     ocr_page_timeout_seconds: float = 45.0
     ocr_document_budget_seconds: float = 600.0
     # Hard ceiling on pages OCR'd from one scanned document, so a 200-page

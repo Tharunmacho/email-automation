@@ -200,12 +200,86 @@ def _read_with_secondary(image) -> str:
 _MIN_READABLE_WIDTH = 1600
 
 
+def _sauvola(image):
+    """Threshold each neighbourhood against its own background.
+
+    `autocontrast` stretches a single histogram over the whole sheet. That is
+    the wrong model for what arrives here: a phone photograph of a CV under a
+    desk lamp is bright at one edge and grey at the other, and one global
+    cut-off either loses the dark half of the page or fills the light half with
+    speckle. Tesseract does its own global (Otsu) binarisation for the same
+    reason and fails the same way, so handing it an already-separated page is
+    the part this can do that it cannot.
+
+    Sauvola's rule — threshold = mean * (1 + k * (stddev / 128 - 1)) over a
+    local window — is the standard answer for document images, and both moments
+    come from summed-area tables, so the whole page costs two cumulative sums
+    rather than a convolution per pixel.
+
+    Returns None when it cannot help or cannot run: no numpy, a tiny image, or
+    a page whose contrast is already uniform enough that a global cut is right.
+    The caller then keeps the autocontrast version, which is what shipped
+    before this existed.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # noqa: BLE001 — numpy is declared, but never assume
+        return None
+
+    from PIL import Image
+
+    window = max(3, int(getattr(settings, "ocr_adaptive_window", 31)) | 1)
+    array = np.asarray(image, dtype=np.float64)
+    if array.ndim != 2 or min(array.shape) < window * 2:
+        return None
+
+    # A page whose lighting is already even gains nothing here, and paying two
+    # summed-area tables for it on every read is the sort of cost that turns a
+    # 30-page bundle slow. The cheap test is whether the page's own halves
+    # disagree about what "white" means.
+    thirds = np.array_split(array, 3, axis=0)
+    brightness = [float(t.mean()) for t in thirds if t.size]
+    if len(brightness) > 1 and (max(brightness) - min(brightness)) < 12.0:
+        return None
+
+    padded = np.pad(array, window // 2, mode="edge")
+    integral = padded.cumsum(axis=0).cumsum(axis=1)
+    squares = (padded ** 2).cumsum(axis=0).cumsum(axis=1)
+
+    def _window_sum(table):
+        bottom_right = table[window:, window:]
+        top_right = table[:-window, window:]
+        bottom_left = table[window:, :-window]
+        top_left = table[:-window, :-window]
+        return bottom_right - top_right - bottom_left + top_left
+
+    count = float(window * window)
+    mean = _window_sum(integral) / count
+    variance = np.maximum(_window_sum(squares) / count - mean ** 2, 0.0)
+    threshold = mean * (1.0 + 0.2 * (np.sqrt(variance) / 128.0 - 1.0))
+
+    binary = np.where(array > threshold[: array.shape[0], : array.shape[1]], 255, 0)
+    return Image.fromarray(binary.astype("uint8"), mode="L")
+
+
 def _prepare(image):
     """Greyscale, contrast-stretch, and upscale a page that is too small to read."""
     from PIL import Image, ImageOps
 
     prepared = image.convert("L") if image.mode not in ("L", "1") else image
-    prepared = ImageOps.autocontrast(prepared)
+
+    if getattr(settings, "ocr_adaptive_threshold", True):
+        try:
+            local = _sauvola(prepared)
+        except Exception as exc:  # noqa: BLE001 — never fail a page on preprocessing
+            log.debug("Adaptive threshold skipped: %s", exc)
+            local = None
+        if local is not None:
+            prepared = local
+        else:
+            prepared = ImageOps.autocontrast(prepared)
+    else:
+        prepared = ImageOps.autocontrast(prepared)
 
     if prepared.width < _MIN_READABLE_WIDTH:
         scale = min(3.0, _MIN_READABLE_WIDTH / max(1, prepared.width))
@@ -315,6 +389,11 @@ def _page_timeout(image=None) -> float:
 
 
 def _tesseract_read(image, psm: int, seconds: "float | None" = None) -> str:
+    """The text only. See `_tesseract_try` for why a pass came back empty."""
+    return _tesseract_try(image, psm, seconds)[0]
+
+
+def _tesseract_try(image, psm: int, seconds: "float | None" = None) -> "Tuple[str, bool]":
     """One Tesseract pass, or "" and a reason in the log.
 
     The reason used to be at DEBUG, which is not on in production, and that made
@@ -335,7 +414,7 @@ def _tesseract_read(image, psm: int, seconds: "float | None" = None) -> str:
         with _engine_slot():
             return pytesseract.image_to_string(
                 image, lang=settings.ocr_languages, config=config, timeout=budget
-            )
+            ), False
     except RuntimeError as exc:  # pytesseract raises this on its own timeout
         log.warning(
             "Tesseract psm=%d gave up after %.0fs on a %dx%d page: %s — retrying "
@@ -343,10 +422,10 @@ def _tesseract_read(image, psm: int, seconds: "float | None" = None) -> str:
             "OCR_PAGE_TIMEOUT_SECONDS, or give the container more CPU)",
             psm, budget, image.width, image.height, exc,
         )
-        return ""
+        return "", True
     except Exception as exc:  # noqa: BLE001
         log.warning("Tesseract psm=%d failed: %s", psm, exc)
-        return ""
+        return "", False
 
 
 # --------------------------------------------------------------------------- #
@@ -571,7 +650,7 @@ def _upright(prepared, original, page_number: int):
 
 
 # --------------------------------------------------------------------------- #
-def _rescue_read(prepared, page_number: int) -> str:
+def _rescue_read(prepared, page_number: int, budget: "float | None" = None) -> str:
     """A page that read as *nothing* tried again smaller.
 
     This is the last rung, and it goes down rather than up. Every other pass in
@@ -607,17 +686,32 @@ def _rescue_read(prepared, page_number: int) -> str:
     # rescue at 1700x2200 got 1.3s. Handing the retry *less* wall time than the
     # attempt it exists to rescue is self-defeating — the point is a quarter of
     # the work in the same seconds, not a quarter of both.
-    floor = _page_timeout(prepared)
+    floor = _page_timeout(prepared) if budget is None else budget
+    if floor is not None and floor <= 0:
+        log.info(
+            "Page %d has no local budget left for a smaller read; leaving it "
+            "unread rather than spending more on a page that will not answer",
+            page_number,
+        )
+        return ""
+
+    # `floor` is the budget for the *whole* rescue, not for each attempt. Handing
+    # the same allowance to both retries is how a 3s page budget bought 4.1s of
+    # reading — the second attempt could not see that the first had spent it.
+    started = time.monotonic()
 
     for divisor in (2, 3):
         target = max(_MIN_READABLE_WIDTH, int(width / divisor))
         if target >= width:
             continue
+        allowed = None if floor is None else floor - (time.monotonic() - started)
+        if allowed is not None and allowed <= 0:
+            break
         scale = target / width
         smaller = prepared.resize(
             (target, max(1, int(prepared.height * scale))), Image.LANCZOS
         )
-        text = _tesseract_read(smaller, settings.ocr_psm, seconds=floor)
+        text, _timed_out = _tesseract_try(smaller, settings.ocr_psm, seconds=allowed)
         if text.strip():
             log.info(
                 "Page %d read as empty at %dpx but answered at %dpx: %d chars "
@@ -648,23 +742,59 @@ def read_image(
         turned_by = known_angle
         prepared = _prepare(image.rotate(turned_by, expand=True) if turned_by else image)
 
-    best_text = _tesseract_read(prepared, settings.ocr_psm)
+    # A wall clock on this page, across every pass below.
+    total = max(0.0, float(getattr(settings, "ocr_page_total_seconds", 0) or 0))
+    page_deadline = time.monotonic() + total if total else None
+
+    def budget_for(img) -> "float | None":
+        """What this pass may spend: its own share, capped by the page's."""
+        own = _page_timeout(img)
+        if page_deadline is None:
+            return own
+        left = page_deadline - time.monotonic()
+        if left <= 0:
+            return 0.0
+        return min(own, left) if own else left
+
+    first = budget_for(prepared)
+    best_text, timed_out = _tesseract_try(prepared, settings.ocr_psm, seconds=first)
     best_quality = text_quality(best_text)
     best_engine = f"tesseract:psm{settings.ocr_psm}"
     if turned_by:
         best_engine += f"+rot{turned_by}"
 
-    if best_quality < settings.ocr_page_quality_floor:
+    # A timeout is not a segmentation problem, so the segmentation ladder is
+    # skipped when one happens.
+    #
+    # psm 4 and psm 3 are the same engine on the same pixels; psm 3 is the most
+    # expensive of the three. If psm 6 could not finish this image, neither can
+    # they, and running them anyway is how one page came to cost 225 seconds —
+    # three timeouts at 45s, then two more shrinking retries — before returning
+    # empty regardless. What a page that ran out of time needs is *less work*,
+    # which is the rescue below, not another full-size pass.
+    if timed_out:
+        log.info(
+            "Page %d timed out at psm %d; skipping the other segmentations "
+            "(same engine, same pixels) and going straight to a smaller read",
+            page_number, settings.ocr_psm,
+        )
+    elif best_quality < settings.ocr_page_quality_floor:
         # A different segmentation, not a different picture. Columnar résumés
         # and single-column letters need opposite assumptions, and the file
         # gives no clue which it is.
         for psm in settings.ocr_alternate_psms:
             if psm == settings.ocr_psm:
                 continue
-            text = _tesseract_read(prepared, psm)
+            allowed = budget_for(prepared)
+            if allowed is not None and allowed <= 0:
+                break
+            text, psm_timed_out = _tesseract_try(prepared, psm, seconds=allowed)
             quality = text_quality(text)
             if quality > best_quality:
                 best_text, best_quality, best_engine = text, quality, f"tesseract:psm{psm}"
+            if psm_timed_out:
+                timed_out = True
+                break
             if best_quality >= settings.ocr_page_quality_floor:
                 break
 
@@ -677,11 +807,18 @@ def read_image(
     # Nothing at all came back. Not "read badly" — *nothing*, which on a busy
     # host means the passes timed out rather than that the page is blank.
     if not (best_text or "").strip():
-        rescued = _rescue_read(prepared, page_number)
+        rescued = _rescue_read(prepared, page_number, budget=budget_for(prepared))
         if rescued.strip():
             best_text = rescued
             best_quality = text_quality(rescued)
             best_engine = "tesseract:rescue"
+        elif page_deadline is not None and time.monotonic() >= page_deadline:
+            log.warning(
+                "Page %d spent its whole %.0fs local budget and read as nothing; "
+                "leaving it unread so the cloud reader is asked for it "
+                "(OCR_PAGE_TOTAL_SECONDS)",
+                page_number, total,
+            )
 
     return PageRead(
         page_number=page_number,
@@ -742,6 +879,7 @@ def _render(page, dpi: int):
 
 def _read_pdf_page(
     data: bytes, page_number: int, deadline: "float | None" = None,
+    base_dpi: "int | None" = None,
 ) -> PageRead:
     """One page of a PDF, rendered and read, escalating if it comes back thin.
 
@@ -751,7 +889,7 @@ def _read_pdf_page(
     """
     import fitz  # PyMuPDF
 
-    dpi = settings.ocr_dpi
+    dpi = int(base_dpi or settings.ocr_dpi)
     # One slot for the whole page — the raster and every pass over it. Taking it
     # here rather than only around Tesseract is what bounds *memory* as well as
     # CPU: otherwise every queued thread sits on a full-size bitmap waiting for
@@ -893,9 +1031,11 @@ def ocr_pdf_page_reads(
     noise, which scores as confidently-not-an-ID rather than as unreadable —
     and the caller cannot tell those apart from the text alone.
 
-    ``dpi`` is accepted for callers that predate the escalation logic and is
-    otherwise ignored — the DPI a page needs is decided per page, from how well
-    it reads, not passed in by a caller that cannot know.
+    ``dpi`` overrides the resolution pages are rendered at. Normally left unset:
+    the DPI a page needs is decided per page, from how well it reads. The
+    exception is the deliberate second look — a page that showed a hint of an
+    identity document and is being re-read carefully to settle it — where the
+    caller knows something the page does not.
     """
     import fitz  # PyMuPDF
 
@@ -969,7 +1109,7 @@ def ocr_pdf_page_reads(
                 skipped.append(number)
             return number, None
         try:
-            return number, _read_pdf_page(data, number, deadline)
+            return number, _read_pdf_page(data, number, deadline, base_dpi=dpi)
         except TextExtractionError:
             raise
         except Exception as exc:  # noqa: BLE001 — one bad page is not the document
@@ -1005,6 +1145,95 @@ def ocr_pdf_page_reads(
             weak, filename or "attachment", settings.ocr_page_quality_floor,
         )
     return out
+
+
+def single_pass_pages(
+    data: bytes,
+    pages: "set[int] | None" = None,
+    filename: str = "",
+    *,
+    dpi: "int | None" = None,
+    label: str = "triage",
+) -> Dict[int, PageRead]:
+    """One read per page at a chosen resolution — no ladder, no escalation.
+
+    Two callers, opposite intentions, same shape. Triage reads *low* to find out
+    which pages matter; the second look reads *high* to settle a page that
+    showed a trace of an identity document. Neither wants the ladder in
+    `read_image`: triage cannot afford it, and the second look does not need it,
+    because a marker that a bigger render does not recover is not going to be
+    recovered by a different page-segmentation mode either.
+
+    That matters for cost. Re-reading two pages through the full ladder at 450
+    DPI took seven seconds; the same pages read once each take a fraction of it,
+    and the second look has to stay cheap enough to run on every hint rather
+    than only on strong ones.
+
+    Deliberately not the ladder in `read_image`: one segmentation, one
+    resolution, no orientation search, no DPI escalation, no second engine. The
+    output is not meant to be the text this pipeline keeps — every page that
+    matters is re-read, locally at `ocr_dpi` and then in the cloud — it is meant
+    only to answer "is there anything on this page worth spending on".
+
+    Measured on the two bundles from production: 23s against 78s over 28 pages,
+    finding the same résumé and Aadhaar. The passports it does *not* reliably
+    find on its own, which is exactly why the caller confirms every nomination
+    at full resolution rather than trusting this.
+    """
+    import fitz  # PyMuPDF
+
+    dpi = max(72, int(dpi or getattr(settings, "ocr_triage_dpi", 150)))
+    with fitz.open(stream=data, filetype="pdf") as doc:
+        total = doc.page_count
+
+    wanted = sorted(pages) if pages is not None else list(range(1, total + 1))
+    wanted = [n for n in wanted if 1 <= n <= total]
+    if not wanted:
+        return {}
+
+    workers = max(1, min(local_worker_count(), len(wanted)))
+    out: Dict[int, PageRead] = {}
+
+    def _one(number: int) -> "Tuple[int, PageRead | None]":
+        try:
+            with _engine_slot(), fitz.open(stream=data, filetype="pdf") as doc:
+                image, raw = _render(doc[number - 1], dpi)
+                key = _cache_key(raw, dpi)
+                cached = _cached(key)
+                if cached is not None:
+                    return number, PageRead(
+                        number, cached, dpi, "cache", text_quality(cached)
+                    )
+                text, _timed_out = _tesseract_try(_prepare(image), settings.ocr_psm)
+            _remember(key, text)
+            return number, PageRead(
+                number, text or "", dpi, f"{label}:psm{settings.ocr_psm}",
+                text_quality(text or ""),
+            )
+        except Exception as exc:  # noqa: BLE001 — one bad page is not the document
+            log.warning("%s failed on page %d of '%s': %s", label, number, filename, exc)
+            return number, None
+
+    started = time.monotonic()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        for number, read in pool.map(_one, wanted):
+            if read is not None:
+                out[number] = read
+
+    log.info(
+        "%s read %d/%d page(s) of '%s' at %ddpi across %d worker(s): "
+        "%d chars in %.1fs",
+        label.capitalize(), len(out), total, filename or "attachment", dpi, workers,
+        sum(len(r.text) for r in out.values()), time.monotonic() - started,
+    )
+    return out
+
+
+def triage_pdf_pages(
+    data: bytes, pages: "set[int] | None" = None, filename: str = "",
+) -> Dict[int, PageRead]:
+    """The cheap pass, at `ocr_triage_dpi`. See `single_pass_pages`."""
+    return single_pass_pages(data, pages, filename, label="triage")
 
 
 def ocr_pdf_page_texts(

@@ -649,6 +649,26 @@ _ID_SEED_SCORE = 3.0
 # score on weak markers alone; only unmistakable document evidence — the MRZ,
 # the issuing authority — outranks the résumé reading.
 _ID_OVERRIDE_SCORE = 5.0
+# What a page must score to be *adopted* into a bundle that has already proved
+# it contains this kind of document. Exactly one strong marker.
+#
+# A strong marker is worth 2.0 and the seed is 3.0, so a page whose only
+# surviving evidence is one unmistakable label scores 2.0 and is thrown away.
+# That is not a hypothetical: page 27 of a real bundle is the back page of an
+# Indian passport, it reads "Name of Father / Legal Guardian" — a caption
+# printed on that page and on essentially nothing else — and it scored 2.0 and
+# was dropped, fourteen pages from the data page already confirmed as a
+# passport. Read at a higher resolution the same page picks up a second marker,
+# reaches 5.0 and is kept, which is how "the passport is missing" turned into a
+# question about OCR quality when the reader had done its job.
+#
+# One marker is weak evidence *in isolation*, and on a bundle with no passport
+# in it this changes nothing. It is strong evidence that page 27 belongs to the
+# passport on pages 10 and 11. The bundle is the context the per-page score
+# cannot see, and the file already uses exactly this reasoning for nationality
+# further down: a page that cannot speak for itself takes the answer from the
+# pages that can.
+_ID_CONTINUATION_SCORE = 2.0
 
 #: The seed score, published for the extractor's escalation pass. A page that
 #: scores near this but not over it is the case where a better read decides the
@@ -809,6 +829,32 @@ _ID_MARKERS_COMPILED = {
 }
 
 
+#: Bare words that hint at an identity document without proving anything.
+#:
+#: `id_document_scores` only counts markers precise enough to be evidence — the
+#: bilingual captions, the MRZ, the issuing authority. A page where OCR half-read
+#: the caption keeps the bare noun and scores 0.0, which reads as "no identity
+#: document here" when it means "something was here and the reader fumbled it".
+#: These decide nothing; they only ask for the page to be looked at again.
+_ID_HINTS = re.compile(
+    r"passport|passeport|p[a@]ssp|aadhaar|aadhar|adhaar|\u0906\u0927\u093e\u0930|uidai|"
+    r"unique\s+identification|government\s+of\s+india|republic\s+of\s+india|"
+    r"\bmrz\b|machine\s+readable|\bvisa\b|nationality|date\s+of\s+expiry|"
+    r"place\s+of\s+issue|legal\s+guardian|\b\d{4}\s*\d{4}\s*\d{4}\b",
+    re.IGNORECASE,
+)
+
+
+def has_identity_hint(text: str) -> bool:
+    """Is there any trace of an identity document on this page at all?
+
+    Deliberately far looser than `id_document_scores`, and used for exactly one
+    purpose: deciding that a page is worth reading again more carefully. A false
+    positive costs one re-read; a false negative costs a passport.
+    """
+    return bool(_ID_HINTS.search(text or ""))
+
+
 def id_document_scores(text: str) -> Dict[str, float]:
     """How strongly one page reads as an Aadhaar card and as a passport.
 
@@ -947,6 +993,10 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
     ignored_pages: List[int] = []
     foreign_passport_pages: List[int] = []
     passport_verdicts: Dict[int, pn.NationalityVerdict] = {}
+    #: Pages holding one strong marker but short of the seed score, kept aside
+    #: in case the rest of the bundle vouches for them. See `_ID_CONTINUATION_SCORE`.
+    near_misses: Dict[int, Dict[str, float]] = {}
+    by_number = {p.page_number: p for p in base.pages}
 
     for page in base.pages:
         number = page.page_number
@@ -975,6 +1025,11 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
         is_passport = scores[PASSPORT] >= base_threshold
         is_document = False  # Disabled by user request: scores[DOCUMENT] >= doc_threshold
         if not (is_aadhaar or is_passport or is_document):
+            # Held, not discarded. If this bundle turns out to contain a
+            # passport or an Aadhaar elsewhere, a page carrying one unmistakable
+            # marker of the same document is reconsidered below.
+            if max(scores[PASSPORT], scores[AADHAAR]) >= _ID_CONTINUATION_SCORE:
+                near_misses[number] = dict(scores)
             log.info("Page %d ignored: all scores below threshold", number)
             ignored_pages.append(number)
             continue
@@ -1012,6 +1067,58 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
 
         log.info("Page %d successfully classified as %s!", number, " + ".join(added) if added else "ignored foreign passport")
         page.kind = added[0] if added else ID_DOCUMENT
+
+    # A bundle that has proved it holds a passport vouches for its other pages.
+    #
+    # Everything above judges each page alone, and one page of a booklet does
+    # not carry the whole booklet's evidence: the data page has the MRZ and the
+    # bilingual captions, the back page has the holder's parents and an address.
+    # Alone the back page scores 2.0 against a seed of 3.0 and is dropped. Next
+    # to a confirmed passport it is obviously part of it — and dropping it is
+    # how a passport reaches the endpoint with half of itself missing.
+    #
+    # Only ever *into* a kind the bundle has already established. With no
+    # passport found, no page is adopted as one, so the weaker bar cannot invent
+    # a document that is not there.
+    for number in sorted(near_misses):
+        scores = near_misses[number]
+        page = by_number.get(number)
+        adopted_as = ""
+
+        if passport_pages and scores.get(PASSPORT, 0.0) >= _ID_CONTINUATION_SCORE:
+            text = texts[number - 1] if number - 1 < len(texts) else ""
+            verdict = pn.detect_passport_country(text)
+            passport_verdicts[number] = verdict
+            send, why = pn.should_extract(
+                verdict,
+                india_only=settings.passport_india_only,
+                allow_undetermined=settings.passport_allow_undetermined_nationality,
+            )
+            # An adopted page that names a *foreign* issuer keeps that verdict —
+            # the bundle vouches for "this is passport paper", never for whose.
+            (passport_pages if send else foreign_passport_pages).append(number)
+            _log_passport_decision(number, send, why)
+            adopted_as = PASSPORT
+        elif aadhaar_pages and scores.get(AADHAAR, 0.0) >= _ID_CONTINUATION_SCORE:
+            aadhaar_pages.append(number)
+            adopted_as = AADHAAR
+
+        if not adopted_as:
+            continue
+        if number in ignored_pages:
+            ignored_pages.remove(number)
+        if page is not None:
+            page.kind = adopted_as
+        log.info(
+            "Page %d scored %.1f for %s — under the %.1f seed, but this bundle's "
+            "page(s) %s already established one, so it is adopted rather than dropped",
+            number, scores.get(adopted_as, 0.0), adopted_as, _ID_SEED_SCORE,
+            passport_pages if adopted_as == PASSPORT else aadhaar_pages,
+        )
+
+    passport_pages.sort()
+    aadhaar_pages.sort()
+    foreign_passport_pages.sort()
 
     # Nationality belongs to the passport, not to the page.
     #

@@ -136,8 +136,29 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
             "Reading %d of %d page(s) of '%s' locally (no usable text layer)",
             len(targets), page_count, filename or "attachment",
         )
-        reads = local_ocr.ocr_pdf_page_reads(data, pages=set(targets), filename=filename)
+        confirm = targets
+        triage_texts: dict[int, str] = {}
+
+        if settings.ocr_triage_enabled and len(targets) > 1:
+            # Stage one: one cheap pass, to find out where the money should go.
+            triaged = local_ocr.triage_pdf_pages(
+                data, pages=set(targets), filename=filename
+            )
+            triage_texts = {n: r.text for n, r in triaged.items()}
+            confirm = _pages_worth_confirming(targets, triage_texts, filename)
+
+        # Stage two: the real read, on the pages that earned it.
+        reads = local_ocr.ocr_pdf_page_reads(data, pages=set(confirm), filename=filename)
         fresh = {number: read.text for number, read in reads.items()}
+
+        # The confirmed text wins wherever it exists; triage text stands for the
+        # rest. A page nobody confirmed was one triage read and understood — it
+        # is a certificate or an experience letter, and its text is still part
+        # of the document, still stored, still searchable. It simply did not
+        # need to be read twice.
+        for number, text in triage_texts.items():
+            fresh.setdefault(number, text)
+
         page_texts, ocr_pages = _merge_pages(page_texts, fresh)
 
         # Whatever the local pass could not read, the cloud reader is asked for.
@@ -155,6 +176,12 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
         # the question the classifier is about to ask of it is the same one, and
         # it cannot be answered from an empty string. `veris_recover_max_pages`
         # is what bounds the cost of saying so.
+        # A hint of an identity document earns a second, closer look.
+        page_texts, deepened = _deepen_identity_hints(
+            data, filename, page_texts, ocr_pages
+        )
+        ocr_pages |= deepened
+
         unread = sorted(
             set(n for n in targets if not page_texts[n - 1].strip()) | set(beyond_ceiling)
         )
@@ -193,6 +220,173 @@ def _merge_pages(
         merged[number - 1] = text
         read.add(number)
     return merged, read
+
+
+def _deepen_identity_hints(
+    data: bytes, filename: str, page_texts: list[str], ocr_pages: set[int],
+) -> "tuple[list[str], set[int]]":
+    """Read again, harder, any page that hinted at an identity document.
+
+    The scores this keys off are deliberately coarse — a strong marker is worth
+    2.0, a weak one 0.5, and 3.0 routes the page. The consequence is that a page
+    carrying a single half-read trace of a passport scores 0.5 and is dropped
+    without anything ever having looked at it properly. That is backwards. A
+    hint is the signal to spend *more* effort on a page, not the signal to stop:
+    the page either firms up into a document, or it settles into nothing, and
+    either way the bundle stops guessing.
+
+    Concretely, this is the difference between a passport's back page reading
+    "Name of Father / Legal Guardian" — one marker, 2.0, under the seed — and
+    the same page at 450 DPI picking up the second caption that carries it over.
+
+    Only pages below the seed are re-read: one that already routes has nothing
+    to gain. Only the better read is kept, judged on the identity evidence it
+    produced rather than on length, because a longer read full of scanner
+    speckle is not a better one.
+    """
+    if not (settings.ocr_deep_read_enabled and ocr_pages):
+        return page_texts, set()
+
+    def routable_evidence(text: str) -> float:
+        """The best score among the kinds that can actually be sent somewhere.
+
+        Not `max(...)` over every kind: the generic `document` score is scored
+        but never routed (`is_document` is switched off in the classifier), so
+        including it sends pages for an expensive second read on the strength of
+        evidence that cannot change any outcome. Four such pages in one bundle
+        were re-read at 450 DPI for nothing.
+        """
+        scores = pc.id_document_scores(text)
+        return max(scores.get(pc.AADHAAR, 0.0), scores.get(pc.PASSPORT, 0.0))
+
+    # Any trace at all, scored or not.
+    #
+    # A score of 0.0 does not mean "nothing here" — `id_document_scores` only
+    # counts markers precise enough to be evidence, so a page where OCR half-read
+    # the caption keeps the bare word "passport" and still scores zero. Those are
+    # exactly the pages worth looking at again, so `has_identity_hint` brings
+    # them in on a much looser test than the one used to route anything.
+    #
+    # A page already over the seed is left alone: it routes, and re-reading it
+    # could only change an answer that is already correct.
+    floor = float(settings.ocr_deep_read_score)
+    candidates: list[tuple[float, int]] = []
+    for number in sorted(ocr_pages):
+        text = page_texts[number - 1]
+        best = routable_evidence(text)
+        if best >= pc.ID_SEED_SCORE:
+            continue
+        if best >= floor and best > 0:
+            candidates.append((best, number))
+        elif pc.has_identity_hint(text):
+            candidates.append((best, number))
+
+    if not candidates:
+        return page_texts, set()
+
+    # Strongest hints first: if the ceiling bites, it should bite on the pages
+    # least likely to have been a document in the first place.
+    candidates.sort(reverse=True)
+    ceiling = max(1, int(settings.ocr_deep_read_max_pages))
+    wanted = [n for _score, n in candidates[:ceiling]]
+    if len(candidates) > ceiling:
+        log.warning(
+            "'%s' has %d page(s) hinting at an identity document but only %d may "
+            "be re-read; page(s) %s keep their first read (raise "
+            "OCR_DEEP_READ_MAX_PAGES)",
+            filename or "attachment", len(candidates), ceiling,
+            [n for _s, n in candidates[ceiling:]],
+        )
+
+    log.info(
+        "Second look at page(s) %s of '%s' at %ddpi: each shows a trace of an "
+        "identity document but scores under the %.1f needed to route it",
+        wanted, filename or "attachment", settings.ocr_deep_read_dpi,
+        pc.ID_SEED_SCORE,
+    )
+    try:
+        # One pass at high resolution, not the whole ladder. The ladder exists
+        # to try different *segmentations* of a page that read poorly; this page
+        # read fine, it simply rendered a caption too small to resolve, and the
+        # only thing that fixes that is pixels. Running psm 4 and psm 3 as well
+        # would triple the cost of a step that has to be cheap enough to run on
+        # every hint rather than only on strong ones.
+        reads = local_ocr.single_pass_pages(
+            data, set(wanted), filename,
+            dpi=int(settings.ocr_deep_read_dpi), label="second look",
+        )
+    except Exception as exc:  # noqa: BLE001 — the first read still stands
+        log.warning("Second look at '%s' failed (%s); keeping the first read", filename, exc)
+        return page_texts, set()
+
+    merged = list(page_texts)
+    improved: set[int] = set()
+    for number, read in reads.items():
+        text = read.text or ""
+        if not text.strip():
+            continue
+        before = routable_evidence(merged[number - 1])
+        after = routable_evidence(text)
+        if after <= before:
+            continue
+        merged[number - 1] = text
+        improved.add(number)
+        log.info(
+            "Page %d of '%s' read again at %ddpi: identity evidence %.1f -> %.1f%s",
+            number, filename or "attachment", settings.ocr_deep_read_dpi,
+            before, after,
+            " (now routable)" if after >= pc.ID_SEED_SCORE else "",
+        )
+
+    if not improved:
+        log.info(
+            "The second look at page(s) %s of '%s' found nothing more; they are "
+            "not identity documents",
+            wanted, filename or "attachment",
+        )
+    return merged, improved
+
+
+def _pages_worth_confirming(
+    targets: list[int], triage: dict[int, str], filename: str = "",
+) -> list[int]:
+    """Which pages the cheap pass says are worth a full-resolution read.
+
+    Recall, not precision. A page wrongly nominated costs one read; a page
+    wrongly dropped costs a passport, and that is not a trade to make finely.
+    So the bar is deliberately on the floor: *any* identity signal at all, any
+    hint of a résumé, and anything the triage could not read confidently enough
+    to have an opinion about.
+
+    That last clause is doing most of the work, and it is why this is safe
+    despite the classifier not being stable across resolution. Measured on the
+    Saravanan bundle, a 200-DPI read loses the passport on page 27 outright —
+    but it does not read page 27 as *nothing*, it reads it as a page with too
+    little on it to judge, which lands here and is confirmed at 300 DPI where
+    the passport is found. Triage is never allowed to be the last word on a
+    page; it only decides what gets looked at properly.
+    """
+    floor = max(0, int(settings.ocr_triage_min_chars))
+    confirm: list[int] = []
+    for number in targets:
+        text = triage.get(number, "")
+        stripped = text.strip()
+        if not stripped or len(stripped) < floor:
+            confirm.append(number)          # too little read to have an opinion
+            continue
+        if max(pc.id_document_scores(text).values() or [0.0]) > 0:
+            confirm.append(number)          # any identity signal whatsoever
+            continue
+        page = pc.classify_page(text, number)
+        if page.kind in (pc.RESUME, pc.UNKNOWN):
+            confirm.append(number)          # a résumé, or nothing conclusive
+
+    log.info(
+        "Triage of '%s': %d of %d page(s) go on to a full read (%s)",
+        filename or "attachment", len(confirm), len(targets),
+        confirm if len(confirm) <= 20 else f"{confirm[:20]}...",
+    )
+    return confirm
 
 
 def _recover_unread_pages(
