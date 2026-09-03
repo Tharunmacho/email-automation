@@ -251,6 +251,20 @@ class CandidateRepository:
         doc = self._coll.find_one({"passport_key": key}, sort=[("created_at", ASCENDING)])
         return CandidateRecord.from_mongo(doc) if doc else None
 
+    def find_by_email_key(self, email_key: Optional[str]) -> Optional[CandidateRecord]:
+        """The canonical candidate holding this normalized address.
+
+        Oldest first, for the same reason `find_by_email_or_phone` sorts: the
+        oldest record is the one carrying the allocation, the evaluation and the
+        documents already filed.
+        """
+        if not email_key:
+            return None
+        doc = self._coll.find_one(
+            {"email_key": email_key}, sort=[("created_at", ASCENDING)]
+        )
+        return CandidateRecord.from_mongo(doc) if doc else None
+
     def find_by_email_or_phone(
         self, email_key: Optional[str], phone_key: Optional[str]
     ) -> Optional[CandidateRecord]:
@@ -332,6 +346,20 @@ class CandidateRepository:
                 return existing.id
             existing = self.find_by_resume_hash(record.resume_hash)
             if existing:
+                return existing.id
+            # Weakest of the four, so it is asked last: two different files can
+            # carry one address, which is exactly the case this resolves — the
+            # same application delivered to two polled mailboxes, fetched as two
+            # messages and processed concurrently. Both threads pass the
+            # `find_by_email_or_phone` check because neither has inserted yet,
+            # and the unique index is what stops the second from becoming a
+            # second person.
+            existing = self.find_by_email_key(record.email_key)
+            if existing:
+                log.info(
+                    "Candidate %s already holds %s; folding this submission into it",
+                    existing.id, record.email_key,
+                )
                 return existing.id
             raise
         log.info("Inserted candidate %s (%s)", record.id, record.profile.full_name)

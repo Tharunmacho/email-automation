@@ -93,6 +93,92 @@ def ensure_index(collection: Collection, keys, name: str, **options) -> bool:
         return False
 
 
+def _prepare_email_keys(collection: Collection) -> None:
+    """Backfill email keys and flag legacy collisions before indexing.
+
+    ``email_key`` is what "this is the same person" has always meant on the
+    ingestion path — `find_by_email_or_phone` returns a duplicate on an email
+    match alone — but nothing enforced it. The check was a read followed by an
+    insert, and a read cannot win the race it exists for: one application
+    delivered to two of the polled mailboxes is fetched as two messages, and
+    `ingestion_max_workers` processes them at the same time. Both threads look
+    for the address, both find nothing, and both insert. That is one candidate
+    arriving twice with two ids, two allocations and two auto-replies.
+
+    Backfilled from ``profile.email`` as well as the stored key, because records
+    written before the key existed carry only the address, and a key that is
+    absent cannot collide — which would let the very duplicates this is meant to
+    stop keep their place.
+
+    Unlike the passport routine, a colliding record is flagged but **not** given
+    ``status: "duplicate"``. A passport number is a hard identity; an email
+    address read off a degraded scan is not, and hiding a real candidate from
+    the CRM on that evidence is the worse error of the two. The key is released
+    so the index can build, the collision is recorded on both records for an
+    operator to settle, and the row stays where its recruiter can see it. New
+    duplicates never get this far — `CandidateRepository.insert` resolves them
+    to the canonical record.
+    """
+    from app.core.models import utcnow
+    from app.db.dedup import normalize_email
+
+    rows = list(
+        collection.find(
+            {}, {"_id": 1, "created_at": 1, "email_key": 1, "profile.email": 1},
+        ).sort([("created_at", ASCENDING), ("_id", ASCENDING)])
+    )
+    order = {str(row["_id"]): position for position, row in enumerate(rows)}
+
+    groups: dict[str, list[dict]] = {}
+    for row in rows:
+        profile = row.get("profile") or {}
+        key = normalize_email(row.get("email_key") or profile.get("email"))
+        if key:
+            groups.setdefault(key, []).append(row)
+
+    now = utcnow()
+    for key, candidates in groups.items():
+        candidates.sort(key=lambda row: order[str(row["_id"])])
+        canonical = candidates[0]
+        # Only when it would actually change something. This runs at every
+        # startup over every candidate, and an unconditional write per distinct
+        # address is thousands of round trips on a settled collection to set
+        # each field to the value it already holds.
+        if canonical.get("email_key") != key:
+            collection.update_one({"_id": canonical["_id"]}, {"$set": {"email_key": key}})
+        if len(candidates) == 1:
+            continue
+
+        canonical_id = str(canonical["_id"])
+        candidate_ids = [str(row["_id"]) for row in candidates]
+        review = {
+            "reason": "duplicate_email",
+            "email_key": key,
+            "candidate_ids": candidate_ids,
+            "flagged_at": now,
+        }
+        collection.update_one(
+            {"_id": canonical["_id"]}, {"$set": {"identity_review": review}}
+        )
+        for duplicate in candidates[1:]:
+            collection.update_one(
+                {"_id": duplicate["_id"]},
+                {
+                    "$unset": {"email_key": ""},
+                    "$set": {
+                        "duplicate_of": canonical_id,
+                        "identity_review": review,
+                        "updated_at": now,
+                    },
+                },
+            )
+        log.warning(
+            "Email %s is attached to %d candidates (%s); kept %s as canonical and "
+            "flagged the rest for review",
+            key, len(candidates), ", ".join(candidate_ids), canonical_id,
+        )
+
+
 def _prepare_passport_keys(collection: Collection, passport_collection: Collection) -> None:
     """Backfill passport keys and quarantine legacy collisions before indexing.
 
@@ -222,7 +308,23 @@ def ensure_indexes() -> None:
         unique=True,
         sparse=True,
     )
-    ensure_index(coll, [("email_key", ASCENDING)], "email_key_idx", sparse=True)
+    # One candidate per email address, enforced rather than hoped for.
+    #
+    # Sparse, and safe to be: `CandidateRecord.to_mongo` dumps with
+    # `exclude_none=True` and `normalize_email` returns None (never "") for a
+    # blank, so a candidate with no address carries no `email_key` field at all
+    # and is not indexed. A sparse index skips a *missing* field, not a null
+    # one, which is the trap this would otherwise fall into — every email-less
+    # candidate colliding on `null` and only the first being allowed to exist.
+    #
+    # Phone deliberately stays non-unique. One number legitimately reaches more
+    # than one candidate — an agent's mobile on a family's applications — and
+    # `find_by_email_or_phone` already documents that. Making it unique would
+    # merge people who are not the same person.
+    _prepare_email_keys(coll)
+    ensure_index(
+        coll, [("email_key", ASCENDING)], "email_key_unique", unique=True, sparse=True
+    )
     ensure_index(coll, [("phone_key", ASCENDING)], "phone_key_idx", sparse=True)
     # Idempotency: don't reprocess the same Gmail message.
     ensure_index(coll, [("source_email.message_id", ASCENDING)], "source_msg_idx")

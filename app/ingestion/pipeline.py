@@ -325,6 +325,33 @@ class IngestionPipeline:
 
             self._store_file(record, data, att)
             candidate_id = self.repo.insert(record)
+
+            # The insert may have landed on somebody who is already here.
+            #
+            # `record.id` is a uuid minted moments ago in `_build_record`, so a
+            # different id back means a unique index fired and `insert` resolved
+            # it to the candidate that owns the address, passport or file. The
+            # (4) check above cannot prevent that on its own: one application
+            # delivered to two of the polled mailboxes is two messages, and
+            # `ingestion_max_workers` runs them together, so both pass the
+            # lookup before either inserts.
+            #
+            # Returning here rather than carrying on is the point. Everything
+            # below acts on a *new* candidate — an allocation to a recruiter and
+            # an auto-reply to a real person — and doing that a second time for
+            # one applicant is exactly what the duplicate was reported as.
+            if candidate_id != record.id:
+                self.ledger.record(email.message_id, resume_hash, candidate_id, "duplicate")
+                log.info(
+                    "Attachment '%s' resolved to existing candidate %s on insert; "
+                    "no second allocation or auto-reply",
+                    att.filename, candidate_id,
+                )
+                return AttachmentResult(
+                    att.filename, "duplicate", candidate_id,
+                    "same candidate already exists (resolved at insert)",
+                )
+
             self.ledger.record(email.message_id, resume_hash, candidate_id, "ingested")
             recorder.storage_key = record.resume.storage_key
             recorder.link_candidate(candidate_id)
