@@ -483,6 +483,31 @@ class Settings(BaseSettings):
     # megabytes comfortably holds a 300dpi A4 scan.
     ocr_payload_max_bytes: int = 4_000_000
     ocr_payload_dpi: int = 300
+    # Pages local Tesseract could not read at all are offered to Veris rather
+    # than dropped.
+    #
+    # Local OCR is the *gatekeeper* for identity documents: a page has to read
+    # well enough here to be classified as a passport before it is allowed to
+    # reach the passport endpoint. So a page that comes back empty is not merely
+    # unread — it is invisible. It scores nothing, lands in `ignored_pages`, and
+    # the bundle reports "no passport" rather than "a page could not be read".
+    # That is how a passport on page 20 of a 28-page bundle went missing while
+    # the resume and the Aadhaar on the same scan came through fine.
+    #
+    # Empty is not a property of the page, either. The same bundle read twice
+    # fifteen minutes apart gave 147 and 312 characters on pages 16 and 17 the
+    # first time and zero both the second: under CPU pressure a Tesseract pass
+    # hits `ocr_page_timeout_seconds`, returns nothing, and the page silently
+    # becomes blank. Which pages that hits is a race, not a fact about the file.
+    #
+    # So the unread pages — and only those — go to the cloud reader, after the
+    # local pass, as a subset PDF. It costs one call on documents that need it
+    # and nothing at all on documents that read cleanly.
+    veris_recover_unread_pages: bool = True
+    # A bound on that call, not a budget. A bundle where local OCR read almost
+    # nothing is usually a broken file rather than forty recoverable pages, and
+    # uploading all of it is the wrong answer to that.
+    veris_recover_max_pages: int = 40
     veris_ocr_base_url: str = "https://veris.recursai.in"
     veris_ocr_api_key: str = ""
     # A 9-page 1.6 MB scanned bundle timed out at 180s, which left the resume

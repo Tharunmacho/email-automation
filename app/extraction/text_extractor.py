@@ -137,6 +137,23 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
         reads = local_ocr.ocr_pdf_page_reads(data, pages=set(targets), filename=filename)
         fresh = {number: read.text for number, read in reads.items()}
         page_texts, ocr_pages = _merge_pages(page_texts, fresh)
+
+        # Whatever the local pass could not read, the cloud reader is asked for.
+        #
+        # This is the difference between "there is nothing on this page" and "we
+        # failed to read this page", and until now the pipeline could not tell
+        # them apart: both arrived at the classifier as an empty string, scored
+        # nothing, and were filed as an ignored certificate. An identity
+        # document only reaches the endpoint that can extract it if the local
+        # read was already good enough to name it, so every page lost here was
+        # lost silently and permanently.
+        unread = [n for n in targets if not page_texts[n - 1].strip()]
+        if unread:
+            page_texts, recovered = _recover_unread_pages(
+                data, filename, page_texts, unread
+            )
+            ocr_pages |= recovered
+
         if ocr_pages:
             method = "pdf_ocr"
     else:
@@ -166,6 +183,91 @@ def _merge_pages(
         merged[number - 1] = text
         read.add(number)
     return merged, read
+
+
+def _recover_unread_pages(
+    data: bytes, filename: str, page_texts: list[str], unread: list[int],
+) -> "tuple[list[str], set[int]]":
+    """Re-read the pages local OCR returned nothing for, through Veris.
+
+    Only those pages, and only when there are some: a bundle that read cleanly
+    never gets here, so this costs nothing on the common case.
+
+    The pages are sent as a subset PDF for the same reason the resume and
+    identity payloads are — a trimmed page keeps the scanner's full resolution,
+    and the upload is most of the round trip — and the result is merged back at
+    the page numbers it came from, so the classifier that runs next sees one
+    complete document rather than a local read with holes in it.
+
+    A page the cloud reader cannot read either stays empty. That is a real
+    finding rather than a race, and it is logged as one.
+    """
+    if not (settings.veris_recover_unread_pages and settings.veris_ocr_api_key):
+        log.warning(
+            "Local OCR returned no text for page(s) %s of '%s' and cloud recovery "
+            "is off; anything on those pages — an identity document included — "
+            "cannot be classified (set VERIS_OCR_API_KEY and "
+            "VERIS_RECOVER_UNREAD_PAGES=true)",
+            unread, filename or "attachment",
+        )
+        return page_texts, set()
+
+    ceiling = max(1, settings.veris_recover_max_pages)
+    wanted = unread[:ceiling]
+    if len(unread) > ceiling:
+        log.warning(
+            "'%s' has %d unread page(s) but only %d may be recovered; page(s) %s "
+            "stay unread (raise VERIS_RECOVER_MAX_PAGES)",
+            filename or "attachment", len(unread), ceiling, unread[ceiling:],
+        )
+
+    subset = pdf_pages.subset_pdf(data, wanted)
+    if not subset:
+        log.warning(
+            "Could not isolate unread page(s) %s of '%s' for recovery",
+            wanted, filename or "attachment",
+        )
+        return page_texts, set()
+
+    log.info(
+        "Local OCR read nothing on page(s) %s of '%s'; asking Veris for them",
+        wanted, filename or "attachment",
+    )
+    payload = pdf_pages.compact_pdf(
+        subset, settings.ocr_payload_max_bytes, settings.ocr_payload_dpi
+    )
+    try:
+        read = ocr_via_veris_read(payload, filename or "attachment.pdf")
+    except Exception as exc:  # noqa: BLE001 — the local read still stands
+        log.warning(
+            "Veris recovery of page(s) %s of '%s' failed (%s); those pages stay unread",
+            wanted, filename or "attachment", exc,
+        )
+        return page_texts, set()
+
+    merged = list(page_texts)
+    recovered: set[int] = set()
+    for index, number in enumerate(wanted):
+        text = read.pages[index] if index < len(read.pages) else ""
+        if not (text or "").strip():
+            continue
+        merged[number - 1] = text
+        recovered.add(number)
+
+    still_blank = [n for n in wanted if n not in recovered]
+    if recovered:
+        log.info(
+            "Veris recovered page(s) %s of '%s' (%d chars) that local OCR could not read",
+            sorted(recovered), filename or "attachment",
+            sum(len(merged[n - 1]) for n in recovered),
+        )
+    if still_blank:
+        log.warning(
+            "Page(s) %s of '%s' read as empty both locally and at Veris; treating "
+            "them as genuinely blank",
+            still_blank, filename or "attachment",
+        )
+    return merged, recovered
 
 
 def _refine_resume_pages(

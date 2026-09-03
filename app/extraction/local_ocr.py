@@ -228,14 +228,35 @@ def _page_timeout() -> float:
 
 
 def _tesseract_read(image, psm: int) -> str:
+    """One Tesseract pass, or "" and a reason in the log.
+
+    The reason used to be at DEBUG, which is not on in production, and that made
+    the most consequential failure in this module invisible: a pass that hits
+    `ocr_page_timeout_seconds` returns "" exactly like a blank sheet does, so a
+    page the CPU could not afford and a page with nothing on it arrived at the
+    classifier indistinguishable. "Text length: 0 chars" was the only trace, and
+    it named the wrong cause.
+
+    A timeout is called out separately from a crash because it is the one that
+    means *the host is too busy*, and it is answered by capacity or by a lower
+    ladder — not by looking at the file.
+    """
     pytesseract = _tesseract()
     config = f"--oem 1 --psm {psm}"
     try:
         return pytesseract.image_to_string(
             image, lang=settings.ocr_languages, config=config, timeout=_page_timeout()
         )
+    except RuntimeError as exc:  # pytesseract raises this on its own timeout
+        log.warning(
+            "Tesseract psm=%d gave up after %.0fs on a %dx%d page: %s — the page "
+            "reads as empty from here (raise OCR_PAGE_TIMEOUT_SECONDS, or give "
+            "the container more CPU)",
+            psm, _page_timeout(), image.width, image.height, exc,
+        )
+        return ""
     except Exception as exc:  # noqa: BLE001
-        log.debug("Tesseract psm=%d failed: %s", psm, exc)
+        log.warning("Tesseract psm=%d failed: %s", psm, exc)
         return ""
 
 
