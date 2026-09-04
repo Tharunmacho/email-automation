@@ -134,7 +134,7 @@ class PageRead:
 def _tesseract():
     import pytesseract
 
-    if settings.tesseract_cmd:
+    if settings.tesseract_cmd and os.path.exists(settings.tesseract_cmd):
         pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
         return pytesseract
     if shutil.which("tesseract") is None:
