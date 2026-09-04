@@ -68,6 +68,15 @@ def reply_policy(
                     "action": "ignore",
                     "reason": "sourcing_contact_number",
                 }
+
+        if db["bot_suppression_numbers"].count_documents(
+            {"phone_key": phone_key}, limit=1
+        ):
+            return {
+                "should_reply": False,
+                "action": "ignore",
+                "reason": "suppressed_number",
+            }
     except Exception as exc:  # noqa: BLE001 - this boundary must fail closed
         log.error("WhatsApp reply-policy lookup failed; suppressing reply: %s", exc)
         return {

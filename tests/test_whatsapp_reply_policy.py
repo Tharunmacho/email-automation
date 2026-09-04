@@ -31,9 +31,22 @@ class FakeSourcingCollection:
         return list(self.rows)
 
 
-def call_policy(phone: str, *, staff=(), sourcing=(), service_key=SERVICE_KEY):
+class FakeSuppressionCollection:
+    def __init__(self, *phones: str):
+        from app.db.dedup import normalize_phone
+
+        self.keys = {normalize_phone(phone) for phone in phones}
+
+    def count_documents(self, query, limit=0):
+        return int(query.get("phone_key") in self.keys)
+
+
+def call_policy(phone: str, *, staff=(), sourcing=(), suppressed=(), service_key=SERVICE_KEY):
     users = FakeUsers(*staff)
-    database = {"sourcing_clients": FakeSourcingCollection(*sourcing)}
+    database = {
+        "sourcing_clients": FakeSourcingCollection(*sourcing),
+        "bot_suppression_numbers": FakeSuppressionCollection(*suppressed),
+    }
     with (
         patch("app.api.routes.users", users),
         patch("app.services.whatsapp_reply_policy.get_db", return_value=database),
@@ -98,6 +111,20 @@ def test_unknown_external_number_can_continue_to_the_bot():
         "should_reply": True,
         "action": "continue",
         "reason": "external_sender",
+    }
+
+
+def test_admin_suppressed_number_is_ignored_across_formatting():
+    response, _ = call_policy(
+        "919000000000",
+        suppressed=("+91 90000 00000",),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "should_reply": False,
+        "action": "ignore",
+        "reason": "suppressed_number",
     }
 
 

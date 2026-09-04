@@ -3334,6 +3334,48 @@ class JobQuestionIn(BaseModel):
     active: bool = True
 
 
+class BotSuppressionNumberIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    phone: str = Field(min_length=1, max_length=40)
+    label: str = Field(default="", max_length=100)
+
+
+@app.get("/bot-suppression-numbers")
+def list_bot_suppression_numbers(
+    _user: dict = Depends(require_page("data-management")),
+) -> dict:
+    from app.db.bot_suppression_numbers import list_numbers
+
+    return {"items": list_numbers()}
+
+
+@app.post("/bot-suppression-numbers", status_code=201)
+def create_bot_suppression_number(
+    payload: BotSuppressionNumberIn,
+    user: dict = Depends(require_page("data-management")),
+) -> dict:
+    from app.db.bot_suppression_numbers import add_number
+
+    try:
+        item = add_number(payload.phone, payload.label, str(user.get("email") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "ok", "item": item}
+
+
+@app.delete("/bot-suppression-numbers/{number_id}")
+def remove_bot_suppression_number(
+    number_id: str,
+    _user: dict = Depends(require_page("data-management")),
+) -> dict:
+    from app.db.bot_suppression_numbers import delete_number
+
+    if not delete_number(number_id):
+        raise HTTPException(status_code=404, detail="Suppressed number not found")
+    return {"status": "deleted", "id": number_id}
+
+
 @app.get("/job-designations")
 def list_job_designations(
     _user: dict = Depends(require_page("data-management", "candidate-entry")),

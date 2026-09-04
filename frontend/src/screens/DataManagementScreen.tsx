@@ -13,13 +13,14 @@
  * country by country, and the job list marks which rows a candidate will
  * actually be shown.
  *
- * Two sections, because the admin has two different jobs here: describing what
- * the agency recruits for, and writing the questions that get asked about it.
+ * Three sections cover recruitment data, screening questions, and the mobile
+ * numbers that must never enter the bot's candidate conversation.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Ban,
   Check,
   Database,
   FileQuestion,
@@ -33,8 +34,11 @@ import {
 } from "lucide-react";
 
 import {
+  addBotSuppressionNumberAPI,
+  deleteBotSuppressionNumberAPI,
   deleteJobQuestionAPI,
   listCountriesAPI,
+  listBotSuppressionNumbersAPI,
   listJobDesignationsAPI,
   listJobQuestionsAPI,
   retireCountryAPI,
@@ -42,6 +46,7 @@ import {
   saveCountryAPI,
   saveJobDesignationAPI,
   saveJobQuestionAPI,
+  type BotSuppressionNumber,
   type CountryRow,
   type JobDesignation,
   type JobQuestion,
@@ -58,7 +63,7 @@ import Select from "@/components/ui/Select";
  */
 const BOT_VISIBLE_ROWS = 9;
 
-type Section = "jobs" | "questions";
+type Section = "jobs" | "questions" | "suppression";
 
 interface Props {
   onActivity?: (message: string, type?: "info" | "success" | "error") => void;
@@ -70,6 +75,10 @@ export default function DataManagementScreen({ onActivity }: Props) {
   const [jobs, setJobs] = useState<JobDesignation[]>([]);
   const [countries, setCountries] = useState<CountryRow[]>([]);
   const [questions, setQuestions] = useState<JobQuestion[]>([]);
+  const [suppressedNumbers, setSuppressedNumbers] = useState<BotSuppressionNumber[]>([]);
+  const [suppressionPhone, setSuppressionPhone] = useState("");
+  const [suppressionLabel, setSuppressionLabel] = useState("");
+  const [suppressionSaving, setSuppressionSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -86,14 +95,16 @@ export default function DataManagementScreen({ onActivity }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const [jobRes, countryRes, questionRes] = await Promise.all([
+      const [jobRes, countryRes, questionRes, suppressionRes] = await Promise.all([
         listJobDesignationsAPI(),
         listCountriesAPI(),
         listJobQuestionsAPI(),
+        listBotSuppressionNumbersAPI(),
       ]);
       setJobs(jobRes.items ?? []);
       setCountries(countryRes.items ?? []);
       setQuestions(questionRes.items ?? []);
+      setSuppressedNumbers(suppressionRes.items ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -244,6 +255,34 @@ export default function DataManagementScreen({ onActivity }: Props) {
     }
   };
 
+  const addSuppressedNumber = async () => {
+    const phone = suppressionPhone.trim();
+    if (!phone || suppressionSaving) return;
+    setSuppressionSaving(true);
+    try {
+      await addBotSuppressionNumberAPI(phone, suppressionLabel.trim());
+      setSuppressionPhone("");
+      setSuppressionLabel("");
+      say(`${phone} will no longer trigger the recruitment bot`, "success");
+      await load();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "Could not suppress the number", "error");
+    } finally {
+      setSuppressionSaving(false);
+    }
+  };
+
+  const removeSuppressedNumber = async (item: BotSuppressionNumber) => {
+    if (!window.confirm(`Allow bot replies from ${item.phone} again?`)) return;
+    try {
+      await deleteBotSuppressionNumberAPI(item.id);
+      say(`${item.phone} can trigger the bot again`, "success");
+      await load();
+    } catch (err) {
+      say(err instanceof Error ? err.message : "Could not remove the number", "error");
+    }
+  };
+
   /* ---------------------------------------------------------------- */
   /* Render                                                            */
   /* ---------------------------------------------------------------- */
@@ -272,7 +311,7 @@ export default function DataManagementScreen({ onActivity }: Props) {
         <div>
           <h1 className="ds-head-title">Data management</h1>
           <p className="ds-head-sub">
-            Job designations, destination countries, and the CV rule that applies to each pairing.
+            Recruitment choices, screening questions, CV rules, and bot suppression numbers.
           </p>
         </div>
 
@@ -294,6 +333,13 @@ export default function DataManagementScreen({ onActivity }: Props) {
               onClick={() => setSection("questions")}
             >
               Questions
+            </button>
+            <button
+              type="button"
+              className={`ds-seg-btn ${section === "suppression" ? "is-on" : ""}`}
+              onClick={() => setSection("suppression")}
+            >
+              Bot suppression
             </button>
           </div>
 
@@ -335,6 +381,14 @@ export default function DataManagementScreen({ onActivity }: Props) {
           </span>
           <span className="ds-stat-value">{questions.filter((question) => question.active).length}</span>
           <span className="ds-stat-foot">Active job-specific questions</span>
+        </section>
+        <section className="ds-stat is-static">
+          <span className="ds-stat-top">
+            <span className="ds-stat-label">Suppressed numbers</span>
+            <span className="ds-stat-icon" aria-hidden="true"><Ban size={16} /></span>
+          </span>
+          <span className="ds-stat-value">{suppressedNumbers.length}</span>
+          <span className="ds-stat-foot">Senders the bot will leave unanswered</span>
         </section>
       </div>
 
@@ -686,6 +740,98 @@ export default function DataManagementScreen({ onActivity }: Props) {
               )}
             </div>
           )}
+        </section>
+      )}
+
+      {section === "suppression" && (
+        <section className="db-card dm-panel">
+          <div className="db-card-head dm-panel-head">
+            <div className="dm-panel-title">
+              <Ban size={16} />
+              <div>
+                <h3 className="db-card-title">Bot suppression numbers</h3>
+                <p>Messages from these mobile numbers are ignored before a bot conversation starts.</p>
+              </div>
+            </div>
+          </div>
+          <div className="db-card-body">
+            <div className="db-card-sub">
+              Add personal, vendor, former staff, or test numbers that must never receive the
+              recruitment flow. Formatting and country-code differences are normalized automatically.
+            </div>
+
+            <div className="dm-suppression-add">
+              <label>
+                <span>Mobile number</span>
+                <input
+                  className="modal-input"
+                  type="tel"
+                  value={suppressionPhone}
+                  onChange={(event) => setSuppressionPhone(event.target.value)}
+                  placeholder="+91 98765 43210"
+                  disabled={suppressionSaving}
+                />
+              </label>
+              <label>
+                <span>Label (optional)</span>
+                <input
+                  className="modal-input"
+                  value={suppressionLabel}
+                  onChange={(event) => setSuppressionLabel(event.target.value)}
+                  placeholder="Example: Former staff"
+                  disabled={suppressionSaving}
+                />
+              </label>
+              <button
+                type="button"
+                className="db-btn is-primary"
+                onClick={() => void addSuppressedNumber()}
+                disabled={!suppressionPhone.trim() || suppressionSaving}
+              >
+                <Plus size={14} /> {suppressionSaving ? "Adding…" : "Add number"}
+              </button>
+            </div>
+
+            {suppressedNumbers.length > 0 ? (
+              <div className="dm-table-frame">
+                <table className="dm-table is-register">
+                  <thead>
+                    <tr>
+                      <th>Mobile number</th>
+                      <th>Label</th>
+                      <th>Added by</th>
+                      <th className="is-actions">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suppressedNumbers.map((item) => (
+                      <tr key={item.id}>
+                        <td><span className="dm-primary-cell"><strong>{item.phone}</strong></span></td>
+                        <td>{item.label || "—"}</td>
+                        <td>{item.created_by || "—"}</td>
+                        <td className="is-actions">
+                          <button
+                            type="button"
+                            className="db-btn is-danger"
+                            onClick={() => void removeSuppressedNumber(item)}
+                            aria-label={`Remove ${item.phone} from bot suppression`}
+                          >
+                            <Trash2 size={13} /> Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="ds-empty-state dm-empty">
+                <Ban size={28} />
+                <h3>No manually suppressed numbers</h3>
+                <p>Internal staff and Sourcing Hub contacts are still suppressed automatically.</p>
+              </div>
+            )}
+          </div>
         </section>
       )}
 

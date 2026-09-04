@@ -17781,6 +17781,33 @@ a.um-phone:hover {
   gap: 0.3rem;
 }
 
+.dm-suppression-add {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) minmax(13rem, 1.35fr) auto;
+  align-items: end;
+  gap: 0.8rem;
+  margin: 1rem 0 1.25rem;
+}
+
+.dm-suppression-add label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dm-suppression-add > .db-btn {
+  min-height: 42px;
+}
+
+@media (max-width: 760px) {
+  .dm-suppression-add {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ds-select-control {
   width: 190px;
 }

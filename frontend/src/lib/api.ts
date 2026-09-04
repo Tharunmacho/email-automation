@@ -869,6 +869,14 @@ export interface JobQuestion {
   active: boolean;
 }
 
+export interface BotSuppressionNumber {
+  id: string;
+  phone: string;
+  label: string;
+  created_by?: string | null;
+  created_at?: string;
+}
+
 /** One row of "what does this job actually resolve to, per destination". */
 export interface CvMatrixRow {
   country: string;
@@ -939,6 +947,27 @@ export function saveJobQuestionAPI(
 
 export function deleteJobQuestionAPI(questionId: string): Promise<{ status: string }> {
   return request<{ status: string }>(`/job-questions/${questionId}`, { method: "DELETE" });
+}
+
+export function listBotSuppressionNumbersAPI(): Promise<{ items: BotSuppressionNumber[] }> {
+  return request<{ items: BotSuppressionNumber[] }>("/bot-suppression-numbers");
+}
+
+export function addBotSuppressionNumberAPI(
+  phone: string,
+  label = "",
+): Promise<{ status: string; item: BotSuppressionNumber }> {
+  return request<{ status: string; item: BotSuppressionNumber }>("/bot-suppression-numbers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, label }),
+  });
+}
+
+export function deleteBotSuppressionNumberAPI(numberId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/bot-suppression-numbers/${numberId}`, {
+    method: "DELETE",
+  });
 }
 
 // ---- User management ------------------------------------------------------ //

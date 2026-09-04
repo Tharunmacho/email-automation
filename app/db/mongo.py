@@ -370,6 +370,7 @@ def ensure_indexes() -> None:
     # notification feed — the last of which carries the TTL that stops the
     # collection growing without bound, so it is not optional.
     from app.db.b2b_enquiries import ensure_b2b_indexes
+    from app.db.bot_suppression_numbers import ensure_bot_suppression_indexes
     from app.db.identity_records import ensure_identity_indexes
     from app.db.ingestion_state import ensure_ingestion_state_indexes
     from app.db.ledger import ensure_ledger_indexes
@@ -387,6 +388,7 @@ def ensure_indexes() -> None:
     # `idempotency_key` is the one that matters: without it a retried
     # submission becomes a second vacancy and the agency fills one job twice.
     ensure_b2b_indexes()
+    ensure_bot_suppression_indexes()
     # The jobs and countries an admin edits, and the CV rules hanging off them.
     # Seeded here rather than by a migration script so a fresh database answers
     # the same questions a long-running one does — and seeding is additive, so
