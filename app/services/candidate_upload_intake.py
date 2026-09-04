@@ -9,7 +9,7 @@ the server for identity audit; they are not part of the response contract.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Sequence
 
 from pydantic import BaseModel
@@ -59,6 +59,59 @@ class ExtractedIdentity:
 class CandidateUploadResult:
     candidate: CandidateRecord
     identity: Dict[str, list[Dict[str, Any]]]
+    embedded_documents: list[str] = field(default_factory=list)
+
+
+def route_embedded_identity_documents(
+    upload: UploadedDocument,
+    *,
+    candidate_id: str,
+    storage_key: str,
+    provider: str,
+    account_id: str,
+    message_id: str,
+    attachment_id: str,
+    extracted=None,
+) -> list[str]:
+    """Route identity pages inside a CV bundle to their VeriIS endpoints."""
+    if not settings.multipass_extraction_enabled or not settings.veris_ocr_api_key:
+        return []
+    if upload.mime_type.lower() != "application/pdf" and not upload.filename.lower().endswith(".pdf"):
+        return []
+
+    try:
+        if extracted is None:
+            from app.extraction.text_extractor import extract_text
+
+            extracted = extract_text(upload.data, upload.filename)
+        page_texts = [page.text for page in (getattr(extracted, "pages", None) or [])]
+        if not page_texts:
+            return []
+
+        from app.ingestion.multipass import MultipassExtractor
+
+        result = MultipassExtractor(provider=provider, account_id=account_id).run(
+            page_texts,
+            upload.data,
+            message_id=message_id,
+            attachment_id=attachment_id,
+            filename=upload.filename,
+            sha256=sha256_hex(upload.data),
+            storage_key=storage_key,
+            candidate_id=candidate_id,
+        )
+        return sorted({
+            item.mode
+            for item in result.passes
+            if item.status in {"succeeded", "pending"}
+            and item.mode in {"aadhaar", "passport"}
+        })
+    except Exception as exc:  # noqa: BLE001 - the candidate is already durable
+        log.warning(
+            "Could not route documents embedded in %s for candidate %s: %s",
+            upload.filename, candidate_id, exc,
+        )
+        return []
 
 
 _AADHAAR_FIELDS = (
@@ -366,17 +419,6 @@ def intake_uploaded_candidate(
             setattr(profile, field, cleaned)
     email_key = normalize_email(profile.email)
     phone_key = normalize_phone(profile.phone)
-    was_deleted = getattr(repository, "was_deleted", None)
-    if callable(was_deleted) and was_deleted(
-        email_key=email_key,
-        phone_key=phone_key,
-        resume_hash=resume_hash,
-    ):
-        raise CandidateUploadError(
-            "This candidate was deleted from the CRM and cannot be imported again.",
-            status_code=410,
-            code="candidate_deleted",
-        )
     person = repository.find_by_email_or_phone(email_key, phone_key)
     if person:
         raise CandidateUploadError(
@@ -527,4 +569,21 @@ def intake_uploaded_candidate(
             code="document_storage_failed",
         ) from exc
 
-    return CandidateUploadResult(candidate=record, identity=public_identity)
+    embedded_documents: list[str] = []
+    if resume and stored_resume and extracted_resume:
+        embedded_documents = route_embedded_identity_documents(
+            resume,
+            candidate_id=candidate_id,
+            storage_key=stored_resume.storage_key,
+            provider="crm_upload",
+            account_id=uploader_id,
+            message_id=f"crm-upload/{candidate_id}",
+            attachment_id=resume_hash or candidate_id,
+            extracted=extracted_resume,
+        )
+
+    return CandidateUploadResult(
+        candidate=record,
+        identity=public_identity,
+        embedded_documents=embedded_documents,
+    )

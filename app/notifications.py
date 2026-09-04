@@ -45,6 +45,7 @@ def notify_candidate_assigned(
     staff_name: str | None = None,
     repo: NotificationRepository | None = None,
     users: UserRepository | None = None,
+    relay_whatsapp: bool = True,
 ) -> int:
     """Record and push "a candidate is now yours" / "a candidate arrived".
 
@@ -119,7 +120,7 @@ def notify_candidate_assigned(
     # `relay_assignment` swallows its own failures — see the module — so there
     # is deliberately no try/except around it here. Wrapping it would only
     # catch the import.
-    if staff_id:
+    if staff_id and relay_whatsapp:
         relay_assignment(candidate_id, staff_id)
 
     return notified

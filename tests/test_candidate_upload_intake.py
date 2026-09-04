@@ -8,6 +8,7 @@ from app.services.candidate_upload_intake import (
     CandidateUploadError,
     UploadedDocument,
     intake_uploaded_candidate,
+    route_embedded_identity_documents,
 )
 
 
@@ -80,6 +81,41 @@ def stored_resume(**_kwargs):
     )
 
 
+def test_combined_cv_routes_embedded_passport_to_its_endpoint():
+    extracted = ExtractedDocument(
+        text="cv\npassport",
+        method="pdf_text",
+        pages=[
+            {"page_number": 1, "text": "candidate resume experience", "kind": "resume"},
+            {"page_number": 2, "text": "Republic of India Passport P<IND", "kind": "id_document"},
+        ],
+        resume_pages=[1],
+    )
+    routed = SimpleNamespace(
+        passes=[SimpleNamespace(mode="passport", status="succeeded")]
+    )
+
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", "key"), \
+         patch("app.ingestion.multipass.MultipassExtractor.run", return_value=routed) as run:
+        modes = route_embedded_identity_documents(
+            upload("combined.pdf", b"pdf"),
+            candidate_id="candidate-1",
+            storage_key="resumes/combined.pdf",
+            provider="crm_upload",
+            account_id="staff-1",
+            message_id="crm-upload/candidate-1",
+            attachment_id="digest",
+            extracted=extracted,
+        )
+
+    assert modes == ["passport"]
+    assert run.call_args.args[0] == [
+        "candidate resume experience",
+        "Republic of India Passport P<IND",
+    ]
+    assert run.call_args.kwargs["candidate_id"] == "candidate-1"
+
+
 def test_manual_intake_creates_candidate_with_preferences_and_no_resume_or_ocr_key():
     repository = MemoryRepository()
 
@@ -126,6 +162,26 @@ def test_manual_intake_allows_an_empty_placeholder_candidate():
     assert candidate.phone_key is None
     assert candidate.status == "needs_review"
     assert repository.get(candidate.id) == candidate
+
+
+def test_manually_adding_a_deleted_candidate_is_an_intentional_recreation():
+    class DeletedRepository(MemoryRepository):
+        def was_deleted(self, **_signals):
+            return True
+
+    repository = DeletedRepository()
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", ""):
+        result = intake_uploaded_candidate(
+            resume=None,
+            repository=repository,
+            uploader_id="staff-1",
+            full_name="Meera Nair",
+            email="meera@example.com",
+            phone="+91 98765 43210",
+        )
+
+    assert result.candidate.id in repository.records
+    assert result.candidate.profile.email == "meera@example.com"
 
 
 def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declared_profile_fields():

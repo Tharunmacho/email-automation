@@ -560,8 +560,11 @@ export function deleteStaff(staffId: string, rebalance = true): Promise<DeleteSt
 //  Allocation
 // --------------------------------------------------------------------------- //
 /** Move one profile to a named staff member. */
-export function assignCandidate(candidateId: string, staffId: string): Promise<{ status: string }> {
-  return request<{ status: string }>(`/candidates/${candidateId}/assign`, {
+export function assignCandidate(candidateId: string, staffId: string): Promise<{
+  status: string;
+  whatsapp_notified?: boolean;
+}> {
+  return request<{ status: string; whatsapp_notified?: boolean }>(`/candidates/${candidateId}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ staff_id: staffId }),

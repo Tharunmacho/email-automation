@@ -206,22 +206,22 @@ def wa_profile(**overrides) -> CandidateProfile:
     return CandidateProfile(**base)
 
 
-def test_deleted_whatsapp_candidate_cannot_be_recreated_by_a_retry():
+def test_deleted_whatsapp_candidate_can_be_added_again():
     class DeletedRepo(FakeRepo):
         def was_deleted(self, **signals):
             assert signals["idempotency_key"] == "whatsapp/111/919876543210"
             assert signals["phone_key"] == "9876543210"
             return True
 
-    with pytest.raises(IntakeError) as excinfo:
-        intake_whatsapp_candidate(
+    with patch("app.services.candidate_intake.assign_candidate"):
+        result = intake_whatsapp_candidate(
             profile=wa_profile(),
             idempotency_key="whatsapp/111/919876543210",
             repo=DeletedRepo(),
         )
 
-    assert excinfo.value.status_code == 410
-    assert excinfo.value.code == "CANDIDATE_DELETED"
+    assert result.created is True
+    assert result.candidate_id
 
 
 @pytest.fixture(autouse=True)
@@ -1009,6 +1009,33 @@ def test_a_cv_required_candidate_is_created_when_the_cv_comes_with_it(client):
     assert record.resume_hash == record.resume.sha256
     # And the bytes are here, in the CRM's storage, under the CRM's key.
     assert client.storage.objects[record.resume.storage_key] == PDF_BYTES
+
+
+def test_bot_routes_a_passport_embedded_in_the_cv_bundle(client):
+    with patch(
+        "app.services.candidate_upload_intake.route_embedded_identity_documents",
+        return_value=["passport"],
+    ) as route_bundle:
+        res = client.post(
+            "/candidates",
+            json={
+                "source": "whatsapp",
+                "profile": {
+                    "full_name": "Ravi Kumar",
+                    "phone": "+919876543210",
+                    "destination_country": "Singapore",
+                    "job_category": "technician",
+                },
+                "idempotency_key": "whatsapp/111/mixed-bundle",
+                "resume": resume_payload(filename="cv-and-passport.pdf"),
+            },
+            headers={"X-Service-Key": SERVICE_KEY},
+        )
+
+    assert res.status_code == 201, res.text
+    assert res.json()["embedded_identity_documents"] == ["passport"]
+    assert route_bundle.call_args.kwargs["provider"] == "whatsapp"
+    assert route_bundle.call_args.kwargs["candidate_id"] == res.json()["candidate_id"]
 
 
 def test_the_stored_key_is_the_crms_own_and_not_a_bot_path(client):

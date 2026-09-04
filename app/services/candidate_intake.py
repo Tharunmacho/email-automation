@@ -118,16 +118,6 @@ def intake_whatsapp_candidate(
     passport_number = extracted_passport_number or profile.passport_number
     passport_key = normalize_passport(passport_number)
     passport_source = "ocr" if extracted_passport_number else "typed"
-    was_deleted = getattr(repo, "was_deleted", None)
-    if callable(was_deleted) and was_deleted(
-        idempotency_key=idempotency_key,
-        phone_key=phone_key,
-    ):
-        raise IntakeError(
-            "this candidate was deleted in the CRM and cannot be recreated by a bot retry",
-            410,
-            "CANDIDATE_DELETED",
-        )
     existing, matched_on = _resolve_identity(
         repo,
         profile,

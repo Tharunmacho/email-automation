@@ -422,9 +422,17 @@ export default function CandidatesView({
     setAssignmentSaving(true);
     setAssignmentError("");
     try {
-      await assignCandidate(assigning.id, selectedStaffId);
+      const result = await assignCandidate(assigning.id, selectedStaffId);
       const owner = staff.find((member) => member.id === selectedStaffId);
-      onToast?.(`${getDisplayName(assigning)} assigned to ${owner?.name || owner?.email || "staff"}.`, "success");
+      const ownerName = owner?.name || owner?.email || "staff";
+      onToast?.(
+        result.status === "unchanged"
+          ? `${getDisplayName(assigning)} is already assigned to ${ownerName}; no new WhatsApp notification was sent.`
+          : result.whatsapp_notified === false
+          ? `${getDisplayName(assigning)} assigned to ${ownerName}, but the WhatsApp bot did not accept the notification. Check WA_BOT_URL, WA_BOT_API_KEY, and the staff phone number.`
+          : `${getDisplayName(assigning)} assigned to ${ownerName}. WhatsApp notification sent.`,
+        result.status === "unchanged" || result.whatsapp_notified === false ? "info" : "success",
+      );
       setAssigning(null);
       onAssignmentChanged?.();
     } catch (error) {
@@ -871,7 +879,12 @@ export default function CandidatesView({
                 type="button"
                 className="db-btn is-primary"
                 onClick={() => void saveAssignment()}
-                disabled={!selectedStaffId || staffLoading || assignmentSaving}
+                disabled={
+                  !selectedStaffId ||
+                  selectedStaffId === assigning.assigned_staff_id ||
+                  staffLoading ||
+                  assignmentSaving
+                }
               >
                 {assignmentSaving ? <Loader2 size={14} className="icon-spin" /> : <UserCheck size={14} />}
                 {assignmentSaving ? "Assigning…" : "Assign candidate"}

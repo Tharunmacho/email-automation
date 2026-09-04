@@ -724,7 +724,9 @@ def _assign_route(repo, candidate_id, staff, notify):
 
     with patch("app.api.routes.users", _Users()), patch(
         "app.api.routes.repo", return_value=repo
-    ), patch("app.api.routes.notify_candidate_assigned", notify):
+    ), patch("app.api.routes.notify_candidate_assigned", notify), patch(
+        "app.api.routes.relay_assignment", return_value=True
+    ):
         return assign_candidate_route(
             candidate_id, AssignRequest(staff_id=staff.id), _admin={}
         )
@@ -739,6 +741,7 @@ def test_a_genuine_reassignment_tells_the_new_owner(repo):
     outcome = _assign_route(repo, created.candidate_id, _staff("staff-2", "Arun Nair"), notify)
 
     assert outcome["status"] == "assigned"
+    assert outcome["whatsapp_notified"] is True
     assert repo.candidates[created.candidate_id].assigned_staff_id == "staff-2"
     assert notify.call_count == 1
     assert notify.call_args.args[0] == "staff-2"

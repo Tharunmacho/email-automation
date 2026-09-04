@@ -4812,7 +4812,7 @@ body {
   font-size: 0.9rem;
   font-weight: 600;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-  z-index: 99999;
+  z-index: 100200;
   opacity: 0;
   transform: translateY(20px) scale(0.95);
   pointer-events: none;
@@ -14106,7 +14106,11 @@ body {
      below the toasts, which must stay readable over anything. Portalled to
      <body>, the panel no longer inherits its trigger's stacking context, so
      this number is the only thing keeping it in front. */
-  z-index: 1300;
+  /* Candidate assignment uses the legacy high-layer modal (99999/100000).
+     This portalled panel must clear that layer or its options are painted
+     behind the dimmed overlay and the control looks unresponsive. Toasts stay
+     above it at 100200. */
+  z-index: 100100;
   border: 1px solid var(--border-blue-strong);
   border-radius: var(--radius-md);
   background: var(--bg-card);

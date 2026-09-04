@@ -6,7 +6,7 @@ from app.db.repository import CANDIDATE_DELETIONS_COLLECTION, CandidateRepositor
 from app.db.users import USER_DELETIONS_COLLECTION, UserRepository
 
 
-def test_candidate_hard_delete_removes_related_rows_and_blocks_recreation():
+def test_candidate_hard_delete_removes_related_rows_and_keeps_a_retry_tombstone():
     db = mongomock.MongoClient(tz_aware=True)["resume_ats_test"]
     repository = CandidateRepository(collection=db["candidates"])
     record = CandidateRecord(
@@ -89,3 +89,13 @@ def test_user_hard_delete_removes_notifications_and_prevents_auto_reseed():
     assert tombstone is not None
     assert "recruiter@example.com" not in str(tombstone)
     assert set(tombstone) == {"_id", "email_fingerprint", "deleted_at"}
+
+    restored = repository.create(
+        email="recruiter@example.com",
+        password="new-safe-password",
+        name="Recruiter Restored",
+        role="staff",
+    )
+    assert restored.id != user.id
+    assert repository.get(restored.id).email == "recruiter@example.com"
+    assert repository.was_deleted_email("recruiter@example.com") is False

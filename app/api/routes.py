@@ -75,6 +75,7 @@ from app.db.users import (
     remove_legacy_demo_staff,
 )
 from app.notifications import notify_candidate_assigned
+from app.staff_whatsapp import relay_assignment
 from app.storage.factory import get_storage_backend
 from app.tasks import sla_checker
 from app.api.websocket import router as websocket_router
@@ -1489,14 +1490,16 @@ def create_candidate_from_uploads(
     if isinstance(candidate.get("profile"), dict):
         candidate["profile"].pop("raw_ocr", None)
         candidate["profile"].pop("additional_info", None)
+    processed = [
+        *(["resume"] if resume else []),
+        *(["aadhaar"] if aadhaar else []),
+        *(["passport"] if passport else []),
+    ]
+    processed.extend(kind for kind in result.embedded_documents if kind not in processed)
     return {
         "candidate": candidate,
         "identity": result.identity,
-        "processed": [
-            *(["resume"] if resume else []),
-            *(["aadhaar"] if aadhaar else []),
-            *(["passport"] if passport else []),
-        ],
+        "processed": processed,
         "ocr_provider": "VeriIS" if (resume or aadhaar or passport) else "manual",
     }
 
@@ -2190,12 +2193,15 @@ def assign_candidate_route(
             "email": record.profile.email if record else None,
         },
         staff_name=member.name,
+        relay_whatsapp=False,
     )
+    whatsapp_notified = relay_assignment(candidate_id, member.id)
     return {
         "status": "assigned",
         "candidate_id": candidate_id,
         "assigned_staff_id": member.id,
         "assigned_staff_name": member.name,
+        "whatsapp_notified": whatsapp_notified,
     }
 
 
@@ -2814,9 +2820,10 @@ def create_whatsapp_candidate(
     # storage failure refuses the intake rather than leaving a candidate whose
     # résumé pointer leads nowhere.
     stored_resume = None
+    raw_resume: bytes | None = None
     if payload.resume is not None:
         try:
-            raw = base64.b64decode(payload.resume.content_base64, validate=True)
+            raw_resume = base64.b64decode(payload.resume.content_base64, validate=True)
         except (binascii.Error, ValueError):
             return JSONResponse(
                 status_code=422,
@@ -2828,7 +2835,7 @@ def create_whatsapp_candidate(
                 # does not exist yet. Stable per candidate, so a retry overwrites
                 # its own file instead of leaving a trail of orphans.
                 candidate_id=_resume_owner_hint(payload.idempotency_key),
-                data=raw,
+                data=raw_resume,
                 filename=payload.resume.filename,
                 mime_type=payload.resume.mime_type,
             )
@@ -2890,6 +2897,31 @@ def create_whatsapp_candidate(
             )
         ]
 
+    # A combined file can arrive in the bot's CV slot. Classify its pages and
+    # send identity pages to their own VeriIS modes just as the email pipeline
+    # does, while retaining the untouched bundle as the downloadable resume.
+    embedded_identity: list[str] = []
+    if raw_resume is not None and stored_resume is not None and payload.resume is not None:
+        from app.services.candidate_upload_intake import (
+            UploadedDocument,
+            route_embedded_identity_documents,
+        )
+
+        key_parts = payload.idempotency_key.split("/")
+        embedded_identity = route_embedded_identity_documents(
+            UploadedDocument(
+                data=raw_resume,
+                filename=payload.resume.filename,
+                mime_type=payload.resume.mime_type,
+            ),
+            candidate_id=result.candidate_id,
+            storage_key=stored_resume.storage_key,
+            provider="whatsapp",
+            account_id=key_parts[1] if len(key_parts) > 1 else "bot",
+            message_id=payload.idempotency_key,
+            attachment_id=stored_resume.sha256,
+        )
+
     # 201 only when something was actually created. A replay of the same key,
     # and a re-registration that refreshed someone already on file, are both
     # 200: nothing new exists because of them.
@@ -2906,6 +2938,7 @@ def create_whatsapp_candidate(
         # So the bot knows which documents landed and can stop offering the
         # ones that did. An empty list is a submission that carried none.
         "identity_documents": identity_filed,
+        "embedded_identity_documents": embedded_identity,
     }
 
 
