@@ -247,34 +247,27 @@ class MultipassExtractor:
             log.debug("No Aadhaar, passport, or document pages in %s", filename)
             return result
 
-        for mode in IDENTITY_MODES:
-            pages = found.get(mode) or []
-            if not pages:
-                continue
-                
-            if mode == MODE_DOCUMENT:
-                # We already have the text from the local Tesseract OCR!
-                # The generic document API endpoint is not enabled on this Veris account, 
-                # and since all we want is the raw text, we can just save it instantly for free.
-                try:
-                    document_text = "\n\n".join(
-                        page_texts[p - 1] for p in pages if p - 1 < len(page_texts)
-                    )
-                    
-                    row = self.state.open_row(
-                        self.provider, self.account_id, message_id, attachment_id, mode,
-                        sha256=sha256, storage_key=storage_key, filename=filename,
-                        pages=pages, candidate_id=candidate_id,
-                    )
-                    
-                    if row.status == "succeeded":
-                        result.passes.append(PassResult(
-                            mode=mode, pages=pages, status="succeeded", row_id=row.id,
-                            record_id=row.result_id, detail="already extracted",
-                        ))
-                        continue
-                        
-                    store = _STORE_BY_MODE.get(mode)
+        # MODE_DOCUMENT is local (instant). Remote identity modes (Aadhaar & Passport)
+        # submit to Veris and wait. Running them concurrently in a ThreadPoolExecutor
+        # turns a 60s sequential wait (24s + 36s) into a ~36s parallel wait.
+        if found.get(MODE_DOCUMENT):
+            pages = found[MODE_DOCUMENT]
+            try:
+                document_text = "\n\n".join(
+                    page_texts[p - 1] for p in pages if p - 1 < len(page_texts)
+                )
+                row = self.state.open_row(
+                    self.provider, self.account_id, message_id, attachment_id, MODE_DOCUMENT,
+                    sha256=sha256, storage_key=storage_key, filename=filename,
+                    pages=pages, candidate_id=candidate_id,
+                )
+                if row.status == "succeeded":
+                    result.passes.append(PassResult(
+                        mode=MODE_DOCUMENT, pages=pages, status="succeeded", row_id=row.id,
+                        record_id=row.result_id, detail="already extracted",
+                    ))
+                else:
+                    store = _STORE_BY_MODE.get(MODE_DOCUMENT)
                     if store:
                         record_id = store(
                             row.id, {"text": document_text}, candidate_id=candidate_id,
@@ -284,26 +277,38 @@ class MultipassExtractor:
                         )
                         self.state.mark_succeeded(row.id, result_id=record_id, candidate_id=candidate_id)
                         result.passes.append(PassResult(
-                            mode=mode, pages=pages, status="succeeded", row_id=row.id, record_id=record_id,
+                            mode=MODE_DOCUMENT, pages=pages, status="succeeded", row_id=row.id, record_id=record_id,
                         ))
-                except Exception as exc:
-                    log.exception("Multipass %s extraction failed for %s", mode, filename)
-                    result.passes.append(PassResult(mode=mode, pages=pages, status="failed", detail=str(exc)))
-                continue
+            except Exception as exc:
+                log.exception("Multipass %s extraction failed for %s", MODE_DOCUMENT, filename)
+                result.passes.append(PassResult(mode=MODE_DOCUMENT, pages=pages, status="failed", detail=str(exc)))
 
-            try:
-                result.passes.append(
-                    self.run_one(
-                        mode, pages, data, message_id=message_id, attachment_id=attachment_id,
+        remote_modes = [
+            (mode, found[mode]) for mode in (MODE_AADHAAR, MODE_PASSPORT)
+            if found.get(mode)
+        ]
+
+        if remote_modes:
+            import concurrent.futures
+
+            def _exec_pass(item: tuple[str, list[int]]) -> PassResult:
+                m, p = item
+                try:
+                    return self.run_one(
+                        m, p, data, message_id=message_id, attachment_id=attachment_id,
                         filename=filename, sha256=sha256, storage_key=storage_key,
                         candidate_id=candidate_id,
                     )
-                )
-            except Exception as exc:  # noqa: BLE001 — one pass never kills the other
-                log.exception("Multipass %s extraction failed for %s", mode, filename)
-                result.passes.append(
-                    PassResult(mode=mode, pages=pages, status="failed", detail=str(exc))
-                )
+                except Exception as exc:  # noqa: BLE001 — one pass never kills the other
+                    log.exception("Multipass %s extraction failed for %s", m, filename)
+                    return PassResult(mode=m, pages=p, status="failed", detail=str(exc))
+
+            if len(remote_modes) == 1:
+                result.passes.append(_exec_pass(remote_modes[0]))
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(remote_modes)) as pool:
+                    for pass_res in pool.map(_exec_pass, remote_modes):
+                        result.passes.append(pass_res)
 
         log.info("Multipass over %s: %s", filename, result.summary())
         return result
