@@ -677,7 +677,7 @@ class Settings(BaseSettings):
     # downstream blocks on. Short on purpose: the ingestion row already holds
     # the job id, so anything unfinished is collected by the reconciler rather
     # than holding a Gmail message open.
-    identity_job_wait_seconds: float = 45.0
+    identity_job_wait_seconds: float = 120.0
     # How long the inline poll keeps sweeping for identity jobs it had to leave
     # running. Only used when there is no Celery worker — with one, beat's
     # reconciler does this and this budget is never spent. Generous, because it
