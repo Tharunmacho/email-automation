@@ -7,6 +7,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# One OpenMP thread per Tesseract process.
+#
+# Tesseract is built with OpenMP, and OpenMP sizes its pool from
+# `sysconf(_SC_NPROCESSORS_ONLN)` — the *host's* core count, which knows nothing
+# about the cgroup quota this container runs under. On an eight-core host with a
+# four-CPU quota, the four Tesseract processes the reader admits concurrently
+# each start eight threads: thirty-two threads fighting over four cores, and a
+# 300-DPI page that should read in four seconds instead spends forty-five and
+# times out. The pages did not get harder; they got starved.
+#
+# The parallelism this pipeline wants is across *pages*, and it already has it —
+# `local_ocr` admits one page per available CPU. Threading each of those reads
+# as well only oversubscribes the same cores. `app/extraction/local_ocr.py` sets
+# this in-process too, so a host that runs the app outside this image gets the
+# same behaviour; it is repeated here so the container is right on its own.
+ENV OMP_THREAD_LIMIT=1
+
 # Set up working directory
 WORKDIR /app
 

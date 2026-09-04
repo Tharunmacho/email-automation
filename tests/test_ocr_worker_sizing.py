@@ -137,3 +137,42 @@ def test_an_explicit_setting_still_wins(cgroup, monkeypatch):
     cgroup(v2="100000 100000")
 
     assert local_worker_count() == 6
+
+
+# --------------------------------------------------------------------------- #
+#  The cores Tesseract takes for itself
+# --------------------------------------------------------------------------- #
+"""The other half of the same mistake, one layer down and in someone else's C.
+
+Sizing the page pool from the cgroup quota buys nothing if each page then starts
+a thread pool of its own. Tesseract is built with OpenMP, and OpenMP reads
+`sysconf(_SC_NPROCESSORS_ONLN)` — the host's cores, the exact number
+`available_cpus` exists to stop trusting.
+
+On an eight-core host with a four-CPU quota that turns four concurrent pages
+into thirty-two runnable threads on four cores. Observed: a 2550x3300 page ran
+past the 45s `ocr_page_timeout_seconds`, fell to the half-size rescue, timed out
+there too, and was handed on as unread. The page was never hard. It was starved.
+"""
+
+
+def test_tesseract_gets_one_openmp_thread_per_process():
+    """Importing the reader pins it, before any page can be read.
+
+    `pytesseract` shells out and the child inherits `os.environ`, so the value
+    has to be in place at import rather than at call time.
+    """
+    assert os.environ.get("OMP_THREAD_LIMIT") == "1"
+
+
+def test_a_host_that_has_tuned_this_itself_is_not_overridden(monkeypatch):
+    """One page at a time on a big box is a real configuration.
+
+    There the threads *are* the parallelism, and silently rewriting the operator's
+    value would be the same mistake in the opposite direction.
+    """
+    monkeypatch.setenv("OMP_THREAD_LIMIT", "8")
+
+    local_ocr._pin_openmp()
+
+    assert os.environ["OMP_THREAD_LIMIT"] == "8"

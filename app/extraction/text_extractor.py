@@ -176,20 +176,35 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
         # the question the classifier is about to ask of it is the same one, and
         # it cannot be answered from an empty string. `veris_recover_max_pages`
         # is what bounds the cost of saying so.
-        # A hint of an identity document earns a second, closer look.
-        page_texts, deepened = _deepen_identity_hints(
-            data, filename, page_texts, ocr_pages
-        )
-        ocr_pages |= deepened
-
         unread = sorted(
             set(n for n in targets if not page_texts[n - 1].strip()) | set(beyond_ceiling)
         )
-        if unread:
+        # And the pages that did come back with something, but with something
+        # the classifier cannot use. `_degraded_reads` explains what that means
+        # and why an empty page was never the only way to lose a passport.
+        degraded = sorted(_degraded_reads(reads) - set(unread))
+        recovered: set[int] = set()
+        if unread or degraded:
             page_texts, recovered = _recover_unread_pages(
-                data, filename, page_texts, unread
+                data, filename, page_texts, unread, degraded
             )
             ocr_pages |= recovered
+
+        # A hint of an identity document earns a second, closer look.
+        #
+        # After the recovery above, not before it. The second look is a local
+        # re-render at `ocr_deep_read_dpi`, and it is worth spending only on a
+        # page the local reader *did* read — one whose caption was too small to
+        # resolve, not one it ran out of time on. Asking a host that could not
+        # finish a page at 300 DPI to try it again at 450 is 2.25x the pixels
+        # for the same empty answer, which is the reasoning `_read_pdf_page`
+        # already applies one layer down. So pages the cloud has now answered
+        # are excluded: they carry the better read of the two, and re-reading
+        # them here could only cost time.
+        page_texts, deepened = _deepen_identity_hints(
+            data, filename, page_texts, ocr_pages - recovered
+        )
+        ocr_pages |= deepened
 
         if ocr_pages:
             method = "pdf_ocr"
@@ -220,6 +235,79 @@ def _merge_pages(
         merged[number - 1] = text
         read.add(number)
     return merged, read
+
+
+#: How far below `ocr_page_quality_floor` a read has to fall before it is
+#: treated as a failure rather than as a thin page.
+#:
+#: The floor itself is the wrong line to draw this at, and drawing it there was
+#: the first thing tried. `text_quality` is words x readable-character density,
+#: and identity documents are *sparse by design*: an Aadhaar front carries maybe
+#: fifteen words and scores about 11 against a floor of 12. Recovering every
+#: page under the floor therefore means uploading every ID card in every bundle
+#: — the exact documents the local reader handled correctly.
+#:
+#: What separates a sparse page from a failed one is not how few words there are
+#: but how much of the page is not words at all. That same Aadhaar front scores
+#: ~11; a half-size rescue of a passport that produced eighty characters of
+#: speckle scores under 2. A quarter of the floor (3.0 by default) sits in the
+#: gap with room on both sides, and it moves with the floor rather than being a
+#: second number to keep in step with it.
+_DEGRADED_QUALITY_FRACTION = 0.25
+
+
+def _degraded_reads(reads: "dict[int, local_ocr.PageRead]") -> set[int]:
+    """Pages that came back with text the classifier cannot actually use.
+
+    An empty page is the *visible* way local OCR loses a document, and it is the
+    one the recovery below was built for. It is not the common one.
+
+    What actually happens on a starved host is subtler and worse. A full-size
+    pass times out, `local_ocr` retries the page at half width, and half a scan
+    of a passport answers with a few dozen characters of speckle — which is how
+    a real bundle produced ``Page 3 read as empty at 2550px but answered at
+    1600px: 81 chars recovered``, and then reported no passport. Those 81
+    characters are not a read. They are a failure wearing the shape of one, and
+    every gate downstream is sized for text rather than for noise:
+
+    * under `pc.too_short_to_classify` the classifier scores the page at zero by
+      construction — it is not judged badly, it is not judged;
+    * `has_identity_hint` needs to see a word like "passport" or "nationality"
+      survive the read, which is precisely what a garbled page does not offer,
+      so the second look never fires either.
+
+    So a degraded read is worse than an empty one: it fails the same way *and*
+    it suppresses the recovery an empty page would have received. Three
+    signatures name it, and each is something the reader already knew and threw
+    away when it handed back nothing but a string:
+
+    * `tesseract:rescue` — the page only answered after being shrunk. The reader
+      itself calls this the last rung, taken when a read did not finish;
+    * too short for `page_classifier` to form any verdict about;
+    * quality far enough under the floor to be noise rather than a sparse page
+      (see `_DEGRADED_QUALITY_FRACTION`).
+
+    Cheap to act on, too: these pages join the *same* subset PDF and the same
+    single request as the unread ones, so a bundle with two empty pages and two
+    degraded ones costs one call either way — a larger upload, not a second
+    extraction.
+    """
+    if not settings.veris_recover_degraded_pages:
+        return set()
+
+    noise_ceiling = float(settings.ocr_page_quality_floor) * _DEGRADED_QUALITY_FRACTION
+    degraded: set[int] = set()
+    for number, read in reads.items():
+        text = read.text or ""
+        if not text.strip():
+            continue  # empty; already counted as unread by the caller
+        if (
+            read.engine == "tesseract:rescue"
+            or pc.too_short_to_classify(text)
+            or read.quality < noise_ceiling
+        ):
+            degraded.add(number)
+    return degraded
 
 
 def _deepen_identity_hints(
@@ -390,9 +478,20 @@ def _pages_worth_confirming(
 
 
 def _recover_unread_pages(
-    data: bytes, filename: str, page_texts: list[str], unread: list[int],
+    data: bytes, filename: str, page_texts: list[str],
+    unread: list[int], degraded: "list[int] | None" = None,
 ) -> "tuple[list[str], set[int]]":
-    """Re-read the pages local OCR returned nothing for, through Veris.
+    """Re-read the pages local OCR lost, through Veris.
+
+    Two ways a page is lost, one call to fetch them both:
+
+    * **unread** — nothing came back at all. Under CPU pressure a Tesseract pass
+      hits `ocr_page_timeout_seconds` and returns "", and by the time that
+      reaches the classifier it is indistinguishable from a blank sheet.
+    * **degraded** — something came back, but not something that can be
+      classified: a half-size rescue read, a page too short to score, or noise.
+      See `_degraded_reads`. These are the worse half, because a page with a
+      little text on it does not look lost to anything downstream.
 
     Only those pages, and only when there are some: a bundle that read cleanly
     never gets here, so this costs nothing on the common case.
@@ -403,39 +502,64 @@ def _recover_unread_pages(
     the page numbers it came from, so the classifier that runs next sees one
     complete document rather than a local read with holes in it.
 
-    A page the cloud reader cannot read either stays empty. That is a real
+    An unread page takes whatever the cloud reader returns; there is nothing to
+    weigh it against. A degraded page keeps its local text unless the cloud read
+    genuinely beats it on `text_quality` — the same judgement `local_ocr` uses
+    when two of its own passes disagree, and the reason recovery cannot make a
+    page worse than it already was.
+
+    A page the cloud reader cannot read either stays as it was. That is a real
     finding rather than a race, and it is logged as one.
     """
+    degraded = list(degraded or [])
     if not (settings.veris_recover_unread_pages and settings.veris_ocr_api_key):
         log.warning(
-            "Local OCR returned no text for page(s) %s of '%s' and cloud recovery "
-            "is off; anything on those pages — an identity document included — "
-            "cannot be classified (set VERIS_OCR_API_KEY and "
-            "VERIS_RECOVER_UNREAD_PAGES=true)",
-            unread, filename or "attachment",
+            "Local OCR could not usably read page(s) %s of '%s' (unread: %s; "
+            "degraded: %s) and cloud recovery is off; anything on those pages — "
+            "an identity document included — cannot be classified (set "
+            "VERIS_OCR_API_KEY and VERIS_RECOVER_UNREAD_PAGES=true)",
+            sorted(set(unread) | set(degraded)), filename or "attachment",
+            unread, degraded,
         )
         return page_texts, set()
 
+    degraded_pages = set(degraded)
+    unread_pages = set(unread)
+    lost = sorted(unread_pages | degraded_pages)
     ceiling = max(1, settings.veris_recover_max_pages)
-    wanted = unread[:ceiling]
-    if len(unread) > ceiling:
+    wanted = lost
+    if len(lost) > ceiling:
+        # Unread before degraded when the ceiling bites. A page with no text at
+        # all has strictly less to lose than one holding a poor read, so if only
+        # some can be bought back, buy the ones that are entirely gone.
+        ordered = sorted(unread_pages) + sorted(degraded_pages - unread_pages)
+        wanted = sorted(ordered[:ceiling])
         log.warning(
-            "'%s' has %d unread page(s) but only %d may be recovered; page(s) %s "
-            "stay unread (raise VERIS_RECOVER_MAX_PAGES)",
-            filename or "attachment", len(unread), ceiling, unread[ceiling:],
+            "'%s' has %d page(s) local OCR could not usably read but only %d may "
+            "be recovered; page(s) %s keep what they have (raise "
+            "VERIS_RECOVER_MAX_PAGES)",
+            filename or "attachment", len(lost), ceiling, sorted(ordered[ceiling:]),
         )
 
     subset = pdf_pages.subset_pdf(data, wanted)
+    if subset is None and len(wanted) >= len(page_texts):
+        # Every page failed. `subset_pdf` declines to build a "subset" that is
+        # the whole document, and the right answer to that is the whole
+        # document — not to abandon a bundle precisely because none of it read.
+        subset = data
     if not subset:
         log.warning(
-            "Could not isolate unread page(s) %s of '%s' for recovery",
+            "Could not isolate page(s) %s of '%s' for recovery",
             wanted, filename or "attachment",
         )
         return page_texts, set()
 
     log.info(
-        "Local OCR read nothing on page(s) %s of '%s'; asking Veris for them",
+        "Local OCR lost page(s) %s of '%s' (%d unread, %d read too poorly to "
+        "classify); asking Veris for them",
         wanted, filename or "attachment",
+        sum(1 for n in wanted if n not in degraded_pages),
+        sum(1 for n in wanted if n in degraded_pages),
     )
     payload = pdf_pages.compact_pdf(
         subset, settings.ocr_payload_max_bytes, settings.ocr_payload_dpi
@@ -444,32 +568,48 @@ def _recover_unread_pages(
         read = ocr_via_veris_read(payload, filename or "attachment.pdf")
     except Exception as exc:  # noqa: BLE001 — the local read still stands
         log.warning(
-            "Veris recovery of page(s) %s of '%s' failed (%s); those pages stay unread",
+            "Veris recovery of page(s) %s of '%s' failed (%s); those pages keep "
+            "what the local read gave them",
             wanted, filename or "attachment", exc,
         )
         return page_texts, set()
 
     merged = list(page_texts)
     recovered: set[int] = set()
+    kept_local: list[int] = []
     for index, number in enumerate(wanted):
         text = read.pages[index] if index < len(read.pages) else ""
         if not (text or "").strip():
             continue
+        if number in degraded_pages and local_ocr.text_quality(text) <= local_ocr.text_quality(
+            merged[number - 1]
+        ):
+            # The page already had a poor read and this one is no better. Taking
+            # it anyway would be trading one unusable page for another while
+            # discarding the only evidence in hand.
+            kept_local.append(number)
+            continue
         merged[number - 1] = text
         recovered.add(number)
 
-    still_blank = [n for n in wanted if n not in recovered]
+    still_lost = [n for n in wanted if n not in recovered and n not in kept_local]
     if recovered:
         log.info(
             "Veris recovered page(s) %s of '%s' (%d chars) that local OCR could not read",
             sorted(recovered), filename or "attachment",
             sum(len(merged[n - 1]) for n in recovered),
         )
-    if still_blank:
+    if kept_local:
+        log.info(
+            "Page(s) %s of '%s' read no better at Veris than locally; keeping the "
+            "local text",
+            kept_local, filename or "attachment",
+        )
+    if still_lost:
         log.warning(
             "Page(s) %s of '%s' read as empty both locally and at Veris; treating "
             "them as genuinely blank",
-            still_blank, filename or "attachment",
+            still_lost, filename or "attachment",
         )
     return merged, recovered
 

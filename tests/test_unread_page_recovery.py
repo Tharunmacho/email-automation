@@ -200,3 +200,183 @@ def test_recovery_stays_within_its_own_ceiling(starved, monkeypatch):
     tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
 
     assert uploaded == [5], f"{uploaded} uploaded against a recovery ceiling of 5"
+
+
+# --------------------------------------------------------------------------- #
+#  A page that came back with *something* unusable
+# --------------------------------------------------------------------------- #
+"""The second half of the same failure, and the half that actually bites.
+
+An empty page at least *looks* lost. What a starved host produces more often is
+a page that answered only after `local_ocr` shrank it — observed in production
+as ``Page 3 read as empty at 2550px but answered at 1600px: 81 chars
+recovered``, on a bundle that then reported no passport.
+
+Eighty-one characters of speckle is not a read, but it is not empty either, so
+the recovery above never saw it, the classifier scored it zero for being under
+`_MIN_PAGE_CHARS`, and `has_identity_hint` found no surviving word to justify a
+second look. Every safety net was sized for text rather than for noise.
+"""
+
+#: What half a passport page looks like when Tesseract is shrunk until it
+#: finishes: the right length, none of the words that carry meaning.
+SPECKLE = "|.  ~ ,, l1I ]  ' `` ~-  .. i1| ,  ''  -~ .l  |] ,. `` ~~ ..  1I| '`"
+
+
+@pytest.fixture
+def fumbled(monkeypatch):
+    """Local OCR that answers chosen pages with a degraded read.
+
+    Yields ``(rescued, uploaded)``: map a page number to the text the local
+    reader limped to, and it comes back tagged `tesseract:rescue` exactly as the
+    half-size retry tags its own output.
+    """
+    monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "veris_refine_resume_pages", False)
+    monkeypatch.setattr(settings, "ocr_max_pages", 300)
+    monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "")
+
+    rescued: dict[int, str] = {}
+    uploaded: list[int] = []
+
+    def fake_local(data: bytes, dpi=None, pages=None, filename=""):
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            wanted = sorted(pages) if pages else list(range(1, doc.page_count + 1))
+            out = {}
+            for n in wanted:
+                if n in rescued:
+                    out[n] = local_ocr.PageRead(
+                        page_number=n, text=rescued[n], dpi=1600,
+                        engine="tesseract:rescue",
+                        quality=local_ocr.text_quality(rescued[n]),
+                    )
+                else:
+                    text = doc[n - 1].get_text()
+                    out[n] = local_ocr.PageRead(
+                        page_number=n, text=text, dpi=settings.ocr_dpi,
+                        engine="test", quality=local_ocr.text_quality(text),
+                    )
+            return out
+
+    def fake_upload(data: bytes, _filename: str):
+        from app.extraction.ocr import VerisRead
+
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            uploaded.append(doc.page_count)
+            return VerisRead([page.get_text() for page in doc])
+
+    monkeypatch.setattr(tx.local_ocr, "ocr_pdf_page_reads", fake_local)
+    monkeypatch.setattr(tx, "ocr_via_veris_read", fake_upload)
+    return rescued, uploaded
+
+
+def test_a_passport_that_only_answered_when_shrunk_is_still_found(fumbled):
+    """The reported failure: 81 chars back from page 3, and no passport."""
+    rescued, _uploaded = fumbled
+    rescued[20] = SPECKLE
+
+    doc = tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    page = doc.pages[19]
+    assert pc.id_document_scores(page.text)[pc.PASSPORT] > 0, (
+        "the passport page kept its speckle — a degraded read is invisible to "
+        "every gate downstream, which is how the page was lost in production"
+    )
+
+
+def test_a_page_too_short_to_classify_is_recovered(fumbled):
+    """Under `_MIN_PAGE_CHARS` the classifier forms no verdict at all."""
+    rescued, uploaded = fumbled
+    rescued[20] = "Passport"  # 8 chars: a real word, and still unclassifiable
+
+    doc = tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded == [1], f"{uploaded}: the unclassifiable page was not fetched"
+    assert pc.id_document_scores(doc.pages[19].text)[pc.PASSPORT] > 0
+
+
+def test_only_the_degraded_pages_are_uploaded(fumbled):
+    """Recovery still must not turn into "upload the bundle"."""
+    rescued, uploaded = fumbled
+    rescued[20] = SPECKLE
+    rescued[21] = SPECKLE
+
+    tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded == [2], f"{uploaded} page(s) uploaded; only the 2 degraded ones may be"
+
+
+def test_a_sparse_identity_page_is_not_treated_as_degraded(fumbled):
+    """The line that separates a failed read from a thin one.
+
+    A passport page carries few words by design and scores under
+    `ocr_page_quality_floor` on a *perfect* read. Recovering everything under
+    that floor would upload every ID card in every bundle — the documents the
+    local reader handled correctly.
+    """
+    _rescued, uploaded = fumbled
+
+    doc = tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded == [], (
+        f"{uploaded} page(s) uploaded from a bundle that read fine; a sparse "
+        "identity page is being mistaken for a failed one"
+    )
+    assert pc.id_document_scores(doc.pages[19].text)[pc.PASSPORT] > 0
+
+
+def test_a_worse_cloud_read_does_not_overwrite_the_local_one(fumbled, monkeypatch):
+    """Recovery may improve a page. It may never make one worse."""
+    rescued, _uploaded = fumbled
+    rescued[20] = "Republic of India, Passport No. M4471902, Date of Expiry"
+
+    def worse_upload(data: bytes, _filename: str):
+        from app.extraction.ocr import VerisRead
+
+        return VerisRead([SPECKLE])
+
+    monkeypatch.setattr(tx, "ocr_via_veris_read", worse_upload)
+
+    doc = tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert "M4471902" in doc.pages[19].text, (
+        "the local read was thrown away for a cloud read that is plainly worse"
+    )
+
+
+def test_degraded_recovery_can_be_switched_off(fumbled, monkeypatch):
+    """One flag, for a deployment where the cloud calls are the constraint."""
+    rescued, uploaded = fumbled
+    rescued[20] = SPECKLE
+    monkeypatch.setattr(settings, "veris_recover_degraded_pages", False)
+
+    tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert uploaded == [], f"{uploaded} uploaded with VERIS_RECOVER_DEGRADED_PAGES off"
+
+
+def test_a_recovered_page_is_not_re_read_locally_at_high_dpi(fumbled, monkeypatch):
+    """Speed: the cloud already answered it, so the 450-DPI pass is waste.
+
+    A host that could not finish a page at 300 DPI will not finish it at 450 —
+    2.25x the pixels for the same empty string — and once Veris has read the
+    page there is nothing left for a local re-read to add.
+    """
+    rescued, _uploaded = fumbled
+    rescued[20] = SPECKLE
+    monkeypatch.setattr(settings, "ocr_deep_read_enabled", True)
+
+    deepened: list[list[int]] = []
+
+    def spy(data, pages, filename, dpi=None, label=""):
+        deepened.append(sorted(pages))
+        return {}
+
+    monkeypatch.setattr(tx.local_ocr, "single_pass_pages", spy)
+
+    tx.extract_text(make_pdf(bundle_with_passport_at(20)), "Full Docs.pdf")
+
+    assert all(20 not in batch for batch in deepened), (
+        f"page 20 was re-read locally at high DPI after Veris had answered it: {deepened}"
+    )

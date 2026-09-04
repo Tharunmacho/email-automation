@@ -845,6 +845,20 @@ _ID_HINTS = re.compile(
 )
 
 
+def too_short_to_classify(text: str) -> bool:
+    """Is there too little text here for any verdict below to mean anything?
+
+    Made public because the answer is needed *before* this module runs, by the
+    reader deciding whether a page is worth fetching again. Every gate in here
+    — `id_document_scores`, the résumé signals, the ignore list — gives up under
+    `_MIN_PAGE_CHARS`, so a page that lands under it has not been classified
+    badly, it has not been classified at all. Asking that question with the same
+    constant the classifier uses is what keeps the reader and the classifier
+    from disagreeing about which pages were understood.
+    """
+    return len((text or "").strip()) < _MIN_PAGE_CHARS
+
+
 def has_identity_hint(text: str) -> bool:
     """Is there any trace of an identity document on this page at all?
 

@@ -633,6 +633,25 @@ class Settings(BaseSettings):
     # local pass, as a subset PDF. It costs one call on documents that need it
     # and nothing at all on documents that read cleanly.
     veris_recover_unread_pages: bool = True
+    # Empty is not the only way a page is lost, and it is not even the common
+    # one — it is just the one that was easy to see.
+    #
+    # When a full-size pass times out, `local_ocr` retries the page at half
+    # width, and half a scan of a passport comes back as a few dozen characters
+    # of speckle. That page is no longer empty, so nothing above notices it, and
+    # every gate downstream is sized for text rather than for noise: under
+    # `_MIN_PAGE_CHARS` the classifier does not score the page at all, and a
+    # short garbled read carries none of the words `has_identity_hint` needs to
+    # earn a second look. Observed exactly so — a passport read as 81 characters
+    # at 1600px, filed as a nothing-page, and reported as "no passport found".
+    #
+    # A degraded read is therefore worse than an empty one: it fails in the same
+    # way and it suppresses the recovery that an empty page would have got. So
+    # the same call that fetches the unread pages fetches these too. It is the
+    # same subset PDF and the same single request — sending four pages instead
+    # of two costs a larger upload, not another extraction — and the local text
+    # is kept wherever the cloud read does not actually beat it.
+    veris_recover_degraded_pages: bool = True
     # A bound on that call, not a budget. A bundle where local OCR read almost
     # nothing is usually a broken file rather than forty recoverable pages, and
     # uploading all of it is the wrong answer to that.

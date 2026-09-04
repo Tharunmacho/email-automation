@@ -84,6 +84,47 @@ log = get_logger(__name__)
 
 
 # --------------------------------------------------------------------------- #
+#  Threading
+# --------------------------------------------------------------------------- #
+def _pin_openmp() -> None:
+    """One OpenMP thread per Tesseract process, unless the host says otherwise.
+
+    This is the single largest lever on OCR wall time in a container, and it is
+    invisible from inside Python: Tesseract is built with OpenMP, and OpenMP
+    sizes its pool from `sysconf(_SC_NPROCESSORS_ONLN)`, which reports the
+    *host's* cores and knows nothing about the cgroup quota — the same blind
+    spot `available_cpus` exists to work around, one layer down and in someone
+    else's C.
+
+    So on an eight-core host with a four-CPU quota, the four pages this module
+    admits at once become four Tesseract processes of eight threads each:
+    thirty-two runnable threads on four cores, all of them descheduling each
+    other. Measured on that shape, a 2550x3300 page that reads in a few seconds
+    alone instead ran past `ocr_page_timeout_seconds` at 45s, hit the rescue
+    path, timed out there too, and was handed to the cloud reader as unread.
+    The pages were never hard; they were starved, and every safeguard
+    downstream was busy compensating for a thread pool nobody had asked for.
+
+    The parallelism that helps here is across pages, and this module already
+    takes exactly as much of it as the quota allows (`ocr_slot_count`).
+    Threading *within* each page on top of that does not add cores, it only
+    oversubscribes the ones being shared — so the two settings multiply into
+    contention instead of speed.
+
+    Set at import, before `pytesseract` can spawn anything: the value is read by
+    the child process from the environment it inherits, so it has to be in
+    `os.environ` by the time the first page is read. An explicit value already
+    in the environment always wins — a host that has deliberately tuned this
+    (one page at a time on a big box, say, where the threads *are* the
+    parallelism) must not have that quietly overwritten.
+    """
+    os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+
+
+_pin_openmp()
+
+
+# --------------------------------------------------------------------------- #
 #  Reading quality
 # --------------------------------------------------------------------------- #
 _WORD_RE = re.compile(r"[A-Za-z]{2,}")
@@ -321,9 +362,16 @@ def _engine_slots() -> "threading.BoundedSemaphore":
         if _SLOTS is None:
             _SLOT_COUNT = ocr_slot_count()
             _SLOTS = threading.BoundedSemaphore(_SLOT_COUNT)
+            # The OpenMP limit is named here because it is otherwise
+            # unobservable and it decides whether this number means anything:
+            # four lanes each running an eight-thread Tesseract is not four
+            # concurrent reads, it is thirty-two threads pretending to be. One
+            # line, once, and the next log says which of the two is happening.
             log.info(
-                "Local OCR admits %d concurrent page read(s) in this process",
-                _SLOT_COUNT,
+                "Local OCR admits %d concurrent page read(s) in this process "
+                "(%d CPU(s) available, OMP_THREAD_LIMIT=%s)",
+                _SLOT_COUNT, available_cpus(),
+                os.environ.get("OMP_THREAD_LIMIT", "unset"),
             )
         return _SLOTS
 
@@ -1273,6 +1321,8 @@ def engine_report() -> Dict[str, object]:
         # answered by these two numbers more often than by any other pair.
         "cpus_available": available_cpus(),
         "concurrent_pages": ocr_slot_count(),
+        "available_cpus": available_cpus(),
+        "omp_thread_limit": os.environ.get("OMP_THREAD_LIMIT", "unset"),
         "page_timeout_seconds": settings.ocr_page_timeout_seconds,
         "document_budget_seconds": settings.ocr_document_budget_seconds,
         "rescue_enabled": bool(getattr(settings, "ocr_rescue_enabled", True)),
