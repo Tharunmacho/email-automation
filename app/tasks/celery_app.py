@@ -80,6 +80,15 @@ celery_app.conf.update(
         # active is not re-recorded and not re-announced, and one that has been
         # dealt with closes itself. So a tick landing on top of a slow sweep
         # costs a duplicate query and nothing else.
+        # The auto-reply catch-up. Ingestion hands each reply to a background
+        # sender and returns; this is what notices when one of those never went
+        # out. Idempotent by construction — `auto_reply_sent` is written only
+        # after a send returns, so a sweep landing on a quiet queue is a query
+        # and nothing else.
+        "flush-auto-replies": {
+            "task": "app.tasks.jobs.flush_auto_replies",
+            "schedule": float(settings.auto_reply_sweep_interval_seconds),
+        },
         "scan-sla-breaches": {
             "task": "app.tasks.sla_checker.scan_sla_breaches",
             "schedule": float(settings.sla_scan_interval_seconds),

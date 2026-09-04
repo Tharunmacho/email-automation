@@ -112,4 +112,13 @@ def test_a_genuinely_new_candidate_is_still_allocated_and_replied_to(monkeypatch
 
     assert result.status == "processed"
     assert len(placed.calls) == 1, "a new candidate went unallocated"
+
+    # The reply is queued, not sent, by the time `process_email` returns —
+    # sending moved off the ingestion path. Draining is what a shutdown does,
+    # and it is the point at which "queued" has become "sent or recorded as
+    # failed". The assertion below is unchanged in what it means: a new
+    # candidate gets their auto-reply.
+    from app.ingestion.pipeline import _drain_replies
+
+    _drain_replies()
     assert replier.sent, "a new candidate got no auto-reply"

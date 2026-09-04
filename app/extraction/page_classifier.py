@@ -1018,16 +1018,24 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
             continue
             
         text = texts[number - 1] if number - 1 < len(texts) else ""
-        log.info("Evaluating leftover page %d for ID. Text length: %d chars", number, len(text))
-        # log.info("PAGE %d TESSERACT TEXT:\n%s\n---END TEXT---", number, text)
+        # Per-page working, at DEBUG. Three lines a page at INFO is ~90 on a
+        # 32-page bundle, and it buries the handful of lines that record an
+        # actual decision — what was routed, what was held back, what the
+        # bundle adopted. It was never the cost: all of pages 16-32 scored in
+        # 17ms on the run that prompted this. It was the noise.
+        #
+        # The commented-out dump of the whole page text is deleted rather than
+        # left here: uncommenting it puts a candidate's passport and address
+        # into the log shipper, which is not a line to leave one keystroke away.
+        log.debug("Evaluating leftover page %d for ID. Text length: %d chars", number, len(text))
         
         if page.signals.chars < _MIN_PAGE_CHARS:
-            log.info("Page %d ignored: page.signals.chars (%d) < _MIN_PAGE_CHARS (%d)", number, page.signals.chars, _MIN_PAGE_CHARS)
+            log.debug("Page %d ignored: page.signals.chars (%d) < _MIN_PAGE_CHARS (%d)", number, page.signals.chars, _MIN_PAGE_CHARS)
             ignored_pages.append(number)
             continue
 
         scores = id_document_scores(text)
-        log.info("Page %d ID scores: %s", number, scores)
+        log.debug("Page %d ID scores: %s", number, scores)
 
         # A page the résumé pass merely failed to reach — an unlabelled
         # continuation, say — still reads as a CV. Only conclusive document
@@ -1044,7 +1052,7 @@ def classify_multipass(page_texts: Sequence[str]) -> MultipassClassification:
             # marker of the same document is reconsidered below.
             if max(scores[PASSPORT], scores[AADHAAR]) >= _ID_CONTINUATION_SCORE:
                 near_misses[number] = dict(scores)
-            log.info("Page %d ignored: all scores below threshold", number)
+            log.debug("Page %d ignored: all scores below threshold", number)
             ignored_pages.append(number)
             continue
             

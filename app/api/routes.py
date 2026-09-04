@@ -882,6 +882,16 @@ def _start_inline_poll(query: str | None) -> dict:
             # so this is the only thing that will ever collect an identity job
             # the batch had to leave running.
             _collect_pending_identity_jobs()
+            # And the same argument for auto-replies. The batch queues them
+            # rather than sending them, so on this path the only thing that
+            # notices a send which never happened — a restart mid-queue, SMTP
+            # down for the length of the batch — is this sweep.
+            try:
+                from app.ingestion.pipeline import flush_pending_auto_replies
+
+                flush_pending_auto_replies()
+            except Exception as exc:  # noqa: BLE001 — a sweep is not the cycle
+                log.warning("Auto-reply sweep after the inline poll failed: %s", exc)
             _inline_task_set(task_id, {
                 "task_id": task_id, "state": "SUCCESS", "ready": True,
                 "mode": "inline", "result": summary,

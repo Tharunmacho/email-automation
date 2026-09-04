@@ -11,6 +11,10 @@ this class only wires them together and owns error handling + status reporting.
 """
 from __future__ import annotations
 
+import atexit
+import concurrent.futures
+import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -62,7 +66,14 @@ class AttachmentResult:
                                       # | rejected_nationality | error
     candidate_id: Optional[str] = None
     detail: str = ""
-    reply_sent: bool = False
+    #: A reply was handed to the background sender — not that it has gone out.
+    #: Sending is off the ingestion path, so when this result is returned the
+    #: SMTP conversation has usually not started. The durable answer to "did
+    #: this candidate get their reply" is `auto_reply_sent` on the candidate
+    #: record, written only by a send that returned, and
+    #: `flush_pending_auto_replies` is what makes sure it eventually becomes
+    #: true.
+    reply_queued: bool = False
     # What the Aadhaar / passport passes over the same bundle did, e.g.
     # "aadhaar p54=succeeded; passport p55=pending". Never affects `status`:
     # an unreadable passport does not make an ingested resume a failure.
@@ -75,6 +86,279 @@ class AttachmentResult:
 from app.extraction.resume_nationality import (  # noqa: E402
     refuse_foreign_candidate as _refuse_foreign_candidate,
 )
+
+
+# --------------------------------------------------------------------------- #
+#  Auto-replies, off the ingestion path
+# --------------------------------------------------------------------------- #
+# Composing a reply is free — `generate_contextual_reply` is string templating,
+# not a model call — but *sending* one is a full SMTP conversation: connect,
+# STARTTLS, login, send, quit, each stage against a 15s timeout. Measured on one
+# batch that is 2.89s, spent with the mail loop held open behind it, on the one
+# step whose failure this pipeline deliberately swallows. Nothing downstream
+# waits for it: the résumé is stored, the candidate assigned, the ledger
+# written. So it belongs behind the return, not in front of it.
+#
+# What makes that safe rather than merely faster
+# ----------------------------------------------
+# Moving work to the background is a promise to notice when it does not happen.
+# Three things keep that promise, and none of them is sufficient alone:
+#
+# 1. the sender retries a transient failure in place, with backoff;
+# 2. a shutdown drains what is queued rather than dropping it;
+# 3. `flush_pending_auto_replies` sweeps every ingested candidate still showing
+#    `auto_reply_sent=False` and sends what is owed — which is what covers the
+#    redeploy mid-send, the SMTP outage, and the process that died holding a
+#    queue.
+#
+# The flag is the contract. It is written only by a send that returned, so
+# "ingested in the database" and "has had their reply" can be reconciled at any
+# time by anyone, without reference to what this process happens to remember.
+#
+# One worker, and not a knob.
+# ---------------------------
+# The instinct is a pool of four. It would be wrong: the Gmail client sends
+# through a `googleapiclient` Resource built on httplib2, which is not
+# thread-safe, and two concurrent sends through one client is corruption rather
+# than throughput. The SMTP client opens a fresh connection per call and would
+# be fine, but the pipeline cannot see which of the two it was handed. Serial is
+# also enough — taking the send off the critical path is the whole win, and one
+# worker keeps replies in the order they were earned. A setting whose only
+# non-default value is unsafe should not exist, so this is a constant.
+_REPLY_SENDERS = 1
+
+_reply_pool: "concurrent.futures.ThreadPoolExecutor | None" = None
+_reply_pool_lock = threading.Lock()
+
+
+def _sender() -> "concurrent.futures.ThreadPoolExecutor":
+    """The background sender, built on first use and shared process-wide."""
+    global _reply_pool
+    with _reply_pool_lock:
+        if _reply_pool is None:
+            _reply_pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_REPLY_SENDERS, thread_name_prefix="auto-reply",
+            )
+        return _reply_pool
+
+
+def _drain_replies() -> None:
+    """At shutdown, finish what is queued — within reason.
+
+    Bounded rather than unlimited, and that is safe for one reason: a reply this
+    drops keeps `auto_reply_sent=False` on its candidate, and the sweep sends it
+    on the next cycle. Waiting for an unbounded backlog instead would hold a
+    container stop open until the deploy timed out and killed it at a worse
+    moment than this one.
+    """
+    global _reply_pool
+    with _reply_pool_lock:
+        pool, _reply_pool = _reply_pool, None
+    if pool is None:
+        return
+    budget = max(0.0, float(getattr(settings, "auto_reply_drain_seconds", 0) or 0))
+    finished = threading.Event()
+
+    def _shutdown() -> None:
+        try:
+            pool.shutdown(wait=True)
+        finally:
+            finished.set()
+
+    threading.Thread(target=_shutdown, name="auto-reply-drain", daemon=True).start()
+    if not finished.wait(budget):
+        log.warning(
+            "Auto-reply sender still had work after %.0fs; the rest keeps "
+            "auto_reply_sent=False and goes out on the next sweep", budget,
+        )
+
+
+# Registered once, at import, rather than each time a pool is built. The sweep
+# drains the pool and drops it — see `flush_pending_auto_replies` — so a pool is
+# built and discarded on every cycle, and registering from inside `_sender`
+# accumulated a duplicate handler each time.
+atexit.register(_drain_replies)
+
+
+def _reply_email(source, fallback_subject: str = "") -> EmailMessage:
+    """The message a reply is threaded onto, rebuilt from what was stored.
+
+    The sweep holds a candidate record rather than the mail it arrived on, and
+    `send_reply` needs the message and thread ids to keep the reply inside the
+    same conversation instead of opening a new one in the candidate's inbox.
+    """
+    return EmailMessage(
+        message_id=source.message_id,
+        thread_id=source.thread_id,
+        from_addr=source.from_addr,
+        from_name=source.from_name,
+        subject=source.subject or fallback_subject,
+        date=source.received_date,
+    )
+
+
+def _send_auto_reply(
+    repo: CandidateRepository, gmail, candidate_id: str,
+    profile: CandidateProfile, email: EmailMessage, reply_to: str,
+) -> bool:
+    """Compose and send one reply, retrying a transient failure. Never raises.
+
+    Runs on the sender thread, so it touches only what it was handed plus the
+    repository, whose driver is thread-safe. `profile` and `email` are read and
+    never mutated here, and the pipeline does not write to them after handing
+    them over.
+
+    A retry can in principle double-send: if the server accepted the message and
+    the connection then broke, the exception looks identical to one from a mail
+    that never landed. That is the right way round to be wrong — the ask is that
+    an ingested candidate is replied to, and a duplicate courtesy mail is a
+    smaller failure than silence.
+    """
+    attempts = max(1, int(getattr(settings, "auto_reply_send_attempts", 1) or 1))
+    backoff = max(0.0, float(getattr(settings, "auto_reply_retry_backoff_seconds", 0) or 0))
+    last = ""
+
+    for attempt in range(1, attempts + 1):
+        try:
+            body = generate_contextual_reply(profile, email)
+            gmail.send_reply(
+                message_id=email.message_id,
+                thread_id=email.thread_id,
+                to_addr=reply_to,
+                subject=email.subject,
+                body_text=body,
+            )
+            # Only here, and only now. This flag is what the sweep reads to
+            # decide who is still owed one, so it has to mean "a send returned",
+            # never "a send was attempted".
+            repo.mark_auto_reply_sent(candidate_id)
+            log.info(
+                "Auto-reply sent to candidate %s at %s%s",
+                candidate_id, reply_to,
+                " (attempt %d)" % attempt if attempt > 1 else "",
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001 — a failed reply is not a failed ingest
+            last = "%s: %s" % (type(exc).__name__, exc)
+            if attempt < attempts:
+                pause = backoff * (2 ** (attempt - 1))
+                log.warning(
+                    "Auto-reply to %s for candidate %s failed (%s); retrying in %.1fs",
+                    reply_to, candidate_id, last, pause,
+                )
+                time.sleep(pause)
+
+    # Recorded rather than lost. The count is what eventually stops the sweep
+    # coming back to an address that cannot receive mail at all.
+    try:
+        count = repo.record_auto_reply_failure(candidate_id, last)
+    except Exception as exc:  # noqa: BLE001 — never let bookkeeping raise here
+        log.warning("Could not record the failed auto-reply for %s: %s", candidate_id, exc)
+        count = 0
+    log.warning(
+        "Auto-reply to %s for candidate %s failed after %d attempt(s) (%s); "
+        "%d failure(s) recorded, the sweep will try again",
+        reply_to, candidate_id, attempts, last, count,
+    )
+    return False
+
+
+def queue_auto_reply(
+    repo: CandidateRepository, gmail, candidate_id: str,
+    profile: CandidateProfile, email: EmailMessage, reply_to: str,
+) -> bool:
+    """Hand one reply to the background sender. Returns whether it was queued."""
+    if not (gmail and hasattr(gmail, "send_reply") and reply_to):
+        log.info(
+            "Auto-reply for candidate %s not queued: no send-capable mail client "
+            "or no address to reply to; the sweep will send it once there is one",
+            candidate_id,
+        )
+        return False
+    _sender().submit(
+        _send_auto_reply, repo, gmail, candidate_id, profile, email, reply_to,
+    )
+    return True
+
+
+def flush_pending_auto_replies(
+    repo: "CandidateRepository | None" = None, gmail=None, limit: "int | None" = None,
+) -> dict:
+    """Send every reply an ingested candidate is still owed.
+
+    This is the guarantee. Everything above it is an optimisation on top: the
+    background sender makes the common case fast, and this makes the promise
+    true regardless of what the background sender managed. A candidate in the
+    database with `status="ingested"` and `auto_reply_sent=False` is work still
+    outstanding, whatever went wrong — a redeploy mid-send, SMTP refusing
+    connections for an hour, a process killed holding a queue.
+
+    Runs sequentially and in place rather than through the pool: every caller is
+    already a background thread (the inline poll, or a beat task) and has
+    nothing to gain from handing the work on. Never raises — a sweep that cannot
+    run is a log line, not a failed poll cycle.
+    """
+    if not settings.auto_reply_enabled:
+        return {"sent": 0, "failed": 0, "pending": 0, "reason": "auto-reply disabled"}
+
+    from app.email_client import get_email_client
+
+    # Finish what this process already has in hand before asking who is owed.
+    #
+    # Without this the sweep double-sends, and not rarely — systematically. The
+    # inline poll calls it immediately after the batch, which is exactly when
+    # the replies that batch queued are still working through a single-worker
+    # pool at a few seconds each. Every one of those still reads
+    # `auto_reply_sent=False`, because the flag is written *after* the send
+    # returns, so the sweep would pick up a reply already in flight and mail the
+    # candidate twice.
+    #
+    # Draining first collapses the window: every locally-queued send has either
+    # written its flag or recorded its failure by the time the query runs, so
+    # what comes back is genuinely outstanding rather than merely unfinished.
+    _drain_replies()
+
+    try:
+        repo = repo or CandidateRepository()
+        owed = repo.find_awaiting_auto_reply(
+            limit=int(limit or settings.auto_reply_sweep_limit),
+            max_attempts=int(settings.auto_reply_max_attempts),
+            grace_seconds=int(getattr(settings, "auto_reply_grace_seconds", 0) or 0),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not look up candidates awaiting an auto-reply: %s", exc)
+        return {"sent": 0, "failed": 0, "pending": 0, "error": str(exc)}
+
+    if not owed:
+        return {"sent": 0, "failed": 0, "pending": 0}
+
+    try:
+        gmail = gmail or get_email_client()
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "%d candidate(s) are owed an auto-reply but no mail client could be "
+            "built (%s); they keep auto_reply_sent=False and stay in the queue",
+            len(owed), exc,
+        )
+        return {"sent": 0, "failed": 0, "pending": len(owed), "error": str(exc)}
+
+    log.info("Auto-reply sweep: %d ingested candidate(s) still owed a reply", len(owed))
+    sent = 0
+    failed = 0
+    for record in owed:
+        source = record.source_email
+        if not (source and source.from_addr):
+            continue  # the query asked for one; a record without it is not ours
+        if _send_auto_reply(
+            repo, gmail, record.id, record.profile,
+            _reply_email(source), source.from_addr,
+        ):
+            sent += 1
+        else:
+            failed += 1
+
+    log.info("Auto-reply sweep finished: sent=%d failed=%d", sent, failed)
+    return {"sent": sent, "failed": failed, "pending": max(0, len(owed) - sent - failed)}
 
 
 @dataclass
@@ -369,41 +653,34 @@ class IngestionPipeline:
             if not self._allocate(candidate_id, profile):
                 self._announce(candidate_id, profile)
 
-            # (6) Contextual Auto-Reply if enabled.
-            reply_sent = False
+            # (6) Contextual auto-reply, queued rather than sent.
+            #
+            # The candidate is already stored, already assigned, already in the
+            # ledger; nothing below depends on the reply, and the SMTP round
+            # trip it costs was 2.89s of a 37.75s batch spent with the mail loop
+            # held open. So it is handed to the background sender and the batch
+            # moves on. See the module header for what makes that safe: the
+            # sender retries, shutdown drains, and `flush_pending_auto_replies`
+            # sweeps up anything still owed.
+            reply_queued = False
             # Never on a record we are unsure about. A reply is irreversible and
             # goes to a real person; a profile heading for human review has not
-            # earned one.
+            # earned one. The sweep applies the same rule — it asks only for
+            # candidates whose status is "ingested" — so a record that is later
+            # promoted out of review is not silently mailed by the catch-up.
             if settings.auto_reply_enabled and record.status != "needs_review":
-                try:
-                    reply_text = generate_contextual_reply(profile, email)
-                    # Send reply directly to the sender address where the email arrived from.
-                    reply_to = email.from_addr or email_key
-                    if gmail and hasattr(gmail, "send_reply") and reply_to:
-                        gmail.send_reply(
-                            message_id=email.message_id,
-                            thread_id=email.thread_id,
-                            to_addr=reply_to,
-                            subject=email.subject,
-                            body_text=reply_text,
-                        )
-                        reply_sent = True
-                        self.repo.mark_auto_reply_sent(candidate_id)
-                        log.info(
-                            "Auto-reply sent to candidate %s at %s (mail arrived from %s)",
-                            candidate_id, reply_to, email.from_addr,
-                        )
-                    else:
-                        log.info("Auto-reply generated for candidate %s (reply_sent=False, Gmail client not connected)", candidate_id)
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("Failed to send auto-reply to %s: %s", email.from_addr, exc)
+                # Reply to the address the mail actually arrived from.
+                reply_to = email.from_addr or email_key
+                reply_queued = queue_auto_reply(
+                    self.repo, gmail, candidate_id, profile, email, reply_to,
+                )
 
             return AttachmentResult(
                 att.filename,
                 "ingested",
                 candidate_id,
                 f"confidence={profile.confidence:.2f}",
-                reply_sent=reply_sent,
+                reply_queued=reply_queued,
                 identity=identity,
             )
 

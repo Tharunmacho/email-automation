@@ -259,6 +259,53 @@ class Settings(BaseSettings):
     # strangers, and a false positive mails someone who never applied.
     auto_reply_enabled: bool = False
     auto_reply_signature: str = "Best regards,\nRecruitment Team"
+    # Sending happens off the ingestion path — see `app/ingestion/pipeline.py`.
+    # A full SMTP conversation is a second or three of network on a good day,
+    # and every one of those seconds used to be spent with the mail loop held
+    # open behind it, on the one step whose failure the pipeline deliberately
+    # swallows.
+    #
+    # Backgrounding a send is only acceptable alongside something that notices
+    # when it did not happen, and these two are that: the sender retries a
+    # transient failure in place, and the sweep picks up anything still owed —
+    # a redeploy mid-send, an SMTP outage, a broker that was down.
+    auto_reply_send_attempts: int = 3
+    #: Seconds before the first retry; doubles thereafter.
+    auto_reply_retry_backoff_seconds: float = 2.0
+    #: How many times the *sweep* will come back to a candidate before leaving
+    #: them alone. Counts across cycles, so a mistyped address costs five sends
+    #: and then stops rather than one per poll for ever. Clear
+    #: `auto_reply_attempts` on the record to give one another go.
+    auto_reply_max_attempts: int = 5
+    #: How many owed replies one sweep will send. A bound on a catch-up run
+    #: after a long outage, not a budget: whatever it does not reach is picked
+    #: up by the next sweep, oldest first.
+    auto_reply_sweep_limit: int = 50
+    #: How long a shutdown will wait for replies already queued. They are
+    #: recoverable by the sweep, so this is about finishing cleanly rather than
+    #: about not losing them — but a redeploy should not have to rely on that.
+    auto_reply_drain_seconds: float = 20.0
+    #: How recently a candidate may have been touched and still be left alone
+    #: by the sweep.
+    #:
+    #: Draining the local pool closes the double-send window inside one process,
+    #: but not across two. With more than one worker, the process that ingested
+    #: a candidate holds the queued reply while a beat sweep may land on a
+    #: *different* worker, drain an empty pool of its own, and find the same
+    #: `auto_reply_sent=False`. Both then send, and the candidate gets two
+    #: copies.
+    #:
+    #: A send takes seconds; this is minutes. So a record touched inside the
+    #: grace period is assumed to be in flight somewhere and left for the next
+    #: sweep, while one that genuinely failed has long since gone quiet and is
+    #: picked up normally. Costs a delay on a failure, never a delivery.
+    auto_reply_grace_seconds: int = 120
+    #: How often beat sweeps for replies still owed, and how long one sweep may
+    #: hold its lock. The interval is generous because the sweep is a safety
+    #: net, not the delivery path — the common case is sent within seconds by
+    #: the background sender, and this only picks up what that could not.
+    auto_reply_sweep_interval_seconds: int = 300
+    auto_reply_lock_ttl_seconds: int = 600
 
     # ---- Auth ----
     # Signs session tokens. MUST be set in production: leaving the default
@@ -677,7 +724,19 @@ class Settings(BaseSettings):
     # downstream blocks on. Short on purpose: the ingestion row already holds
     # the job id, so anything unfinished is collected by the reconciler rather
     # than holding a Gmail message open.
-    identity_job_wait_seconds: float = 120.0
+    #
+    # Raised to 120 once "to prevent inline timeout on passport extractions",
+    # and put back, because that read the wrong thing as the failure. A job that
+    # comes back `pending` has not been lost — it keeps its id on the ingestion
+    # row and the reconciler collects it. Measured on one batch: the passport
+    # that was waited out cost 28.1s inline, and the one left to the reconciler
+    # was collected in 53ms with the same fields and the same valid check
+    # digits. The wait bought nothing and was three quarters of the batch.
+    #
+    # What the raise was really compensating for is a deployment with no Celery
+    # worker, where the only sweep is `inline_reconcile_budget_seconds` on the
+    # poll thread. Run the worker and this budget stops mattering at all.
+    identity_job_wait_seconds: float = 45.0
     # How long the inline poll keeps sweeping for identity jobs it had to leave
     # running. Only used when there is no Celery worker — with one, beat's
     # reconciler does this and this budget is never spent. Generous, because it

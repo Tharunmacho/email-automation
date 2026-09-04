@@ -615,7 +615,18 @@ class CandidateRecord(BaseModel):
 
     status: str = "ingested"    # ingested | duplicate | needs_review | error
     duplicate_of: Optional[str] = None
+    # Written only by a send that actually returned. This is the durable answer
+    # to "did this candidate get their reply", and the sweep in
+    # `app/ingestion/pipeline.py` treats every ingested candidate where it is
+    # still false as work still owed.
     auto_reply_sent: bool = False
+    #: How many times sending has been tried and failed. The sweep retries
+    #: forever otherwise, and a candidate who applied with a mistyped address
+    #: would be re-attempted on every poll cycle for the life of the record.
+    auto_reply_attempts: int = 0
+    #: Why the last attempt failed, kept so a stuck candidate can be explained
+    #: without going through the logs of the day it happened.
+    auto_reply_error: str = ""
     raw_ocr: Optional[Dict[str, Any]] = None
 
     # ---- the WhatsApp conversation ---------------------------------------- #

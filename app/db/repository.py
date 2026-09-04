@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from pymongo import ASCENDING
+from pymongo import ASCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.crm_ids import candidate_code
@@ -676,8 +676,90 @@ class CandidateRepository:
 
         self._coll.update_one(
             _id_filter(candidate_id),
-            {"$set": {"auto_reply_sent": True, "updated_at": utcnow()}},
+            {
+                "$set": {"auto_reply_sent": True, "updated_at": utcnow()},
+                # The error from an attempt that has since succeeded is history,
+                # not state, and leaving it on the record makes a candidate who
+                # *did* get their reply look like one who did not.
+                "$unset": {"auto_reply_error": ""},
+            },
         )
+
+    def record_auto_reply_failure(self, candidate_id: str, error: str) -> int:
+        """Count one failed send and keep why. Returns the new attempt count.
+
+        The count is what stops the sweep retrying a permanently bad address on
+        every cycle for ever — a candidate who applied with a typo in their own
+        email otherwise costs an SMTP connection a minute, indefinitely.
+        """
+        from app.core.models import utcnow
+
+        updated = self._coll.find_one_and_update(
+            _id_filter(candidate_id),
+            {
+                "$inc": {"auto_reply_attempts": 1},
+                "$set": {"auto_reply_error": (error or "")[:500], "updated_at": utcnow()},
+            },
+            projection={"auto_reply_attempts": 1},
+            return_document=ReturnDocument.AFTER,
+        )
+        return int((updated or {}).get("auto_reply_attempts", 0))
+
+    def find_awaiting_auto_reply(
+        self, limit: int = 50, max_attempts: int = 5, grace_seconds: int = 0,
+    ) -> List[CandidateRecord]:
+        """Ingested candidates who are still owed their auto-reply.
+
+        The guarantee behind "a candidate in the database gets a reply". Sending
+        happens off the ingestion path, so it can be interrupted by a redeploy,
+        an SMTP outage or a broker hiccup; this is what notices and finishes the
+        job on the next cycle rather than leaving it to somebody running the CLI
+        by hand.
+
+        Four conditions, and each excludes a candidate who must *not* be mailed:
+
+        * `status: "ingested"` — a record held for review has not earned a
+          reply, and the pipeline applies the same rule at ingest time;
+        * `auto_reply_sent` not true — the flag is written only by a send that
+          returned, so this is exactly the set still owed;
+        * under the attempt ceiling — see `record_auto_reply_failure`;
+        * a real `source_email.from_addr`. WhatsApp and manual-intake
+          candidates are stored with `source_email: None`, so this is what keeps
+          the sweep on the mail side of the house where it belongs.
+
+        `grace_seconds` excludes records touched too recently to judge — see
+        `auto_reply_grace_seconds`. A send in flight on another worker looks
+        identical to one that failed, and the only thing separating them is how
+        long ago the record was last written.
+        """
+        query: dict = {
+            "status": "ingested",
+            "auto_reply_sent": {"$ne": True},
+        }
+        if grace_seconds and grace_seconds > 0:
+            from datetime import timedelta
+
+            from app.core.models import utcnow
+
+            query["updated_at"] = {"$lt": utcnow() - timedelta(seconds=int(grace_seconds))}
+        cursor = (
+            self._coll.find(
+                {
+                    **query,
+                    # `$not/$gte` rather than `$lt`, and the difference is the
+                    # whole sweep: `$lt` does not match a document where the
+                    # field is *absent*, and it is absent on every candidate
+                    # written before this existed — which is all of them. The
+                    # first run would have found nobody and looked like it had
+                    # nothing to do.
+                    "auto_reply_attempts": {"$not": {"$gte": int(max_attempts)}},
+                    "source_email.from_addr": {"$regex": "@"},
+                }
+            )
+            .sort("created_at", 1)
+            .limit(max(1, int(limit)))
+        )
+        return [CandidateRecord.from_mongo(d) for d in cursor]
 
     def set_storage_backend(self, candidate_id: str, backend: str) -> None:
         """Record where this candidate's file now lives.

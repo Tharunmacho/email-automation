@@ -26,6 +26,10 @@ from app.logging_config import get_logger
 from app.tasks.celery_app import celery_app
 from app.tasks.locks import POLL_LOCK, LockNotAcquired, claim_message, redis_lock
 
+#: One sweep at a time across every worker. Two concurrent sweeps would each
+#: read `auto_reply_sent=False` for the same candidate and both send.
+AUTO_REPLY_LOCK = "auto-reply:sweep"
+
 log = get_logger(__name__)
 
 
@@ -201,3 +205,35 @@ def _process_one(task, message_id: str) -> dict:
             "candidates": result.ingested_ids,
         }
 
+
+@celery_app.task(name="app.tasks.jobs.flush_auto_replies")
+def flush_auto_replies(limit: int | None = None) -> dict:
+    """The beat half of the auto-reply guarantee.
+
+    Ingestion queues a reply rather than sending it, and a queue is only a
+    promise until something checks it was kept. This is that check: every
+    candidate with `status="ingested"` and `auto_reply_sent=False` is a reply
+    still owed, whatever swallowed it — a redeploy that landed mid-send, an SMTP
+    host refusing connections, a worker killed holding its queue.
+
+    Single-flighted on the same Redis lock discipline as the reconciler, because
+    two sweeps over the same candidates would each see `auto_reply_sent=False`
+    and both send. The flag is only written *after* a send returns, so the
+    window between two racing sweeps is exactly the window in which a candidate
+    gets two copies of the same mail.
+
+    The API's inline poll runs the same sweep for deployments with no worker
+    (`app/api/routes.py`), so the guarantee does not depend on this task
+    existing — this is what makes it hold when nobody is pressing Sync.
+    """
+    from app.ingestion.pipeline import flush_pending_auto_replies
+
+    try:
+        with redis_lock(AUTO_REPLY_LOCK, settings.auto_reply_lock_ttl_seconds):
+            report = flush_pending_auto_replies(limit=limit)
+            if report.get("sent") or report.get("failed"):
+                log.info("Auto-reply sweep: %s", report)
+            return report
+    except LockNotAcquired:
+        log.debug("Auto-reply sweep skipped: one is already running")
+        return {"sent": 0, "failed": 0, "pending": 0, "skipped": 1}
