@@ -226,9 +226,19 @@ def store_aadhaar_record(
         {"$set": doc, "$setOnInsert": {"created_at": utcnow()}},
         upsert=True,
     )
+    name_on_card = doc.get("name") or "N/A"
+    masked_no = doc.get("masked_aadhaar_number") or "N/A"
+    is_valid = doc.get("aadhaar_number_valid")
     log.info(
-        "Stored aadhaar record %s for candidate %s (number valid=%s)",
-        record_id, candidate_id, doc.get("aadhaar_number_valid"),
+        "\n================================================================================\n"
+        "[ENDPOINT: AADHAAR CARD INGESTED]\n"
+        "  * File: %s (Pages: %s)\n"
+        "  * Candidate ID: %s | Record ID: %s\n"
+        "  * Name on Card: %s\n"
+        "  * Masked Aadhaar: %s (Valid Number: %s)\n"
+        "================================================================================",
+        filename or "attachment", pages or [], candidate_id or "unassigned", record_id,
+        name_on_card, masked_no, is_valid,
     )
     return record_id
 
@@ -299,9 +309,23 @@ def store_passport_record(
         {"$set": doc, "$setOnInsert": {"created_at": utcnow()}},
         upsert=True,
     )
+    pass_no = doc.get("passport_number") or "N/A"
+    given = doc.get("given_names") or ""
+    surname = doc.get("surname") or ""
+    full_name = f"{given} {surname}".strip() or "N/A"
+    nat = doc.get("nationality") or doc.get("issuing_country") or "IND"
+    check_valid = doc.get("check_digits_valid")
     log.info(
-        "Stored passport record %s for candidate %s (check digits valid=%s)",
-        record_id, candidate_id, doc.get("check_digits_valid"),
+        "\n================================================================================\n"
+        "[ENDPOINT: PASSPORT INGESTED]\n"
+        "  * File: %s (Pages: %s)\n"
+        "  * Candidate ID: %s | Record ID: %s\n"
+        "  * Passport No: %s | Country: %s\n"
+        "  * Name on Passport: %s\n"
+        "  * Check Digits Valid: %s\n"
+        "================================================================================",
+        filename or "attachment", pages or [], candidate_id or "unassigned", record_id,
+        pass_no, nat, full_name, check_valid,
     )
     return record_id
 

@@ -747,8 +747,17 @@ def _classified(
     ]
     text = "\n\n".join(t.strip() for t in page_texts if t.strip())
     log.info(
-        "Page classification: is_resume=%s conf=%.2f — %s",
-        result.is_resume, result.confidence, result.reason,
+        "\n================================================================================\n"
+        "[ENDPOINT: RESUME INGESTED]\n"
+        "  * File: %s (Total Pages: %d | OCR Pages: %s)\n"
+        "  * Classification: is_resume=%s (Confidence: %.2f)\n"
+        "  * Resume Pages: %s\n"
+        "  * Candidate Nationality: %s (Accepted: %s)\n"
+        "  * Reason: %s\n"
+        "================================================================================",
+        filename or "attachment", page_count if page_count is not None else len(page_texts),
+        sorted(ocr_pages) if ocr_pages else "None", result.is_resume, result.confidence,
+        result.resume_pages or "None", nationality.country or "IND", accepted, result.reason,
     )
     return ExtractedDocument(
         text=text,
