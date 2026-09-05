@@ -3573,6 +3573,17 @@ def job_cv_matrix(job_id: str, _user: dict = Depends(require_page("data-manageme
 #  order an admin put them in — because the bot's job is to ask a question, not
 #  to filter an admin's spreadsheet.
 # --------------------------------------------------------------------------- #
+@app.get("/bot-suppression-directory")
+def bot_suppression_directory(
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Return the global inbound deny-list to the WhatsApp bot."""
+    from app.db.bot_suppression_numbers import directory_numbers
+
+    numbers = directory_numbers()
+    return {"numbers": numbers, "count": len(numbers)}
+
+
 @app.get("/taxonomy")
 def bot_taxonomy(_service: None = Depends(require_service_key)) -> dict:
     from app.db.taxonomy import BOT_LIST_LIMIT, list_countries, list_jobs, taxonomy_version

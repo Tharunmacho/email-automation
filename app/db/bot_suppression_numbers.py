@@ -30,6 +30,15 @@ def list_numbers() -> list[dict]:
     return rows
 
 
+def directory_numbers() -> list[str]:
+    """Normalized deny-list consumed by the WhatsApp bot."""
+    return sorted(
+        str(doc["phone_key"])
+        for doc in collection().find({}, {"_id": 0, "phone_key": 1})
+        if doc.get("phone_key")
+    )
+
+
 def add_number(phone: str, label: str = "", created_by: str = "") -> dict:
     phone = (phone or "").strip()
     phone_key = normalize_phone(phone)
