@@ -518,10 +518,17 @@ def intake_uploaded_candidate(
                 status_code=409,
                 code="duplicate_passport",
             )
+        if resume_hash and existing and existing.resume_hash == resume_hash:
+            raise CandidateUploadError(
+                f"This resume already belongs to {existing.profile.full_name or stored_id}.",
+                status_code=409,
+                code="duplicate_resume",
+            )
         raise CandidateUploadError(
-            f"This resume already belongs to {(existing.profile.full_name if existing else stored_id)}.",
+            f"This candidate already exists as "
+            f"{(existing.profile.full_name if existing else stored_id)}.",
             status_code=409,
-            code="duplicate_resume",
+            code="duplicate_candidate",
         )
 
     public_identity: Dict[str, list[Dict[str, Any]]] = {"aadhaar": [], "passport": []}

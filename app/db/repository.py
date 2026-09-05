@@ -6,7 +6,11 @@ storage engine could change without touching business logic.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+import threading
+import time
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from bson import ObjectId
@@ -23,6 +27,14 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 CANDIDATE_DELETIONS_COLLECTION = "candidate_deletions"
+
+# Unique database indexes protect exact email, passport, resume, and request
+# identities. Phone is intentionally non-unique, so this short lease closes
+# the remaining lookup-then-insert race across API and worker processes.
+_LOCAL_CREATION_LOCK = threading.RLock()
+_CREATION_LOCK_COLLECTION = "candidate_creation_locks"
+_CREATION_LOCK_TTL_SECONDS = 30
+_CREATION_LOCK_WAIT_SECONDS = 5.0
 
 
 def _fingerprint(value: Optional[str]) -> Optional[str]:
@@ -65,6 +77,19 @@ def _id_filter(candidate_id: str) -> dict:
         return {"_id": {"$in": [candidate_id, ObjectId(candidate_id)]}}
     except (InvalidId, TypeError):
         return {"_id": candidate_id}
+
+
+def _international_phone(value: Optional[str]) -> Optional[str]:
+    """Return digits for an explicitly international phone, if available."""
+    if not value:
+        return None
+    raw = value.strip()
+    digits = "".join(character for character in raw if character.isdigit())
+    if not digits:
+        return None
+    if raw.startswith("+") or len(digits) > 10:
+        return digits
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -326,44 +351,136 @@ class CandidateRepository:
 
     # ---- writes ----------------------------------------------------------- #
     def insert(self, record: CandidateRecord) -> str:
-        try:
-            self._coll.insert_one(record.to_mongo())
-        except DuplicateKeyError:
-            # Lost a race on a unique index. Three of them can fire here now,
-            # so all are resolved rather than assuming which one it was: the
-            # idempotency key (two concurrent retries of the same WhatsApp
-            # submission), the passport number (the same person arriving via
-            # two registrations), and the resume hash (the same file ingested twice).
-            #
-            # Passport wins because it identifies the person even if a stale
-            # conversation key points elsewhere. Without a passport, the exact
-            # submission key remains stronger than a matching resume file.
-            existing = self.find_by_passport_key(record.passport_key)
-            if existing:
-                return existing.id
-            existing = self.find_by_idempotency_key(record.idempotency_key)
-            if existing:
-                return existing.id
-            existing = self.find_by_resume_hash(record.resume_hash)
-            if existing:
-                return existing.id
-            # Weakest of the four, so it is asked last: two different files can
-            # carry one address, which is exactly the case this resolves — the
-            # same application delivered to two polled mailboxes, fetched as two
-            # messages and processed concurrently. Both threads pass the
-            # `find_by_email_or_phone` check because neither has inserted yet,
-            # and the unique index is what stops the second from becoming a
-            # second person.
-            existing = self.find_by_email_key(record.email_key)
+        # Intake routes check for duplicates before calling insert, but that
+        # lookup is not atomic. Two concurrent routes can both see no match.
+        # Repeat the identity decision while holding a short distributed lease.
+        with _LOCAL_CREATION_LOCK, self._creation_lock(record):
+            existing = self._find_insert_duplicate(record)
             if existing:
                 log.info(
-                    "Candidate %s already holds %s; folding this submission into it",
-                    existing.id, record.email_key,
+                    "Candidate insert %s resolved to existing candidate %s",
+                    record.id,
+                    existing.id,
                 )
                 return existing.id
-            raise
+
+            try:
+                self._coll.insert_one(record.to_mongo())
+            except DuplicateKeyError:
+                # Unique indexes remain the final defence. Resolve the winner
+                # rather than returning a 500 for a harmless concurrent retry.
+                existing = self._find_insert_duplicate(record)
+                if existing:
+                    return existing.id
+                raise
         log.info("Inserted candidate %s (%s)", record.id, record.profile.full_name)
         return record.id
+
+    def _find_insert_duplicate(self, record: CandidateRecord) -> Optional[CandidateRecord]:
+        """Resolve identities using the same strengths as all intake routes."""
+        # Passport identifies the person even when a stale conversation key
+        # points elsewhere. Names are deliberately not identities.
+        existing = self.find_by_passport_key(record.passport_key)
+        if existing:
+            return existing
+        existing = self.find_by_idempotency_key(record.idempotency_key)
+        if existing:
+            return existing
+        existing = self.find_by_resume_hash(record.resume_hash)
+        if existing:
+            return existing
+        existing = self.find_by_email_key(record.email_key)
+        if existing:
+            return existing
+
+        if not record.phone_key:
+            return None
+        existing = self.find_by_email_or_phone(None, record.phone_key)
+        if not existing:
+            return None
+
+        # A shared family/agent phone is valid when the applications carry two
+        # distinct email identities. Phone closes the no-email WhatsApp race;
+        # it must not override evidence that these are different people.
+        if (
+            record.email_key
+            and existing.email_key
+            and record.email_key != existing.email_key
+        ):
+            return None
+
+        # normalize_phone intentionally compares the national tail. If both
+        # records provide full international numbers, keep different country
+        # codes separate even when their final ten digits match.
+        incoming = _international_phone(record.profile.phone_e164 or record.profile.phone)
+        stored = _international_phone(existing.profile.phone_e164 or existing.profile.phone)
+        if incoming and stored and incoming != stored:
+            return None
+        return existing
+
+    @contextmanager
+    def _creation_lock(self, record: CandidateRecord):
+        """Hold short Mongo leases for every identity carried by ``record``."""
+        identities = {
+            f"passport:{record.passport_key}" if record.passport_key else "",
+            f"idempotency:{record.idempotency_key}" if record.idempotency_key else "",
+            f"resume:{record.resume_hash}" if record.resume_hash else "",
+            f"email:{record.email_key}" if record.email_key else "",
+            f"phone:{record.phone_key}" if record.phone_key else "",
+        }
+        # Hash keys so this operational collection never stores contact PII.
+        # Sorted acquisition prevents deadlock between multi-identity records.
+        lock_ids = sorted(
+            hashlib.sha256(value.encode("utf-8")).hexdigest()
+            for value in identities
+            if value
+        )
+        if not lock_ids:
+            yield
+            return
+
+        try:
+            lock_collection = self._coll.database[_CREATION_LOCK_COLLECTION]
+        except (AttributeError, TypeError):
+            # Minimal fake collections have no database. The process-local
+            # lock surrounding this context still makes their inserts safe.
+            yield
+            return
+
+        token = uuid.uuid4().hex
+        acquired: list[str] = []
+        deadline = time.monotonic() + _CREATION_LOCK_WAIT_SECONDS
+        try:
+            for lock_id in lock_ids:
+                while True:
+                    now = datetime.now(timezone.utc)
+                    try:
+                        lock_collection.insert_one(
+                            {
+                                "_id": lock_id,
+                                "token": token,
+                                "expires_at": now
+                                + timedelta(seconds=_CREATION_LOCK_TTL_SECONDS),
+                            }
+                        )
+                        acquired.append(lock_id)
+                        break
+                    except DuplicateKeyError:
+                        # Reclaim only a lease whose holder has expired.
+                        lock_collection.delete_one(
+                            {"_id": lock_id, "expires_at": {"$lte": now}}
+                        )
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError(
+                                "Timed out waiting for another candidate intake to finish"
+                            )
+                        time.sleep(0.02)
+            yield
+        finally:
+            if acquired:
+                lock_collection.delete_many(
+                    {"_id": {"$in": acquired}, "token": token}
+                )
 
     def claim_passport(
         self,

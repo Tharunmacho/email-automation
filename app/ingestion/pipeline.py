@@ -625,6 +625,17 @@ class IngestionPipeline:
             # an auto-reply to a real person — and doing that a second time for
             # one applicant is exactly what the duplicate was reported as.
             if candidate_id != record.id:
+                # The file was stored immediately before the atomic insert
+                # decision. This request lost that race, so its object is not
+                # referenced by the existing candidate and must be removed.
+                try:
+                    self.storage.delete(record.resume.storage_key)
+                except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                    log.warning(
+                        "Could not remove duplicate resume object %s: %s",
+                        record.resume.storage_key,
+                        exc,
+                    )
                 self.ledger.record(email.message_id, resume_hash, candidate_id, "duplicate")
                 log.info(
                     "Attachment '%s' resolved to existing candidate %s on insert; "

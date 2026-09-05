@@ -349,6 +349,14 @@ def ensure_indexes() -> None:
         unique=True,
         sparse=True,
     )
+    # Candidate creation uses short-lived identity leases. Rows are normally
+    # removed immediately; TTL cleans up leases left by a crashed worker.
+    ensure_index(
+        db["candidate_creation_locks"],
+        [("expires_at", ASCENDING)],
+        "candidate_creation_lock_ttl",
+        expireAfterSeconds=0,
+    )
     # Common future query paths (search/filter extension).
     ensure_index(coll, [("profile.skills", ASCENDING)], "skills_idx")
     ensure_index(coll, [("created_at", ASCENDING)], "created_at_idx")
