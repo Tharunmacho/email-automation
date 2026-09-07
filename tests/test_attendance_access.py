@@ -17,14 +17,15 @@ from app.attendance.api import (
     decide_permission as decide_permission_route,
     list_permissions,
     request_permission as request_permission_route,
+    update_weekly_off as update_weekly_off_route,
     whatsapp_attendance_directory,
     whatsapp_private_attendance,
 )
-from app.attendance.models import PermissionDecision, PermissionRequest
+from app.attendance.models import PermissionDecision, PermissionRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, User
-from app.payroll import _visible_employees
+from app.payroll import EmployeePayrollPolicy, _visible_employees, update_employee_payroll
 
 
 class FakeUsers:
@@ -169,6 +170,38 @@ def test_staff_payroll_is_scoped_to_the_signed_in_employee():
         visible = _visible_employees({"id": "staff-2", "role": "staff"})
 
     assert [employee.id for employee in visible] == ["staff-2"]
+
+
+def test_staff_selects_only_their_own_weekly_off_from_attendance():
+    repository = AttendanceRepository(mongomock.MongoClient()["self-weekly-off"])
+    with patch("app.attendance.api.users", FakeUsers()), patch(
+        "app.attendance.api.AttendanceRepository", return_value=repository
+    ):
+        result = update_weekly_off_route(
+            WeeklyOffRequest(weekly_off_pattern="alternate_friday"),
+            user={"id": "staff-2", "role": STAFF_ROLE},
+        )
+
+    assert result["employee_id"] == "staff-2"
+    assert repository.employee_policy("staff-2")["weekly_off_pattern"] == "alternate_friday"
+    assert repository.employee_policy("staff-1")["weekly_off_pattern"] == "sunday"
+
+
+def test_saving_salary_does_not_overwrite_staff_weekly_off():
+    repository = AttendanceRepository(mongomock.MongoClient()["salary-keeps-weekly-off"])
+    repository.set_employee_policy("staff-1", {"weekly_off_pattern": "alternate_friday"})
+    with patch("app.payroll.users", FakeUsers()), patch(
+        "app.payroll.AttendanceRepository", return_value=repository
+    ):
+        update_employee_payroll(
+            "staff-1",
+            EmployeePayrollPolicy(monthly_salary=32000),
+            _user={"id": "manager-1", "role": MANAGER_ROLE},
+        )
+
+    policy = repository.employee_policy("staff-1")
+    assert policy["monthly_salary"] == 32000
+    assert policy["weekly_off_pattern"] == "alternate_friday"
 
 
 def test_staff_permission_history_ignores_another_employee_id():

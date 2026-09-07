@@ -2,7 +2,7 @@
 
 :root {
   /* Typography. One family, product-wide — `next/font` sets this variable from
-     the loaded Outfit face and the fallback here is only what paints before it
+     the loaded Lora face and the fallback here is only what paints before it
      arrives. There is deliberately no second family and no monospace: the
      places that used to reach for one (the log console, timestamps, the
      confidence figures) now hold their columns with `tabular-nums` and a wider
@@ -11,7 +11,7 @@
      the alias every other rule in the sheet is written against, so the family
      is swapped in exactly one place. The stack after it is only what paints
      before the webfont lands. */
-  --font-outfit: var(--font-display), 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-outfit: var(--font-display), 'Lora', Georgia, serif;
   /* Kept as a name because rules across the sheet still ask for it, and code
      and clocks want even digits wherever they appear. */
   --font-numeric: var(--font-outfit);
@@ -20,7 +20,7 @@
      `code, kbd, samp, pre`) and for the `font-sans`/`font-mono` utilities. They
      are unset by default, so those rules fall back to a system sans and a
      system monospace — a second and a third family, arriving through the
-     framework rather than through this sheet. Pointing both at Outfit closes
+     framework rather than through this sheet. Pointing both at Lora closes
      that door: there is no way to ask this stylesheet for another face. */
   --font-sans: var(--font-outfit);
   --font-mono: var(--font-outfit);
@@ -41,7 +41,7 @@
 
   /* Accent channel. Stated as raw RGB so every tint, ring and shadow can be
      mixed from it with an alpha instead of being hand-picked per rule. */
-  --primary-rgb: 26, 60, 255;
+  --primary-rgb: 0, 0, 255;
   /* Electric blue — 6.7:1 on white, so it is safe as text, not just as fill.
      There is exactly one blue in the product now. `--accent` used to be a
      second, lighter one (blue 500), which is why a chip, a connector and a card
@@ -51,22 +51,22 @@
   --accent-rgb: var(--primary-rgb);
 
   --primary: rgb(var(--primary-rgb));
-  --primary-hover: #0022e6;
+  --primary-hover: #0000cc;
   /* Pressed / hover — same hue, luminance only */
-  --primary-deep: #00189f;
+  --primary-deep: #000080;
   --primary-glow: rgba(var(--primary-rgb), 0.08);
   --accent: rgb(var(--accent-rgb));
 
   /* The brand mark. One hue across a short diagonal — the old cyan→cobalt
      sweep read as a gradient first and a logo second. */
-  --brand-gradient: linear-gradient(140deg, #3452ff 0%, var(--primary) 55%, var(--primary-deep) 100%);
+  --brand-gradient: #0000ff;
 
   /* Adira's identity is intentionally separate from the product accent: the
      two-colour mark is brand, while electric blue remains interaction. */
-  --brand-mark-left: #062d68;
-  --brand-mark-right: #c3003d;
-  --brand-word: #062d68;
-  --brand-tagline: #b9003a;
+  --brand-mark-left: #000000;
+  --brand-mark-right: #0000ff;
+  --brand-word: #000000;
+  --brand-tagline: #0000ff;
 
   /* One-blue review hierarchy: completion is solid, opened work is mid-tone,
      and untouched work is the quietest tint of the same product accent. */
@@ -77,34 +77,34 @@
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
-  --bg-main: #f5f6fa;
+  --bg-main: #ffffff;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
 
   /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
      data is what made the old shell read as a theme rather than a tool. */
-  --tint-1: #f7f8fa;
-  --tint-2: #f1f2f5;
-  --tint-3: #e5e7eb;
+  --tint-1: rgba(0, 0, 0, 0.02);
+  --tint-2: rgba(0, 0, 0, 0.04);
+  --tint-3: rgba(0, 0, 0, 0.10);
 
-  --border-main: #e5e7eb;
-  --border-hover: #d1d5db;
-  --glass-border: rgba(17, 24, 39, 0.08);
+  --border-main: rgba(0, 0, 0, 0.12);
+  --border-hover: rgba(0, 0, 0, 0.24);
+  --glass-border: rgba(0, 0, 0, 0.08);
 
-  --text-main: #0f172a;
+  --text-main: #000000;
   /* Slate 900 — the sharp ink for headings, KPIs and table names */
-  --text-muted: #6b7280;
+  --text-muted: rgba(0, 0, 0, 0.62);
   /* Gray 500 — captions, subtitles, secondary cells, and section labels */
-  --text-light: #9ca3af;
+  --text-light: rgba(0, 0, 0, 0.42);
   /* Section labels sit one step darker than --text-light: at 700 and 0.68rem
      they are small enough that the lighter grey drops below readable. */
-  --text-label: #6b7280;
+  --text-label: rgba(0, 0, 0, 0.62);
 
   /* Hairlines. `--border-blue` is a legacy name kept so the screens written
      against it inherit the new neutral edge; nothing about it is blue now. */
-  --border-blue: #eaecf0;
-  --border-blue-strong: #d1d5db;
-  --border-blue-faint: #f3f4f6;
+  --border-blue: rgba(0, 0, 0, 0.12);
+  --border-blue-strong: rgba(0, 0, 0, 0.24);
+  --border-blue-faint: rgba(0, 0, 0, 0.05);
 
   /* Both the sidebar's brand divider and the page header's rule are pinned to
      this height, so the two hairlines meet and read as one line across the
@@ -115,7 +115,7 @@
      the chrome and everything below it, stated here and drawn once — a second
      rule a few pixels under the first reads as a rendering fault rather than as
      structure, which is what the rail's old head row was doing. */
-  --header-hairline: rgba(0, 0, 0, 0.06);
+  --header-hairline: rgba(0, 0, 0, 0.12);
 
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
@@ -177,7 +177,7 @@
   --dash-ring-strong: var(--border-blue-strong);
   --dash-ink: var(--text-main);
   --dash-ink-2: var(--text-muted);
-  --dash-muted: #6b7280;
+  --dash-muted: rgba(0, 0, 0, 0.62);
   --dash-grid: var(--border-blue-faint);
   --dash-track: var(--tint-3);
   --dash-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
@@ -200,9 +200,9 @@
      everywhere and left the one real blue — the accent — with nothing to
      contrast against. These greys have no hue at all, so the accent is the only
      colour in the theme and it reads as loudly on black as it does on white. */
-  --primary-rgb: 87, 112, 255;
-  --primary-hover: #8c9bff;
-  --primary-deep: #0022e6;
+  --primary-rgb: 0, 0, 255;
+  --primary-hover: #3333ff;
+  --primary-deep: #000080;
   /* An 8% wash is invisible on black. The active nav pill, the selected chip
      and the focus ring all mix from this, so it doubles here rather than being
      re-picked per rule. */
@@ -210,9 +210,9 @@
 
   /* The supplied dark lockup is a clean knockout, not a dimmed colour logo. */
   --brand-mark-left: #ffffff;
-  --brand-mark-right: #ffffff;
+  --brand-mark-right: #0000ff;
   --brand-word: #ffffff;
-  --brand-tagline: #ffffff;
+  --brand-tagline: #0000ff;
 
   --review-evaluated: rgb(var(--primary-rgb));
   --review-opened: rgba(var(--primary-rgb), 0.68);
@@ -220,25 +220,25 @@
 
   /* True black canvas with neutral charcoal elevation. */
   --bg-main: #000000;
-  --bg-card: #080808;
+  --bg-card: #000000;
   --bg-sidebar: #000000;
 
-  --tint-1: #0d0d0d;
-  --tint-2: #171717;
-  --tint-3: #262626;
+  --tint-1: rgba(255, 255, 255, 0.04);
+  --tint-2: rgba(255, 255, 255, 0.08);
+  --tint-3: rgba(255, 255, 255, 0.16);
 
-  --border-main: #242424;
-  --border-hover: #383838;
+  --border-main: rgba(255, 255, 255, 0.16);
+  --border-hover: rgba(255, 255, 255, 0.30);
   --glass-border: rgba(255, 255, 255, 0.05);
 
-  --text-main: #f9fafb;
-  --text-muted: #9ca3af;
-  --text-light: #6b7280;
-  --text-label: #9ca3af;
+  --text-main: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.68);
+  --text-light: rgba(255, 255, 255, 0.46);
+  --text-label: rgba(255, 255, 255, 0.68);
 
-  --border-blue: #242424;
-  --border-blue-strong: #383838;
-  --border-blue-faint: #171717;
+  --border-blue: rgba(255, 255, 255, 0.16);
+  --border-blue-strong: rgba(255, 255, 255, 0.30);
+  --border-blue-faint: rgba(255, 255, 255, 0.08);
 
   --success-ink: #4ade80;
   --success-fill: rgba(22, 163, 74, 0.16);
@@ -271,8 +271,8 @@
   /* The same hairline, inverted — a black edge is invisible on a dark surface. */
   --header-hairline: rgba(255, 255, 255, 0.09);
 
-  --dash-surface: #080808;
-  --dash-muted: #a3a3a3;
+  --dash-surface: #000000;
+  --dash-muted: rgba(255, 255, 255, 0.68);
   --dash-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   --dash-shadow-hover: inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 8px 20px -8px rgba(0, 0, 0, 0.85);
@@ -5268,7 +5268,7 @@ body {
    glow — with amber and red held back for the lines you must not miss. */
 .dash-log-info {
   background: rgba(96, 165, 250, 0.14);
-  color: #93a3ff;
+  color: var(--primary);
 }
 
 .dash-log-success {
@@ -5296,7 +5296,7 @@ body {
    panel inside it is dark, so the trace reads as a screen embedded in the page
    rather than as a differently-themed card. */
 .dash-log-card .dash-card-title svg {
-  color: #5d75ff;
+  color: var(--primary);
 }
 
 /* --- first-paint skeleton ------------------------------------------------ */
@@ -12207,7 +12207,7 @@ body {
 }
 
 .cupload-field em {
-  color: #2563eb;
+  color: var(--primary);
   font-size: 9px;
   font-style: normal;
   letter-spacing: 0.04em;
@@ -12240,8 +12240,8 @@ body {
 }
 
 .cupload-slot.is-dragging {
-  border-color: #2563eb;
-  background: rgba(37, 99, 235, 0.06);
+  border-color: var(--primary);
+  background: var(--primary-glow);
   transform: translateY(-1px);
 }
 
@@ -12266,8 +12266,8 @@ body {
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  color: #2563eb;
-  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
+  background: var(--primary-glow);
 }
 
 .cupload-slot.has-file .cupload-slot-icon {
@@ -12296,8 +12296,8 @@ body {
 }
 
 .cupload-slot-title span.is-required {
-  color: #1d4ed8;
-  background: #dbeafe;
+  color: var(--primary);
+  background: var(--primary-glow);
 }
 
 .cupload-slot-copy p {
@@ -12397,7 +12397,7 @@ body {
   height: 28px;
   border-radius: 50%;
   color: #fff;
-  background: #2563eb;
+  background: var(--primary);
   font-size: 12px;
   font-weight: 800;
 }
@@ -13827,7 +13827,7 @@ body {
   background:
     radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0) 34%),
     radial-gradient(circle at 68% 78%, rgba(var(--primary-rgb), 0.55) 0%, rgba(var(--primary-rgb), 0) 55%),
-    radial-gradient(circle at 50% 40%, #5d75ff 0%, rgb(var(--primary-rgb)) 48%, var(--primary-deep) 100%);
+    radial-gradient(circle at 50% 40%, var(--primary) 0%, rgb(var(--primary-rgb)) 48%, var(--primary-deep) 100%);
   box-shadow:
     0 18px 34px -14px rgba(var(--primary-rgb), 0.65),
     inset 0 -10px 22px -8px rgba(0, 0, 0, 0.35);
@@ -15337,7 +15337,7 @@ body {
   align-items: center;
   width: fit-content;
   color: var(--primary) !important;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-outfit), Georgia, serif;
   font-size: 0.68rem !important;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -17796,6 +17796,16 @@ a.um-phone:hover {
 .attendance-policy-strip { display: flex; flex-wrap: wrap; gap: .6rem; }
 .attendance-policy-strip > span { display: inline-flex; align-items: center; gap: .42rem; padding: .55rem .75rem; border: 1px solid var(--border-main); border-radius: 999px; background: var(--bg-card); color: var(--text-muted); font-size: .75rem; }
 .attendance-policy-strip svg, .attendance-policy-strip strong { color: var(--primary); }
+.attendance-weekly-off { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding: .9rem 1rem; border: 1px solid var(--border-main); border-radius: 14px; background: var(--bg-card); }
+.attendance-weekly-off > div { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+.attendance-weekly-off > div > svg { flex: 0 0 auto; color: var(--primary); }
+.attendance-weekly-off > div span, .attendance-weekly-off > div strong, .attendance-weekly-off > div small { display: block; }
+.attendance-weekly-off > div strong { color: var(--text-main); font-size: .82rem; }
+.attendance-weekly-off > div small { margin-top: .2rem; color: var(--text-muted); font-size: .7rem; }
+.attendance-weekly-off label { display: flex; flex-direction: column; gap: .35rem; color: var(--text-muted); font-size: .7rem; font-weight: 700; }
+.attendance-weekly-off select { min-width: 235px; padding: .62rem .7rem; border: 1px solid var(--border-main); border-radius: 9px; background: var(--bg-card); color: var(--text-main); font: inherit; }
+.attendance-save-off { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 39px; padding: .6rem .75rem; border: 1px solid var(--primary); border-radius: 9px; background: var(--primary); color: white; font-size: .72rem; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.attendance-save-off:disabled { cursor: default; opacity: .5; }
 .attendance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .attendance-minutes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 1.25rem 0; }
 .attendance-minutes span { padding: 1rem; border: 1px solid var(--border-main); border-radius: 12px; background: var(--tint-2); color: var(--text-muted); }
@@ -17827,6 +17837,7 @@ a.um-phone:hover {
 .attendance-selected-summary small, .attendance-selected-summary strong { display: block; }
 .attendance-selected-summary small { color: var(--text-muted); font-size: .67rem; }
 .attendance-selected-summary strong { margin-top: .3rem; color: var(--text-main); font-size: .82rem; }
+.attendance-ledger { scroll-margin-top: 1rem; }
 .attendance-ledger .ds-table td { vertical-align: middle; }
 .attendance-ledger .ds-empty-state p { color: var(--text-muted); font-size: .76rem; }
 .attendance-decision-reason { display: block; margin-top: .35rem; color: var(--text-light); font-size: .74rem; }
@@ -17867,6 +17878,7 @@ a.um-phone:hover {
 .attendance-page.is-manager-view .attendance-selected-head { order: 5; }
 .attendance-page.is-manager-view > .ds-panel:last-child { order: 6; }
 @media (max-width: 950px) { .attendance-grid, .attendance-request-grid { grid-template-columns: 1fr; } .attendance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } .attendance-selected-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .attendance-selected-summary > span:nth-child(2) { border-right: 0; } .attendance-selected-summary > span:nth-child(-n+2) { border-bottom: 1px solid var(--border-main); } }
+@media (max-width: 700px) { .attendance-weekly-off { align-items: stretch; flex-direction: column; } .attendance-weekly-off select, .attendance-save-off { width: 100%; } }
 @media (max-width: 600px) { .attendance-hero { align-items: stretch; } .attendance-stats, .attendance-form { grid-template-columns: 1fr !important; } .attendance-toolbar { align-items: stretch; flex-direction: column; } .scope-switch { align-self: stretch; } .scope-switch button { flex: 1; } .attendance-select input { width: 100%; } .attendance-request-grid { padding: .7rem; } .attendance-request-usage, .attendance-selected-summary { grid-template-columns: 1fr; } .attendance-request-usage div, .attendance-selected-summary > span { border-right: 0; border-bottom: 1px solid var(--border-main); } .attendance-request-usage div:last-child, .attendance-selected-summary > span:last-child { border-bottom: 0; } }
 
 .dm-suppression-add {
@@ -19421,6 +19433,7 @@ a.um-phone:hover {
 .payroll-settings { margin: 0 1rem .9rem; padding: .75rem; border: 1px solid var(--border-main); border-radius: 11px; background: var(--tint-2); }
 .payroll-settings-title { display: flex; align-items: center; gap: .4rem; margin-bottom: .6rem; color: var(--text-main); font-size: .73rem; font-weight: 750; }
 .payroll-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+.payroll-settings-grid.is-salary-only { grid-template-columns: minmax(180px, 280px); }
 .payroll-settings input, .payroll-settings select { width: 100%; min-width: 0; background: var(--bg-card); font-size: .73rem; }
 .payroll-settings-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-main); }
 .payroll-settings-actions > span { color: var(--text-light); font-size: .68rem; }

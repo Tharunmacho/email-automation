@@ -22,8 +22,6 @@ DEFAULT_SHIFT_MINUTES = 8 * 60
 
 class EmployeePayrollPolicy(BaseModel):
     monthly_salary: float = Field(ge=0)
-    weekly_off_pattern: str = Field(default="sunday", pattern="^(sunday|alternate_friday)$")
-    alternate_friday_parity: int = Field(default=0, ge=0, le=1)
 
 
 class PaymentStatus(BaseModel):
@@ -114,7 +112,12 @@ def update_employee_payroll(employee_id: str, payload: EmployeePayrollPolicy, _u
     employee = users.get(employee_id)
     if not employee or not employee.active or employee.role not in {"staff", "manager"}:
         raise HTTPException(status_code=404, detail="Active employee not found")
-    policy = AttendanceRepository().set_employee_policy(employee_id, payload.model_dump())
+    # Payroll owns salary only. Weekly-off choice belongs to the employee's
+    # Attendance settings and must never be overwritten by a salary update.
+    policy = AttendanceRepository().set_employee_policy(
+        employee_id,
+        {"monthly_salary": payload.monthly_salary},
+    )
     return {"status": "saved", "policy": policy}
 
 

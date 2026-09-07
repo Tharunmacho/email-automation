@@ -180,7 +180,13 @@ export default function AdminStaffManagement({
   }
 
   const staff = useMemo(() => workload?.items ?? [], [workload]);
-  const activeStaff = useMemo(() => staff.filter((member) => member.active), [staff]);
+  const activeRoster = useMemo(() => staff.filter((member) => member.active), [staff]);
+  // Managers remain visible so their existing candidate queues can be opened,
+  // but only staff accounts are valid allocation and rebalancing targets.
+  const activeStaff = useMemo(
+    () => staff.filter((member) => member.active && member.role === "staff"),
+    [staff],
+  );
   const totals = workload?.totals;
 
   const pool = (totals?.assigned ?? 0) + (totals?.unassigned ?? 0);
@@ -813,11 +819,11 @@ export default function AdminStaffManagement({
           <div>
             <h3 className="ds-panel-title">Staff roster</h3>
             <p className="ds-panel-sub">
-              {activeStaff.length === 0
+              {activeRoster.length === 0
                 ? "No active accounts — ingested résumés will stay unallocated."
-                : `${formatInt(activeStaff.length)} active${
-                    staff.length !== activeStaff.length
-                      ? ` · ${formatInt(staff.length - activeStaff.length)} deactivated`
+                : `${formatInt(activeRoster.length)} active team members${
+                    staff.length !== activeRoster.length
+                      ? ` · ${formatInt(staff.length - activeRoster.length)} deactivated`
                       : ""
                   } · new profiles go to whoever is holding the fewest. Open a row to see and move what it holds.`}
             </p>
@@ -844,7 +850,7 @@ export default function AdminStaffManagement({
             <table className="ds-table is-ruled staff-roster-table">
               <thead>
                 <tr>
-                  <th>Staff member</th>
+                  <th>Team member</th>
                   <th>Contact</th>
                   <th className="is-num">Allocated</th>
                   <th className="is-num">Unviewed</th>
@@ -881,6 +887,9 @@ export default function AdminStaffManagement({
                           </span>
                           <span className="ds-who-text">
                             <strong>{member.name || member.email}</strong>
+                            {member.role === "manager" && (
+                              <small className="ds-quiet">Manager</small>
+                            )}
                             <small className="crm-record-id">
                               Staff ID · {member.staff_code || `STF-${member.id.slice(-12).toUpperCase()}`}
                             </small>
@@ -934,30 +943,34 @@ export default function AdminStaffManagement({
                         </div>
                       </td>
                       <td className="is-actions" onClick={(event) => event.stopPropagation()}>
-                        <div className="staff-actions">
-                          <button
-                            type="button"
-                            className="ds-ghost-btn is-sm"
-                            onClick={() => void handleToggleActive(member)}
-                            title={
-                              member.active
-                                ? "Stop routing new profiles here; keeps their existing work"
-                                : "Start routing new profiles here again"
-                            }
-                          >
-                            <KeyRound size={14} />
-                            {member.active ? "Deactivate" : "Reactivate"}
-                          </button>
-                          <button
-                            type="button"
-                            className="ds-ghost-btn is-sm is-danger"
-                            onClick={() => void handleDelete(member)}
-                            title="Delete the account and redistribute its profiles"
-                            aria-label={`Delete ${member.name || member.email}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+                        {member.role === "staff" ? (
+                          <div className="staff-actions">
+                            <button
+                              type="button"
+                              className="ds-ghost-btn is-sm"
+                              onClick={() => void handleToggleActive(member)}
+                              title={
+                                member.active
+                                  ? "Stop routing new profiles here; keeps their existing work"
+                                  : "Start routing new profiles here again"
+                              }
+                            >
+                              <KeyRound size={14} />
+                              {member.active ? "Deactivate" : "Reactivate"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ds-ghost-btn is-sm is-danger"
+                              onClick={() => void handleDelete(member)}
+                              title="Delete the account and redistribute its profiles"
+                              aria-label={`Delete ${member.name || member.email}`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="ds-quiet">Managed in Users</span>
+                        )}
                       </td>
                     </tr>
                   );

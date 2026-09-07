@@ -96,10 +96,6 @@ export default function PayrollScreen({ user, onToast }: Props) {
     try {
       await updatePayrollPolicy(row.employee_id, {
         monthly_salary: Number(patch.monthly_salary ?? row.monthly_salary),
-        weekly_off_pattern: patch.weekly_off_pattern ?? row.weekly_off_pattern,
-        alternate_friday_parity: Number(
-          patch.alternate_friday_parity ?? row.alternate_friday_parity,
-        ),
       });
       await load();
       onToast(`${row.name}'s payroll settings saved`, "success");
@@ -201,16 +197,10 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
   const paid = row.status === "paid";
   const initials = row.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
   const [salary, setSalary] = useState(String(row.monthly_salary));
-  const [weeklyOff, setWeeklyOff] = useState<PayrollRow["weekly_off_pattern"]>(row.weekly_off_pattern);
-  const [fridayParity, setFridayParity] = useState(row.alternate_friday_parity);
-  const changed = Number(salary) !== row.monthly_salary
-    || weeklyOff !== row.weekly_off_pattern
-    || fridayParity !== row.alternate_friday_parity;
+  const changed = Number(salary) !== row.monthly_salary;
 
   const saveSettings = () => onSave(row, {
     monthly_salary: Number(salary) || 0,
-    weekly_off_pattern: weeklyOff,
-    alternate_friday_parity: fridayParity,
   });
 
   return (
@@ -241,11 +231,9 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
       </div>
 
       {canManage && <div className="payroll-settings">
-        <div className="payroll-settings-title"><Settings2 size={15} /> Payroll settings</div>
-        <div className="payroll-settings-grid">
+        <div className="payroll-settings-title"><Settings2 size={15} /> Salary setting</div>
+        <div className="payroll-settings-grid is-salary-only">
           <label>Monthly salary<input type="number" min="0" value={salary} disabled={busy} onChange={(event) => setSalary(event.target.value)} /></label>
-          <label>Weekly off<select value={weeklyOff} disabled={busy} onChange={(event) => setWeeklyOff(event.target.value as PayrollRow["weekly_off_pattern"])}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday</option></select></label>
-          {weeklyOff === "alternate_friday" && <label>Friday group<select value={fridayParity} disabled={busy} onChange={(event) => setFridayParity(Number(event.target.value))}><option value={0}>Rotation A</option><option value={1}>Rotation B</option></select></label>}
         </div>
         <div className="payroll-settings-actions">
           <span>{changed ? "Unsaved changes" : "Settings are up to date"}</span>

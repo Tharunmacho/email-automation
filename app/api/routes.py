@@ -2045,7 +2045,7 @@ def list_staff(
 
 @app.get("/staff/workload")
 def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
-    """The workload matrix: one row per staff member, plus the totals.
+    """The workload matrix: one row per staff member or manager, plus totals.
 
     Every account, deactivated ones included. It used to be the active roster
     only, which meant a deactivated colleague's queue was in no row and in no
@@ -2059,8 +2059,10 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     is gone are unreachable, and nothing but a rebalance brings those back.
     """
     repository = repo()
-    everyone = users.list_staff(include_inactive=True)
-    active = [member for member in everyone if member.active]
+    # Managers can retain candidate queues after a role change. Keep them in
+    # the visible roster while new-profile allocation remains staff-only.
+    everyone = users.list_employees(include_inactive=True)
+    assignable = users.list_staff(include_inactive=False)
 
     # Give an owner to anything ingested while the roster was empty, without
     # waiting to be asked. Deliberately `allocate_unassigned` and not
@@ -2068,7 +2070,7 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     # belongs to someone, and a full re-level on every page load did exactly
     # that — a staff member's queue could change while they were working it,
     # because an admin opened a dashboard.
-    if active and repository.unassigned_count() > 0:
+    if assignable and repository.unassigned_count() > 0:
         try:
             allocate_unassigned(repo=repository, users=users)
         except Exception as exc:  # noqa: BLE001
@@ -2086,7 +2088,7 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
         "totals": {
             # The accounts work is routed to, not the number of rows: `items`
             # now carries deactivated accounts as well.
-            "staff": len(active),
+            "staff": len([member for member in everyone if member.active]),
             "assigned": sum(row["assigned"] for row in items),
             "evaluated": sum(row["evaluated"] for row in items),
             "unassigned": repository.unassigned_count(),

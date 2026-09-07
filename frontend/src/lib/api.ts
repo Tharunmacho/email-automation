@@ -288,6 +288,20 @@ export function fetchAttendanceMonth(year: number, month: number, employeeId?: s
   return request(`/attendance/month/${year}/${month}${employeeQuery(employeeId)}`, { cache: "no-store" });
 }
 
+export type WeeklyOffPattern = "sunday" | "alternate_friday";
+
+export function fetchAttendanceWeeklyOff(): Promise<{ employee_id: string; weekly_off_pattern: WeeklyOffPattern }> {
+  return request("/attendance/weekly-off", { cache: "no-store" });
+}
+
+export function updateAttendanceWeeklyOff(weeklyOffPattern: WeeklyOffPattern): Promise<{ status: string; weekly_off_pattern: WeeklyOffPattern }> {
+  return request("/attendance/weekly-off", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ weekly_off_pattern: weeklyOffPattern }),
+  });
+}
+
 export function recordAttendancePunch(action: "check_in" | "check_out", employeeId?: string) {
   return request<{ status: "recorded" | "duplicate"; event: { occurred_at: string }; attendance: AttendanceDay }>("/attendance/punch", {
     method: "POST",
@@ -365,8 +379,6 @@ export function fetchPayrollMonth(year: number, month: number): Promise<PayrollM
 
 export function updatePayrollPolicy(employeeId: string, payload: {
   monthly_salary: number;
-  weekly_off_pattern: PayrollRow["weekly_off_pattern"];
-  alternate_friday_parity: number;
 }) {
   return request(`/payroll/employees/${employeeId}`, {
     method: "PUT",

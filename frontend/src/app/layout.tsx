@@ -1,23 +1,18 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Lora } from "next/font/google";
 import "./globals.css";
 
-// One family, product-wide. Plus Jakarta Sans is a variable font on Google
-// Fonts, so the whole 200–800 axis arrives in a single file and every weight
-// the sheet asks for is a real cut rather than a synthetic smear. Its digits
-// are wide and near-circular, which is what a dashboard built out of large
-// numbers needs — a KPI set in a narrow grotesque reads as text, not as a
-// figure. Nothing else is loaded: the places that used to reach for Inter,
-// Poppins or a monospace take this same face, with `tabular-nums` and
-// letter-spacing doing the work a second family used to.
+// One Lora variable family, product-wide. Both upright and italic cuts are
+// loaded, and every control inherits the same root variable.
 //
 // The variable is `--font-display`; `globals.css` aliases the sheet's existing
 // `--font-outfit` name onto it in one line, so re-keying the face here re-keys
 // the whole product without touching the thousands of rules written against
 // the old name.
-const display = Plus_Jakarta_Sans({
+const display = Lora({
   variable: "--font-display",
   subsets: ["latin"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 

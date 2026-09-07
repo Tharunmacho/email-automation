@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
 from app.attendance.engine import calculate_month, local_day, lop_amount
-from app.attendance.models import AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest
+from app.attendance.models import AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
@@ -178,6 +178,30 @@ def whatsapp_attendance_directory(
 @router.get("/day/{attendance_date}")
 def attendance_day(attendance_date: date, employee_id: str | None = Query(default=None), user: dict = Depends(current_user)) -> dict:
     return service().day(_employee_id(user, employee_id), attendance_date)
+
+
+@router.get("/weekly-off")
+def get_weekly_off(user: dict = Depends(current_user)) -> dict:
+    employee_id = _employee_id(user)
+    policy = AttendanceRepository().employee_policy(employee_id)
+    pattern = policy.get("weekly_off_pattern", "sunday")
+    if pattern == "sunday_alternate_friday":
+        pattern = "alternate_friday"
+    return {"employee_id": employee_id, "weekly_off_pattern": pattern}
+
+
+@router.put("/weekly-off")
+def update_weekly_off(payload: WeeklyOffRequest, user: dict = Depends(current_user)) -> dict:
+    employee_id = _employee_id(user)
+    policy = AttendanceRepository().set_employee_policy(
+        employee_id,
+        {"weekly_off_pattern": payload.weekly_off_pattern},
+    )
+    return {
+        "status": "saved",
+        "employee_id": employee_id,
+        "weekly_off_pattern": policy["weekly_off_pattern"],
+    }
 
 
 @router.get("/month/{year}/{month}")

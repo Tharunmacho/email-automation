@@ -96,3 +96,7 @@ class CalendarDayRequest(BaseModel):
     attendance_date: date
     status: Literal["WO", "H", "PL", "UL"]
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class WeeklyOffRequest(BaseModel):
+    weekly_off_pattern: Literal["sunday", "alternate_friday"]

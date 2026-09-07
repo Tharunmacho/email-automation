@@ -20,14 +20,17 @@ import {
   fetchAttendanceDay,
   fetchAttendanceMonth,
   fetchAttendancePermissions,
+  fetchAttendanceWeeklyOff,
   listStaff,
   recordAttendancePunch,
   requestAttendancePermission,
+  updateAttendanceWeeklyOff,
   type AttendanceDay,
   type AttendanceMonth,
   type AttendancePermission,
   type AuthUser,
   type StaffMember,
+  type WeeklyOffPattern,
 } from "@/lib/api";
 
 interface Props {
@@ -120,6 +123,8 @@ function monthSummary(month?: AttendanceMonth | null): AttendanceSummary {
 
 function statusLabel(day?: AttendanceDay | null): string {
   if (day?.provisional && day.check_in && !day.check_out) return "Checked in";
+  if (day?.status === "MP" && !day.check_in && !day.check_out) return "Awaiting attendance";
+  if (day?.status === "MP" && !day.check_in && day.check_out) return "Missing check-in";
   return STATUS[day?.status || ""] || "—";
 }
 
@@ -145,6 +150,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [reason, setReason] = useState("");
   const [permissionDate, setPermissionDate] = useState(today);
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
+  const [weeklyOff, setWeeklyOff] = useState<WeeklyOffPattern>("sunday");
+  const [savedWeeklyOff, setSavedWeeklyOff] = useState<WeeklyOffPattern>("sunday");
+  const [weeklyOffBusy, setWeeklyOffBusy] = useState(false);
 
   const canManage = user.role === "admin" || user.role === "manager";
   const isTeamView = canManage && viewMode === "team";
@@ -219,6 +227,30 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     };
   }, [load]);
 
+  useEffect(() => {
+    if (user.role === "admin") return;
+    fetchAttendanceWeeklyOff()
+      .then((policy) => {
+        setWeeklyOff(policy.weekly_off_pattern);
+        setSavedWeeklyOff(policy.weekly_off_pattern);
+      })
+      .catch(() => onToast("Could not load weekly-off preference", "error"));
+  }, [onToast, user.role]);
+
+  const saveWeeklyOff = async () => {
+    setWeeklyOffBusy(true);
+    try {
+      const result = await updateAttendanceWeeklyOff(weeklyOff);
+      setSavedWeeklyOff(result.weekly_off_pattern);
+      onToast("Weekly off saved", "success");
+      await load(false);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Weekly off could not be saved", "error");
+    } finally {
+      setWeeklyOffBusy(false);
+    }
+  };
+
   const punch = async (action: "check_in" | "check_out") => {
     setBusy(true);
     try {
@@ -285,6 +317,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const permissionUsed = visibleMonth?.totals.paid_permission_minutes ?? 0;
   const currentDay = visibleMonth?.days.find((row) => row.date === today) ?? day;
 
+  const openEmployeeDetails = (selectedEmployeeId: string) => {
+    setEmployeeId(selectedEmployeeId);
+    window.setTimeout(() => {
+      document.getElementById("attendance-employee-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
+
   return (
     <div className={`ds-page attendance-page ${isTeamView ? "is-manager-view" : "is-staff-view"}`}>
       <header className="ds-head attendance-hero">
@@ -319,6 +358,12 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         <span><WalletCards size={15} />Extra time deducted by minute</span>
       </div>
 
+      {!isTeamView && user.role !== "admin" && <section className="attendance-weekly-off">
+        <div><CalendarDays size={18} /><span><strong>Choose your weekly off</strong><small>This choice is used automatically in attendance and payroll.</small></span></div>
+        <label>Weekly off<select value={weeklyOff} disabled={weeklyOffBusy} onChange={(event) => setWeeklyOff(event.target.value as WeeklyOffPattern)}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday (Sunday is working)</option></select></label>
+        <button type="button" className="attendance-save-off" disabled={weeklyOffBusy || weeklyOff === savedWeeklyOff} onClick={() => void saveWeeklyOff()}>{weeklyOffBusy ? <RefreshCw size={14} className="icon-spin" /> : <CheckCircle2 size={14} />} Save weekly off</button>
+      </section>}
+
       {isTeamView ? (
         <>
           <div className="ds-stats attendance-stats attendance-admin-stats">
@@ -343,9 +388,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                       <td><span className="ds-who-text"><strong>{person.name}</strong><small>{person.staff_code || person.email}</small></span></td>
                       <td><div className="attendance-rate"><strong className="attendance-percentage">{staffSummary.percentage}%</strong><span><i style={{ width: `${Math.min(100, staffSummary.percentage)}%` }} /></span></div></td>
                       <td><strong>{staffSummary.attended} of {staffSummary.scheduled}</strong><small className="attendance-cell-note">Tracked from {staffMonth?.days[0]?.date || "first punch"}</small></td>
-                      <td><div className="attendance-exception-list"><span>{staffSummary.absent} absent</span><span>{staffSummary.late} late</span><span>{staffSummary.missing} open punch</span><span>{staffPermissions.length} requests</span></div></td>
+                      <td><div className="attendance-exception-list"><span>{staffSummary.absent} absent</span><span>{staffSummary.late} late</span><span>{staffSummary.missing} incomplete records</span><span>{staffPermissions.length} requests</span></div></td>
                       <td><strong className={(staffMonth?.totals.unpaid_minutes ?? 0) > 0 ? "attendance-unpaid" : ""}>{durationLabel(staffMonth?.totals.unpaid_minutes ?? 0)}</strong><small className="attendance-cell-note">After paid allowance</small></td>
-                      <td><button type="button" className="attendance-view-btn" onClick={() => setEmployeeId(person.id)}>Open details</button></td>
+                      <td><button type="button" className="attendance-view-btn" onClick={() => openEmployeeDetails(person.id)}>Open details</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -396,7 +441,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         months={adminMonths}
       />
 
-      <MonthTable month={visibleMonth} title={isTeamView && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} />
+      <MonthTable month={visibleMonth} title={isTeamView && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} sectionId={isTeamView ? "attendance-employee-details" : undefined} />
     </div>
   );
 }
@@ -479,9 +524,9 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
   );
 }
 
-function MonthTable({ month, title }: { month: AttendanceMonth | null; title: string }) {
+function MonthTable({ month, title, sectionId }: { month: AttendanceMonth | null; title: string; sectionId?: string }) {
   return (
-    <section className="ds-panel attendance-ledger">
+    <section className="ds-panel attendance-ledger" id={sectionId}>
       <div className="ds-panel-head"><div><span className="attendance-section-kicker">DAILY CALCULATION</span><h2 className="ds-panel-title">{title}</h2><p className="ds-panel-sub">Worked time and paid allowance are separated from time that affects salary.</p></div></div>
       {!month?.days.length ? <div className="ds-empty-state"><CalendarDays size={28} /><h3>Attendance tracking has not started</h3><p>The calendar begins from this employee’s first punch, leave or permission.</p></div> : <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Result</th><th>Work session</th><th>Paid allowance</th><th>Salary impact</th></tr></thead><tbody>
         {[...month.days].reverse().map((row) => {
