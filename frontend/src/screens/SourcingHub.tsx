@@ -647,8 +647,13 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     ...(newIndustryOrCategory ? [newIndustryOrCategory] : []),
     ...SECTOR_OPTIONS[newType],
   ])).map((value) => ({ value, label: value }));
+  // Sourcing partners live in a country; the shared register, by contrast,
+  // contains countries candidates travel *to*. India therefore needs to be
+  // available here even when it is intentionally absent from the destination
+  // register used by candidate intake.
   const selectableCountries = Array.from(new Set([
     ...(newCountry ? [newCountry] : []),
+    "India",
     ...countryOptions,
   ])).map((value) => ({ value, label: value }));
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timezone
+from typing import Sequence
 
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -94,6 +95,9 @@ class AttendanceRepository:
     def decide_permission(self, permission_id: str, decision: dict) -> dict | None:
         updates = dict(decision)
         updates["status"] = "approved" if updates.pop("approved") else "rejected"
+        # Keep the employee's request reason intact; the administrator's
+        # explanation is a separate fact shown beside the decision.
+        updates["decision_reason"] = updates.pop("reason")
         updates["updated_at"] = _utcnow()
         result = self.permissions.find_one_and_update(
             {"_id": permission_id, "status": "pending"},
@@ -113,6 +117,26 @@ class AttendanceRepository:
         rows = self.permissions.find(
             {"employee_id": employee_id, "attendance_date": day.isoformat(), "status": "approved"}
         ).sort("updated_at", ASCENDING)
+        return [_public(row) for row in rows]
+
+    def permissions_for_period(
+        self,
+        employee_ids: str | Sequence[str],
+        start: date,
+        end: date,
+    ) -> list[dict]:
+        """Permission requests for one employee or an admin-visible roster."""
+        if isinstance(employee_ids, str):
+            employee_query: object = employee_ids
+        else:
+            employee_query = {"$in": list(employee_ids)}
+        rows = self.permissions.find({
+            "employee_id": employee_query,
+            "attendance_date": {
+                "$gte": start.isoformat(),
+                "$lte": end.isoformat(),
+            },
+        }).sort([("attendance_date", DESCENDING), ("created_at", DESCENDING)])
         return [_public(row) for row in rows]
 
     def assign_shift(self, assignment: dict) -> dict:

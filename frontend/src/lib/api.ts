@@ -261,6 +261,21 @@ export interface AttendanceMonth {
   salary_preview?: { label: "PROVISIONAL"; attendance_lop: number };
 }
 
+export interface AttendancePermission {
+  id: string;
+  employee_id: string;
+  attendance_date: string;
+  kind: "late" | "early_exit" | "official_duty" | "work_from_home";
+  requested_minutes: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at?: string;
+  updated_at?: string;
+  decision_reason?: string;
+  decided_by?: string;
+  decided_at?: string;
+}
+
 const employeeQuery = (employeeId?: string) => employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
 
 export function fetchAttendanceDay(day: string, employeeId?: string): Promise<AttendanceDay> {
@@ -290,6 +305,28 @@ export function requestAttendancePermission(payload: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+  });
+}
+
+export function fetchAttendancePermissions(
+  year: number,
+  month: number,
+  employeeId?: string,
+): Promise<{ items: AttendancePermission[]; count: number }> {
+  const params = new URLSearchParams({ year: String(year), month: String(month) });
+  if (employeeId) params.set("employee_id", employeeId);
+  return request(`/attendance/permissions?${params.toString()}`, { cache: "no-store" });
+}
+
+export function decideAttendancePermission(
+  permissionId: string,
+  approved: boolean,
+  reason: string,
+): Promise<{ status: string; permission: AttendancePermission }> {
+  return request(`/attendance/permissions/${permissionId}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved, reason }),
   });
 }
 
@@ -784,6 +821,19 @@ export function listJobOrdersAPI(): Promise<{ items: JobOrderRecord[] }> {
   return request<{ items: JobOrderRecord[] }>("/job-orders");
 }
 
+/**
+ * The cross-staff candidate pool used to fill job orders.
+ *
+ * This is deliberately separate from the normal candidate list: a staff
+ * member's Candidates page remains private to their queue, while a user
+ * granted Job Orders may consider candidates owned by any reviewer.
+ */
+export function listJobOrderCandidatesAPI(): Promise<CandidateListResponse> {
+  return request<CandidateListResponse>("/job-orders/candidate-pool?limit=2000", {
+    cache: "no-store",
+  });
+}
+
 export function createJobOrderAPI(
   record: JobOrderRecord,
 ): Promise<{ status: string; record: JobOrderRecord }> {
@@ -868,6 +918,7 @@ export interface ConvertEnquiryPayload {
   due_date?: string;
   industry?: string;
   designation?: string;
+  destination_country?: string;
 }
 
 /** Raise the job order this enquiry asked for, and stamp the enquiry with it. */

@@ -17784,7 +17784,7 @@ a.um-phone:hover {
 /* Attendance workspace */
 .attendance-toolbar { display: flex; justify-content: flex-end; align-items: end; gap: .75rem; }
 .attendance-select, .attendance-form label { display: flex; flex-direction: column; gap: .35rem; color: var(--text-muted); font-size: .78rem; font-weight: 600; }
-.attendance-select select, .attendance-form select, .attendance-form input, .attendance-form textarea { min-width: 210px; padding: .62rem .72rem; border: 1px solid var(--border-main); border-radius: 9px; background: var(--bg-card); color: var(--text-main); font: inherit; }
+.attendance-select select, .attendance-select input, .attendance-form select, .attendance-form input, .attendance-form textarea { min-width: 210px; padding: .62rem .72rem; border: 1px solid var(--border-main); border-radius: 9px; background: var(--bg-card); color: var(--text-main); font: inherit; }
 .attendance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .attendance-minutes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 1.25rem 0; }
 .attendance-minutes span { padding: 1rem; border-radius: 10px; background: var(--tint-2); color: var(--text-muted); }
@@ -17794,6 +17794,15 @@ a.um-phone:hover {
 .attendance-form .is-wide { grid-column: 1 / -1; }
 .attendance-form textarea { resize: vertical; min-width: 0; }
 .attendance-stats .ds-stat-value { font-size: 1.25rem; }
+.attendance-admin-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.attendance-self-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.attendance-roster .ds-table tr.is-selected td { background: var(--tint-2); }
+.attendance-percentage { color: var(--primary); font-size: 1rem; }
+.attendance-selected-head { border-left: 3px solid var(--primary); }
+.attendance-decision-actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+.attendance-decision-actions .ds-ghost-btn { padding: .4rem .55rem; }
+.attendance-decision-reason { display: block; margin-top: .2rem; color: var(--text-light); }
+.attendance-permissions .ds-empty-state { min-height: 150px; }
 @media (max-width: 950px) { .attendance-grid { grid-template-columns: 1fr; } .attendance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
 @media (max-width: 600px) { .attendance-stats, .attendance-form { grid-template-columns: 1fr !important; } .attendance-toolbar { align-items: stretch; flex-direction: column; } .attendance-select select { width: 100%; } }
 

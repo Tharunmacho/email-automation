@@ -123,6 +123,17 @@ def test_admin_listing_shows_everything(api):
     assert {row["id"] for row in body["items"]} == {"cand-mine", "cand-theirs"}
 
 
+def test_job_order_pool_includes_candidates_owned_by_other_staff(api):
+    api.sign_in_as("staff", "staff-1", pages=["candidates", "job-orders", "settings"])
+
+    own_queue = api.get("/candidates").json()
+    shared_pool = api.get("/job-orders/candidate-pool").json()
+
+    assert [row["id"] for row in own_queue["items"]] == ["cand-mine"]
+    assert {row["id"] for row in shared_pool["items"]} == {"cand-mine", "cand-theirs"}
+    assert shared_pool["total"] == 2
+
+
 # --------------------------------------------------------------------------- #
 #  Detail
 # --------------------------------------------------------------------------- #
@@ -265,6 +276,7 @@ def test_an_identity_document_never_confirms_someone_elses_candidate(api):
     [
         ("get", "/staff"),
         ("get", "/staff/workload"),
+        ("get", "/job-orders/candidate-pool"),
         ("post", "/staff"),
         ("delete", "/staff/someone"),
         ("post", "/candidates/rebalance"),

@@ -521,6 +521,7 @@ def test_converting_raises_a_job_order_and_stamps_the_enquiry(client):
             "client": "Ravi Manpower Services",
             "headcount": 40,
             "due_date": "2026-03-01",
+            "destination_country": "Qatar",
         },
     )
 
@@ -528,6 +529,7 @@ def test_converting_raises_a_job_order_and_stamps_the_enquiry(client):
     order = response.json()["job_order"]
     assert order["headcount"] == 40
     assert order["status"] == "OPEN"
+    assert order["destinationCountry"] == "Qatar"
     # The order points back at the conversation that produced it.
     assert order["sourceEnquiryId"] == enquiry_id
 

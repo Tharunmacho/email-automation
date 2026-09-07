@@ -40,12 +40,13 @@ import StatTile, { type StatTone } from "@/components/ui/StatTile";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf, formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import {
-  listCandidates,
+  listJobOrderCandidatesAPI,
   listJobOrdersAPI,
   createJobOrderAPI,
   updateJobOrderAPI,
   deleteJobOrderAPI,
   listSourcingClientsAPI,
+  listCountriesAPI,
   type CandidateRecord,
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
@@ -58,6 +59,7 @@ import type { JobOrderRecord, JobOrderStatus } from "@/types";
 export type { JobOrderRecord, JobOrderStatus };
 
 const DEFAULT_JOB_ORDERS: JobOrderRecord[] = [];
+const EMPTY_CANDIDATES: CandidateRecord[] = [];
 
 const EXPERIENCE_OPTIONS = [
   "Freshers (0 yrs)", "1-2 Years", "3-5 Years", "5-8 Years", "8+ Years",
@@ -405,7 +407,7 @@ interface JobOrdersProps {
   onActivity?: (message: string, type?: LogEntry["type"]) => void;
 }
 
-export default function JobOrders({ candidates: initialCandidates = [], onActivity }: JobOrdersProps) {
+export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDIDATES, onActivity }: JobOrdersProps) {
   const activity = useCallback(
     (message: string, type: LogEntry["type"] = "info") => onActivity?.(message, type),
     [onActivity],
@@ -415,7 +417,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [orders, setOrders] = useState<JobOrderRecord[]>(DEFAULT_JOB_ORDERS);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "OVERDUE" | JobOrderStatus>("ALL");
   const [ordersLoading, setOrdersLoading] = useState(true);
-  const [fetchingCandidates, setFetchingCandidates] = useState(initialCandidates.length === 0);
+  const [fetchingCandidates, setFetchingCandidates] = useState(true);
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -430,6 +432,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       return (
         ord.title.toLowerCase().includes(q) ||
         ord.client.toLowerCase().includes(q) ||
+        (ord.destinationCountry || "").toLowerCase().includes(q) ||
         ord.id.toLowerCase().includes(q) ||
         (ord.skills || []).some((s) => s.toLowerCase().includes(q))
       );
@@ -439,10 +442,11 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [selectedOrder, setSelectedOrder] = useState<JobOrderRecord | null>(null);
 
   const [fetchedCandidates, setFetchedCandidates] = useState<CandidateRecord[]>([]);
-  const dbCandidates = initialCandidates.length > 0 ? initialCandidates : fetchedCandidates;
-  const candidatesLoading = initialCandidates.length === 0 && fetchingCandidates;
+  const dbCandidates = fetchingCandidates ? initialCandidates : fetchedCandidates;
+  const candidatesLoading = fetchingCandidates && initialCandidates.length === 0;
 
   const [clientOptions, setClientOptions] = useState<string[]>([]);
+  const [countryOptions, setCountryOptions] = useState<string[]>([]);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -463,6 +467,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
 
   // Form state
   const [selectedClient, setSelectedClient] = useState("");
+  const [destinationCountry, setDestinationCountry] = useState("");
   const [designationRole, setDesignationRole] = useState("");
   const [minExperience, setMinExperience] = useState("");
   const [minAge, setMinAge] = useState("");
@@ -478,6 +483,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
   const [editHeadcount, setEditHeadcount] = useState("1");
   const [editDueDate, setEditDueDate] = useState("");
   const [editIndustry, setEditIndustry] = useState("");
+  const [editDestinationCountry, setEditDestinationCountry] = useState("");
   const [editDesignation, setEditDesignation] = useState("");
   const [editMinExperience, setEditMinExperience] = useState("");
   const [editMinAge, setEditMinAge] = useState("");
@@ -508,16 +514,17 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     };
   }, []);
 
-  const hasParentCandidates = initialCandidates.length > 0;
   useEffect(() => {
-    if (hasParentCandidates) return;
-
     let active = true;
-    listCandidates()
+    listJobOrderCandidatesAPI()
       .then((res) => {
         if (active) setFetchedCandidates(res.items);
       })
-      .catch(() => {})
+      .catch(() => {
+        // The parent list is still useful to an administrator during a brief
+        // API failure, even though a staff member may only have their queue.
+        if (active) setFetchedCandidates(initialCandidates);
+      })
       .finally(() => {
         if (active) setFetchingCandidates(false);
       });
@@ -525,7 +532,24 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     return () => {
       active = false;
     };
-  }, [hasParentCandidates]);
+  }, [initialCandidates]);
+
+  useEffect(() => {
+    let active = true;
+    listCountriesAPI()
+      .then((res) => {
+        if (!active) return;
+        setCountryOptions(
+          (res.items ?? []).filter((country) => country.active).map((country) => country.name),
+        );
+      })
+      .catch(() => {
+        if (active) setCountryOptions([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const namesOf = (records: { name?: string; type?: string }[]) =>
@@ -588,6 +612,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setEditHeadcount(String(item.headcount));
     setEditDueDate(toDateInputValue(item.dueDate));
     setEditIndustry(item.industry || "");
+    setEditDestinationCountry(item.destinationCountry || "");
     setEditDesignation(item.designation || item.title);
     setEditMinExperience(item.minExperience || "");
     setEditMinAge(item.minAge == null ? "" : String(item.minAge));
@@ -619,6 +644,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       headcount: Math.max(1, parseInt(editHeadcount, 10) || 1),
       dueDate: editDueDate || defaultDueDate(),
       industry: editIndustry || "General",
+      destinationCountry: editDestinationCountry || undefined,
       designation: editDesignation || editTitle,
       minExperience: editMinExperience || "Any",
       minAge: editMinAge ? Math.max(18, parseInt(editMinAge, 10) || 18) : undefined,
@@ -758,7 +784,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
 
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!designationRole.trim() || !selectedClient) return;
+    if (!designationRole.trim() || !selectedClient || !destinationCountry) return;
 
     const uniqueNum = Math.floor(100 + Math.random() * 900);
     const id = `ORD-${uniqueNum}-${Date.now().toString().slice(-4)}`;
@@ -771,6 +797,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
       id,
       title: designationRole,
       client: selectedClient || clientOptions[0] || "Unassigned Client",
+      destinationCountry,
       headcount: Math.max(1, parseInt(newHeadcount, 10) || 1),
       fulfilledCount: 0,
       salary: salaryRange || "Not disclosed",
@@ -792,6 +819,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     setIsCreateModalOpen(false);
 
     setSelectedClient("");
+    setDestinationCountry("");
     setDesignationRole("");
     setMinExperience("");
     setMinAge("");
@@ -981,6 +1009,10 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
     const editIndustryOptions = editIndustry && !INDUSTRY_OPTIONS.some((option) => option.value === editIndustry)
       ? [{ value: editIndustry, label: editIndustry }, ...INDUSTRY_OPTIONS]
       : INDUSTRY_OPTIONS;
+    const editCountryOptions = Array.from(new Set([
+      ...(editDestinationCountry ? [editDestinationCountry] : []),
+      ...countryOptions,
+    ])).map((value) => ({ value, label: value }));
 
     return (
       <div className="cm-overlay active" onClick={closeEditModal}>
@@ -1073,14 +1105,25 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   />
                 </div>
                 <div>
-                  <label className="modal-label">Required Designation</label>
-                  <input
-                    type="text"
-                    className="modal-input"
-                    value={editDesignation}
-                    onChange={(e) => setEditDesignation(e.target.value)}
+                  <label className="modal-label">Destination Country</label>
+                  <Select
+                    value={editDestinationCountry}
+                    options={editCountryOptions}
+                    onChange={setEditDestinationCountry}
+                    placeholder="Select a country"
+                    ariaLabel="Destination country"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="modal-label">Required Designation</label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  value={editDesignation}
+                  onChange={(e) => setEditDesignation(e.target.value)}
+                />
               </div>
 
               <div className="modal-row-2">
@@ -1263,6 +1306,10 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                     {profile.location}
                   </span>
                 )}
+                <span title="Current candidate owner">
+                  <UserCheck size={12} />
+                  Allocated to {res.candidate.assigned_staff_name || "no staff member"}
+                </span>
               </div>
             </div>
 
@@ -1514,6 +1561,11 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
             <div className="jod-spec">
               <dt>Industry</dt>
               <dd>{selectedOrder.industry || "General"}</dd>
+            </div>
+
+            <div className="jod-spec">
+              <dt>Destination</dt>
+              <dd>{selectedOrder.destinationCountry || "Not specified"}</dd>
             </div>
 
             <div className="jod-spec">
@@ -1882,6 +1934,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                           <span className="ds-avatar" aria-hidden="true">{initialsOf(item.client)}</span>
                           <span title={item.client}>{item.client}</span>
                         </span>
+                        {item.destinationCountry && <small>{item.destinationCountry}</small>}
                       </td>
                       <td>
                         <span className={`ds-status is-${statusTone}`}>
@@ -2018,6 +2071,12 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                         <Building2 size={12} />
                         {item.client}
                       </span>
+                      {item.destinationCountry && (
+                        <span className="jo-client" title={item.destinationCountry}>
+                          <MapPin size={12} />
+                          {item.destinationCountry}
+                        </span>
+                      )}
                       <span className="jo-sep" aria-hidden="true" />
                       <span className="jo-status">{isLate ? "OVERDUE" : cardStatus}</span>
                     </div>
@@ -2255,15 +2314,26 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                   </div>
 
                   <div>
-                    <label className="modal-label">Industry</label>
+                    <label className="modal-label">Destination Country</label>
                     <Select
-                      value={industry}
-                      options={INDUSTRY_OPTIONS}
-                      onChange={setIndustry}
-                      placeholder="Select industry"
-                      ariaLabel="Industry"
+                      value={destinationCountry}
+                      options={countryOptions.map((country) => ({ value: country, label: country }))}
+                      onChange={setDestinationCountry}
+                      placeholder="Select a country"
+                      ariaLabel="Destination country"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="modal-label">Industry</label>
+                  <Select
+                    value={industry}
+                    options={INDUSTRY_OPTIONS}
+                    onChange={setIndustry}
+                    placeholder="Select industry"
+                    ariaLabel="Industry"
+                  />
                 </div>
 
                 <div>
@@ -2369,7 +2439,7 @@ export default function JobOrders({ candidates: initialCandidates = [], onActivi
                 <button
                   type="submit"
                   className="modal-submit-btn"
-                  disabled={!selectedClient || !designationRole.trim()}
+                  disabled={!selectedClient || !destinationCountry || !designationRole.trim()}
                 >
                   Create order
                 </button>

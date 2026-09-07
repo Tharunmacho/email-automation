@@ -808,6 +808,8 @@ export interface JobOrderRecord {
   id: string;
   title: string;
   client: string;
+  /** Country where the people hired for this requisition will work. */
+  destinationCountry?: string;
   headcount: number;
   salary: string;
   skills: string[];

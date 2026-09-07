@@ -109,6 +109,29 @@ def request_permission(payload: PermissionRequest, user: dict = Depends(current_
     return {"status": "pending", "permission": permission}
 
 
+@router.get("/permissions")
+def list_permissions(
+    year: int,
+    month: int,
+    employee_id: str | None = Query(default=None),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Own permission history for staff; roster permission history for admin."""
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=422, detail="month must be between 1 and 12")
+    start = date(year, month, 1)
+    end = date(year, month, calendar.monthrange(year, month)[1])
+    repository = AttendanceRepository()
+
+    if user.get("role") == "admin" and not employee_id:
+        employee_ids = [member.id for member in users.list_assignable_staff()]
+        items = repository.permissions_for_period(employee_ids, start, end)
+    else:
+        employee = _employee_id(user, employee_id)
+        items = repository.permissions_for_period(employee, start, end)
+    return {"items": items, "count": len(items), "year": year, "month": month}
+
+
 @router.post("/permissions/{permission_id}/decision")
 def decide_permission(permission_id: str, payload: PermissionDecision, admin: dict = Depends(require_admin)) -> dict:
     permission = _conflict(lambda: service().decide_permission(permission_id, payload, admin["id"]))

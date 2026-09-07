@@ -441,6 +441,7 @@ export default function B2BEnquiries({ onActivity }: B2BEnquiriesProps) {
           .filter(Boolean),
         description: convertForm.description.trim(),
         due_date: convertForm.dueDate,
+        destination_country: open.destination_country || "",
       });
       if (res.enquiry) applyUpdate(res.enquiry);
       activity(

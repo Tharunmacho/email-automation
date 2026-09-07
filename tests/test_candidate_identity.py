@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 # Imported at module scope, deliberately. `app/api/routes.py` builds a
 # `UserRepository()` at import time, which opens a Mongo connection, and
@@ -714,7 +715,11 @@ def test_adopting_nothing_is_not_a_write():
 #  assignment be replayed exactly as a double-click or a retried request would.
 # --------------------------------------------------------------------------- #
 def _staff(staff_id: str, name: str):
-    return User(id=staff_id, email=f"{staff_id}@example.com", name=name, role=STAFF_ROLE)
+    emails = {
+        "staff-1": "sreya.adira@gmail.com",
+        "staff-2": "bakkimamal.adira@gmail.com",
+    }
+    return User(id=staff_id, email=emails[staff_id], name=name, role=STAFF_ROLE)
 
 
 def _assign_route(repo, candidate_id, staff, notify):
@@ -745,6 +750,22 @@ def test_a_genuine_reassignment_tells_the_new_owner(repo):
     assert repo.candidates[created.candidate_id].assigned_staff_id == "staff-2"
     assert notify.call_count == 1
     assert notify.call_args.args[0] == "staff-2"
+
+
+def test_manual_assignment_cannot_cross_the_country_desk_boundary(repo):
+    created = submit(repo)  # Malaysia
+    general_staff = User(
+        id="general",
+        email="general.adira@gmail.com",
+        name="General Staff",
+        role=STAFF_ROLE,
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        _assign_route(repo, created.candidate_id, general_staff, MagicMock())
+
+    assert getattr(raised.value, "status_code", None) == 400
+    assert repo.candidates[created.candidate_id].assigned_staff_id is None
 
 
 def test_reassigning_to_the_current_owner_changes_nothing(repo):

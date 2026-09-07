@@ -1,4 +1,4 @@
-"""Candidate → staff allocation by workload alone.
+"""Candidate → staff allocation by country desk, then workload.
 
 Two entry points, both synchronous because both callers are — the ingestion
 pipeline (in a Celery worker) and the admin API.
@@ -6,12 +6,9 @@ pipeline (in a Celery worker) and the admin API.
 `assign_candidate` places one new profile. `rebalance_all` re-levels the whole
 collection after the staff roster changes.
 
-The rule is the same in both, and it is deliberately the whole rule: the
-profile goes to whichever active staff member is currently holding the fewest.
-Nothing about the candidate is inspected — not their skills, not their job
-title. Distribution is a question about the team's capacity, not about the
-résumé, and answering it purely on counts is what makes the outcome
-predictable: any two people's queues differ by at most one, always.
+Singapore and Malaysia candidates go to their dedicated desk. Every other
+destination goes to the rest of the roster. Within the responsible desk, the
+profile goes to whichever active staff member currently holds the fewest.
 
 Ties break on staff id rather than arbitrarily, so the same roster and the same
 counts always produce the same choice. Without that a rebalance would not be
@@ -27,6 +24,44 @@ from app.db.users import User, UserRepository
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
+
+
+# Existing CRM accounts assigned to the Singapore/Malaysia desk. Email is used
+# instead of the generated staff id so the rule survives account recreation and
+# database migration.
+SINGAPORE_MALAYSIA_DESK_EMAILS = frozenset({
+    "sreya.adira@gmail.com",
+    "bakkimamal.adira@gmail.com",
+    "dsharmila.adira@gmail.com",
+    "hajirabegum.adira@gmail.com",
+    "jemalisahi.adira@gmail.com",
+    "noorul.adira@gmail.com",
+})
+SINGAPORE_MALAYSIA_COUNTRIES = frozenset({"singapore", "malaysia"})
+
+
+def _destination_country(profile: object) -> str:
+    """Read the placement country from a model, dict, or rebalance row."""
+    if isinstance(profile, dict):
+        nested = profile.get("profile")
+        if isinstance(nested, dict):
+            profile = nested
+        value = profile.get("destination_country") if isinstance(profile, dict) else None
+    else:
+        value = getattr(profile, "destination_country", None)
+    return str(value or "").strip().casefold()
+
+
+def is_staff_eligible(member: object, profile: object) -> bool:
+    """Whether ``member`` belongs to the desk responsible for this candidate."""
+    is_sg_my_candidate = _destination_country(profile) in SINGAPORE_MALAYSIA_COUNTRIES
+    email = member.get("email", "") if isinstance(member, dict) else getattr(member, "email", "")
+    is_sg_my_staff = str(email).strip().casefold() in SINGAPORE_MALAYSIA_DESK_EMAILS
+    return is_sg_my_candidate == is_sg_my_staff
+
+
+def _eligible_staff(staff: Sequence[User], profile: object) -> List[User]:
+    return [member for member in staff if is_staff_eligible(member, profile)]
 
 
 @dataclass(frozen=True)
@@ -84,9 +119,8 @@ def assign_candidate(
 ) -> AssignmentResult:
     """Place one candidate with the least-loaded staff member.
 
-    Called once per ingested résumé. `profile` is accepted and ignored — the
-    pipeline has it to hand and the parameter keeps the call site stable, but
-    allocation does not look at the candidate.
+    Called once per ingested résumé. The destination selects a desk and the
+    workload comparison selects one person inside that desk.
 
     Returns a `no_staff` result rather than raising when the roster is empty: a
     missing staff account must not fail an ingestion that has already extracted
@@ -95,9 +129,13 @@ def assign_candidate(
     repo = repo or CandidateRepository()
     users = users or UserRepository()
 
-    staff = users.list_assignable_staff()
+    staff = _eligible_staff(users.list_assignable_staff(), profile)
     if not staff:
-        log.warning("Candidate %s left unassigned: no active staff members", candidate_id)
+        log.warning(
+            "Candidate %s left unassigned: no active staff member for destination %s",
+            candidate_id,
+            _destination_country(profile) or "unspecified",
+        )
         return AssignmentResult(candidate_id=candidate_id)
 
     workloads = _current_workloads(staff, repo)
@@ -192,7 +230,11 @@ def rebalance_all(
     moved = 0
     unchanged = 0
     for row in movable:
-        chosen = _least_loaded(staff, workloads)
+        eligible = _eligible_staff(staff, row)
+        if not eligible:
+            unchanged += 1
+            continue
+        chosen = _least_loaded(eligible, workloads)
         workloads[chosen.id] += 1
 
         if row.get("assigned_staff_id") == chosen.id:
@@ -237,7 +279,10 @@ def _deal(
     """
     placed = 0
     for row in rows:
-        chosen = _least_loaded(staff, workloads)
+        eligible = _eligible_staff(staff, row)
+        if not eligible:
+            continue
+        chosen = _least_loaded(eligible, workloads)
         workloads[chosen.id] += 1
         if row.get("assigned_staff_id") == chosen.id:
             continue
@@ -324,6 +369,10 @@ def redistribute_from_staff(
 
     workloads = _current_workloads(staff, repo)
     reallocated = _deal(movable, staff, workloads, repo.assign)
+    # A country desk may temporarily have no active member. Those profiles are
+    # still orphaned; reporting them as reallocated would hide work from the
+    # admin console even though no write occurred.
+    orphaned += len(movable) - reallocated
 
     log.info(
         "Staff %s deleted: [%d unviewed profile(s) reallocated, %d reviewed left orphaned]",
@@ -366,6 +415,7 @@ def rehome_orphans(
 
     workloads = _current_workloads(staff, repo)
     rehomed = _deal(rows, staff, workloads, repo.reassign)
+    remaining = len(rows) - rehomed
 
     log.info("Re-homed %d orphaned profile(s) across %d active staff", rehomed, len(staff))
-    return {"status": "ok", "rehomed": rehomed, "remaining": 0}
+    return {"status": "ok", "rehomed": rehomed, "remaining": remaining}

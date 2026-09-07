@@ -48,6 +48,7 @@ from app.core.security import create_token, read_token, verify_service_key
 from app.assignment.balancer import (
     allocate_unassigned,
     assign_candidate,
+    is_staff_eligible,
     rebalance_all,
     redistribute_from_staff,
     rehome_orphans,
@@ -1455,7 +1456,10 @@ def create_candidate_from_uploads(
     try:
         assigned_staff_id = ""
         assigned_staff_name = ""
-        if uploader.get("role") == STAFF_ROLE:
+        if (
+            uploader.get("role") == STAFF_ROLE
+            and is_staff_eligible(uploader, result.candidate.profile)
+        ):
             assigned_staff_id = str(uploader.get("id") or "")
             assigned_staff_name = str(
                 uploader.get("name") or uploader.get("email") or "Staff"
@@ -1658,7 +1662,9 @@ def unverify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) 
 
 # ---- Sourcing Clients DB Endpoints ---------------------------------------- #
 @app.get("/sourcing-clients")
-def list_sourcing_clients(_user: dict = Depends(require_page("sourcing"))) -> dict:
+def list_sourcing_clients(
+    _user: dict = Depends(require_page("sourcing", "job-orders")),
+) -> dict:
     from app.db.mongo import get_db
     coll = get_db()["sourcing_clients"]
     items = list(coll.find({}, {"_id": 0}))
@@ -1692,6 +1698,25 @@ def list_job_orders(_user: dict = Depends(require_page("job-orders"))) -> dict:
     coll = get_db()["job_orders"]
     items = list(coll.find({}, {"_id": 0}))
     return {"items": items}
+
+
+@app.get("/job-orders/candidate-pool")
+def list_job_order_candidate_pool(
+    limit: int = Query(default=2000, ge=1, le=2000),
+    skip: int = Query(default=0, ge=0),
+    _user: dict = Depends(require_page("job-orders")),
+) -> dict:
+    """Candidates available for requisitions, regardless of current owner.
+
+    A staff member's Candidates page remains scoped to their own review queue.
+    Job Orders is a separately granted collaboration surface: someone filling
+    a requisition must be able to shortlist a suitable candidate even when a
+    different staff member currently owns that candidate's review.
+    """
+    repository = repo()
+    items = repository.list_summaries(limit=limit, skip=skip, staff_id=None)
+    total = len(items) if skip == 0 and len(items) < limit else repository.count()
+    return {"total": total, "count": len(items), "items": items}
 
 
 @app.post("/job-orders")
@@ -1816,6 +1841,7 @@ class ConvertEnquiryIn(BaseModel):
     due_date: str = ""
     industry: str = ""
     designation: str = ""
+    destination_country: str = ""
 
 
 @app.get("/b2b-enquiries")
@@ -1935,6 +1961,7 @@ def convert_b2b_enquiry(
         "status": "OPEN",
         "industry": payload.industry.strip(),
         "designation": payload.designation.strip(),
+        "destinationCountry": payload.destination_country.strip(),
         "fulfilledCount": 0,
         "shortlistedCandidateIds": [],
         "rejectedCandidateIds": [],
@@ -2169,6 +2196,12 @@ def assign_candidate_route(
     record = repository.get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    if not is_staff_eligible(member, record.profile):
+        country = record.profile.destination_country or "the remaining countries"
+        raise HTTPException(
+            status_code=400,
+            detail=f"This staff member is not assigned to the {country} candidate desk",
+        )
 
     # Assigning somebody the candidate they already hold is not an assignment.
     # Two things follow from letting it through, and both are destructive:
@@ -3454,7 +3487,9 @@ def retire_job_designation(job_id: str, _user: dict = Depends(require_page("data
 
 @app.get("/countries")
 def list_country_rows(
-    _user: dict = Depends(require_page("data-management", "candidate-entry", "sourcing")),
+    _user: dict = Depends(
+        require_page("data-management", "candidate-entry", "sourcing", "job-orders")
+    ),
 ) -> dict:
     from app.db.taxonomy import list_countries
 

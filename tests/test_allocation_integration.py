@@ -62,11 +62,15 @@ def make_staff(users, name, email=None):
 
 
 def insert_candidate(db, candidate_id, staff_id=None, staff_name=None, created_offset=0,
-                     viewed=False, status="pending"):
+                     viewed=False, status="pending", destination_country=None):
     """A candidate document shaped the way the pipeline writes one."""
     db["candidates"].insert_one({
         "_id": candidate_id,
-        "profile": {"full_name": candidate_id.upper(), "skills": ["python"]},
+        "profile": {
+            "full_name": candidate_id.upper(),
+            "skills": ["python"],
+            "destination_country": destination_country,
+        },
         "status": "ingested",
         "assigned_staff_id": staff_id,
         "assigned_staff_name": staff_name,
@@ -290,6 +294,42 @@ def test_allocate_unassigned_places_only_the_unowned(db, users, repo):
     # Both newcomers went to Bob, who was on zero; Alice's six never moved.
     assert counts_by_name(db, users) == {"Alice": 6, "Bob": 2}
     assert db["candidates"].count_documents({"assigned_staff_id": None}) == 0
+
+
+def test_bulk_allocation_keeps_country_desks_separate(db, users, repo):
+    dedicated = make_staff(users, "Sreya", "sreya.adira@gmail.com")
+    general = make_staff(users, "General Staff", "general.adira@gmail.com")
+    insert_candidate(db, "sg", destination_country="Singapore")
+    insert_candidate(db, "my", destination_country="Malaysia")
+    insert_candidate(db, "qa", destination_country="Qatar")
+    insert_candidate(db, "kw", destination_country="Kuwait")
+
+    result = allocate_unassigned(repo=repo, users=users)
+
+    assert result["allocated"] == 4
+    assert db["candidates"].count_documents({
+        "_id": {"$in": ["sg", "my"]}, "assigned_staff_id": dedicated.id,
+    }) == 2
+    assert db["candidates"].count_documents({
+        "_id": {"$in": ["qa", "kw"]}, "assigned_staff_id": general.id,
+    }) == 2
+
+
+def test_rebalance_corrects_unopened_candidates_on_the_wrong_country_desk(db, users, repo):
+    dedicated = make_staff(users, "Sreya", "sreya.adira@gmail.com")
+    general = make_staff(users, "General Staff", "general.adira@gmail.com")
+    insert_candidate(
+        db, "my", general.id, general.name, destination_country="Malaysia"
+    )
+    insert_candidate(
+        db, "qa", dedicated.id, dedicated.name, destination_country="Qatar"
+    )
+
+    result = rebalance_all(repo=repo, users=users)
+
+    assert result["moved"] == 2
+    assert db["candidates"].find_one({"_id": "my"})["assigned_staff_id"] == dedicated.id
+    assert db["candidates"].find_one({"_id": "qa"})["assigned_staff_id"] == general.id
 
 
 def test_allocate_unassigned_does_not_relevel_a_lopsided_roster(db, users, repo):

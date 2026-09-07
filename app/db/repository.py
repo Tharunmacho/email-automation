@@ -131,6 +131,9 @@ LIST_PROJECTION = {
     "profile.resume_summary": 1,
     # Enough of the attachment to name it and report how it was read.
     "resume.original_filename": 1,
+    # Read only long enough to derive `resume_available`. The pointer itself is
+    # removed before the row leaves the repository.
+    "resume.storage_key": 1,
     "resume.extraction_method": 1,
     "resume.ocr_used": 1,
     # Who sent it — the fallback for a résumé with no name or address in it.
@@ -185,6 +188,9 @@ REBALANCE_PROJECTION = {
     "viewed_at": 1,
     "evaluation_status": 1,
     "created_at": 1,
+    # Country selects the responsible allocation desk before workload is
+    # compared inside that desk.
+    "profile.destination_country": 1,
 }
 
 # What an SLA alert is written from.
@@ -939,6 +945,14 @@ class CandidateRepository:
             doc = whatsapp_compat.normalize(doc)
             doc["id"] = str(doc.pop("_id"))
             doc["candidate_code"] = doc.get("candidate_code") or candidate_code(doc["id"])
+            resume = doc.get("resume")
+            doc["resume_available"] = bool(
+                isinstance(resume, dict) and resume.get("storage_key")
+            )
+            if isinstance(resume, dict):
+                # Storage locators are private implementation details. The UI
+                # gets the answer it needs, never the key used to reach it.
+                resume.pop("storage_key", None)
             rows.append(doc)
         return rows
 

@@ -51,12 +51,55 @@ class FakeRepo:
         return True
 
 
-def staff(sid, name, active=True):
-    return User(id=sid, email=f"{sid}@x.com", name=name, role="staff", active=active)
+def staff(sid, name, active=True, email=None):
+    return User(id=sid, email=email or f"{sid}@x.com", name=name, role="staff", active=active)
 
 
-def profile(skills=(), designation=None):
-    return {"skills": list(skills), "current_designation": designation}
+def profile(skills=(), designation=None, destination_country=None):
+    return {
+        "skills": list(skills),
+        "current_designation": designation,
+        "destination_country": destination_country,
+    }
+
+
+def test_singapore_and_malaysia_go_only_to_the_dedicated_team():
+    dedicated = staff("sg-my", "Sreya", email="sreya.adira@gmail.com")
+    general = staff("general", "General Staff")
+    users = FakeUsers([general, dedicated])
+
+    singapore = assign_candidate(
+        "sg", profile(destination_country="Singapore"), repo=FakeRepo(), users=users
+    )
+    malaysia = assign_candidate(
+        "my", profile(destination_country=" malaysia "), repo=FakeRepo(), users=users
+    )
+
+    assert singapore.staff_id == dedicated.id
+    assert malaysia.staff_id == dedicated.id
+
+
+def test_all_other_countries_exclude_the_singapore_malaysia_team():
+    dedicated = staff("sg-my", "Sreya", email="sreya.adira@gmail.com")
+    general = staff("general", "General Staff")
+    users = FakeUsers([dedicated, general])
+
+    qatar = assign_candidate(
+        "qa", profile(destination_country="Qatar"), repo=FakeRepo(), users=users
+    )
+    unspecified = assign_candidate("none", profile(), repo=FakeRepo(), users=users)
+
+    assert qatar.staff_id == general.id
+    assert unspecified.staff_id == general.id
+
+
+def test_candidate_waits_unassigned_when_its_country_desk_has_no_active_staff():
+    users = FakeUsers([staff("general", "General Staff")])
+    result = assign_candidate(
+        "my", profile(destination_country="Malaysia"), repo=FakeRepo(), users=users
+    )
+    assert result.assigned is False
+    assert result.reason == "no_staff"
 
 
 # --------------------------------------------------------------------------- #
