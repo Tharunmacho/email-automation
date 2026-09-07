@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
 from app.attendance.engine import calculate_month, lop_amount
@@ -13,6 +15,7 @@ from app.attendance.models import AdjustmentRequest, CalendarDayRequest, Permiss
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
+from app.db.dedup import normalize_phone
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
 from app.logging_config import get_logger
 
@@ -45,6 +48,49 @@ def _conflict(call):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class WhatsAppAttendanceEvent(BaseModel):
+    """A silent private-chat attendance command forwarded by the bot."""
+
+    message_id: str = Field(min_length=1, max_length=200)
+    sender_phone: str = Field(min_length=5, max_length=50)
+    stated_name: str = Field(min_length=1, max_length=150)
+    action: Literal["check_in", "check_out"]
+    occurred_at: datetime
+    chat_type: Literal["private"] = "private"
+
+
+def _name_key(value: str) -> str:
+    return " ".join((value or "").casefold().split())
+
+
+def _whatsapp_employee(sender_phone: str, stated_name: str):
+    """Authenticate attendance by CRM phone and verify the written name."""
+    sender = normalize_phone(sender_phone)
+    matches = [
+        employee
+        for employee in users.list_employees(include_inactive=False)
+        if sender and normalize_phone(employee.phone) == sender
+    ]
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=422,
+            detail="The sender's WhatsApp number is not linked to one active CRM employee",
+        )
+    employee = matches[0]
+    full_name = _name_key(employee.name)
+    allowed_names = {
+        full_name,
+        full_name.split(" ", 1)[0],
+        _name_key(employee.staff_code),
+    }
+    if _name_key(stated_name) not in allowed_names:
+        raise HTTPException(
+            status_code=422,
+            detail="The written name does not match the sender's CRM employee account",
+        )
+    return employee
+
+
 @router.post("/punch", status_code=201)
 def record_punch(payload: PunchRequest, user: dict = Depends(current_user)) -> dict:
     employee_id = _employee_id(user, payload.employee_id)
@@ -60,8 +106,55 @@ def whatsapp_punch(payload: PunchRequest, _service: None = Depends(require_servi
     if not employee or not employee.active:
         raise HTTPException(status_code=404, detail="Active employee not found")
     payload.source = "whatsapp"
-    event, created = _conflict(lambda: service().punch(payload.employee_id, payload))
+    event, created = _conflict(
+        lambda: service().punch(payload.employee_id, payload, allow_recorded_time=True)
+    )
     return {"status": "recorded" if created else "duplicate", "event": event}
+
+
+@router.post("/events", status_code=201)
+def whatsapp_private_attendance(
+    payload: WhatsAppAttendanceEvent,
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Record a private staff WhatsApp command without sending any response."""
+    employee = _whatsapp_employee(payload.sender_phone, payload.stated_name)
+    request = PunchRequest(
+        action=payload.action,
+        idempotency_key=payload.message_id,
+        employee_id=employee.id,
+        occurred_at=payload.occurred_at,
+        source="whatsapp",
+        evidence={
+            "metadata": {
+                "chat_type": payload.chat_type,
+                "stated_name": payload.stated_name,
+            }
+        },
+    )
+    event, created = _conflict(
+        lambda: service().punch(employee.id, request, allow_recorded_time=True)
+    )
+    return {"status": "recorded" if created else "duplicate", "event": event}
+
+
+@router.get("/directory")
+def whatsapp_attendance_directory(
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Active employees whose private phone messages are staff traffic."""
+    contacts = [
+        {
+            "id": employee.id,
+            "staff_code": employee.staff_code,
+            "name": employee.name,
+            "phone": employee.phone,
+            "role": employee.role,
+            "active": employee.active,
+        }
+        for employee in users.list_employees(include_inactive=False)
+    ]
+    return {"contacts": contacts, "count": len(contacts)}
 
 
 @router.get("/day/{attendance_date}")

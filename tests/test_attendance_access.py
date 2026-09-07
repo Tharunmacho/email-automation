@@ -1,7 +1,7 @@
 """Role boundaries and permission history for attendance."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import mongomock
@@ -10,7 +10,14 @@ import mongomock
 # the main API registers the attendance router at the end of its import. Load
 # that owner first so this test does not enter the module from the circular end.
 from app.api.routes import app as _app  # noqa: F401
-from app.attendance.api import list_permissions
+from fastapi import HTTPException
+
+from app.attendance.api import (
+    WhatsAppAttendanceEvent,
+    list_permissions,
+    whatsapp_attendance_directory,
+    whatsapp_private_attendance,
+)
 from app.attendance.models import PermissionDecision, PermissionRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
@@ -20,8 +27,22 @@ from app.db.users import STAFF_ROLE, User
 class FakeUsers:
     def __init__(self):
         self.members = {
-            "staff-1": User(id="staff-1", email="one@example.com", name="One", role=STAFF_ROLE),
-            "staff-2": User(id="staff-2", email="two@example.com", name="Two", role=STAFF_ROLE),
+            "staff-1": User(
+                id="staff-1",
+                email="one@example.com",
+                name="One Person",
+                role=STAFF_ROLE,
+                staff_code="AE001",
+                phone="+91 98765 43210",
+            ),
+            "staff-2": User(
+                id="staff-2",
+                email="two@example.com",
+                name="Two Person",
+                role=STAFF_ROLE,
+                staff_code="AE002",
+                phone="+91 91234 56789",
+            ),
         }
 
     def get(self, employee_id):
@@ -29,6 +50,9 @@ class FakeUsers:
 
     def list_assignable_staff(self):
         return list(self.members.values())
+
+    def list_employees(self, include_inactive=False):
+        return [member for member in self.members.values() if include_inactive or member.active]
 
 
 class RecordingRepository:
@@ -101,3 +125,52 @@ def test_approved_leave_request_updates_calendar_and_second_paid_leave_becomes_u
             "manager-1",
         )
         assert decided["calendar_status"] == expected
+
+
+def test_private_whatsapp_attendance_matches_phone_and_first_name():
+    repository = AttendanceRepository(mongomock.MongoClient()["whatsapp-attendance"])
+    payload = WhatsAppAttendanceEvent(
+        message_id="wamid.check-in-1",
+        sender_phone="919876543210",
+        stated_name="One",
+        action="check_in",
+        occurred_at=datetime(2026, 9, 8, 4, 45, tzinfo=timezone.utc),
+    )
+
+    with patch("app.attendance.api.users", FakeUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ):
+        result = whatsapp_private_attendance(payload)
+        duplicate = whatsapp_private_attendance(payload)
+
+    assert result["status"] == "recorded"
+    assert result["event"]["employee_id"] == "staff-1"
+    assert result["event"]["source"] == "whatsapp"
+    assert result["event"]["occurred_at"] == payload.occurred_at
+    assert duplicate["status"] == "duplicate"
+
+
+def test_private_whatsapp_attendance_rejects_wrong_name():
+    payload = WhatsAppAttendanceEvent(
+        message_id="wamid.wrong-name",
+        sender_phone="919876543210",
+        stated_name="Two",
+        action="check_in",
+        occurred_at=datetime(2026, 9, 8, 4, 45, tzinfo=timezone.utc),
+    )
+
+    with patch("app.attendance.api.users", FakeUsers()):
+        try:
+            whatsapp_private_attendance(payload)
+        except HTTPException as exc:
+            assert exc.status_code == 422
+        else:
+            raise AssertionError("mismatched employee name must be rejected")
+
+
+def test_whatsapp_attendance_directory_returns_active_employee_phones():
+    with patch("app.attendance.api.users", FakeUsers()):
+        result = whatsapp_attendance_directory()
+
+    assert result["count"] == 2
+    assert result["contacts"][0]["phone"] == "+91 98765 43210"
