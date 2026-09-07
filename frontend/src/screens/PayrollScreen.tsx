@@ -176,7 +176,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
           <div className="payroll-card-grid">
             {visibleItems.map((row) => (
               <EmployeePayCard
-                key={row.employee_id}
+                key={`${row.employee_id}:${row.monthly_salary}:${row.weekly_off_pattern}:${row.alternate_friday_parity}`}
                 row={row}
                 busy={busyId === row.employee_id}
                 canManage={canManage}
@@ -200,6 +200,18 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
 }) {
   const paid = row.status === "paid";
   const initials = row.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  const [salary, setSalary] = useState(String(row.monthly_salary));
+  const [weeklyOff, setWeeklyOff] = useState<PayrollRow["weekly_off_pattern"]>(row.weekly_off_pattern);
+  const [fridayParity, setFridayParity] = useState(row.alternate_friday_parity);
+  const changed = Number(salary) !== row.monthly_salary
+    || weeklyOff !== row.weekly_off_pattern
+    || fridayParity !== row.alternate_friday_parity;
+
+  const saveSettings = () => onSave(row, {
+    monthly_salary: Number(salary) || 0,
+    weekly_off_pattern: weeklyOff,
+    alternate_friday_parity: fridayParity,
+  });
 
   return (
     <article className={`payroll-card ${paid ? "is-paid" : ""}`}>
@@ -231,9 +243,15 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
       {canManage && <div className="payroll-settings">
         <div className="payroll-settings-title"><Settings2 size={15} /> Payroll settings</div>
         <div className="payroll-settings-grid">
-          <label>Monthly salary<input type="number" min="0" defaultValue={row.monthly_salary} disabled={busy} onBlur={(event) => { const value = Number(event.target.value); if (value !== row.monthly_salary) void onSave(row, { monthly_salary: value }); }} /></label>
-          <label>Weekly off<select value={row.weekly_off_pattern} disabled={busy} onChange={(event) => void onSave(row, { weekly_off_pattern: event.target.value as PayrollRow["weekly_off_pattern"] })}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday</option></select></label>
-          {row.weekly_off_pattern === "alternate_friday" && <label>Friday group<select value={row.alternate_friday_parity} disabled={busy} onChange={(event) => void onSave(row, { alternate_friday_parity: Number(event.target.value) })}><option value={0}>Rotation A</option><option value={1}>Rotation B</option></select></label>}
+          <label>Monthly salary<input type="number" min="0" value={salary} disabled={busy} onChange={(event) => setSalary(event.target.value)} /></label>
+          <label>Weekly off<select value={weeklyOff} disabled={busy} onChange={(event) => setWeeklyOff(event.target.value as PayrollRow["weekly_off_pattern"])}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday</option></select></label>
+          {weeklyOff === "alternate_friday" && <label>Friday group<select value={fridayParity} disabled={busy} onChange={(event) => setFridayParity(Number(event.target.value))}><option value={0}>Rotation A</option><option value={1}>Rotation B</option></select></label>}
+        </div>
+        <div className="payroll-settings-actions">
+          <span>{changed ? "Unsaved changes" : "Settings are up to date"}</span>
+          <button type="button" className="payroll-save-btn" disabled={busy || !changed || Number(salary) < 0} onClick={() => void saveSettings()}>
+            {busy ? <RefreshCw size={15} className="icon-spin" /> : <Check size={15} />} Save salary settings
+          </button>
         </div>
       </div>}
 

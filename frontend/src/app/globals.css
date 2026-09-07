@@ -19422,6 +19422,10 @@ a.um-phone:hover {
 .payroll-settings-title { display: flex; align-items: center; gap: .4rem; margin-bottom: .6rem; color: var(--text-main); font-size: .73rem; font-weight: 750; }
 .payroll-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
 .payroll-settings input, .payroll-settings select { width: 100%; min-width: 0; background: var(--bg-card); font-size: .73rem; }
+.payroll-settings-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .7rem; padding-top: .7rem; border-top: 1px solid var(--border-main); }
+.payroll-settings-actions > span { color: var(--text-light); font-size: .68rem; }
+.payroll-save-btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .56rem .72rem; border: 1px solid var(--primary); border-radius: 9px; background: var(--primary); color: white; font-size: .72rem; font-weight: 750; cursor: pointer; }
+.payroll-save-btn:disabled { cursor: default; opacity: .5; }
 .payroll-card-foot { display: flex; align-items: center; justify-content: space-between; gap: .8rem; padding: .8rem 1rem; border-top: 1px solid var(--border-main); }
 .payroll-card-foot > span { color: var(--text-muted); font-size: .69rem; }
 .payroll-pay-btn, .payroll-reopen-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: .4rem; padding: .58rem .75rem; border-radius: 9px; font-size: .73rem; font-weight: 750; cursor: pointer; }
@@ -19434,4 +19438,4 @@ a.um-phone:hover {
 .payroll-empty span { font-size: .78rem; }
 @media (max-width: 1180px) { .payroll-card-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .payroll-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 680px) { .payroll-hero, .payroll-card-foot { align-items: stretch; flex-direction: column; } .payroll-toolbar { align-items: stretch; flex-direction: column; } .payroll-summary-grid, .payroll-policy-strip { grid-template-columns: 1fr; } .payroll-card-head { grid-template-columns: auto minmax(0, 1fr); } .payroll-state { grid-column: 1 / -1; justify-self: start; } .payroll-money-flow { grid-template-columns: 1fr; } .payroll-flow-sign { display: none; } .payroll-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .payroll-metrics > div { border-right: 0; border-bottom: 1px solid var(--border-main); } .payroll-settings-grid { grid-template-columns: 1fr; } .payroll-pay-btn, .payroll-reopen-btn { width: 100%; } }
+@media (max-width: 680px) { .payroll-hero, .payroll-card-foot, .payroll-settings-actions { align-items: stretch; flex-direction: column; } .payroll-toolbar { align-items: stretch; flex-direction: column; } .payroll-summary-grid, .payroll-policy-strip { grid-template-columns: 1fr; } .payroll-card-head { grid-template-columns: auto minmax(0, 1fr); } .payroll-state { grid-column: 1 / -1; justify-self: start; } .payroll-money-flow { grid-template-columns: 1fr; } .payroll-flow-sign { display: none; } .payroll-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .payroll-metrics > div { border-right: 0; border-bottom: 1px solid var(--border-main); } .payroll-settings-grid { grid-template-columns: 1fr; } .payroll-pay-btn, .payroll-reopen-btn, .payroll-save-btn { width: 100%; } }
