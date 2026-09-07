@@ -567,16 +567,12 @@ export interface StaffWorkloadRow extends StaffMember {
 }
 
 export interface StaffWorkloadResponse {
-  /** Active accounts only — the ones work is routed to. */
+  /** Staff and manager rows, including deactivated accounts with retained work. */
   items: StaffWorkloadRow[];
   /**
-   * Every account id on the roster, deactivated ones included.
-   *
-   * `items` omits deactivated accounts, so an owner id missing from it means
-   * one of two very different things: the account is deactivated (fine, they
-   * keep their queue) or it is gone (orphaned, nobody can see the profile).
-   * This is what tells them apart, and it is the same list the server counts
-   * `totals.orphaned` against, so the banner and the directory always agree.
+   * Every staff or manager account id on the roster, deactivated included.
+   * The server uses this same list to distinguish retained ownership from a
+   * genuinely deleted owner when calculating `totals.orphaned`.
    */
   roster_ids?: string[];
   totals: {

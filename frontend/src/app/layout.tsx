@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Lora } from "next/font/google";
+import { Nunito } from "next/font/google";
 import "./globals.css";
 
-// One Lora variable family, product-wide. Both upright and italic cuts are
+// One Nunito variable family, product-wide. Both upright and italic cuts are
 // loaded, and every control inherits the same root variable.
 //
 // The variable is `--font-display`; `globals.css` aliases the sheet's existing
 // `--font-outfit` name onto it in one line, so re-keying the face here re-keys
 // the whole product without touching the thousands of rules written against
 // the old name.
-const display = Lora({
+const display = Nunito({
   variable: "--font-display",
   subsets: ["latin"],
   style: ["normal", "italic"],

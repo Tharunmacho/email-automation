@@ -2,7 +2,7 @@
 
 :root {
   /* Typography. One family, product-wide — `next/font` sets this variable from
-     the loaded Lora face and the fallback here is only what paints before it
+     the loaded Nunito face and the fallback here is only what paints before it
      arrives. There is deliberately no second family and no monospace: the
      places that used to reach for one (the log console, timestamps, the
      confidence figures) now hold their columns with `tabular-nums` and a wider
@@ -11,7 +11,7 @@
      the alias every other rule in the sheet is written against, so the family
      is swapped in exactly one place. The stack after it is only what paints
      before the webfont lands. */
-  --font-outfit: var(--font-display), 'Lora', Georgia, serif;
+  --font-outfit: var(--font-display), 'Nunito', Arial, sans-serif;
   /* Kept as a name because rules across the sheet still ask for it, and code
      and clocks want even digits wherever they appear. */
   --font-numeric: var(--font-outfit);
@@ -20,7 +20,7 @@
      `code, kbd, samp, pre`) and for the `font-sans`/`font-mono` utilities. They
      are unset by default, so those rules fall back to a system sans and a
      system monospace — a second and a third family, arriving through the
-     framework rather than through this sheet. Pointing both at Lora closes
+     framework rather than through this sheet. Pointing both at Nunito closes
      that door: there is no way to ask this stylesheet for another face. */
   --font-sans: var(--font-outfit);
   --font-mono: var(--font-outfit);
@@ -15337,7 +15337,7 @@ body {
   align-items: center;
   width: fit-content;
   color: var(--primary) !important;
-  font-family: var(--font-outfit), Georgia, serif;
+  font-family: var(--font-outfit), Arial, sans-serif;
   font-size: 0.68rem !important;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

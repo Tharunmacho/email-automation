@@ -2080,14 +2080,11 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     roster_ids = [member.id for member in everyone]
     return {
         "items": items,
-        # The whole roster, deactivated accounts included. `items` carries only
-        # the active ones, so without this the console cannot tell a profile
-        # owned by a deactivated colleague from one owned by a deleted account —
-        # and would flag the first as orphaned, which it is not.
+        # The whole employee roster, deactivated accounts included. Orphan
+        # detection must recognise retained ownership by staff and managers.
         "roster_ids": roster_ids,
         "totals": {
-            # The accounts work is routed to, not the number of rows: `items`
-            # now carries deactivated accounts as well.
+            # Active visible team members; allocation itself remains staff-only.
             "staff": len([member for member in everyone if member.active]),
             "assigned": sum(row["assigned"] for row in items),
             "evaluated": sum(row["evaluated"] for row in items),
