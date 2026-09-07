@@ -3916,6 +3916,13 @@ def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> d
     }
 
 
+# Attendance routes are registered after their auth dependencies above exist,
+# and before the catch-all static mount below.
+from app.attendance.api import router as attendance_router
+
+app.include_router(attendance_router)
+
+
 # Serve the static files from the Next.js export, when the build produced any.
 #
 # Two frontend layouts are supported and which one is in play is decided here,
