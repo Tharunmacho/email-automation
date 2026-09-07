@@ -277,9 +277,10 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const permissionUsed = visibleMonth?.totals.paid_permission_minutes ?? 0;
 
   return (
-    <div className="ds-page attendance-page">
-      <header className="ds-head">
+    <div className={`ds-page attendance-page ${isAdmin ? "is-manager-view" : "is-staff-view"}`}>
+      <header className="ds-head attendance-hero">
         <div>
+          <span className="attendance-kicker">{isAdmin ? "WORKFORCE OPERATIONS" : "WORKDAY"}</span>
           <h1 className="ds-head-title">{isAdmin ? "Staff attendance" : "My attendance"}</h1>
           <p className="ds-head-sub">
             {isAdmin
@@ -297,6 +298,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           </button>
         </div>
       </header>
+
+      <div className="attendance-policy-strip" aria-label="Attendance policy summary">
+        <span><Clock3 size={15} /><strong>60 min</strong> monthly grace</span>
+        <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
+        <span><ShieldCheck size={15} />Sunday + assigned rotation off</span>
+        <span><WalletCards size={15} />Extra time deducted by minute</span>
+      </div>
 
       {isAdmin ? (
         <>
@@ -321,7 +329,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                   {rosterSummaries.map(({ person, month: staffMonth, summary: staffSummary, permissions: staffPermissions }) => (
                     <tr key={person.id} className={employeeId === person.id ? "is-selected" : undefined}>
                       <td><span className="ds-who-text"><strong>{person.name}</strong><small>{person.staff_code || person.email}</small></span></td>
-                      <td><strong className="attendance-percentage">{staffSummary.percentage}%</strong></td>
+                      <td><div className="attendance-rate"><strong className="attendance-percentage">{staffSummary.percentage}%</strong><span><i style={{ width: `${Math.min(100, staffSummary.percentage)}%` }} /></span></div></td>
                       <td>{staffSummary.attended} / {staffSummary.scheduled}</td>
                       <td>{staffSummary.absent}</td>
                       <td>{staffSummary.late}</td>
@@ -412,18 +420,64 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
   months: Record<string, AttendanceMonth>;
 }) {
   const nameOf = (employeeId: string) => staff.find((person) => person.id === employeeId)?.name || employeeId;
+  const ordered = [...permissions].sort((left, right) => {
+    if (left.status === right.status) return right.attendance_date.localeCompare(left.attendance_date);
+    return left.status === "pending" ? -1 : 1;
+  });
+
+  if (admin) {
+    const pending = permissions.filter((permission) => permission.status === "pending").length;
+    return (
+      <section className="ds-panel attendance-permissions attendance-request-center">
+        <div className="ds-panel-head attendance-request-head">
+          <div>
+            <span className="attendance-section-kicker">MANAGER ACTION CENTRE</span>
+            <h2 className="ds-panel-title">Permission requests</h2>
+            <p className="ds-panel-sub">Review monthly leave and hour usage before deciding.</p>
+          </div>
+          <span className={`attendance-request-count ${pending ? "has-pending" : ""}`}>{pending} awaiting review</span>
+        </div>
+        {ordered.length === 0 ? <div className="ds-empty-state"><ShieldCheck size={28} /><h3>No permission requests this month</h3><p>New employee requests will appear here.</p></div> : (
+          <div className="attendance-request-grid">
+            {ordered.map((permission) => {
+              const employeeMonth = months[permission.employee_id];
+              const leaveDays = employeeMonth?.days.filter((day) => day.status === "PL" || day.status === "UL").length ?? 0;
+              const permissionMinutes = employeeMonth?.totals.approved_permission_minutes ?? 0;
+              return (
+                <article className={`attendance-request-card is-${permission.status}`} key={permission.id}>
+                  <header>
+                    <div className="attendance-request-person">
+                      <span className="attendance-avatar">{nameOf(permission.employee_id).slice(0, 1).toUpperCase()}</span>
+                      <div><strong>{nameOf(permission.employee_id)}</strong><small>{permission.attendance_date} · {PERMISSION_KIND[permission.kind]}</small></div>
+                    </div>
+                    <span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span>
+                  </header>
+                  <p className="attendance-request-reason">{permission.reason}</p>
+                  <div className="attendance-request-usage">
+                    <div><span>Requested</span><strong>{permission.requested_minutes ? `${permission.requested_minutes} min` : "Full day"}</strong></div>
+                    <div><span>Leave this month</span><strong>{leaveDays} day(s)</strong></div>
+                    <div><span>Hours approved</span><strong>{permissionMinutes} min</strong></div>
+                  </div>
+                  {permission.decision_reason && <p className="attendance-decision-reason">Decision note: {permission.decision_reason}</p>}
+                  <footer>{permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={15} /> Approve request</button><button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={15} /> Reject</button></div> : <span>Reviewed request</span>}</footer>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="ds-panel attendance-permissions">
-      <div className="ds-panel-head"><div><h2 className="ds-panel-title">{admin ? "Permission requests" : "My permissions"}</h2><p className="ds-panel-sub">Request date, approval status and the recorded reason.</p></div></div>
+      <div className="ds-panel-head"><div><h2 className="ds-panel-title">My permissions</h2><p className="ds-panel-sub">Request date, approval status and the recorded reason.</p></div></div>
       {permissions.length === 0 ? <div className="ds-empty-state"><ShieldCheck size={28} /><h3>No permission requests this month</h3></div> : (
-        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr>{admin && <th>Staff</th>}<th>Date</th><th>Type</th><th>Minutes</th>{admin && <><th>Leave used</th><th>Hour permission</th></>}<th>Reason</th><th>Status</th>{admin && <th>Decision</th>}</tr></thead><tbody>
+        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Type</th><th>Minutes</th><th>Reason</th><th>Status</th></tr></thead><tbody>
           {permissions.map((permission) => <tr key={permission.id}>
-            {admin && <td>{nameOf(permission.employee_id)}</td>}
             <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td>
-            {admin && <><td>{months[permission.employee_id]?.days.filter((day) => day.status === "PL" || day.status === "UL").length ?? 0} day(s)</td><td>{months[permission.employee_id]?.totals.approved_permission_minutes ?? 0} min</td></>}
             <td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
             <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span></td>
-            {admin && <td>{permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="ds-ghost-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={14} /> Approve</button><button type="button" className="ds-ghost-btn is-danger" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={14} /> Reject</button></div> : "—"}</td>}
           </tr>)}
         </tbody></table></div>
       )}
