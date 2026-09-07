@@ -66,6 +66,17 @@ def test_od_and_calendar_status_do_not_deduct():
     assert (holiday["status"], holiday["unpaid_minutes"]) == ("H", 0)
 
 
+def test_unpaid_leave_deducts_one_full_shift_in_minutes():
+    leave = calculate_day(
+        date(2026, 9, 2),
+        [],
+        non_working_status=AttendanceStatus.UNPAID_LEAVE,
+        now=utc(14, day=5),
+    )
+    assert (leave["status"], leave["unpaid_minutes"]) == ("UL", 540)
+    assert calculate_month([leave])[0]["unpaid_minutes"] == 540
+
+
 def test_assigned_overnight_shift_and_lop_formula():
     result = calculate_day(
         date(2026, 9, 2),
@@ -84,3 +95,15 @@ def test_assigned_overnight_shift_and_lop_formula():
 def test_naive_timestamps_are_rejected():
     with pytest.raises(ValueError, match="timezone"):
         calculate_day(date(2026, 9, 2), [{"action": "check_in", "occurred_at": datetime(2026, 9, 2, 10)}])
+
+
+def test_monthly_grace_automatically_covers_first_sixty_late_or_early_minutes():
+    days = [
+        {"date": date(2026, 9, 2), "unapproved_minutes": 45},
+        {"date": date(2026, 9, 3), "unapproved_minutes": 30},
+    ]
+    rows = calculate_month(days)
+    assert rows[0]["grace_minutes_applied"] == 45
+    assert rows[0]["unpaid_minutes"] == 0
+    assert rows[1]["grace_minutes_applied"] == 15
+    assert rows[1]["unpaid_minutes"] == 15

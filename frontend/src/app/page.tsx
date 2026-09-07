@@ -20,6 +20,7 @@ import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
 import AttendanceScreen from "@/screens/AttendanceScreen";
+import PayrollScreen from "@/screens/PayrollScreen";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
@@ -1259,6 +1260,8 @@ export default function Home() {
                 {currentTab === "attendance" && (
                   <AttendanceScreen user={user} onToast={showToast} />
                 )}
+
+                {currentTab === "payroll" && <PayrollScreen onToast={showToast} />}
 
                 {currentTab === "job-orders" && (
                   <JobOrders candidates={candidates} onActivity={announceActivity} />

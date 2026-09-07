@@ -15,6 +15,7 @@ ADJUSTMENTS = "attendance_adjustments"
 PERMISSIONS = "attendance_permissions"
 SHIFTS = "attendance_shift_assignments"
 CALENDAR = "attendance_calendar"
+POLICIES = "attendance_employee_policies"
 
 
 def _utcnow() -> datetime:
@@ -37,6 +38,7 @@ class AttendanceRepository:
         self.permissions = db[PERMISSIONS]
         self.shifts = db[SHIFTS]
         self.calendar = db[CALENDAR]
+        self.policies = db[POLICIES]
 
     def append_event(self, event: dict) -> tuple[dict, bool]:
         """Insert once. A repeated webhook returns the original event."""
@@ -166,6 +168,35 @@ class AttendanceRepository:
             sort=[("created_at", DESCENDING)],
         ))
 
+    def calendar_days_for_period(self, employee_id: str, start: date, end: date) -> list[dict]:
+        rows = self.calendar.find({
+            "employee_id": employee_id,
+            "attendance_date": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        }).sort("created_at", DESCENDING)
+        latest: dict[str, dict] = {}
+        for row in rows:
+            latest.setdefault(row["attendance_date"], _public(row))
+        return list(latest.values())
+
+    def employee_policy(self, employee_id: str) -> dict:
+        return _public(self.policies.find_one({"employee_id": employee_id})) or {
+            "employee_id": employee_id,
+            "monthly_salary": 0,
+            "weekly_off_pattern": "sunday",
+            "alternate_friday_parity": 0,
+        }
+
+    def set_employee_policy(self, employee_id: str, values: dict) -> dict:
+        updates = dict(values)
+        updates["employee_id"] = employee_id
+        updates["updated_at"] = _utcnow()
+        self.policies.update_one(
+            {"employee_id": employee_id},
+            {"$set": updates, "$setOnInsert": {"_id": uuid.uuid4().hex, "created_at": _utcnow()}},
+            upsert=True,
+        )
+        return self.employee_policy(employee_id)
+
 
 def ensure_attendance_indexes() -> None:
     db = get_db()
@@ -175,3 +206,4 @@ def ensure_attendance_indexes() -> None:
     ensure_index(db[PERMISSIONS], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("status", ASCENDING)], "attendance_permission_day")
     ensure_index(db[SHIFTS], [("employee_id", ASCENDING), ("effective_from", DESCENDING)], "attendance_shift_effective")
     ensure_index(db[CALENDAR], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("created_at", DESCENDING)], "attendance_calendar_day")
+    ensure_index(db[POLICIES], [("employee_id", ASCENDING)], "attendance_policy_employee", unique=True)

@@ -2248,6 +2248,7 @@
 }
 
 .db-bar-fill {
+  display: block;
   height: 100%;
   border-radius: 999px;
   background: var(--primary);
@@ -19294,3 +19295,16 @@ a.um-phone:hover {
     transition: none;
   }
 }
+
+/* Payroll */
+.payroll-toolbar { display: flex; align-items: end; gap: .65rem; }
+.payroll-toolbar label { display: flex; flex-direction: column; gap: .35rem; color: var(--text-muted); font-size: .78rem; font-weight: 600; }
+.payroll-toolbar input, .payroll-table input, .payroll-table select { padding: .55rem .65rem; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-card); color: var(--text-main); font: inherit; }
+.payroll-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.payroll-table td > small { display: block; margin-top: .2rem; color: var(--text-light); }
+.payroll-table td { white-space: nowrap; }
+.payroll-table td:nth-child(3) { display: flex; flex-direction: column; gap: .35rem; }
+.payroll-salary { width: 125px; }
+.payroll-status { border: 0; cursor: pointer; }
+@media (max-width: 900px) { .payroll-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .payroll-toolbar { align-items: stretch; flex-direction: column; } .payroll-stats { grid-template-columns: 1fr; } }

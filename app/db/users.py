@@ -22,6 +22,7 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 ADMIN_ROLE = "admin"
+MANAGER_ROLE = "manager"
 STAFF_ROLE = "staff"
 USERS_COLLECTION = "users"
 USER_DELETIONS_COLLECTION = "user_deletions"
@@ -39,6 +40,7 @@ PAGES = (
     "candidates",
     "candidate-entry",
     "attendance",
+    "payroll",
     "staff",
     "job-orders",
     "sourcing",
@@ -63,6 +65,7 @@ PAGES = (
 #: their own work in a different screen, not the whole database's PII.
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
+    MANAGER_ROLE: set(PAGES) - {"users"},
     STAFF_ROLE: {"candidates", "candidate-entry", "attendance", "settings"},
 }
 
@@ -107,7 +110,7 @@ class User:
             "name": self.name,
             "role": self.role,
             "staff_code": self.staff_code or (
-                staff_code(self.id) if self.role == STAFF_ROLE else None
+                staff_code(self.id) if self.role in (STAFF_ROLE, MANAGER_ROLE) else None
             ),
             "keywords": self.keywords or [],
             "phone": self.phone or "",
@@ -230,7 +233,7 @@ class UserRepository:
             "created_at": utcnow(),
             "last_login_at": None,
         }
-        if role == STAFF_ROLE:
+        if role in (STAFF_ROLE, MANAGER_ROLE):
             doc["staff_code"] = staff_code(user_id)
         self._coll.insert_one(doc)
         # An administrator explicitly creating this address is an intentional
@@ -268,6 +271,14 @@ class UserRepository:
         docs = list(self._coll.find(query).sort("created_at", ASCENDING))
         return [self._to_user(d) for d in docs]
 
+    def list_employees(self, include_inactive: bool = True) -> list[User]:
+        """Staff and managers who participate in attendance and payroll."""
+        query: dict = {"role": {"$in": [STAFF_ROLE, MANAGER_ROLE]}}
+        if not include_inactive:
+            query["active"] = {"$ne": False}
+        docs = list(self._coll.find(query).sort("created_at", ASCENDING))
+        return [self._to_user(d) for d in docs]
+
     def list_assignable_staff(self) -> list[User]:
         """The pool allocation draws from: active staff accounts, in join order.
 
@@ -293,7 +304,7 @@ class UserRepository:
             "staff_code": staff_code(user_id),
             "email": email,
             "name": name or email.split("@")[0].title(),
-            "role": STAFF_ROLE,
+            "role": {"$in": [STAFF_ROLE, MANAGER_ROLE]},
             "keywords": keywords or [],
             "phone": (phone or "").strip(),
             "active": True,
@@ -347,9 +358,9 @@ class UserRepository:
         updates: dict = {"updated_at": utcnow()}
         if name is not None:
             updates["name"] = name
-        if role in (ADMIN_ROLE, STAFF_ROLE):
+        if role in (ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE):
             updates["role"] = role
-            if role == STAFF_ROLE and not doc.get("staff_code"):
+            if role in (STAFF_ROLE, MANAGER_ROLE) and not doc.get("staff_code"):
                 updates["staff_code"] = staff_code(user_id)
         if active is not None:
             updates["active"] = active
@@ -569,3 +580,16 @@ def ensure_user_indexes() -> None:
     # The allocation pool: active staff, in join order. Read on every ingested
     # résumé, so it is not a rare query.
     ensure_index(coll, [("role", ASCENDING), ("active", ASCENDING)], "user_role_active_idx")
+
+
+def ensure_rafi_manager() -> bool:
+    """Keep the named operational account at its requested manager role."""
+    coll = get_users_collection()
+    result = coll.update_one(
+        {"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}},
+        {
+            "$set": {"role": MANAGER_ROLE, "updated_at": utcnow()},
+            "$pull": {"page_grants": "users"},
+        },
+    )
+    return bool(result.modified_count)

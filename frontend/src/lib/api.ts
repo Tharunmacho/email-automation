@@ -265,7 +265,7 @@ export interface AttendancePermission {
   id: string;
   employee_id: string;
   attendance_date: string;
-  kind: "late" | "early_exit" | "official_duty" | "work_from_home";
+  kind: "late" | "early_exit" | "official_duty" | "work_from_home" | "paid_leave" | "unpaid_leave";
   requested_minutes: number;
   reason: string;
   status: "pending" | "approved" | "rejected";
@@ -297,7 +297,7 @@ export function recordAttendancePunch(action: "check_in" | "check_out", employee
 export function requestAttendancePermission(payload: {
   employee_id?: string;
   attendance_date: string;
-  kind: "late" | "early_exit" | "official_duty" | "work_from_home";
+  kind: AttendancePermission["kind"];
   requested_minutes: number;
   reason: string;
 }) {
@@ -327,6 +327,70 @@ export function decideAttendancePermission(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved, reason }),
+  });
+}
+
+export interface PayrollRow {
+  employee_id: string;
+  name: string;
+  staff_code?: string;
+  monthly_salary: number;
+  deduction: number;
+  net_salary: number;
+  unpaid_minutes: number;
+  grace_minutes: number;
+  paid_leave_days: number;
+  calendar_days: number;
+  required_working_days: number;
+  daily_lop_rate: number;
+  weekly_off_pattern: "sunday" | "sunday_alternate_friday";
+  alternate_friday_parity: number;
+  status: "draft" | "paid";
+}
+
+export interface PayrollMonth {
+  year: number;
+  month: number;
+  basis: "required_working_days";
+  grace_allowance_minutes: number;
+  paid_leave_allowance_days: number;
+  items: PayrollRow[];
+}
+
+export function fetchPayrollMonth(year: number, month: number): Promise<PayrollMonth> {
+  return request(`/payroll/${year}/${month}`, { cache: "no-store" });
+}
+
+export function updatePayrollPolicy(employeeId: string, payload: {
+  monthly_salary: number;
+  weekly_off_pattern: PayrollRow["weekly_off_pattern"];
+  alternate_friday_parity: number;
+}) {
+  return request(`/payroll/employees/${employeeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePayrollStatus(year: number, month: number, employeeId: string, paid: boolean) {
+  return request(`/payroll/${year}/${month}/employees/${employeeId}/status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ paid }),
+  });
+}
+
+export function setAttendanceLeave(payload: {
+  employee_id: string;
+  attendance_date: string;
+  status: "PL" | "UL";
+  reason: string;
+}): Promise<{ status: string; calendar_day: { status: "PL" | "UL"; converted_from_paid_leave?: boolean } }> {
+  return request("/attendance/calendar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
 }
 

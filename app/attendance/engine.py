@@ -17,6 +17,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 @dataclass(frozen=True)
 class AttendancePolicy:
+    # Shared automatically across late arrivals and early departures each month.
     monthly_paid_minutes: int = 60
     monthly_paid_occasions: int = 2
     warning_minutes: int = 45
@@ -70,7 +71,14 @@ def calculate_day(
     start, end = shift_bounds(day, shift, policy.timezone_name)
 
     if non_working_status:
-        return _result(day, non_working_status, start, end)
+        scheduled = _minutes(end - start) - shift.break_minutes
+        return _result(
+            day,
+            non_working_status,
+            start,
+            end,
+            unpaid_minutes=max(0, scheduled) if non_working_status == AttendanceStatus.UNPAID_LEAVE else 0,
+        )
     permissions = list(approved_permissions or [])
     kinds = {str(item.get("kind")) for item in permissions}
     if approved_kind:
@@ -146,7 +154,7 @@ def calculate_day(
 
 
 def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None) -> list[dict]:
-    """Allocate the shared permission balance and occasion cap chronologically."""
+    """Allocate the monthly 60-minute grace balance chronologically."""
     policy = policy or AttendancePolicy()
     remaining = policy.monthly_paid_minutes
     occasions = 0
@@ -171,8 +179,13 @@ def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None
                 occasions += 1
                 remaining -= applied
         excess = eligible - paid
-        row["paid_permission_minutes"] = paid
-        row["unpaid_minutes"] = max(0, int(row.get("unapproved_minutes", 0))) + excess
+        fixed_unpaid = max(0, int(row.get("unpaid_minutes", 0)))
+        unapproved = max(0, int(row.get("unapproved_minutes", 0)))
+        automatic_grace = min(unapproved, remaining)
+        remaining -= automatic_grace
+        row["grace_minutes_applied"] = automatic_grace
+        row["paid_permission_minutes"] = paid + automatic_grace
+        row["unpaid_minutes"] = fixed_unpaid + unapproved - automatic_grace + excess
         row["permission_occasions_used"] = occasions
         row["permission_minutes_used"] = policy.monthly_paid_minutes - remaining
         row["permission_minutes_remaining"] = remaining

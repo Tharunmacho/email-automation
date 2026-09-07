@@ -387,11 +387,13 @@ def ensure_indexes() -> None:
     from app.db.taxonomy import ensure_taxonomy_indexes, seed_taxonomy
     from app.db.users import ensure_user_deletion_indexes, ensure_user_indexes
     from app.attendance.repository import ensure_attendance_indexes
+    from app.payroll import ensure_payroll_indexes
 
     ensure_ledger_indexes()
     ensure_user_indexes()
     ensure_user_deletion_indexes()
     ensure_attendance_indexes()
+    ensure_payroll_indexes()
     ensure_notification_indexes()
     ensure_candidate_deletion_indexes()
     # Manpower requirements the bot collects from agents. The unique index on

@@ -69,10 +69,12 @@ from app.services.identity_intake import file_documents as file_identity_documen
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
     ADMIN_ROLE,
+    MANAGER_ROLE,
     STAFF_ROLE,
     UserRepository,
     ensure_demo_accounts,
     ensure_seed_user,
+    ensure_rafi_manager,
     remove_legacy_demo_staff,
 )
 from app.notifications import notify_candidate_assigned
@@ -132,6 +134,12 @@ def _seed_admin() -> None:
     """Create the initial admin account once. Never resets an existing one."""
     try:
         ensure_seed_user(settings.admin_email, settings.admin_password)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        if ensure_rafi_manager():
+            log.info("Promoted Rafi to manager")
     except Exception:  # noqa: BLE001
         pass
 
@@ -3850,9 +3858,9 @@ def list_users(_user: dict = Depends(require_page("users"))) -> dict:
 
 @app.post("/users", status_code=201)
 def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -> dict:
-    from app.db.users import ADMIN_ROLE as _ADMIN, STAFF_ROLE as _STAFF
+    from app.db.users import ADMIN_ROLE as _ADMIN, MANAGER_ROLE as _MANAGER, STAFF_ROLE as _STAFF
 
-    role = payload.role if payload.role in (_ADMIN, _STAFF) else _STAFF
+    role = payload.role if payload.role in (_ADMIN, _MANAGER, _STAFF) else _STAFF
     try:
         user = users.create(
             email=payload.email,
@@ -3954,8 +3962,10 @@ def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> d
 # Attendance routes are registered after their auth dependencies above exist,
 # and before the catch-all static mount below.
 from app.attendance.api import router as attendance_router
+from app.payroll import router as payroll_router
 
 app.include_router(attendance_router)
+app.include_router(payroll_router)
 
 
 # Serve the static files from the Next.js export, when the build produced any.

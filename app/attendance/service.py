@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import calendar
 
 from app.attendance.engine import AttendancePolicy, calculate_day, local_day, shift_bounds
 from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
@@ -62,6 +63,13 @@ class AttendanceService:
             shift = Shift.model_validate(assignment["shift"])
         shift = shift or Shift()
         calendar_day = self.repository.calendar_day(employee_id, day)
+        employee_policy = getattr(self.repository, "employee_policy", lambda _id: {})(employee_id)
+        is_sunday = day.weekday() == 6
+        is_rotational_friday = (
+            day.weekday() == 4
+            and employee_policy.get("weekly_off_pattern") == "sunday_alternate_friday"
+            and day.isocalendar().week % 2 == int(employee_policy.get("alternate_friday_parity", 0))
+        )
         punches = self.repository.effective_punches_for_day(employee_id, day)
         permissions = self.repository.approved_permissions(employee_id, day)
         adjustments = self.repository.adjustments_for_day(employee_id, day)
@@ -71,7 +79,11 @@ class AttendanceService:
             day, punches, shift=shift, now=now, policy=self.policy,
             approved_permissions=permissions,
             recovered_minutes=recovered,
-            non_working_status=AttendanceStatus(calendar_day["status"]) if calendar_day else None,
+            non_working_status=(
+                AttendanceStatus(calendar_day["status"])
+                if calendar_day
+                else AttendanceStatus.WEEKLY_OFF if is_sunday or is_rotational_friday else None
+            ),
         )
         if status_override:
             result["status"] = str(status_override)
@@ -112,6 +124,18 @@ class AttendanceService:
         result = self.repository.decide_permission(permission_id, {**decision.model_dump(), "decided_by": approver_id, "decided_at": datetime.now(timezone.utc)})
         if not result:
             raise AttendanceError("pending permission not found")
+        if decision.approved and pending.get("kind") in {"paid_leave", "unpaid_leave"}:
+            calendar_day = self.set_calendar_day(
+                CalendarDayRequest(
+                    employee_id=pending["employee_id"],
+                    attendance_date=date.fromisoformat(pending["attendance_date"]),
+                    status="PL" if pending["kind"] == "paid_leave" else "UL",
+                    reason=pending.get("reason") or decision.reason,
+                ),
+                approver_id,
+            )
+            result["calendar_status"] = calendar_day["status"]
+            result["converted_from_paid_leave"] = calendar_day.get("converted_from_paid_leave", False)
         return result
 
     def adjust(self, request: AdjustmentRequest, approver_id: str) -> dict:
@@ -139,8 +163,23 @@ class AttendanceService:
         })
 
     def set_calendar_day(self, request: CalendarDayRequest, approver_id: str) -> dict:
+        status = request.status
+        converted_from_paid_leave = False
+        if request.status == "PL":
+            start = request.attendance_date.replace(day=1)
+            end = request.attendance_date.replace(
+                day=calendar.monthrange(request.attendance_date.year, request.attendance_date.month)[1]
+            )
+            existing = getattr(self.repository, "calendar_days_for_period", lambda *_args: [])(
+                request.employee_id, start, end
+            )
+            if any(row.get("status") == "PL" and row.get("attendance_date") != request.attendance_date.isoformat() for row in existing):
+                status = AttendanceStatus.UNPAID_LEAVE
+                converted_from_paid_leave = True
         return self.repository.set_calendar_day({
             **request.model_dump(exclude={"attendance_date"}),
             "attendance_date": request.attendance_date.isoformat(),
+            "status": str(status),
+            "converted_from_paid_leave": converted_from_paid_leave,
             "recorded_by": approver_id,
         })

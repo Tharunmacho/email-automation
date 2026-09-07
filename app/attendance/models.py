@@ -56,7 +56,7 @@ class PunchRequest(BaseModel):
 class PermissionRequest(BaseModel):
     employee_id: str | None = None
     attendance_date: date
-    kind: Literal["late", "early_exit", "official_duty", "work_from_home"]
+    kind: Literal["late", "early_exit", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
     requested_minutes: int = Field(default=0, ge=0, le=1440)
     reason: str = Field(min_length=1, max_length=1000)
 

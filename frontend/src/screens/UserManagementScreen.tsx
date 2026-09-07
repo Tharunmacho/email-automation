@@ -53,6 +53,8 @@ const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
   candidates: "Candidates",
   "candidate-entry": "Candidate Entry",
+  attendance: "Attendance",
+  payroll: "Payroll",
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
   sourcing: "Sourcing Hub",
@@ -66,6 +68,8 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
   overview: "Pipeline summary and performance overview",
   candidates: "Assigned candidate profiles and reviews",
   "candidate-entry": "Upload candidate documents for VeriIS extraction",
+  attendance: "Daily punches, leave, grace time and exceptions",
+  payroll: "Monthly salary, attendance deductions and payment status",
   staff: "Staff roster, workload and candidate assignment controls",
   "job-orders": "View and manage client job orders",
   sourcing: "View and manage sourcing clients",
@@ -89,7 +93,7 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
  * ungrouped row.
  */
 const PAGE_GROUPS: { label: string; pages: string[] }[] = [
-  { label: "General", pages: ["overview", "candidates", "candidate-entry", "staff", "users"] },
+  { label: "General", pages: ["overview", "candidates", "candidate-entry", "attendance", "payroll", "staff", "users"] },
   {
     label: "Tools",
     pages: [
@@ -108,6 +112,11 @@ const ROLE_OPTIONS = [
     value: "staff",
     label: "Staff",
     hint: "Reviews the candidates allocated to them.",
+  },
+  {
+    value: "manager",
+    label: "Manager",
+    hint: "Runs operations, attendance and payroll without account administration.",
   },
   {
     value: "admin",
@@ -162,7 +171,8 @@ function PasswordInput({
  */
 const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
-  staff: ["candidates", "candidate-entry", "settings"],
+  manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
+  staff: ["candidates", "candidate-entry", "attendance", "settings"],
 };
 
 type Section = "create" | "manage";
@@ -379,7 +389,7 @@ export default function UserManagementScreen({
                             {user.name || user.email}
                             {!user.active && <em className="staff-flag">deactivated</em>}
                           </strong>
-                          {user.role === "staff" && (
+                          {(user.role === "staff" || user.role === "manager") && (
                             <small className="crm-record-id">
                               Staff ID · {user.staff_code || `STF-${user.id.slice(-12).toUpperCase()}`}
                             </small>
@@ -403,7 +413,7 @@ export default function UserManagementScreen({
                     <td>
                       <span className={`ds-status ${user.role === "admin" ? "is-info" : "is-ok"}`}>
                         <i aria-hidden="true" />
-                        {user.role === "admin" ? "Super Admin" : "Staff"}
+                        {user.role === "admin" ? "Super Admin" : user.role === "manager" ? "Manager" : "Staff"}
                       </span>
                     </td>
                     <td>{user.created_at ? timeAgo(user.created_at) : "—"}</td>

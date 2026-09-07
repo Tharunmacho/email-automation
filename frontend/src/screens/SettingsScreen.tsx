@@ -68,7 +68,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
       if (!account.email || entries.some((entry) => entry.value.toLowerCase() === account.email.toLowerCase())) continue;
       entries.push({
         id: account.id,
-        label: account.role === "admin" ? "Admin account" : "Staff account",
+        label: account.role === "admin" ? "Admin account" : account.role === "manager" ? "Manager account" : "Staff account",
         value: account.email,
         active: account.active,
       });
@@ -114,7 +114,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
           </div>
           <div>
             <dt>Access level</dt>
-            <dd><ShieldCheck size={14} /> {isAdmin ? "Administrator" : "Staff"}</dd>
+            <dd><ShieldCheck size={14} /> {isAdmin ? "Administrator" : user.role === "manager" ? "Manager" : "Staff"}</dd>
           </div>
         </dl>
 

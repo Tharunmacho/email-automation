@@ -20,6 +20,7 @@ import {
   Database,
   Handshake,
   CalendarCheck2,
+  Banknote,
   LayoutDashboard,
   FilePlus2,
   Settings as SettingsIcon,
@@ -34,6 +35,7 @@ export const NAV_IDS = [
   "candidates",
   "candidate-entry",
   "attendance",
+  "payroll",
   "staff",
   "job-orders",
   "sourcing",
@@ -99,40 +101,41 @@ export const NAV_GROUPS: NavGroup[] = [
       // What each role opens onto: the admin's summary of the whole pipeline,
       // and the staff member's own allocated queue. One group, because they
       // are the same thing seen from the two seats.
-      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin"] },
+      { id: "overview", label: "Overview", icon: LayoutDashboard, roles: ["admin", "manager"] },
     ],
   },
   {
     label: "General",
     items: [
-      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "staff"] },
-      { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "staff"] },
-      { id: "attendance", label: "Attendance", icon: CalendarCheck2, roles: ["admin", "staff"] },
-      { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
+      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "manager", "staff"] },
+      { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "manager", "staff"] },
+      { id: "attendance", label: "Attendance", icon: CalendarCheck2, roles: ["admin", "manager", "staff"] },
+      { id: "payroll", label: "Payroll", icon: Banknote, roles: ["admin", "manager"] },
+      { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin", "manager"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],
   },
   {
     label: "Tools",
     items: [
-      { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin"] },
-      { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin"] },
+      { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin", "manager"] },
+      { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin", "manager"] },
       // Sits under the hub rather than beside it: the parties are the address
       // book and these are the requirements they raise, so a recruiter reads
       // one and then the other. What arrives here is collected by the WhatsApp
       // bot from agents, the same bot that registers candidates.
-      { id: "b2b-enquiries", label: "B2B Enquiries", icon: Handshake, roles: ["admin"] },
+      { id: "b2b-enquiries", label: "B2B Enquiries", icon: Handshake, roles: ["admin", "manager"] },
       // The jobs and countries the agency recruits for, as data. What is
       // configured here decides two things a long way from this screen: which
       // options the WhatsApp bot offers candidates, and whether a candidate is
       // asked for a CV.
-      { id: "data-management", label: "Data Management", icon: Database, roles: ["admin"] },
+      { id: "data-management", label: "Data Management", icon: Database, roles: ["admin", "manager"] },
     ],
   },
   {
     label: "Support",
     items: [
-      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "staff"] },
+      { id: "settings", label: "Settings", icon: SettingsIcon, roles: ["admin", "manager", "staff"] },
     ],
   },
 ];
@@ -171,7 +174,7 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
  */
 export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
   const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
-  if (role === "admin" && visible.includes("overview")) return "overview";
+  if ((role === "admin" || role === "manager") && visible.includes("overview")) return "overview";
   if (visible.includes("candidates")) return "candidates";
   return visible[0] ?? "settings";
 }
@@ -237,5 +240,10 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "General",
     title: "Attendance",
     subtitle: "Daily punches, permission balance, exceptions, and provisional deductions.",
+  },
+  payroll: {
+    eyebrow: "General",
+    title: "Payroll",
+    subtitle: "Monthly salary, attendance deductions, paid leave, and payment status.",
   },
 };

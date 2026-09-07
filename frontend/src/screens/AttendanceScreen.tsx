@@ -24,6 +24,7 @@ import {
   listStaff,
   recordAttendancePunch,
   requestAttendancePermission,
+  setAttendanceLeave,
   type AttendanceDay,
   type AttendanceMonth,
   type AttendancePermission,
@@ -124,8 +125,11 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [kind, setKind] = useState<AttendancePermission["kind"]>("late");
   const [minutes, setMinutes] = useState("15");
   const [reason, setReason] = useState("");
+  const [leaveDate, setLeaveDate] = useState(today);
+  const [leaveStatus, setLeaveStatus] = useState<"PL" | "UL">("PL");
+  const [leaveReason, setLeaveReason] = useState("");
 
-  const isAdmin = user.role === "admin";
+  const isAdmin = user.role === "admin" || user.role === "manager";
   const [yearText, monthText] = yearMonth.split("-");
   const year = Number(yearText);
   const monthNumber = Number(monthText);
@@ -235,6 +239,19 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const recordLeave = async () => {
+    if (!employeeId || !leaveReason.trim()) return onToast("Select an employee and enter a leave reason", "info");
+    setBusy(true);
+    try {
+      const result = await setAttendanceLeave({ employee_id: employeeId, attendance_date: leaveDate, status: leaveStatus, reason: leaveReason.trim() });
+      setLeaveReason("");
+      onToast(result.calendar_day.converted_from_paid_leave ? "Paid leave already used; recorded as unpaid leave" : "Leave recorded", "success");
+      await load();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Leave could not be recorded", "error");
+    } finally { setBusy(false); }
   };
 
   const visibleMonth = isAdmin ? adminMonths[employeeId] ?? null : month;
@@ -354,6 +371,12 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           <div className="ds-panel-head">
             <div><h2 className="ds-panel-title">{selectedStaff.name}</h2><p className="ds-panel-sub">{selectedStaff.staff_code || selectedStaff.email} · {summary.percentage}% attendance</p></div>
             <UserCheck size={20} />
+          </div>
+          <div className="attendance-form attendance-leave-form">
+            <label>Leave date<input type="date" value={leaveDate} onChange={(event) => setLeaveDate(event.target.value)} /></label>
+            <label>Leave type<select value={leaveStatus} onChange={(event) => setLeaveStatus(event.target.value as "PL" | "UL")}><option value="PL">Paid leave (first each month)</option><option value="UL">Unpaid leave</option></select></label>
+            <label className="is-wide">Reason<input value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} placeholder="Reason for leave" /></label>
+            <button type="button" className="ds-primary-btn" disabled={busy || !leaveReason.trim()} onClick={() => void recordLeave()}>Record leave</button>
           </div>
         </section>
       )}
