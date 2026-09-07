@@ -147,6 +147,8 @@ def test_private_whatsapp_attendance_matches_phone_and_first_name():
     assert result["event"]["employee_id"] == "staff-1"
     assert result["event"]["source"] == "whatsapp"
     assert result["event"]["occurred_at"] == payload.occurred_at
+    assert result["attendance"]["check_in"] == payload.occurred_at
+    assert result["attendance"]["provisional"] is True
     assert duplicate["status"] == "duplicate"
 
 

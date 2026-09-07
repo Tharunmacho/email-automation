@@ -287,7 +287,7 @@ export function fetchAttendanceMonth(year: number, month: number, employeeId?: s
 }
 
 export function recordAttendancePunch(action: "check_in" | "check_out", employeeId?: string) {
-  return request<{ status: "recorded" | "duplicate"; event: { occurred_at: string } }>("/attendance/punch", {
+  return request<{ status: "recorded" | "duplicate"; event: { occurred_at: string }; attendance: AttendanceDay }>("/attendance/punch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, employee_id: employeeId, idempotency_key: crypto.randomUUID(), source: "web" }),

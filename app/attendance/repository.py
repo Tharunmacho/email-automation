@@ -27,6 +27,12 @@ def _public(doc: dict | None) -> dict | None:
         return None
     value = dict(doc)
     value["id"] = str(value.pop("_id"))
+    # PyMongo can be configured to return aware UTC datetimes, while compatible
+    # drivers and older deployments may return naive values for the same BSON
+    # date. Attendance calculations must never lose the UTC meaning on read.
+    for key, item in value.items():
+        if isinstance(item, datetime):
+            value[key] = item.replace(tzinfo=timezone.utc) if item.tzinfo is None else item.astimezone(timezone.utc)
     return value
 
 

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
-from app.attendance.engine import calculate_month, lop_amount
+from app.attendance.engine import calculate_month, local_day, lop_amount
 from app.attendance.models import AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
@@ -94,8 +94,14 @@ def _whatsapp_employee(sender_phone: str, stated_name: str):
 @router.post("/punch", status_code=201)
 def record_punch(payload: PunchRequest, user: dict = Depends(current_user)) -> dict:
     employee_id = _employee_id(user, payload.employee_id)
-    event, created = _conflict(lambda: service().punch(employee_id, payload, allow_recorded_time=user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}))
-    return {"status": "recorded" if created else "duplicate", "event": event}
+    attendance = service()
+    event, created = _conflict(lambda: attendance.punch(employee_id, payload, allow_recorded_time=user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}))
+    event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
+    return {
+        "status": "recorded" if created else "duplicate",
+        "event": event,
+        "attendance": attendance.day(employee_id, event_day),
+    }
 
 
 @router.post("/webhooks/whatsapp", status_code=201)
@@ -106,10 +112,16 @@ def whatsapp_punch(payload: PunchRequest, _service: None = Depends(require_servi
     if not employee or not employee.active:
         raise HTTPException(status_code=404, detail="Active employee not found")
     payload.source = "whatsapp"
+    attendance = service()
     event, created = _conflict(
-        lambda: service().punch(payload.employee_id, payload, allow_recorded_time=True)
+        lambda: attendance.punch(payload.employee_id, payload, allow_recorded_time=True)
     )
-    return {"status": "recorded" if created else "duplicate", "event": event}
+    event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
+    return {
+        "status": "recorded" if created else "duplicate",
+        "event": event,
+        "attendance": attendance.day(payload.employee_id, event_day),
+    }
 
 
 @router.post("/events", status_code=201)
@@ -132,10 +144,16 @@ def whatsapp_private_attendance(
             }
         },
     )
+    attendance = service()
     event, created = _conflict(
-        lambda: service().punch(employee.id, request, allow_recorded_time=True)
+        lambda: attendance.punch(employee.id, request, allow_recorded_time=True)
     )
-    return {"status": "recorded" if created else "duplicate", "event": event}
+    event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
+    return {
+        "status": "recorded" if created else "duplicate",
+        "event": event,
+        "attendance": attendance.day(employee.id, event_day),
+    }
 
 
 @router.get("/directory")

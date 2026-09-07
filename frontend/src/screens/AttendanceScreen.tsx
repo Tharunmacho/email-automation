@@ -96,7 +96,9 @@ function timeOf(value?: string | null): string {
 function monthSummary(month?: AttendanceMonth | null): AttendanceSummary {
   const days = month?.days ?? [];
   const scheduled = days.filter((day) => !NON_WORKING.has(day.status)).length;
-  const attended = days.filter((day) => ATTENDED.has(day.status)).length;
+  const attended = days.filter(
+    (day) => ATTENDED.has(day.status) || Boolean(day.provisional && day.check_in),
+  ).length;
   return {
     percentage: scheduled ? Math.round((attended / scheduled) * 1000) / 10 : 0,
     scheduled,
@@ -105,6 +107,11 @@ function monthSummary(month?: AttendanceMonth | null): AttendanceSummary {
     late: days.filter((day) => day.status === "LT").length,
     missing: days.filter((day) => day.status === "MP").length,
   };
+}
+
+function statusLabel(day?: AttendanceDay | null): string {
+  if (day?.provisional && day.check_in && !day.check_out) return "Checked in";
+  return STATUS[day?.status || ""] || "—";
 }
 
 function statusTone(status: string): string {
@@ -154,9 +161,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     };
   }, [isAdmin, onToast]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (showLoading = true) => {
     if (!year || !monthNumber || (isAdmin && staff.length === 0)) return;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     try {
       if (isAdmin) {
         const [months, permissionResult] = await Promise.all([
@@ -185,7 +192,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Could not load attendance", "error");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [employeeId, isAdmin, monthNumber, onToast, staff, today, year]);
 
@@ -194,10 +201,21 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  useEffect(() => {
+    const refresh = () => void load(false);
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [load]);
+
   const punch = async (action: "check_in" | "check_out") => {
     setBusy(true);
     try {
-      await recordAttendancePunch(action);
+      const result = await recordAttendancePunch(action);
+      setDay(result.attendance);
       onToast(action === "check_in" ? "Check-in recorded" : "Check-out recorded", "success");
       await load();
     } catch (error) {
@@ -347,7 +365,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       ) : (
         <div className="ds-stats attendance-stats attendance-self-stats">
           <Stat label="Attendance" value={`${summary.percentage}%`} note={`${summary.attended} of ${summary.scheduled} working days`} icon={<Percent size={16} />} />
-          <Stat label="Today" value={STATUS[day?.status || ""] || "—"} note={today} icon={<CalendarDays size={16} />} />
+          <Stat label="Today" value={statusLabel(day)} note={today} icon={<CalendarDays size={16} />} />
           <Stat label="Check in" value={timeOf(day?.check_in)} note="Server-recorded time" icon={<LogIn size={16} />} />
           <Stat label="Permission used" value={`${permissionUsed} / 60 min`} note={`${month?.totals.permission_occasions ?? 0} of 2 occasions`} icon={<ShieldCheck size={16} />} />
           <Stat label="Unpaid" value={`${month?.totals.unpaid_minutes ?? 0} min`} note="Actual absence time only" icon={<WalletCards size={16} />} />
@@ -490,7 +508,7 @@ function MonthTable({ month, title }: { month: AttendanceMonth | null; title: st
     <section className="ds-panel">
       <div className="ds-panel-head"><div><h2 className="ds-panel-title">{title}</h2><p className="ds-panel-sub">Daily status and exact-minute attendance records.</p></div></div>
       <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Late</th><th>Early</th><th>Paid permission</th><th>Unpaid</th></tr></thead><tbody>
-        {[...(month?.days ?? [])].reverse().map((row) => <tr key={row.date}><td>{row.date}</td><td><span className={`ds-status ${row.status === "A" || row.status === "UL" ? "is-bad" : row.status === "MP" || row.status === "LT" || row.status === "EE" ? "is-warn" : "is-info"}`}><i />{STATUS[row.status]}</span></td><td>{timeOf(row.check_in)}</td><td>{timeOf(row.check_out)}</td><td>{row.late_minutes} min</td><td>{row.early_minutes} min</td><td>{row.paid_permission_minutes ?? 0} min</td><td>{row.unpaid_minutes} min</td></tr>)}
+        {[...(month?.days ?? [])].reverse().map((row) => <tr key={row.date}><td>{row.date}</td><td><span className={`ds-status ${row.status === "A" || row.status === "UL" ? "is-bad" : (row.status === "MP" && !(row.provisional && row.check_in)) || row.status === "LT" || row.status === "EE" ? "is-warn" : "is-info"}`}><i />{statusLabel(row)}</span></td><td>{timeOf(row.check_in)}</td><td>{timeOf(row.check_out)}</td><td>{row.late_minutes} min</td><td>{row.early_minutes} min</td><td>{row.paid_permission_minutes ?? 0} min</td><td>{row.unpaid_minutes} min</td></tr>)}
       </tbody></table></div>
     </section>
   );
