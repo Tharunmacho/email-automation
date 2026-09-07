@@ -116,7 +116,20 @@ def calculate_day(
 
     late = _minutes(check_in - start)
     early = _minutes(end - check_out)
-    actual = late + early
+    scheduled = _minutes(end - start) - shift.break_minutes
+    # Payable work is elapsed presence inside the shift, excluding only the
+    # part overlapping the standard break (three hours after shift start).
+    # Thus a 10:00–10:05 test earns five minutes; it is not mistaken for break.
+    presence_start = max(check_in, start)
+    presence_end = min(check_out, end)
+    elapsed_presence = _minutes(presence_end - presence_start) if presence_end > presence_start else 0
+    break_start = start + timedelta(hours=3)
+    break_end = min(end, break_start + timedelta(minutes=shift.break_minutes))
+    overlap_start = max(presence_start, break_start)
+    overlap_end = min(presence_end, break_end)
+    break_taken = _minutes(overlap_end - overlap_start) if overlap_end > overlap_start else 0
+    payable_worked = max(0, elapsed_presence - break_taken)
+    actual = max(0, scheduled - payable_worked)
     approved_occurrences: list[int] = []
     remaining_late, remaining_early = late, early
     for item in permissions:

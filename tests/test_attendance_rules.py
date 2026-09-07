@@ -4,6 +4,11 @@ import pytest
 
 from app.attendance.engine import AttendancePolicy, calculate_day, calculate_month, lop_amount
 from app.attendance.models import AttendanceStatus, Shift
+from app.attendance.models import PermissionRequest
+from app.attendance.repository import AttendanceRepository
+from app.attendance.service import AttendanceService
+
+import mongomock
 
 
 def utc(hour: int, minute: int = 0, day: int = 2) -> datetime:
@@ -56,7 +61,56 @@ def test_missing_punch_is_provisional_then_becomes_actual_absence():
     assert provisional["unpaid_minutes"] == 0
     assert provisional["provisional"] is True
     assert expired["status"] == "A"
-    assert expired["unpaid_minutes"] == 540
+    assert expired["unpaid_minutes"] == 480
+
+
+def test_five_minute_work_session_uses_grace_then_deducts_uncovered_shift():
+    day = calculate_day(
+        date(2026, 9, 8),
+        [
+            {"action": "check_in", "occurred_at": datetime(2026, 9, 8, 4, 30, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 8, 4, 35, tzinfo=timezone.utc)},
+        ],
+        now=datetime(2026, 9, 8, 4, 36, tzinfo=timezone.utc),
+    )
+    calculated = calculate_month([day])[0]
+
+    assert calculated["status"] == "EE"
+    assert calculated["early_minutes"] == 535
+    assert calculated["grace_minutes_applied"] == 60
+    assert calculated["unpaid_minutes"] == 415
+
+
+def test_alternate_friday_replaces_sunday_as_the_weekly_off():
+    repository = AttendanceRepository(mongomock.MongoClient()["weekly-off-choice"])
+    repository.set_employee_policy("staff-1", {
+        "monthly_salary": 30000,
+        "weekly_off_pattern": "alternate_friday",
+        "alternate_friday_parity": 0,
+    })
+    attendance = AttendanceService(repository)
+
+    assert attendance.day("staff-1", date(2026, 9, 4))["status"] == "WO"
+    assert attendance.day("staff-1", date(2026, 9, 6))["status"] != "WO"
+    assert attendance.day("staff-1", date(2026, 9, 11))["status"] != "WO"
+
+
+def test_full_day_permission_never_carries_minutes():
+    leave = PermissionRequest(
+        attendance_date=date(2026, 9, 9),
+        kind="paid_leave",
+        requested_minutes=45,
+        reason="Personal leave",
+    )
+    late = PermissionRequest(
+        attendance_date=date(2026, 9, 9),
+        kind="late",
+        requested_minutes=45,
+        reason="Appointment",
+    )
+
+    assert leave.requested_minutes == 0
+    assert late.requested_minutes == 45
 
 
 def test_od_and_calendar_status_do_not_deduct():
@@ -73,8 +127,8 @@ def test_unpaid_leave_deducts_one_full_shift_in_minutes():
         non_working_status=AttendanceStatus.UNPAID_LEAVE,
         now=utc(14, day=5),
     )
-    assert (leave["status"], leave["unpaid_minutes"]) == ("UL", 540)
-    assert calculate_month([leave])[0]["unpaid_minutes"] == 540
+    assert (leave["status"], leave["unpaid_minutes"]) == ("UL", 480)
+    assert calculate_month([leave])[0]["unpaid_minutes"] == 480
 
 
 def test_assigned_overnight_shift_and_lop_formula():

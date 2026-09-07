@@ -1261,7 +1261,7 @@ export default function Home() {
                   <AttendanceScreen user={user} onToast={showToast} />
                 )}
 
-                {currentTab === "payroll" && <PayrollScreen onToast={showToast} />}
+                {currentTab === "payroll" && <PayrollScreen user={user} onToast={showToast} />}
 
                 {currentTab === "job-orders" && (
                   <JobOrders candidates={candidates} onActivity={announceActivity} />

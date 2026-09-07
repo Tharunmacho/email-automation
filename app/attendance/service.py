@@ -64,10 +64,14 @@ class AttendanceService:
         shift = shift or Shift()
         calendar_day = self.repository.calendar_day(employee_id, day)
         employee_policy = getattr(self.repository, "employee_policy", lambda _id: {})(employee_id)
-        is_sunday = day.weekday() == 6
+        weekly_off_pattern = employee_policy.get("weekly_off_pattern", "sunday")
+        # The choices are mutually exclusive: Sunday off, or alternating
+        # Fridays off with Sunday as a normal office day. The legacy value is
+        # read as the new alternate-Friday option for existing employees.
+        is_sunday = day.weekday() == 6 and weekly_off_pattern == "sunday"
         is_rotational_friday = (
             day.weekday() == 4
-            and employee_policy.get("weekly_off_pattern") == "sunday_alternate_friday"
+            and weekly_off_pattern in {"alternate_friday", "sunday_alternate_friday"}
             and day.isocalendar().week % 2 == int(employee_policy.get("alternate_friday_parity", 0))
         )
         punches = self.repository.effective_punches_for_day(employee_id, day)

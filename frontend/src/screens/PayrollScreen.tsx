@@ -18,11 +18,13 @@ import {
   fetchPayrollMonth,
   updatePayrollPolicy,
   updatePayrollStatus,
+  type AuthUser,
   type PayrollMonth,
   type PayrollRow,
 } from "@/lib/api";
 
 interface Props {
+  user: AuthUser;
   onToast: (message: string, type?: "success" | "error" | "info") => void;
 }
 
@@ -44,12 +46,15 @@ function monthLabel(period: string): string {
   );
 }
 
-export default function PayrollScreen({ onToast }: Props) {
+export default function PayrollScreen({ user, onToast }: Props) {
   const [period, setPeriod] = useState(currentMonth);
   const [payroll, setPayroll] = useState<PayrollMonth | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
+  const [viewMode, setViewMode] = useState<"team" | "mine">("team");
   const [year, month] = period.split("-").map(Number);
+  const canManage = user.role === "admin" || user.role === "manager";
+  const personalView = !canManage || viewMode === "mine";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,9 +72,14 @@ export default function PayrollScreen({ onToast }: Props) {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  const visibleItems = useMemo(
+    () => personalView ? (payroll?.items ?? []).filter((row) => row.employee_id === user.id) : payroll?.items ?? [],
+    [payroll, personalView, user.id],
+  );
+
   const totals = useMemo(
     () =>
-      (payroll?.items ?? []).reduce(
+      visibleItems.reduce(
         (sum, row) => ({
           gross: sum.gross + row.monthly_salary,
           deduction: sum.deduction + row.deduction,
@@ -78,7 +88,7 @@ export default function PayrollScreen({ onToast }: Props) {
         }),
         { gross: 0, deduction: 0, net: 0, paid: 0 },
       ),
-    [payroll],
+    [visibleItems],
   );
 
   const savePolicy = async (row: PayrollRow, patch: Partial<PayrollRow>) => {
@@ -118,11 +128,15 @@ export default function PayrollScreen({ onToast }: Props) {
     <div className="ds-page payroll-page">
       <header className="payroll-hero">
         <div>
-          <span className="payroll-kicker"><WalletCards size={14} /> Monthly payroll run</span>
+          <span className="payroll-kicker"><WalletCards size={14} /> {personalView ? "My payroll" : "Monthly payroll run"}</span>
           <h1>{monthLabel(period)}</h1>
-          <p>Review attendance deductions, confirm net pay, then mark each employee as paid.</p>
+          <p>{personalView ? "Your private salary, attendance allowance and deduction breakdown." : "Review attendance deductions, confirm net pay, then mark each employee as paid."}</p>
         </div>
         <div className="payroll-toolbar">
+          {user.role === "manager" && <div className="scope-switch" aria-label="Payroll view">
+            <button type="button" className={viewMode === "mine" ? "is-active" : ""} onClick={() => setViewMode("mine")}>My payroll</button>
+            <button type="button" className={viewMode === "team" ? "is-active" : ""} onClick={() => setViewMode("team")}>Team payroll</button>
+          </div>}
           <label>
             Pay period
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
@@ -133,15 +147,15 @@ export default function PayrollScreen({ onToast }: Props) {
         </div>
       </header>
 
-      <div className="payroll-summary-grid">
-        <SummaryCard label="Gross payroll" value={money.format(totals.gross)} note="Before deductions" icon={<Banknote />} tone="blue" />
+      <div className={`payroll-summary-grid ${personalView ? "is-personal" : ""}`}>
+        <SummaryCard label={personalView ? "Gross salary" : "Gross payroll"} value={money.format(totals.gross)} note="Before deductions" icon={<Banknote />} tone="blue" />
         <SummaryCard label="Attendance deductions" value={money.format(totals.deduction)} note="LOP and uncovered time" icon={<Clock3 />} tone="amber" />
-        <SummaryCard label="Net payable" value={money.format(totals.net)} note="Final amount for this run" icon={<WalletCards />} tone="green" />
-        <SummaryCard label="Payment progress" value={`${totals.paid} of ${payroll?.items.length ?? 0}`} note="Employees marked paid" icon={<CheckCircle2 />} tone="violet" />
+        <SummaryCard label="Net payable" value={money.format(totals.net)} note="Final amount for this month" icon={<WalletCards />} tone="green" />
+        {!personalView && <SummaryCard label="Payment progress" value={`${totals.paid} of ${visibleItems.length}`} note="Employees marked paid" icon={<CheckCircle2 />} tone="violet" />}
       </div>
 
       <section className="payroll-policy-strip">
-        <span><CalendarRange size={17} /><strong>Working-day basis</strong> Calendar days minus weekly offs and company holidays</span>
+        <span><CalendarRange size={17} /><strong>480-minute workday</strong> 10:00 AM–7:00 PM with a one-hour break</span>
         <span><ShieldCheck size={17} /><strong>Monthly allowance</strong> 60-minute grace and one paid leave</span>
       </section>
 
@@ -149,22 +163,23 @@ export default function PayrollScreen({ onToast }: Props) {
         <div className="payroll-section-head">
           <div>
             <span className="payroll-section-icon"><Banknote size={18} /></span>
-            <div><h2>Employee pay breakdown</h2><p>Each card shows how attendance becomes the final salary.</p></div>
+            <div><h2>{personalView ? "My salary breakdown" : "Employee pay breakdown"}</h2><p>Attendance allowance and uncovered time determine the final salary.</p></div>
           </div>
-          <span className="payroll-count">{payroll?.items.length ?? 0} employees</span>
+          {!personalView && <span className="payroll-count">{visibleItems.length} employees</span>}
         </div>
 
         {loading ? (
           <div className="payroll-empty"><RefreshCw className="icon-spin" /><strong>Preparing payroll</strong><span>Calculating attendance and salary details…</span></div>
-        ) : !payroll?.items.length ? (
+        ) : !visibleItems.length ? (
           <div className="payroll-empty"><WalletCards /><strong>No active employees</strong><span>Add staff before generating payroll.</span></div>
         ) : (
           <div className="payroll-card-grid">
-            {payroll.items.map((row) => (
+            {visibleItems.map((row) => (
               <EmployeePayCard
                 key={row.employee_id}
                 row={row}
                 busy={busyId === row.employee_id}
+                canManage={canManage}
                 onSave={savePolicy}
                 onTogglePaid={togglePaid}
               />
@@ -176,9 +191,10 @@ export default function PayrollScreen({ onToast }: Props) {
   );
 }
 
-function EmployeePayCard({ row, busy, onSave, onTogglePaid }: {
+function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
   row: PayrollRow;
   busy: boolean;
+  canManage: boolean;
   onSave: (row: PayrollRow, patch: Partial<PayrollRow>) => Promise<void>;
   onTogglePaid: (row: PayrollRow) => Promise<void>;
 }) {
@@ -212,21 +228,21 @@ function EmployeePayCard({ row, busy, onSave, onTogglePaid }: {
         <Metric label="Unpaid time" value={`${row.unpaid_minutes} min`} warn={row.unpaid_minutes > 0} />
       </div>
 
-      <div className="payroll-settings">
+      {canManage && <div className="payroll-settings">
         <div className="payroll-settings-title"><Settings2 size={15} /> Payroll settings</div>
         <div className="payroll-settings-grid">
           <label>Monthly salary<input type="number" min="0" defaultValue={row.monthly_salary} disabled={busy} onBlur={(event) => { const value = Number(event.target.value); if (value !== row.monthly_salary) void onSave(row, { monthly_salary: value }); }} /></label>
-          <label>Weekly off<select value={row.weekly_off_pattern} disabled={busy} onChange={(event) => void onSave(row, { weekly_off_pattern: event.target.value as PayrollRow["weekly_off_pattern"] })}><option value="sunday">Every Sunday</option><option value="sunday_alternate_friday">Sunday + alternate Friday</option></select></label>
-          {row.weekly_off_pattern === "sunday_alternate_friday" && <label>Friday group<select value={row.alternate_friday_parity} disabled={busy} onChange={(event) => void onSave(row, { alternate_friday_parity: Number(event.target.value) })}><option value={0}>Rotation A</option><option value={1}>Rotation B</option></select></label>}
+          <label>Weekly off<select value={row.weekly_off_pattern} disabled={busy} onChange={(event) => void onSave(row, { weekly_off_pattern: event.target.value as PayrollRow["weekly_off_pattern"] })}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday</option></select></label>
+          {row.weekly_off_pattern === "alternate_friday" && <label>Friday group<select value={row.alternate_friday_parity} disabled={busy} onChange={(event) => void onSave(row, { alternate_friday_parity: Number(event.target.value) })}><option value={0}>Rotation A</option><option value={1}>Rotation B</option></select></label>}
         </div>
-      </div>
+      </div>}
 
       <footer className="payroll-card-foot">
-        <span>{paid ? "Payment confirmed for this period" : "Review the calculation before confirming payment"}</span>
-        <button type="button" className={paid ? "payroll-reopen-btn" : "payroll-pay-btn"} disabled={busy} onClick={() => void onTogglePaid(row)}>
+        <span>{paid ? "Payment confirmed for this period" : canManage ? "Review the calculation before confirming payment" : "Payment is awaiting manager confirmation"}</span>
+        {canManage && <button type="button" className={paid ? "payroll-reopen-btn" : "payroll-pay-btn"} disabled={busy} onClick={() => void onTogglePaid(row)}>
           {busy ? <RefreshCw size={15} className="icon-spin" /> : paid ? <RotateCcw size={15} /> : <Check size={15} />}
           {paid ? "Reopen payroll" : "Mark as paid"}
-        </button>
+        </button>}
       </footer>
     </article>
   );

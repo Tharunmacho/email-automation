@@ -26,7 +26,7 @@ class AttendanceStatus(StrEnum):
 class Shift(BaseModel):
     start: time = time(10, 0)
     end: time = time(19, 0)
-    break_minutes: int = Field(default=0, ge=0, le=480)
+    break_minutes: int = Field(default=60, ge=0, le=480)
 
     @field_validator("end")
     @classmethod
@@ -59,6 +59,11 @@ class PermissionRequest(BaseModel):
     kind: Literal["late", "early_exit", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
     requested_minutes: int = Field(default=0, ge=0, le=1440)
     reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("requested_minutes")
+    @classmethod
+    def minutes_only_apply_to_hour_permissions(cls, value: int, info):
+        return value if info.data.get("kind") in {"late", "early_exit"} else 0
 
 
 class PermissionDecision(BaseModel):

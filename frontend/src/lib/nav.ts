@@ -110,7 +110,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "manager", "staff"] },
       { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "manager", "staff"] },
       { id: "attendance", label: "Attendance", icon: CalendarCheck2, roles: ["admin", "manager", "staff"] },
-      { id: "payroll", label: "Payroll", icon: Banknote, roles: ["admin", "manager"] },
+      { id: "payroll", label: "Payroll", icon: Banknote, roles: ["admin", "manager", "staff"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin", "manager"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],

@@ -240,6 +240,8 @@ export interface AttendanceDay {
   status: AttendanceCode;
   check_in?: string | null;
   check_out?: string | null;
+  shift_start?: string;
+  shift_end?: string;
   late_minutes: number;
   early_minutes: number;
   paid_permission_minutes?: number;
@@ -343,7 +345,7 @@ export interface PayrollRow {
   calendar_days: number;
   required_working_days: number;
   daily_lop_rate: number;
-  weekly_off_pattern: "sunday" | "sunday_alternate_friday";
+  weekly_off_pattern: "sunday" | "alternate_friday";
   alternate_friday_parity: number;
   status: "draft" | "paid";
 }

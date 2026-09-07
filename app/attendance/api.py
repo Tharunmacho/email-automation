@@ -197,7 +197,14 @@ def attendance_month(
     end = min(last, today.day) if (year, month) == (today.year, today.month) else last
     if (year, month) > (today.year, today.month):
         return {"employee_id": employee, "year": year, "month": month, "days": []}
-    daily = [service().day(employee, date(year, month, number)) for number in range(1, end + 1)]
+    attendance = service()
+    tracking_start = attendance.repository.attendance_start_date(employee)
+    period_end = date(year, month, end)
+    if tracking_start is None or tracking_start > period_end:
+        daily = []
+    else:
+        first = tracking_start.day if (tracking_start.year, tracking_start.month) == (year, month) else 1
+        daily = [attendance.day(employee, date(year, month, number)) for number in range(first, end + 1)]
     days = calculate_month(daily)
     unpaid_total = sum(row["unpaid_minutes"] for row in days)
     result = {
@@ -230,12 +237,17 @@ def request_permission(payload: PermissionRequest, user: dict = Depends(current_
     employee = _employee_id(user, payload.employee_id)
     permission = _conflict(lambda: service().request_permission(employee, payload))
     employee_record = users.get(employee)
-    managers = getattr(users, "list_managers", lambda: [])()
+    if employee_record and employee_record.role == MANAGER_ROLE:
+        approvers = getattr(users, "list_admins", lambda: [])()
+        recipient_label = "administrators"
+    else:
+        approvers = getattr(users, "list_managers", lambda: [])()
+        recipient_label = "managers"
     try:
-        notification_repo = NotificationRepository() if managers else None
-        for manager in managers:
+        notification_repo = NotificationRepository() if approvers else None
+        for approver in approvers:
             notification_repo.record(
-                manager.id,
+                approver.id,
                 type=ATTENDANCE_REQUEST,
                 title="Attendance request",
                 message=(
@@ -244,7 +256,7 @@ def request_permission(payload: PermissionRequest, user: dict = Depends(current_
                 ),
             )
     except Exception as exc:  # The request is durable even if its alert cannot be written.
-        log.warning("Attendance request %s could not notify managers: %s", permission.get("id"), exc)
+        log.warning("Attendance request %s could not notify %s: %s", permission.get("id"), recipient_label, exc)
     return {"status": "pending", "permission": permission}
 
 
@@ -255,7 +267,7 @@ def list_permissions(
     employee_id: str | None = Query(default=None),
     user: dict = Depends(current_user),
 ) -> dict:
-    """Own permission history for staff; roster permission history for admin."""
+    """Own history for employees; staff approvals for managers; all for admins."""
     if month < 1 or month > 12:
         raise HTTPException(status_code=422, detail="month must be between 1 and 12")
     start = date(year, month, 1)
@@ -263,11 +275,18 @@ def list_permissions(
     repository = AttendanceRepository()
 
     if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE} and not employee_id:
-        members = (
-            users.list_employees(include_inactive=False)
-            if hasattr(users, "list_employees")
-            else users.list_assignable_staff()
-        )
+        if user.get("role") == ADMIN_ROLE:
+            members = (
+                users.list_employees(include_inactive=False)
+                if hasattr(users, "list_employees")
+                else users.list_assignable_staff()
+            )
+        else:
+            members = (
+                users.list_staff(include_inactive=False)
+                if hasattr(users, "list_staff")
+                else users.list_assignable_staff()
+            )
         employee_ids = [member.id for member in members]
         items = repository.permissions_for_period(employee_ids, start, end)
     else:
@@ -278,7 +297,14 @@ def list_permissions(
 
 @router.post("/permissions/{permission_id}/decision")
 def decide_permission(permission_id: str, payload: PermissionDecision, admin: dict = Depends(require_attendance_manager)) -> dict:
-    permission = _conflict(lambda: service().decide_permission(permission_id, payload, admin["id"]))
+    attendance = service()
+    pending = attendance.repository.permission(permission_id)
+    if not pending or pending.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="Pending permission not found")
+    requester = users.get(pending["employee_id"])
+    if requester and requester.role == MANAGER_ROLE and admin.get("role") != ADMIN_ROLE:
+        raise HTTPException(status_code=403, detail="Administrator approval is required for a manager request")
+    permission = _conflict(lambda: attendance.decide_permission(permission_id, payload, admin["id"]))
     return {"status": permission["status"], "permission": permission}
 
 

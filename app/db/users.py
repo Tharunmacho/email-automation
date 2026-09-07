@@ -66,7 +66,7 @@ PAGES = (
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
     MANAGER_ROLE: set(PAGES) - {"users"},
-    STAFF_ROLE: {"candidates", "candidate-entry", "attendance", "settings"},
+    STAFF_ROLE: {"candidates", "candidate-entry", "attendance", "payroll", "settings"},
 }
 
 

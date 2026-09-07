@@ -13,16 +13,16 @@ from app.attendance.engine import calculate_month, lop_amount
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.mongo import ensure_index, get_db
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE
+from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 RUNS = "payroll_runs"
-DEFAULT_SHIFT_MINUTES = 9 * 60
+DEFAULT_SHIFT_MINUTES = 8 * 60
 
 
 class EmployeePayrollPolicy(BaseModel):
     monthly_salary: float = Field(ge=0)
-    weekly_off_pattern: str = Field(default="sunday", pattern="^(sunday|sunday_alternate_friday)$")
+    weekly_off_pattern: str = Field(default="sunday", pattern="^(sunday|alternate_friday)$")
     alternate_friday_parity: int = Field(default=0, ge=0, le=1)
 
 
@@ -36,6 +36,16 @@ def _manager(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def _visible_employees(user: dict):
+    """Staff see exactly one payroll row—their own; managers see the roster."""
+    if user.get("role") == STAFF_ROLE:
+        employee = users.get(user["id"])
+        return [employee] if employee and employee.active else []
+    if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}:
+        return users.list_employees(include_inactive=False)
+    raise HTTPException(status_code=403, detail="Payroll access required")
+
+
 def _period_days(year: int, month: int) -> list[date]:
     if month < 1 or month > 12:
         raise HTTPException(status_code=422, detail="month must be between 1 and 12")
@@ -47,14 +57,19 @@ def _period_days(year: int, month: int) -> list[date]:
 
 
 @router.get("/{year}/{month}")
-def payroll_month(year: int, month: int, _user: dict = Depends(_manager)) -> dict:
+def payroll_month(year: int, month: int, user: dict = Depends(current_user)) -> dict:
     attendance_repo = AttendanceRepository()
     attendance = AttendanceService(attendance_repo)
     runs = get_db()[RUNS]
     rows = []
-    for employee in users.list_employees(include_inactive=False):
+    for employee in _visible_employees(user):
         policy = attendance_repo.employee_policy(employee.id)
-        days = calculate_month(attendance.day(employee.id, day) for day in _period_days(year, month))
+        tracking_start = attendance_repo.attendance_start_date(employee.id)
+        period_days = [
+            day for day in _period_days(year, month)
+            if tracking_start is not None and day >= tracking_start
+        ]
+        days = calculate_month(attendance.day(employee.id, day) for day in period_days)
         required_working_days = sum(day.get("status") not in {"WO", "H"} for day in days)
         unpaid_minutes = sum(int(day.get("unpaid_minutes", 0)) for day in days)
         grace_minutes = sum(int(day.get("grace_minutes_applied", 0)) for day in days)
@@ -76,7 +91,11 @@ def payroll_month(year: int, month: int, _user: dict = Depends(_manager)) -> dic
             "calendar_days": len(days),
             "required_working_days": required_working_days,
             "daily_lop_rate": round(monthly_salary / required_working_days, 2) if required_working_days else 0,
-            "weekly_off_pattern": policy.get("weekly_off_pattern", "sunday"),
+            "weekly_off_pattern": (
+                "alternate_friday"
+                if policy.get("weekly_off_pattern") == "sunday_alternate_friday"
+                else policy.get("weekly_off_pattern", "sunday")
+            ),
             "alternate_friday_parity": int(policy.get("alternate_friday_parity", 0)),
             "status": "paid" if run.get("paid") else "draft",
         })

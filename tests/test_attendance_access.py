@@ -14,14 +14,17 @@ from fastapi import HTTPException
 
 from app.attendance.api import (
     WhatsAppAttendanceEvent,
+    decide_permission as decide_permission_route,
     list_permissions,
+    request_permission as request_permission_route,
     whatsapp_attendance_directory,
     whatsapp_private_attendance,
 )
 from app.attendance.models import PermissionDecision, PermissionRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
-from app.db.users import STAFF_ROLE, User
+from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, User
+from app.payroll import _visible_employees
 
 
 class FakeUsers:
@@ -61,6 +64,111 @@ class RecordingRepository:
     def permissions_for_period(self, employee_ids, start, end):
         type(self).requested = (employee_ids, start, end)
         return []
+
+
+class ApprovalUsers(FakeUsers):
+    def __init__(self):
+        super().__init__()
+        self.members.update({
+            "manager-1": User(id="manager-1", email="manager@example.com", name="Manager One", role=MANAGER_ROLE),
+            "manager-2": User(id="manager-2", email="manager2@example.com", name="Manager Two", role=MANAGER_ROLE),
+            "admin-1": User(id="admin-1", email="admin@example.com", name="Super Admin", role=ADMIN_ROLE),
+        })
+
+    def list_admins(self, include_inactive=False):
+        return [self.members["admin-1"]]
+
+    def list_managers(self, include_inactive=False):
+        return [self.members["manager-1"], self.members["manager-2"]]
+
+    def list_staff(self, include_inactive=False):
+        return [self.members["staff-1"], self.members["staff-2"]]
+
+
+class CapturedNotifications:
+    recipients = []
+
+    def record(self, user_id, **_values):
+        type(self).recipients.append(user_id)
+
+
+def test_manager_leave_request_notifies_only_super_admin():
+    repository = AttendanceRepository(mongomock.MongoClient()["manager-request"])
+    CapturedNotifications.recipients = []
+    payload = PermissionRequest(
+        attendance_date=date(2026, 9, 10),
+        kind="paid_leave",
+        reason="Personal leave",
+    )
+    with patch("app.attendance.api.users", ApprovalUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ), patch("app.attendance.api.NotificationRepository", return_value=CapturedNotifications()):
+        request_permission_route(payload, user={"id": "manager-1", "role": MANAGER_ROLE})
+
+    assert CapturedNotifications.recipients == ["admin-1"]
+
+
+def test_manager_cannot_approve_another_manager_request():
+    repository = AttendanceRepository(mongomock.MongoClient()["manager-approval-boundary"])
+    request = repository.create_permission({
+        "employee_id": "manager-1",
+        "attendance_date": "2026-09-10",
+        "kind": "paid_leave",
+        "requested_minutes": 0,
+        "reason": "Personal leave",
+    })
+    with patch("app.attendance.api.users", ApprovalUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ):
+        try:
+            decide_permission_route(
+                request["id"],
+                PermissionDecision(approved=True, reason="Approved"),
+                admin={"id": "manager-2", "role": MANAGER_ROLE},
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError("A manager request must require administrator approval")
+
+
+def test_super_admin_can_approve_manager_request():
+    repository = AttendanceRepository(mongomock.MongoClient()["admin-manager-approval"])
+    request = repository.create_permission({
+        "employee_id": "manager-1",
+        "attendance_date": "2026-09-10",
+        "kind": "paid_leave",
+        "requested_minutes": 0,
+        "reason": "Personal leave",
+    })
+    with patch("app.attendance.api.users", ApprovalUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ):
+        result = decide_permission_route(
+            request["id"],
+            PermissionDecision(approved=True, reason="Approved by super admin"),
+            admin={"id": "admin-1", "role": ADMIN_ROLE},
+        )
+
+    assert result["status"] == "approved"
+
+
+def test_manager_approval_inbox_contains_staff_only():
+    RecordingRepository.requested = None
+    with patch("app.attendance.api.users", ApprovalUsers()), patch(
+        "app.attendance.api.AttendanceRepository", RecordingRepository
+    ):
+        list_permissions(2026, 9, employee_id=None, user={"id": "manager-1", "role": MANAGER_ROLE})
+
+    employee_ids, _start, _end = RecordingRepository.requested
+    assert employee_ids == ["staff-1", "staff-2"]
+
+
+def test_staff_payroll_is_scoped_to_the_signed_in_employee():
+    with patch("app.payroll.users", FakeUsers()):
+        visible = _visible_employees({"id": "staff-2", "role": "staff"})
+
+    assert [employee.id for employee in visible] == ["staff-2"]
 
 
 def test_staff_permission_history_ignores_another_employee_id():
@@ -108,6 +216,26 @@ def test_admin_decision_keeps_the_staff_reason_separate():
     assert decided["reason"] == "Doctor appointment"
     assert decided["decision_reason"] == "Approved by administrator"
     assert decided["status"] == "approved"
+
+
+def test_attendance_period_starts_at_first_real_employee_activity():
+    repository = AttendanceRepository(mongomock.MongoClient()["attendance-start"])
+    assert repository.attendance_start_date("staff-1") is None
+    repository.append_event({
+        "employee_id": "staff-1",
+        "action": "check_in",
+        "occurred_at": datetime(2026, 9, 8, 4, 30, tzinfo=timezone.utc),
+        "local_date": "2026-09-08",
+        "source": "web",
+        "idempotency_key": "first-punch",
+        "evidence": {},
+    })
+    repository.set_calendar_day({
+        "employee_id": "staff-1",
+        "attendance_date": "2026-09-10",
+        "status": "PL",
+    })
+    assert repository.attendance_start_date("staff-1") == date(2026, 9, 8)
 
 
 def test_approved_leave_request_updates_calendar_and_second_paid_leave_becomes_unpaid():

@@ -10,7 +10,6 @@ import {
   Percent,
   RefreshCw,
   ShieldCheck,
-  UserCheck,
   Users,
   WalletCards,
   XCircle,
@@ -24,7 +23,6 @@ import {
   listStaff,
   recordAttendancePunch,
   requestAttendancePermission,
-  setAttendanceLeave,
   type AttendanceDay,
   type AttendanceMonth,
   type AttendancePermission,
@@ -93,6 +91,17 @@ function timeOf(value?: string | null): string {
   }).format(new Date(value));
 }
 
+function workedMinutes(day?: AttendanceDay | null): number {
+  if (!day?.check_in || !day.check_out) return 0;
+  return Math.max(0, Math.floor((new Date(day.check_out).getTime() - new Date(day.check_in).getTime()) / 60_000));
+}
+
+function durationLabel(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${remainder}m` : `${remainder} min`;
+}
+
 function monthSummary(month?: AttendanceMonth | null): AttendanceSummary {
   const days = month?.days ?? [];
   const scheduled = days.filter((day) => !NON_WORKING.has(day.status)).length;
@@ -135,18 +144,17 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [minutes, setMinutes] = useState("15");
   const [reason, setReason] = useState("");
   const [permissionDate, setPermissionDate] = useState(today);
-  const [leaveDate, setLeaveDate] = useState(today);
-  const [leaveStatus, setLeaveStatus] = useState<"PL" | "UL" | "H">("PL");
-  const [leaveReason, setLeaveReason] = useState("");
+  const [viewMode, setViewMode] = useState<"team" | "mine">("team");
 
-  const isAdmin = user.role === "admin" || user.role === "manager";
+  const canManage = user.role === "admin" || user.role === "manager";
+  const isTeamView = canManage && viewMode === "team";
   const [yearText, monthText] = yearMonth.split("-");
   const year = Number(yearText);
   const monthNumber = Number(monthText);
   const selectedStaff = staff.find((person) => person.id === employeeId);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canManage) return;
     let active = true;
     listStaff(false)
       .then(({ items }) => {
@@ -159,13 +167,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     return () => {
       active = false;
     };
-  }, [isAdmin, onToast]);
+  }, [canManage, onToast]);
 
   const load = useCallback(async (showLoading = true) => {
-    if (!year || !monthNumber || (isAdmin && staff.length === 0)) return;
+    if (!year || !monthNumber || (isTeamView && staff.length === 0)) return;
     if (showLoading) setLoading(true);
     try {
-      if (isAdmin) {
+      if (isTeamView) {
         const [months, permissionResult] = await Promise.all([
           Promise.all(
             staff.map(async (person) => [
@@ -183,7 +191,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         const [daily, monthly, permissionResult] = await Promise.all([
           fetchAttendanceDay(today),
           fetchAttendanceMonth(year, monthNumber),
-          fetchAttendancePermissions(year, monthNumber),
+          fetchAttendancePermissions(year, monthNumber, user.role === "manager" ? user.id : undefined),
         ]);
         setDay(daily);
         setMonth(monthly);
@@ -194,7 +202,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [employeeId, isAdmin, monthNumber, onToast, staff, today, year]);
+  }, [employeeId, isTeamView, monthNumber, onToast, staff, today, user.id, user.role, year]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -232,11 +240,11 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       await requestAttendancePermission({
         attendance_date: permissionDate,
         kind,
-        requested_minutes: Number(minutes) || 0,
+        requested_minutes: ["late", "early_exit"].includes(kind) ? Number(minutes) || 0 : 0,
         reason: reason.trim(),
       });
       setReason("");
-      onToast("Permission sent for approval", "success");
+      onToast(user.role === "manager" ? "Permission sent to the super admin" : "Permission sent to your manager", "success");
       await load();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Permission could not be submitted", "error");
@@ -262,20 +270,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     }
   };
 
-  const recordLeave = async () => {
-    if (!employeeId || !leaveReason.trim()) return onToast("Select an employee and enter a leave reason", "info");
-    setBusy(true);
-    try {
-      const result = await setAttendanceLeave({ employee_id: employeeId, attendance_date: leaveDate, status: leaveStatus, reason: leaveReason.trim() });
-      setLeaveReason("");
-      onToast(result.calendar_day.converted_from_paid_leave ? "Paid leave already used; recorded as unpaid leave" : "Leave recorded", "success");
-      await load();
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : "Leave could not be recorded", "error");
-    } finally { setBusy(false); }
-  };
-
-  const visibleMonth = isAdmin ? adminMonths[employeeId] ?? null : month;
+  const visibleMonth = isTeamView ? adminMonths[employeeId] ?? null : month;
   const summary = monthSummary(visibleMonth);
   // Managers see the whole request inbox; the selected employee only controls
   // the detailed calendar below it.
@@ -287,26 +282,26 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     summary: monthSummary(adminMonths[person.id]),
     permissions: permissions.filter((permission) => permission.employee_id === person.id),
   }));
-  const organisationScheduled = rosterSummaries.reduce((sum, row) => sum + row.summary.scheduled, 0);
-  const organisationAttended = rosterSummaries.reduce((sum, row) => sum + row.summary.attended, 0);
-  const organisationPercentage = organisationScheduled
-    ? Math.round((organisationAttended / organisationScheduled) * 1000) / 10
-    : 0;
   const permissionUsed = visibleMonth?.totals.paid_permission_minutes ?? 0;
+  const currentDay = visibleMonth?.days.find((row) => row.date === today) ?? day;
 
   return (
-    <div className={`ds-page attendance-page ${isAdmin ? "is-manager-view" : "is-staff-view"}`}>
+    <div className={`ds-page attendance-page ${isTeamView ? "is-manager-view" : "is-staff-view"}`}>
       <header className="ds-head attendance-hero">
         <div>
-          <span className="attendance-kicker">{isAdmin ? "WORKFORCE OPERATIONS" : "WORKDAY"}</span>
-          <h1 className="ds-head-title">{isAdmin ? "Staff attendance" : "My attendance"}</h1>
+          <span className="attendance-kicker">{isTeamView ? "WORKFORCE OPERATIONS" : "WORKDAY"}</span>
+          <h1 className="ds-head-title">{isTeamView ? "Staff attendance" : "My attendance"}</h1>
           <p className="ds-head-sub">
-            {isAdmin
+            {isTeamView
               ? "Monthly attendance, exceptions and permission requests for every active staff member"
               : "Your attendance percentage, punches and permission history"}
           </p>
         </div>
         <div className="attendance-toolbar">
+          {user.role === "manager" && <div className="scope-switch" aria-label="Attendance view">
+            <button type="button" className={viewMode === "mine" ? "is-active" : ""} onClick={() => setViewMode("mine")}>My attendance</button>
+            <button type="button" className={viewMode === "team" ? "is-active" : ""} onClick={() => setViewMode("team")}>Team attendance</button>
+          </div>}
           <label className="attendance-select">
             Month
             <input type="month" value={yearMonth} onChange={(event) => setYearMonth(event.target.value)} />
@@ -318,16 +313,15 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       </header>
 
       <div className="attendance-policy-strip" aria-label="Attendance policy summary">
-        <span><Clock3 size={15} /><strong>60 min</strong> monthly grace</span>
+        <span><Clock3 size={15} /><strong>8 hours</strong> payable work + 1-hour break</span>
         <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
-        <span><ShieldCheck size={15} />Sunday + assigned rotation off</span>
+        <span><ShieldCheck size={15} />Sunday or alternate-Friday weekly off</span>
         <span><WalletCards size={15} />Extra time deducted by minute</span>
       </div>
 
-      {isAdmin ? (
+      {isTeamView ? (
         <>
           <div className="ds-stats attendance-stats attendance-admin-stats">
-            <Stat label="Team attendance" value={`${organisationPercentage}%`} note={`${organisationAttended} of ${organisationScheduled} staff-days`} icon={<Percent size={16} />} />
             <Stat label="Active staff" value={String(staff.length)} note="Included in this month" icon={<Users size={16} />} />
             <Stat label="Pending permissions" value={String(pendingCount)} note="Awaiting an admin decision" icon={<ShieldCheck size={16} />} />
             <Stat label="Unpaid minutes" value={String(rosterSummaries.reduce((sum, row) => sum + (row.month?.totals.unpaid_minutes ?? 0), 0))} note="Across the active roster" icon={<WalletCards size={16} />} />
@@ -342,19 +336,16 @@ export default function AttendanceScreen({ user, onToast }: Props) {
             </div>
             <div className="ds-table-wrap is-ruled">
               <table className="ds-table is-ruled">
-                <thead><tr><th>Staff</th><th>Attendance</th><th>Present</th><th>Absent</th><th>Late</th><th>Missing punch</th><th>Permissions</th><th>Unpaid</th><th /></tr></thead>
+                <thead><tr><th>Employee</th><th>Attendance</th><th>Working days</th><th>Exceptions</th><th>Salary-impact time</th><th /></tr></thead>
                 <tbody>
                   {rosterSummaries.map(({ person, month: staffMonth, summary: staffSummary, permissions: staffPermissions }) => (
                     <tr key={person.id} className={employeeId === person.id ? "is-selected" : undefined}>
                       <td><span className="ds-who-text"><strong>{person.name}</strong><small>{person.staff_code || person.email}</small></span></td>
                       <td><div className="attendance-rate"><strong className="attendance-percentage">{staffSummary.percentage}%</strong><span><i style={{ width: `${Math.min(100, staffSummary.percentage)}%` }} /></span></div></td>
-                      <td>{staffSummary.attended} / {staffSummary.scheduled}</td>
-                      <td>{staffSummary.absent}</td>
-                      <td>{staffSummary.late}</td>
-                      <td>{staffSummary.missing}</td>
-                      <td>{staffPermissions.length}</td>
-                      <td>{staffMonth?.totals.unpaid_minutes ?? 0} min</td>
-                      <td><button type="button" className="ds-ghost-btn" onClick={() => setEmployeeId(person.id)}>View</button></td>
+                      <td><strong>{staffSummary.attended} of {staffSummary.scheduled}</strong><small className="attendance-cell-note">Tracked from {staffMonth?.days[0]?.date || "first punch"}</small></td>
+                      <td><div className="attendance-exception-list"><span>{staffSummary.absent} absent</span><span>{staffSummary.late} late</span><span>{staffSummary.missing} open punch</span><span>{staffPermissions.length} requests</span></div></td>
+                      <td><strong className={(staffMonth?.totals.unpaid_minutes ?? 0) > 0 ? "attendance-unpaid" : ""}>{durationLabel(staffMonth?.totals.unpaid_minutes ?? 0)}</strong><small className="attendance-cell-note">After paid allowance</small></td>
+                      <td><button type="button" className="attendance-view-btn" onClick={() => setEmployeeId(person.id)}>Open details</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -365,30 +356,30 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       ) : (
         <div className="ds-stats attendance-stats attendance-self-stats">
           <Stat label="Attendance" value={`${summary.percentage}%`} note={`${summary.attended} of ${summary.scheduled} working days`} icon={<Percent size={16} />} />
-          <Stat label="Today" value={statusLabel(day)} note={today} icon={<CalendarDays size={16} />} />
-          <Stat label="Check in" value={timeOf(day?.check_in)} note="Server-recorded time" icon={<LogIn size={16} />} />
+          <Stat label="Today" value={statusLabel(currentDay)} note={today} icon={<CalendarDays size={16} />} />
+          <Stat label="Check in" value={timeOf(currentDay?.check_in)} note="Server-recorded time" icon={<LogIn size={16} />} />
           <Stat label="Permission used" value={`${permissionUsed} / 60 min`} note={`${month?.totals.permission_occasions ?? 0} of 2 occasions`} icon={<ShieldCheck size={16} />} />
           <Stat label="Unpaid" value={`${month?.totals.unpaid_minutes ?? 0} min`} note="Actual absence time only" icon={<WalletCards size={16} />} />
         </div>
       )}
 
-      {!isAdmin && (
+      {!isTeamView && (
         <div className="attendance-grid">
           <section className="ds-panel">
-            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Today’s attendance</h2><p className="ds-panel-sub">Default shift 10:00 AM–7:00 PM unless another shift is assigned.</p></div><Clock3 size={20} /></div>
-            <div className="attendance-minutes"><span><strong>{day?.late_minutes ?? 0}</strong> late minutes</span><span><strong>{day?.early_minutes ?? 0}</strong> early-exit minutes</span></div>
+            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Today’s attendance</h2><p className="ds-panel-sub">Default shift 10:00 AM–7:00 PM, including a one-hour break: 480 payable minutes.</p></div><Clock3 size={20} /></div>
+            <div className="attendance-minutes"><span><strong>{durationLabel(workedMinutes(currentDay))}</strong> worked today</span><span><strong>{durationLabel(currentDay?.unpaid_minutes ?? 0)}</strong> salary-impact time</span></div>
             <div className="attendance-actions">
-              <button type="button" className="ds-primary-btn" disabled={busy || Boolean(day?.check_in)} onClick={() => void punch("check_in")}><LogIn size={15} /> Check in</button>
-              <button type="button" className="ds-ghost-btn" disabled={busy || !day?.check_in || Boolean(day?.check_out)} onClick={() => void punch("check_out")}><LogOut size={15} /> Check out</button>
+              <button type="button" className="ds-primary-btn" disabled={busy || Boolean(currentDay?.check_in)} onClick={() => void punch("check_in")}><LogIn size={15} /> Check in</button>
+              <button type="button" className="ds-ghost-btn" disabled={busy || !currentDay?.check_in || Boolean(currentDay?.check_out)} onClick={() => void punch("check_out")}><LogOut size={15} /> Check out</button>
             </div>
           </section>
 
           <section className="ds-panel">
-            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Request permission</h2><p className="ds-panel-sub">Late and WFH requests must be submitted before the shift starts.</p></div></div>
+            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Request permission</h2><p className="ds-panel-sub">{user.role === "manager" ? "Your request will go to the super admin for approval." : "Your request will go to your manager for approval."}</p></div></div>
             <div className="attendance-form">
               <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
               <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
-              <label>Minutes<input type="number" min="0" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} disabled={!["late", "early_exit"].includes(kind)} /></label>
+              {["late", "early_exit"].includes(kind) && <label>Minutes<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
               <label className="is-wide">Reason<textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this permission needed?" /></label>
               <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitPermission()}>Send for approval</button>
             </div>
@@ -396,31 +387,16 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         </div>
       )}
 
-      {isAdmin && selectedStaff && (
-        <section className="ds-panel attendance-selected-head">
-          <div className="ds-panel-head">
-            <div><h2 className="ds-panel-title">{selectedStaff.name}</h2><p className="ds-panel-sub">{selectedStaff.staff_code || selectedStaff.email} · {summary.percentage}% attendance</p></div>
-            <UserCheck size={20} />
-          </div>
-          <div className="attendance-form attendance-leave-form">
-            <label>Leave date<input type="date" value={leaveDate} onChange={(event) => setLeaveDate(event.target.value)} /></label>
-            <label>Leave type<select value={leaveStatus} onChange={(event) => setLeaveStatus(event.target.value as "PL" | "UL" | "H")}><option value="PL">Paid leave (first each month)</option><option value="UL">Unpaid leave</option><option value="H">Company paid holiday</option></select></label>
-            <label className="is-wide">Reason<input value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} placeholder="Reason for leave" /></label>
-            <button type="button" className="ds-primary-btn" disabled={busy || !leaveReason.trim()} onClick={() => void recordLeave()}>Record leave</button>
-          </div>
-        </section>
-      )}
-
       <PermissionTable
         permissions={selectedPermissions}
         staff={staff}
-        admin={isAdmin}
+        admin={isTeamView}
         busy={busy}
         onDecision={decidePermission}
         months={adminMonths}
       />
 
-      <MonthTable month={visibleMonth} title={isAdmin && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} />
+      <MonthTable month={visibleMonth} title={isTeamView && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} />
     </div>
   );
 }
@@ -455,7 +431,7 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
           </div>
           <span className={`attendance-request-count ${pending ? "has-pending" : ""}`}>{pending} awaiting review</span>
         </div>
-        {ordered.length === 0 ? <div className="ds-empty-state"><ShieldCheck size={28} /><h3>No permission requests this month</h3><p>New employee requests will appear here.</p></div> : (
+        {ordered.length === 0 ? <div className="attendance-requests-clear"><CheckCircle2 size={18} /><span><strong>All caught up</strong>No permission requests need a decision.</span></div> : (
           <div className="attendance-request-grid">
             {ordered.map((permission) => {
               const employeeMonth = months[permission.employee_id];
@@ -505,11 +481,21 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
 
 function MonthTable({ month, title }: { month: AttendanceMonth | null; title: string }) {
   return (
-    <section className="ds-panel">
-      <div className="ds-panel-head"><div><h2 className="ds-panel-title">{title}</h2><p className="ds-panel-sub">Daily status and exact-minute attendance records.</p></div></div>
-      <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Status</th><th>In</th><th>Out</th><th>Late</th><th>Early</th><th>Paid permission</th><th>Unpaid</th></tr></thead><tbody>
-        {[...(month?.days ?? [])].reverse().map((row) => <tr key={row.date}><td>{row.date}</td><td><span className={`ds-status ${row.status === "A" || row.status === "UL" ? "is-bad" : (row.status === "MP" && !(row.provisional && row.check_in)) || row.status === "LT" || row.status === "EE" ? "is-warn" : "is-info"}`}><i />{statusLabel(row)}</span></td><td>{timeOf(row.check_in)}</td><td>{timeOf(row.check_out)}</td><td>{row.late_minutes} min</td><td>{row.early_minutes} min</td><td>{row.paid_permission_minutes ?? 0} min</td><td>{row.unpaid_minutes} min</td></tr>)}
-      </tbody></table></div>
+    <section className="ds-panel attendance-ledger">
+      <div className="ds-panel-head"><div><span className="attendance-section-kicker">DAILY CALCULATION</span><h2 className="ds-panel-title">{title}</h2><p className="ds-panel-sub">Worked time and paid allowance are separated from time that affects salary.</p></div></div>
+      {!month?.days.length ? <div className="ds-empty-state"><CalendarDays size={28} /><h3>Attendance tracking has not started</h3><p>The calendar begins from this employee’s first punch, leave or permission.</p></div> : <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Result</th><th>Work session</th><th>Paid allowance</th><th>Salary impact</th></tr></thead><tbody>
+        {[...month.days].reverse().map((row) => {
+          const work = workedMinutes(row);
+          const unpaid = row.unpaid_minutes ?? 0;
+          return <tr key={row.date}>
+            <td><strong>{row.date}</strong></td>
+            <td><span className={`ds-status ${row.status === "A" || row.status === "UL" ? "is-bad" : (row.status === "MP" && !(row.provisional && row.check_in)) || row.status === "LT" || row.status === "EE" ? "is-warn" : "is-info"}`}><i />{statusLabel(row)}</span></td>
+            <td><strong>{row.check_in && !row.check_out ? "In progress" : row.check_in ? durationLabel(work) : "No work session"}</strong><small className="attendance-cell-note">{row.check_in ? `${timeOf(row.check_in)} → ${row.check_out ? timeOf(row.check_out) : "still checked in"}` : "No punches recorded"}</small></td>
+            <td><strong>{durationLabel(row.paid_permission_minutes ?? 0)}</strong><small className="attendance-cell-note">Grace or approved permission</small></td>
+            <td><strong className={unpaid ? "attendance-unpaid" : "attendance-no-impact"}>{unpaid ? durationLabel(unpaid) : "No deduction"}</strong><small className="attendance-cell-note">{unpaid ? row.status === "A" || row.status === "UL" ? "Full-day absence" : "Uncovered shift time" : "Fully covered"}</small></td>
+          </tr>;
+        })}
+      </tbody></table></div>}
     </section>
   );
 }

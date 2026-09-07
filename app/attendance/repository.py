@@ -67,6 +67,22 @@ class AttendanceRepository:
         rows = self.events.find({"employee_id": employee_id, "local_date": day.isoformat()}).sort("occurred_at", ASCENDING)
         return [_public(row) for row in rows]
 
+    def attendance_start_date(self, employee_id: str) -> date | None:
+        """First date with real attendance data; never invent earlier absences."""
+        candidates: list[str] = []
+        policy = self.policies.find_one({"employee_id": employee_id}) or {}
+        if policy.get("attendance_start_date"):
+            candidates.append(str(policy["attendance_start_date"]))
+        for collection, field in (
+            (self.events, "local_date"),
+            (self.calendar, "attendance_date"),
+            (self.permissions, "attendance_date"),
+        ):
+            row = collection.find_one({"employee_id": employee_id}, sort=[(field, ASCENDING)])
+            if row and row.get(field):
+                candidates.append(str(row[field]))
+        return date.fromisoformat(min(candidates)) if candidates else None
+
     def effective_punches_for_day(self, employee_id: str, day: date) -> list[dict]:
         punches = self.events_for_day(employee_id, day)
         additions = self.adjustments.find({
