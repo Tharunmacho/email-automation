@@ -17781,6 +17781,22 @@ a.um-phone:hover {
   gap: 0.3rem;
 }
 
+/* Attendance workspace */
+.attendance-toolbar { display: flex; justify-content: flex-end; align-items: end; gap: .75rem; }
+.attendance-select, .attendance-form label { display: flex; flex-direction: column; gap: .35rem; color: var(--text-muted); font-size: .78rem; font-weight: 600; }
+.attendance-select select, .attendance-form select, .attendance-form input, .attendance-form textarea { min-width: 210px; padding: .62rem .72rem; border: 1px solid var(--border-main); border-radius: 9px; background: var(--bg-card); color: var(--text-main); font: inherit; }
+.attendance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.attendance-minutes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin: 1.25rem 0; }
+.attendance-minutes span { padding: 1rem; border-radius: 10px; background: var(--tint-2); color: var(--text-muted); }
+.attendance-minutes strong { display: block; color: var(--text-main); font-size: 1.5rem; }
+.attendance-actions { display: flex; gap: .65rem; margin-top: auto; }
+.attendance-form { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: 1rem; }
+.attendance-form .is-wide { grid-column: 1 / -1; }
+.attendance-form textarea { resize: vertical; min-width: 0; }
+.attendance-stats .ds-stat-value { font-size: 1.25rem; }
+@media (max-width: 950px) { .attendance-grid { grid-template-columns: 1fr; } .attendance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media (max-width: 600px) { .attendance-stats, .attendance-form { grid-template-columns: 1fr !important; } .attendance-toolbar { align-items: stretch; flex-direction: column; } .attendance-select select { width: 100%; } }
+
 .dm-suppression-add {
   display: grid;
   grid-template-columns: minmax(13rem, 1fr) minmax(13rem, 1.35fr) auto;

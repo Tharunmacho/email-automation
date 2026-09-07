@@ -19,6 +19,7 @@ import {
   Building2,
   Database,
   Handshake,
+  CalendarCheck2,
   LayoutDashboard,
   FilePlus2,
   Settings as SettingsIcon,
@@ -32,6 +33,7 @@ export const NAV_IDS = [
   "overview",
   "candidates",
   "candidate-entry",
+  "attendance",
   "staff",
   "job-orders",
   "sourcing",
@@ -105,6 +107,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "staff"] },
       { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "staff"] },
+      { id: "attendance", label: "Attendance", icon: CalendarCheck2, roles: ["admin", "staff"] },
       { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],
@@ -229,5 +232,10 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "General",
     title: "Candidate Entry",
     subtitle: "Upload a resume and identity documents for VeriIS extraction.",
+  },
+  attendance: {
+    eyebrow: "General",
+    title: "Attendance",
+    subtitle: "Daily punches, permission balance, exceptions, and provisional deductions.",
   },
 };

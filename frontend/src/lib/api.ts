@@ -229,6 +229,70 @@ export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
 }
 
+// --------------------------------------------------------------------------- //
+//  Attendance
+// --------------------------------------------------------------------------- //
+export type AttendanceCode = "P" | "LT" | "EE" | "PP" | "OD" | "WFH" | "PL" | "UL" | "A" | "MP" | "WO" | "H";
+
+export interface AttendanceDay {
+  employee_id: string;
+  date: string;
+  status: AttendanceCode;
+  check_in?: string | null;
+  check_out?: string | null;
+  late_minutes: number;
+  early_minutes: number;
+  paid_permission_minutes?: number;
+  unpaid_minutes: number;
+  provisional: boolean;
+  permission_minutes_used?: number;
+  permission_minutes_remaining?: number;
+  permission_occasions_used?: number;
+  permission_warning?: boolean;
+  permission_exhausted?: boolean;
+}
+
+export interface AttendanceMonth {
+  employee_id: string;
+  year: number;
+  month: number;
+  days: AttendanceDay[];
+  totals: { paid_permission_minutes: number; unpaid_minutes: number; permission_occasions: number };
+  salary_preview?: { label: "PROVISIONAL"; attendance_lop: number };
+}
+
+const employeeQuery = (employeeId?: string) => employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+
+export function fetchAttendanceDay(day: string, employeeId?: string): Promise<AttendanceDay> {
+  return request(`/attendance/day/${day}${employeeQuery(employeeId)}`, { cache: "no-store" });
+}
+
+export function fetchAttendanceMonth(year: number, month: number, employeeId?: string): Promise<AttendanceMonth> {
+  return request(`/attendance/month/${year}/${month}${employeeQuery(employeeId)}`, { cache: "no-store" });
+}
+
+export function recordAttendancePunch(action: "check_in" | "check_out", employeeId?: string) {
+  return request<{ status: "recorded" | "duplicate"; event: { occurred_at: string } }>("/attendance/punch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, employee_id: employeeId, idempotency_key: crypto.randomUUID(), source: "web" }),
+  });
+}
+
+export function requestAttendancePermission(payload: {
+  employee_id?: string;
+  attendance_date: string;
+  kind: "late" | "early_exit" | "official_duty" | "work_from_home";
+  requested_minutes: number;
+  reason: string;
+}) {
+  return request<{ status: string }>("/attendance/permissions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 /** Fetch the separately stored Aadhaar and passport records for one candidate. */
 export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
   return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {

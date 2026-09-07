@@ -38,6 +38,7 @@ PAGES = (
     "overview",
     "candidates",
     "candidate-entry",
+    "attendance",
     "staff",
     "job-orders",
     "sourcing",
@@ -62,7 +63,7 @@ PAGES = (
 #: their own work in a different screen, not the whole database's PII.
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
-    STAFF_ROLE: {"candidates", "candidate-entry", "settings"},
+    STAFF_ROLE: {"candidates", "candidate-entry", "attendance", "settings"},
 }
 
 

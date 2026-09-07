@@ -19,6 +19,7 @@ import CandidateUploadScreen, { type CandidateUploadFiles } from "@/screens/Cand
 import LoginScreen from "@/screens/LoginScreen";
 import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
+import AttendanceScreen from "@/screens/AttendanceScreen";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
@@ -1253,6 +1254,10 @@ export default function Home() {
                       reachableTabs?.has("users") ? handleCreateStaff : undefined
                     }
                   />
+                )}
+
+                {currentTab === "attendance" && (
+                  <AttendanceScreen user={user} onToast={showToast} />
                 )}
 
                 {currentTab === "job-orders" && (
