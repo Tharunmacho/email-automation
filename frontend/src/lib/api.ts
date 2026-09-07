@@ -257,7 +257,7 @@ export interface AttendanceMonth {
   year: number;
   month: number;
   days: AttendanceDay[];
-  totals: { paid_permission_minutes: number; unpaid_minutes: number; permission_occasions: number };
+  totals: { paid_permission_minutes: number; approved_permission_minutes?: number; grace_minutes?: number; unpaid_minutes: number; permission_occasions: number };
   salary_preview?: { label: "PROVISIONAL"; attendance_lop: number };
 }
 

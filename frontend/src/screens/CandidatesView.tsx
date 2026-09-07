@@ -164,6 +164,11 @@ function getReference(candidate: CandidateRecord): string {
   return candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`;
 }
 
+function getSourceLine(candidate: CandidateRecord): string {
+  if (candidate.source !== "whatsapp") return candidate.source === "upload" ? "Admin upload" : "Email";
+  return candidate.source_bot_number || (candidate.source_bot_id ? `Bot ID ${candidate.source_bot_id}` : "WhatsApp");
+}
+
 function getAdded(candidate: CandidateRecord): string {
   if (!candidate.created_at) return "—";
   const date = new Date(candidate.created_at);
@@ -239,6 +244,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
   { key: "contact", label: "Contact" },
   { key: "added", label: "Added", sort: "added" },
   { key: "owner", label: "Assigned to" },
+  { key: "source", label: "Source bot" },
   { key: "status", label: "Status", sort: "status" },
   { key: "actions", label: "" },
 ];
@@ -683,6 +689,10 @@ export default function CandidatesView({
                       <dt>Assigned to</dt>
                       <dd>{candidate.assigned_staff_name || "Unassigned"}</dd>
                     </div>
+                    <div>
+                      <dt>Source bot</dt>
+                      <dd>{getSourceLine(candidate)}</dd>
+                    </div>
                   </dl>
 
                   <div className="ds-mini-foot" onClick={(e) => e.stopPropagation()}>
@@ -770,6 +780,8 @@ export default function CandidatesView({
                           {candidate.assigned_staff_name || "Unassigned"}
                         </span>
                       </td>
+
+                      <td>{getSourceLine(candidate)}</td>
 
                       <td>
                         <span className={`ds-status is-${status.tone}`}>

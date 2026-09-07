@@ -66,6 +66,8 @@ const PERMISSION_KIND: Record<AttendancePermission["kind"], string> = {
   early_exit: "Early leaving",
   official_duty: "Official duty",
   work_from_home: "Work from home",
+  paid_leave: "Paid leave",
+  unpaid_leave: "Unpaid leave",
 };
 
 const ATTENDED = new Set(["P", "LT", "EE", "PP", "OD", "WFH", "PL"]);
@@ -125,6 +127,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [kind, setKind] = useState<AttendancePermission["kind"]>("late");
   const [minutes, setMinutes] = useState("15");
   const [reason, setReason] = useState("");
+  const [permissionDate, setPermissionDate] = useState(today);
   const [leaveDate, setLeaveDate] = useState(today);
   const [leaveStatus, setLeaveStatus] = useState<"PL" | "UL">("PL");
   const [leaveReason, setLeaveReason] = useState("");
@@ -209,7 +212,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     setBusy(true);
     try {
       await requestAttendancePermission({
-        attendance_date: today,
+        attendance_date: permissionDate,
         kind,
         requested_minutes: Number(minutes) || 0,
         reason: reason.trim(),
@@ -357,8 +360,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           <section className="ds-panel">
             <div className="ds-panel-head"><div><h2 className="ds-panel-title">Request permission</h2><p className="ds-panel-sub">Late and WFH requests must be submitted before the shift starts.</p></div></div>
             <div className="attendance-form">
-              <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option></select></label>
-              <label>Minutes<input type="number" min="0" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} disabled={kind === "official_duty" || kind === "work_from_home"} /></label>
+              <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
+              <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
+              <label>Minutes<input type="number" min="0" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} disabled={!["late", "early_exit"].includes(kind)} /></label>
               <label className="is-wide">Reason<textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this permission needed?" /></label>
               <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitPermission()}>Send for approval</button>
             </div>
@@ -387,6 +391,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         admin={isAdmin}
         busy={busy}
         onDecision={decidePermission}
+        months={adminMonths}
       />
 
       <MonthTable month={visibleMonth} title={isAdmin && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} />
@@ -398,22 +403,25 @@ function Stat({ label, value, note, icon }: { label: string; value: string; note
   return <div className="ds-stat is-static"><span className="ds-stat-top"><span className="ds-stat-label">{label}</span>{icon}</span><span className="ds-stat-value">{value}</span><span className="ds-stat-foot">{note}</span></div>;
 }
 
-function PermissionTable({ permissions, staff, admin, busy, onDecision }: {
+function PermissionTable({ permissions, staff, admin, busy, onDecision, months }: {
   permissions: AttendancePermission[];
   staff: StaffMember[];
   admin: boolean;
   busy: boolean;
   onDecision: (permission: AttendancePermission, approved: boolean) => Promise<void>;
+  months: Record<string, AttendanceMonth>;
 }) {
   const nameOf = (employeeId: string) => staff.find((person) => person.id === employeeId)?.name || employeeId;
   return (
     <section className="ds-panel attendance-permissions">
       <div className="ds-panel-head"><div><h2 className="ds-panel-title">{admin ? "Permission requests" : "My permissions"}</h2><p className="ds-panel-sub">Request date, approval status and the recorded reason.</p></div></div>
       {permissions.length === 0 ? <div className="ds-empty-state"><ShieldCheck size={28} /><h3>No permission requests this month</h3></div> : (
-        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr>{admin && <th>Staff</th>}<th>Date</th><th>Type</th><th>Minutes</th><th>Reason</th><th>Status</th>{admin && <th>Decision</th>}</tr></thead><tbody>
+        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr>{admin && <th>Staff</th>}<th>Date</th><th>Type</th><th>Minutes</th>{admin && <><th>Leave used</th><th>Hour permission</th></>}<th>Reason</th><th>Status</th>{admin && <th>Decision</th>}</tr></thead><tbody>
           {permissions.map((permission) => <tr key={permission.id}>
             {admin && <td>{nameOf(permission.employee_id)}</td>}
-            <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td><td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
+            <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td>
+            {admin && <><td>{months[permission.employee_id]?.days.filter((day) => day.status === "PL" || day.status === "UL").length ?? 0} day(s)</td><td>{months[permission.employee_id]?.totals.approved_permission_minutes ?? 0} min</td></>}
+            <td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
             <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span></td>
             {admin && <td>{permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="ds-ghost-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={14} /> Approve</button><button type="button" className="ds-ghost-btn is-danger" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={14} /> Reject</button></div> : "—"}</td>}
           </tr>)}

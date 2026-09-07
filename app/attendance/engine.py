@@ -184,6 +184,7 @@ def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None
         automatic_grace = min(unapproved, remaining)
         remaining -= automatic_grace
         row["grace_minutes_applied"] = automatic_grace
+        row["approved_permission_minutes"] = paid
         row["paid_permission_minutes"] = paid + automatic_grace
         row["unpaid_minutes"] = fixed_unpaid + unapproved - automatic_grace + excess
         row["permission_occasions_used"] = occasions

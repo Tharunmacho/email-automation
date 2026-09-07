@@ -34,7 +34,7 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
 from app.core.models import (
@@ -2675,6 +2675,13 @@ class WhatsAppIdentityFileIn(BaseModel):
 
 class WhatsAppCandidateIn(BaseModel):
     source: str = "whatsapp"
+    #: Display number of the business line that received this registration.
+    #: New bots should send it; `idempotency_key` still supplies the stable Meta id.
+    source_bot_number: str | None = Field(
+        default=None,
+        max_length=40,
+        validation_alias=AliasChoices("source_bot_number", "bot_number", "business_number", "display_phone_number"),
+    )
     profile: WhatsAppProfileIn
     #: Stable per candidate: `whatsapp/{phone_number_id}/{wa_user_id}`. The
     #: unique index on it is what makes a retry idempotent — and, now that a
@@ -2911,6 +2918,15 @@ def create_whatsapp_candidate(
                 "code": "duplicate_resume",
                 "detail": "this resume is already on another candidate",
             },
+        )
+
+    key_parts = payload.idempotency_key.split("/")
+    set_source_bot = getattr(repository, "set_source_bot", None)
+    if callable(set_source_bot):
+        set_source_bot(
+            result.candidate_id,
+            number=payload.source_bot_number or "",
+            phone_number_id=key_parts[1] if len(key_parts) > 1 else "",
         )
 
     # The Aadhaar and the passport, filed against whichever candidate the

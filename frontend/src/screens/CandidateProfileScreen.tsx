@@ -902,6 +902,7 @@ export default function CandidateProfileScreen({
                 record — `source_email.to_addr` — for anyone tracing where a
                 résumé came in. */}
             <Fact label="Phone" value={view.phone} />
+            {fromWhatsApp && <Fact label="Received by bot" value={candidate.source_bot_number || (candidate.source_bot_id ? `Bot ID ${candidate.source_bot_id}` : "WhatsApp bot")} />}
             <Fact label="LinkedIn" value={view.linkedin} />
             <Fact label="GitHub" value={view.github} />
             <Fact label="Address" value={view.location} />

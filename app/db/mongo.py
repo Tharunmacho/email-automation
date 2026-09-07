@@ -290,6 +290,19 @@ def ensure_indexes() -> None:
             {"_id": doc["_id"]},
             {"$set": {"candidate_code": candidate_code(doc["_id"])}},
         )
+    # Historical WhatsApp keys are `whatsapp/{phone_number_id}/{wa_user_id}`.
+    # Backfill only the receiving bot id; the candidate's WhatsApp id remains private.
+    for doc in coll.find(
+        {
+            "source": "whatsapp",
+            "source_bot_id": {"$in": [None, ""]},
+            "idempotency_key": {"$regex": "^whatsapp/[^/]+/"},
+        },
+        {"_id": 1, "idempotency_key": 1},
+    ):
+        parts = str(doc.get("idempotency_key", "")).split("/")
+        if len(parts) > 1 and parts[1]:
+            coll.update_one({"_id": doc["_id"]}, {"$set": {"source_bot_id": parts[1]}})
     ensure_index(
         coll,
         [("candidate_code", ASCENDING)],

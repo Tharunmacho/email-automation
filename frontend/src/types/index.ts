@@ -289,6 +289,10 @@ export interface CandidateRecord {
    * missing rather than treating it as unknown.
    */
   source?: "email" | "whatsapp" | "manual" | "upload";
+  /** Business WhatsApp line that received this candidate. */
+  source_bot_number?: string | null;
+  /** Meta phone-number id, shown only when no display number was supplied. */
+  source_bot_id?: string | null;
   profile: CandidateProfile;
   /**
    * Optional, because a candidate may genuinely have no CV.

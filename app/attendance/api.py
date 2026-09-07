@@ -93,6 +93,8 @@ def attendance_month(
         "days": days,
         "totals": {
             "paid_permission_minutes": sum(row["paid_permission_minutes"] for row in days),
+            "approved_permission_minutes": sum(row.get("approved_permission_minutes", 0) for row in days),
+            "grace_minutes": sum(row.get("grace_minutes_applied", 0) for row in days),
             "unpaid_minutes": unpaid_total,
             "permission_occasions": days[-1]["permission_occasions_used"] if days else 0,
         },

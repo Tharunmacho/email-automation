@@ -141,6 +141,8 @@ LIST_PROJECTION = {
     "source_email.from_addr": 1,
     "source_email.to_addr": 1,
     "source_email.subject": 1,
+    "source_bot_number": 1,
+    "source_bot_id": 1,
     # Allocation and verdict: the staff queue sorts and colours rows by these,
     # and the SLA countdown in the list is `assigned_at` against `viewed_at`.
     "assigned_staff_id": 1,
@@ -720,6 +722,18 @@ class CandidateRepository:
         updates["updated_at"] = utcnow()
         self._coll.update_one(_id_filter(candidate_id), {"$set": updates})
         log.info("Refreshed WhatsApp profile fields on candidate %s", candidate_id)
+
+    def set_source_bot(self, candidate_id: str, *, number: str = "", phone_number_id: str = "") -> None:
+        """Record which receiving WhatsApp business line produced the candidate."""
+        from app.core.models import utcnow
+
+        updates = {"updated_at": utcnow()}
+        if number.strip():
+            updates["source_bot_number"] = number.strip()
+        if phone_number_id.strip():
+            updates["source_bot_id"] = phone_number_id.strip()
+        if len(updates) > 1:
+            self._coll.update_one(_id_filter(candidate_id), {"$set": updates})
 
     def refresh_whatsapp_sections(
         self,

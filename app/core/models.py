@@ -563,6 +563,10 @@ class CandidateRecord(BaseModel):
     # Defaulted to "email" so every document written before this field existed
     # reads back as what it actually is. There is no backfill to run.
     source: Literal["email", "whatsapp", "manual", "upload"] = "email"
+    # Receiving business line for WhatsApp candidates. `source_bot_id` is the
+    # Meta phone-number id fallback when the caller cannot supply its display number.
+    source_bot_number: Optional[str] = None
+    source_bot_id: Optional[str] = None
 
     profile: CandidateProfile
     # Optional on the type, conditional in practice — see `_check_source_rules`
