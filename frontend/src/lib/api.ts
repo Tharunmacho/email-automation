@@ -384,9 +384,9 @@ export function updatePayrollStatus(year: number, month: number, employeeId: str
 export function setAttendanceLeave(payload: {
   employee_id: string;
   attendance_date: string;
-  status: "PL" | "UL";
+  status: "PL" | "UL" | "H";
   reason: string;
-}): Promise<{ status: string; calendar_day: { status: "PL" | "UL"; converted_from_paid_leave?: boolean } }> {
+}): Promise<{ status: string; calendar_day: { status: "PL" | "UL" | "H"; converted_from_paid_leave?: boolean } }> {
   return request("/attendance/calendar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

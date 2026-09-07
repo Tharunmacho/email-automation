@@ -11,7 +11,9 @@ import mongomock
 # that owner first so this test does not enter the module from the circular end.
 from app.api.routes import app as _app  # noqa: F401
 from app.attendance.api import list_permissions
+from app.attendance.models import PermissionDecision, PermissionRequest
 from app.attendance.repository import AttendanceRepository
+from app.attendance.service import AttendanceService
 from app.db.users import STAFF_ROLE, User
 
 
@@ -82,3 +84,20 @@ def test_admin_decision_keeps_the_staff_reason_separate():
     assert decided["reason"] == "Doctor appointment"
     assert decided["decision_reason"] == "Approved by administrator"
     assert decided["status"] == "approved"
+
+
+def test_approved_leave_request_updates_calendar_and_second_paid_leave_becomes_unpaid():
+    repository = AttendanceRepository(mongomock.MongoClient()["leave-approval"])
+    service = AttendanceService(repository)
+    for day, expected in ((7, "PL"), (8, "UL")):
+        request = service.request_permission("staff-1", PermissionRequest(
+            attendance_date=date(2026, 9, day),
+            kind="paid_leave",
+            reason="Personal leave",
+        ))
+        decided = service.decide_permission(
+            request["id"],
+            PermissionDecision(approved=True, reason="Approved by manager"),
+            "manager-1",
+        )
+        assert decided["calendar_status"] == expected

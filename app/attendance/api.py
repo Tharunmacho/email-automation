@@ -13,8 +13,11 @@ from app.attendance.models import AdjustmentRequest, CalendarDayRequest, Permiss
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
+from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
+from app.logging_config import get_logger
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
+log = get_logger(__name__)
 
 
 def service() -> AttendanceService:
@@ -115,6 +118,22 @@ def attendance_month(
 def request_permission(payload: PermissionRequest, user: dict = Depends(current_user)) -> dict:
     employee = _employee_id(user, payload.employee_id)
     permission = _conflict(lambda: service().request_permission(employee, payload))
+    employee_record = users.get(employee)
+    managers = getattr(users, "list_managers", lambda: [])()
+    try:
+        notification_repo = NotificationRepository() if managers else None
+        for manager in managers:
+            notification_repo.record(
+                manager.id,
+                type=ATTENDANCE_REQUEST,
+                title="Attendance request",
+                message=(
+                    f"{employee_record.name if employee_record else employee} requested "
+                    f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}."
+                ),
+            )
+    except Exception as exc:  # The request is durable even if its alert cannot be written.
+        log.warning("Attendance request %s could not notify managers: %s", permission.get("id"), exc)
     return {"status": "pending", "permission": permission}
 
 

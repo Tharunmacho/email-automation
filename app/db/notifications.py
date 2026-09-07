@@ -40,6 +40,7 @@ SLA_ALERT = "sla_alert"
 #: national. No candidate row exists for it, so this notification is the only
 #: record a recruiter has that the application arrived at all.
 CANDIDATE_REJECTED = "candidate_rejected"
+ATTENDANCE_REQUEST = "attendance_request"
 
 # A feed nobody has read in a month is noise, and this collection is written on
 # every single ingest. Expiring is a TTL index rather than a cleanup job so it

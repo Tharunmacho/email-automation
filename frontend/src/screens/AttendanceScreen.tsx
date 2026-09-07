@@ -129,7 +129,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [reason, setReason] = useState("");
   const [permissionDate, setPermissionDate] = useState(today);
   const [leaveDate, setLeaveDate] = useState(today);
-  const [leaveStatus, setLeaveStatus] = useState<"PL" | "UL">("PL");
+  const [leaveStatus, setLeaveStatus] = useState<"PL" | "UL" | "H">("PL");
   const [leaveReason, setLeaveReason] = useState("");
 
   const isAdmin = user.role === "admin" || user.role === "manager";
@@ -259,9 +259,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
   const visibleMonth = isAdmin ? adminMonths[employeeId] ?? null : month;
   const summary = monthSummary(visibleMonth);
-  const selectedPermissions = isAdmin
-    ? permissions.filter((permission) => permission.employee_id === employeeId)
-    : permissions;
+  // Managers see the whole request inbox; the selected employee only controls
+  // the detailed calendar below it.
+  const selectedPermissions = permissions;
   const pendingCount = permissions.filter((permission) => permission.status === "pending").length;
   const rosterSummaries = staff.map((person) => ({
     person,
@@ -378,7 +378,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           </div>
           <div className="attendance-form attendance-leave-form">
             <label>Leave date<input type="date" value={leaveDate} onChange={(event) => setLeaveDate(event.target.value)} /></label>
-            <label>Leave type<select value={leaveStatus} onChange={(event) => setLeaveStatus(event.target.value as "PL" | "UL")}><option value="PL">Paid leave (first each month)</option><option value="UL">Unpaid leave</option></select></label>
+            <label>Leave type<select value={leaveStatus} onChange={(event) => setLeaveStatus(event.target.value as "PL" | "UL" | "H")}><option value="PL">Paid leave (first each month)</option><option value="UL">Unpaid leave</option><option value="H">Company paid holiday</option></select></label>
             <label className="is-wide">Reason<input value={leaveReason} onChange={(event) => setLeaveReason(event.target.value)} placeholder="Reason for leave" /></label>
             <button type="button" className="ds-primary-btn" disabled={busy || !leaveReason.trim()} onClick={() => void recordLeave()}>Record leave</button>
           </div>

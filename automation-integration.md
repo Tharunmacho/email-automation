@@ -42,6 +42,12 @@ email/{account_id}/{message_id}/{attachment_id}
 whatsapp/{phone_number_id}/{message_id}/{media_id}
 ```
 
+When the WhatsApp bot submits a candidate to `POST /candidates`, include
+`source_bot_number` with the receiving business line's display number (for
+example `+91 90000 00000`). The CRM also derives and stores the stable Meta
+`phone_number_id` from the idempotency key, so older submissions remain
+traceable even when no display number was supplied.
+
 ## Backpressure and reconciliation
 
 - Treat `429`, `502`, and `503` as retryable. Honor `Retry-After` and apply

@@ -271,6 +271,13 @@ class UserRepository:
         docs = list(self._coll.find(query).sort("created_at", ASCENDING))
         return [self._to_user(d) for d in docs]
 
+    def list_managers(self, include_inactive: bool = False) -> list[User]:
+        query: dict = {"role": MANAGER_ROLE}
+        if not include_inactive:
+            query["active"] = {"$ne": False}
+        docs = list(self._coll.find(query).sort("created_at", ASCENDING))
+        return [self._to_user(d) for d in docs]
+
     def list_employees(self, include_inactive: bool = True) -> list[User]:
         """Staff and managers who participate in attendance and payroll."""
         query: dict = {"role": {"$in": [STAFF_ROLE, MANAGER_ROLE]}}
