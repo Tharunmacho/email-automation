@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
-import { ChevronLeft, ChevronsUpDown, LogOut, Menu, Moon, Sun } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronLeft, Menu, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 
 import BrandLogo from "@/components/BrandLogo";
@@ -13,7 +13,6 @@ import {
   subscribeTheme,
   type Theme,
 } from "@/lib/theme";
-import { initialsOf } from "@/lib/format";
 import type { AuthUser } from "@/lib/api";
 
 interface SidebarProps {
@@ -24,7 +23,6 @@ interface SidebarProps {
   onNavigate: (id: NavId) => void;
   onToggleCollapse: () => void;
   onCloseMobile: () => void;
-  onSignOut: () => void;
 }
 
 const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
@@ -50,13 +48,24 @@ export default function Sidebar({
   onNavigate,
   onToggleCollapse,
   onCloseMobile,
-  onSignOut,
 }: SidebarProps) {
   const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
 
   // A staff member gets a shorter rail: the destinations they cannot use are
   // refused by the API anyway, and offering them is offering a dead end.
   const groups = useMemo(() => navGroupsFor(user.role, user.pages), [user.role, user.pages]);
+  const activeGroup = groups.find((group) => group.items.some((item) => item.id === activeId));
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(activeGroup?.collapsible ? [activeGroup.label] : ["Candidates"]),
+  );
+
+  useEffect(() => {
+    if (!activeGroup?.collapsible) return;
+    setOpenGroups((current) => {
+      if (current.has(activeGroup.label)) return current;
+      return new Set([...current, activeGroup.label]);
+    });
+  }, [activeGroup]);
 
   const go = (id: NavId) => {
     onNavigate(id);
@@ -101,8 +110,43 @@ export default function Sidebar({
             </button>
           </div>
 
-          {groups.map((group) => (
-            <div key={group.label} className="rail-group" role="group" aria-label={group.label}>
+          {groups.map((group) => {
+            const GroupIcon = group.icon;
+            const isOpen = openGroups.has(group.label);
+            const groupActive = group.items.some((item) => item.id === activeId);
+            return (
+            <div
+              key={group.label}
+              className={`rail-group ${group.collapsible ? "is-nested" : ""}`}
+              role="group"
+              aria-label={group.label}
+            >
+              {group.collapsible && (
+                <button
+                  type="button"
+                  className={`rail-section-toggle ${groupActive ? "is-current" : ""}`}
+                  onClick={() => {
+                    if (collapsed) {
+                      onToggleCollapse();
+                      setOpenGroups((current) => new Set([...current, group.label]));
+                      return;
+                    }
+                    setOpenGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(group.label)) next.delete(group.label);
+                      else next.add(group.label);
+                      return next;
+                    });
+                  }}
+                  aria-expanded={isOpen}
+                  title={collapsed ? group.label : undefined}
+                >
+                  {GroupIcon && <GroupIcon size={18} strokeWidth={2} />}
+                  <span className="rail-item-label">{group.label}</span>
+                  <ChevronDown className="rail-section-chevron" size={15} />
+                </button>
+              )}
+              <div className={`rail-group-items ${group.collapsible && !isOpen ? "is-closed" : ""}`}>
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeId === item.id;
@@ -127,39 +171,12 @@ export default function Sidebar({
                   </Link>
                 );
               })}
+              </div>
             </div>
-          ))}
+          );})}
         </div>
 
         <div className="rail-foot">
-          {/* The account card. "Recruitment Team" is the workspace this session
-              belongs to; the signed-in address sits under it, so the card says
-              both which team you are in and who you are in it as. */}
-          <div className="rail-account">
-            <span className="rail-avatar" aria-hidden="true">
-              {initialsOf(user.name || user.email)}
-            </span>
-            <span className="rail-account-text">
-              <span className="rail-account-name">Recruitment Team</span>
-              <span className="rail-account-mail" title={user.email}>
-                {user.email}
-              </span>
-            </span>
-            {/* The chevrons are the affordance; the exit icon is what the
-                control does, and it swaps in on hover so the button cannot be
-                mistaken for a menu that merely expands. */}
-            <button
-              type="button"
-              className="rail-signout"
-              onClick={onSignOut}
-              title={`Sign out of ${user.email}`}
-              aria-label="Sign out"
-            >
-              <ChevronsUpDown size={14} className="rail-account-chevrons" />
-              <LogOut size={14} className="rail-account-exit" />
-            </button>
-          </div>
-
           {/* Collapsed, the pill becomes one button that flips the theme — a
               two-up segmented control does not fit 52px, and hiding the control
               entirely would strand anyone who works with the rail closed. */}
