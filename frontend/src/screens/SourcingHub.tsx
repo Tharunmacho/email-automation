@@ -24,7 +24,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { type StatTone } from "@/components/ui/StatTile";
 import Select from "@/components/ui/Select";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
@@ -95,13 +94,6 @@ interface Engagement {
  * `live` = hiring right now, `filled` = every seat covered, `idle` = no demand.
  */
 type ClientTone = "live" | "filled" | "idle";
-
-/** Client state mapped onto the product's shared tone vocabulary. */
-const CLIENT_TONE: Record<ClientTone, StatTone> = {
-  live: "blue",
-  filled: "green",
-  idle: "slate",
-};
 
 const INITIAL_RECORDS: SourcingRecord[] = [];
 
@@ -226,6 +218,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("recent");
   const [liveOnly, setLiveOnly] = useState(false);
+  const [countryFilter, setCountryFilter] = useState("all");
 
   const [records, setRecords] = useState<SourcingRecord[]>(INITIAL_RECORDS);
   const [loading, setLoading] = useState(true);
@@ -412,6 +405,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     const filtered = records.filter((rec) => {
       if (typeFilter !== "all" && rec.type !== typeFilter) return false;
       if (liveOnly && (engagementOf(rec.name)?.live ?? 0) === 0) return false;
+      if (countryFilter !== "all" && (rec.country || "") !== countryFilter) return false;
       if (!q) return true;
       return (
         rec.name.toLowerCase().includes(q) ||
@@ -449,9 +443,15 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       });
     }
     return sorted;
-  }, [records, typeFilter, liveOnly, searchQuery, sortKey, engagementOf]);
+  }, [records, typeFilter, liveOnly, countryFilter, searchQuery, sortKey, engagementOf]);
 
-  const isFiltered = Boolean(searchQuery.trim()) || liveOnly || typeFilter !== "all";
+  const recordCountries = useMemo(
+    () => Array.from(new Set(records.map((record) => record.country).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b)),
+    [records],
+  );
+
+  const isFiltered = Boolean(searchQuery.trim()) || liveOnly || typeFilter !== "all" || countryFilter !== "all";
 
   const sourcingSummary = useMemo(() => {
     let hiring = 0;
@@ -473,6 +473,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setSearchQuery("");
     setLiveOnly(false);
     setTypeFilter("all");
+    setCountryFilter("all");
   };
 
   const persist = (updated: SourcingRecord[]) => {
@@ -655,7 +656,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     ...(newCountry ? [newCountry] : []),
     "India",
     ...countryOptions,
-  ])).map((value) => ({ value, label: value }));
+  ]));
 
   // ---- pieces ------------------------------------------------------------ //
 
@@ -669,7 +670,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     const primaryContact = contacts[0];
 
     return (
-      <tr className={`sh-table-row tone-${CLIENT_TONE[tone]}`} key={item.id}>
+      <tr className="sh-table-row" key={item.id}>
         <td>
           <span className="ds-who sh-table-partner">
             <span className="sh-monogram" aria-hidden="true">{initialsOf(item.name)}</span>
@@ -972,6 +973,18 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           </button>
 
           <Select
+            className="sh-country-filter"
+            size="sm"
+            value={countryFilter}
+            options={[
+              { value: "all", label: "All countries" },
+              ...recordCountries.map((country) => ({ value: country, label: country })),
+            ]}
+            onChange={setCountryFilter}
+            ariaLabel="Filter sourcing partners by country"
+          />
+
+          <Select
             className="sh-sort-select"
             size="sm"
             value={sortKey}
@@ -1085,14 +1098,19 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                     <label className="modal-label" htmlFor="sh-country">
                       Country
                     </label>
-                    <Select
+                    <input
                       id="sh-country"
+                      type="text"
+                      className="modal-input"
+                      list="sh-country-options"
                       placeholder="e.g. United Arab Emirates"
                       value={newCountry}
-                      options={selectableCountries}
-                      onChange={setNewCountry}
-                      ariaLabel="Country"
+                      onChange={(event) => setNewCountry(event.target.value)}
+                      autoComplete="country-name"
                     />
+                    <datalist id="sh-country-options">
+                      {selectableCountries.map((country) => <option value={country} key={country} />)}
+                    </datalist>
                   </div>
 
                   <div className="sh-field">

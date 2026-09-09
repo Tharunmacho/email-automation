@@ -189,6 +189,57 @@ export interface MatchResult {
   isRejected: boolean;
 }
 
+/** Related terms recruiters commonly use for the same capability. Matching is
+ * still evidence-based: an alias has to occur in the profile, résumé summary,
+ * or work history; this only removes vocabulary differences such as
+ * "ReactJS" versus "React" and "Amazon Web Services" versus "AWS". */
+const SKILL_CONCEPTS = [
+  ["javascript", "js", "ecmascript", "typescript", "ts"],
+  ["react", "reactjs", "react.js", "nextjs", "next.js"],
+  ["node", "nodejs", "node.js", "express", "expressjs"],
+  ["python", "django", "flask", "fastapi"],
+  ["java", "spring", "springboot", "spring boot"],
+  ["dotnet", ".net", "c#", "csharp", "asp.net"],
+  ["aws", "amazon web services"],
+  ["azure", "microsoft azure"],
+  ["gcp", "google cloud platform"],
+  ["sql", "mysql", "postgresql", "postgres", "mssql", "oracle database"],
+  ["nosql", "mongodb", "dynamodb", "cassandra"],
+  ["devops", "ci/cd", "continuous integration", "docker", "kubernetes"],
+  ["ui", "user interface", "frontend", "front end"],
+  ["ux", "user experience", "product design"],
+  ["accounting", "bookkeeping", "accounts", "general ledger"],
+  ["recruitment", "talent acquisition", "staffing", "sourcing"],
+  ["welding", "welder", "mig", "tig", "arc welding"],
+  ["electrical", "electrician", "wiring", "electrical maintenance"],
+];
+
+const ROLE_CONCEPTS = [
+  ["software engineer", "software developer", "application developer", "frontend developer", "backend developer", "full stack developer", "fullstack developer"],
+  ["frontend", "front end", "ui developer", "web developer", "react developer"],
+  ["backend", "back end", "api developer", "server side", "server-side"],
+  ["fullstack", "full stack", "full-stack"],
+  ["accountant", "accounting", "finance executive", "accounts executive", "auditor"],
+  ["recruiter", "recruitment", "talent acquisition", "talent sourcer"],
+  ["welder", "welding", "fabricator"],
+  ["electrician", "electrical technician", "electrical engineer"],
+  ["nurse", "nursing", "registered nurse", "staff nurse"],
+  ["sales", "business development", "account executive"],
+];
+
+function normaliseMatchText(value: string): string {
+  return ` ${value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim()} `;
+}
+
+function containsTerm(text: string, term: string): boolean {
+  return text.includes(normaliseMatchText(term));
+}
+
+function conceptTerms(term: string, concepts: string[][]): string[] {
+  const normalised = normaliseMatchText(term).trim();
+  return concepts.find((group) => group.some((alias) => normaliseMatchText(alias).trim() === normalised)) ?? [term];
+}
+
 export function calculateCandidateMatch(
   order: JobOrderRecord,
   candidate: CandidateRecord,
@@ -200,25 +251,23 @@ export function calculateCandidateMatch(
     ...(profile.skills || []),
     ...(profile.technical_skills || []),
     ...(profile.languages || []),
-  ].map((s) => s.toLowerCase());
+  ];
 
-  const candSummary = (profile.resume_summary || "").toLowerCase();
-  const candRole = (profile.current_designation || "").toLowerCase();
+  const candSummary = profile.resume_summary || "";
+  const candRole = profile.current_designation || "";
   const workExpText = (profile.work_experience || [])
     .map((w) => `${w.designation || ""} ${w.company || ""} ${w.description || ""}`)
-    .join(" ")
-    .toLowerCase();
+    .join(" ");
+  const candidateSkillEvidence = normaliseMatchText(`${candSkills.join(" ")} ${candSummary} ${workExpText}`);
+  const candidateRoleEvidence = normaliseMatchText(`${candRole} ${workExpText} ${candSummary}`);
 
   const reqSkills = order.skills || [];
   const matchedSkills: string[] = [];
   const missingSkills: string[] = [];
 
   reqSkills.forEach((skill) => {
-    const sLower = skill.toLowerCase();
-    const isMatched =
-      candSkills.some((cs) => cs.includes(sLower) || sLower.includes(cs)) ||
-      candSummary.includes(sLower) ||
-      workExpText.includes(sLower);
+    const aliases = conceptTerms(skill, SKILL_CONCEPTS);
+    const isMatched = aliases.some((alias) => containsTerm(candidateSkillEvidence, alias));
 
     if (isMatched) {
       matchedSkills.push(skill);
@@ -228,93 +277,73 @@ export function calculateCandidateMatch(
   });
 
   const skillRatio = reqSkills.length > 0 ? matchedSkills.length / reqSkills.length : 1;
-  const skillScore = Math.round(skillRatio * 50);
+  const skillScore = Math.round(skillRatio * 45);
+
+  const targetRole = order.designation || order.title || "";
+  const STOP_WORDS = new Set([
+    "and", "for", "the", "in", "with", "or", "of", "a", "an", "at", "to",
+    "senior", "junior", "lead", "intern", "developer", "engineer", "technician",
+    "executive", "manager", "specialist", "officer", "assistant",
+  ]);
+  const roleTokens = normaliseMatchText(targetRole).trim().split(" ").filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+  const directRoleHits = roleTokens.filter((token) => containsTerm(candidateRoleEvidence, token));
+  const targetRoleConcept = ROLE_CONCEPTS.find((group) => group.some((alias) => containsTerm(normaliseMatchText(targetRole), alias)));
+  const contextualRoleMatch = Boolean(targetRoleConcept?.some((alias) => containsTerm(candidateRoleEvidence, alias)));
+  const roleMatched = !targetRole || contextualRoleMatch || (roleTokens.length > 0 && directRoleHits.length / roleTokens.length >= 0.5);
+  const roleScore = roleMatched
+    ? Math.round(Math.max(0.6, roleTokens.length ? directRoleHits.length / roleTokens.length : 1) * 35)
+    : 0;
+  const roleStatusText = roleMatched ? (contextualRoleMatch ? "Role Match: Context aligned" : "Role Match: Aligned") : "Role Mismatch";
+
+  // Experience is deliberately downstream of relevance. A ten-year candidate
+  // in an unrelated occupation is not a partial match for this role.
+  const skillsMatched = reqSkills.length === 0 || matchedSkills.length > 0;
+  const eligibleForExperience = roleMatched && skillsMatched;
 
   const reqExpYears = parseMinExperienceYears(order.minExperience);
-  const candExpYears = profile.total_experience_years ?? (candRole.includes("intern") || candRole.includes("fresher") ? 0 : 1);
+  const candRoleLower = candRole.toLowerCase();
+  const candExpYears = profile.total_experience_years ?? (candRoleLower.includes("intern") || candRoleLower.includes("fresher") ? 0 : 1);
 
-  let expScore = 25;
-  let expMatched = true;
-  let expStatusText = "Exp Requirement Met";
+  let expScore = 0;
+  let expMatched = false;
+  let expStatusText = eligibleForExperience ? "Experience not evaluated" : "Not scored — role/skills mismatch";
 
-  if (reqExpYears > 0) {
+  if (eligibleForExperience && reqExpYears > 0) {
     if (candExpYears >= reqExpYears) {
-      expScore = 25;
+      expScore = 20;
       expMatched = true;
       expStatusText = `Met Min Exp (${candExpYears} yrs)`;
     } else {
-      expScore = Math.round(Math.max(0, (candExpYears / reqExpYears) * 20));
+      expScore = Math.round(Math.max(0, (candExpYears / reqExpYears) * 16));
       expMatched = false;
       expStatusText = `Exp Gap (${candExpYears}/${reqExpYears} yrs)`;
     }
-  } else {
+  } else if (eligibleForExperience) {
     if (candExpYears > 12) {
-      expScore = 15;
+      expScore = 12;
       expMatched = false;
       expStatusText = `Overqualified (${candExpYears} yrs exp)`;
     } else {
-      expScore = 25;
+      expScore = 20;
       expMatched = true;
       expStatusText = "Fresher Suitable";
     }
   }
 
-  const targetRole = (order.designation || order.title || "").toLowerCase();
-  const STOP_WORDS = new Set(["and", "for", "the", "in", "with", "or", "of", "a", "an", "at", "to", "senior", "junior", "lead", "intern", "developer", "engineer"]);
-
-  let roleScore = 0;
-  let roleMatched = false;
-  let roleStatusText = "Role Difference";
-
-  if (targetRole) {
-    const roleTokens = targetRole
-      .split(/[\s/\-,]+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 2 && !STOP_WORDS.has(t));
-
-    const candRoleTokens = candRole
-      .split(/[\s/\-,]+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 2);
-
-    const tokenMatches = roleTokens.filter((tok) =>
-      candRoleTokens.some((crt) => crt.includes(tok) || tok.includes(crt))
-    );
-
-    if (roleTokens.length > 0 && tokenMatches.length > 0) {
-      const matchRatio = tokenMatches.length / roleTokens.length;
-      roleScore = Math.round(matchRatio * 25);
-      roleMatched = true;
-      roleStatusText = "Role Match: Aligned";
-    } else if (workExpText.includes(targetRole) || candSummary.includes(targetRole)) {
-      roleScore = 15;
-      roleMatched = true;
-      roleStatusText = "Role Found in Summary";
-    } else {
-      roleScore = 5;
-      roleMatched = false;
-      roleStatusText = "Role Mismatch";
-    }
-  } else {
-    roleScore = 20;
-    roleMatched = true;
-    roleStatusText = "Role General";
-  }
-
-  let finalScore = Math.round(skillScore + expScore + roleScore);
-
-  if (reqSkills.length > 0 && matchedSkills.length === 0) {
-    finalScore = Math.min(finalScore, 25);
-  }
+  let finalScore = eligibleForExperience ? Math.round(skillScore + expScore + roleScore) : 0;
 
   if (matchedSkills.length === reqSkills.length && expMatched && roleMatched && finalScore >= 95) {
     finalScore = 100;
   } else {
-    finalScore = Math.min(98, Math.max(10, finalScore));
+    finalScore = eligibleForExperience ? Math.min(98, Math.max(10, finalScore)) : 0;
   }
 
   let summary = "";
-  if (finalScore >= 90) {
+  if (!roleMatched) {
+    summary = "Not eligible: the candidate’s role history is not relevant to this job order. Experience was not scored.";
+  } else if (!skillsMatched) {
+    summary = `Not eligible: none of the required skills (${missingSkills.join(", ") || "not specified"}) appear in the candidate’s profile or work context. Experience was not scored.`;
+  } else if (finalScore >= 90) {
     summary = `Exceptional fit. Matched ${matchedSkills.length}/${reqSkills.length} required skills with an aligned designation and experience band.`;
   } else if (finalScore >= 65) {
     summary = `Strong potential. Matched ${matchedSkills.length}/${reqSkills.length} skills with minor experience or role variance.`;
@@ -416,6 +445,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const [searchQuery, setSearchQuery] = useState("");
   const [orders, setOrders] = useState<JobOrderRecord[]>(DEFAULT_JOB_ORDERS);
   const [statusFilter, setStatusFilter] = useState<"ALL" | "OVERDUE" | JobOrderStatus>("ALL");
+  const [orderClientFilter, setOrderClientFilter] = useState("ALL");
+  const [orderCountryFilter, setOrderCountryFilter] = useState("ALL");
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [fetchingCandidates, setFetchingCandidates] = useState(true);
 
@@ -428,6 +459,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
       } else if (statusFilter !== "ALL" && ordStatus !== statusFilter) {
         return false;
       }
+      if (orderClientFilter !== "ALL" && ord.client !== orderClientFilter) return false;
+      if (orderCountryFilter !== "ALL" && (ord.destinationCountry || "") !== orderCountryFilter) return false;
       if (!q) return true;
       return (
         ord.title.toLowerCase().includes(q) ||
@@ -437,7 +470,17 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
         (ord.skills || []).some((s) => s.toLowerCase().includes(q))
       );
     });
-  }, [orders, searchQuery, statusFilter]);
+  }, [orderClientFilter, orderCountryFilter, orders, searchQuery, statusFilter]);
+
+  const orderFilterClients = useMemo(
+    () => Array.from(new Set(orders.map((order) => order.client).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [orders],
+  );
+  const orderFilterCountries = useMemo(
+    () => Array.from(new Set(orders.map((order) => order.destinationCountry).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b)),
+    [orders],
+  );
 
   const [selectedOrder, setSelectedOrder] = useState<JobOrderRecord | null>(null);
 
@@ -1884,6 +1927,28 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               </button>
             );
           })}
+          <div className="jo-option-filters">
+            <Select
+              size="sm"
+              value={orderClientFilter}
+              options={[
+                { value: "ALL", label: "All clients" },
+                ...orderFilterClients.map((client) => ({ value: client, label: client })),
+              ]}
+              onChange={setOrderClientFilter}
+              ariaLabel="Filter job orders by client"
+            />
+            <Select
+              size="sm"
+              value={orderCountryFilter}
+              options={[
+                { value: "ALL", label: "All countries" },
+                ...orderFilterCountries.map((country) => ({ value: country, label: country })),
+              ]}
+              onChange={setOrderCountryFilter}
+              ariaLabel="Filter job orders by country"
+            />
+          </div>
         </div>
       </section>
 
@@ -2029,6 +2094,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 onClick={() => {
                   setSearchQuery("");
                   setStatusFilter("ALL");
+                  setOrderClientFilter("ALL");
+                  setOrderCountryFilter("ALL");
                 }}
               >
                 <RotateCcw size={15} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronDown, ChevronLeft, Menu, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 
@@ -59,14 +59,6 @@ export default function Sidebar({
     () => new Set(activeGroup?.collapsible ? [activeGroup.label] : ["Candidates"]),
   );
 
-  useEffect(() => {
-    if (!activeGroup?.collapsible) return;
-    setOpenGroups((current) => {
-      if (current.has(activeGroup.label)) return current;
-      return new Set([...current, activeGroup.label]);
-    });
-  }, [activeGroup]);
-
   const go = (id: NavId) => {
     onNavigate(id);
     onCloseMobile();
@@ -112,8 +104,8 @@ export default function Sidebar({
 
           {groups.map((group) => {
             const GroupIcon = group.icon;
-            const isOpen = openGroups.has(group.label);
             const groupActive = group.items.some((item) => item.id === activeId);
+            const isOpen = openGroups.has(group.label) || groupActive;
             return (
             <div
               key={group.label}

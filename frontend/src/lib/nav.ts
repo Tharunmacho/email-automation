@@ -204,17 +204,17 @@ export function defaultNavFor(role: string | undefined, pages?: string[]): NavId
 /** Header copy per destination — the eyebrow/title/subtitle every screen opens with. */
 export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle: string }> = {
   overview: {
-    eyebrow: "Workspace",
+    eyebrow: "Recruitment CRM",
     title: "Overview",
     subtitle: "Candidate sourcing, email extraction, and processing pipeline in one view.",
   },
   candidates: {
-    eyebrow: "General",
+    eyebrow: "Candidates",
     title: "Candidates",
     subtitle: "Every parsed profile in the database.",
   },
   staff: {
-    eyebrow: "General",
+    eyebrow: "Staff Management",
     title: "Staff & Allocation",
     // No hours in the copy: the window is configuration, every screen that
     // reports it reads the real value from /config, and a number frozen into a
@@ -222,29 +222,29 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     subtitle: "Accounts, workload balance, review progress, and overdue work.",
   },
   "job-orders": {
-    eyebrow: "Tools",
+    eyebrow: "Recruitment",
     title: "Job Orders",
     subtitle: "Client requisitions and the candidate matching pipeline.",
   },
   sourcing: {
-    eyebrow: "Tools",
+    eyebrow: "Recruitment",
     title: "Sourcing Hub",
     subtitle: "Agents, associations and business clients who submit talent requirements.",
   },
   "b2b-enquiries": {
-    eyebrow: "Tools",
+    eyebrow: "Recruitment",
     title: "B2B Enquiries",
     subtitle:
       "Manpower requirements raised by agents over WhatsApp — review one, then raise the job order.",
   },
   "data-management": {
-    eyebrow: "Tools",
+    eyebrow: "Recruitment",
     title: "Data Management",
     subtitle:
       "Job designations, destination countries, and the CV rule that applies to each pairing.",
   },
   users: {
-    eyebrow: "General",
+    eyebrow: "Administration",
     title: "User Management",
     subtitle: "Accounts, roles, and which pages each person can reach.",
   },
@@ -254,7 +254,7 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     subtitle: "Account details and configured communication channels.",
   },
   "candidate-entry": {
-    eyebrow: "General",
+    eyebrow: "Candidates",
     title: "Candidate Entry",
     subtitle: "Upload a resume and identity documents for VeriIS extraction.",
   },
@@ -264,12 +264,12 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     subtitle: "Candidate profiles currently assigned to a staff member.",
   },
   attendance: {
-    eyebrow: "General",
+    eyebrow: "Staff Management",
     title: "Attendance",
     subtitle: "Daily punches, permission balance, exceptions, and provisional deductions.",
   },
   payroll: {
-    eyebrow: "General",
+    eyebrow: "Staff Management",
     title: "Payroll",
     subtitle: "Monthly salary, attendance deductions, paid leave, and payment status.",
   },

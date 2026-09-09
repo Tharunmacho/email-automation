@@ -196,6 +196,8 @@ export default function PreviewPage() {
         hasRail
         onSync={noop}
         onToggleRail={noop}
+        onOpenProfile={() => go("settings")}
+        onSignOut={noop}
       />
 
       <div className="app-body">
@@ -207,12 +209,11 @@ export default function PreviewPage() {
           onNavigate={go}
           onToggleCollapse={() => setCollapsed((c) => !c)}
           onCloseMobile={noop}
-          onSignOut={noop}
         />
 
         <main className="workspace">
           <div className="db-page">
-            {!["overview", "candidates", "staff", "users", "data-management"].includes(screen) &&
+            {!["overview", "candidates", "assigned-candidates", "staff", "users", "data-management"].includes(screen) &&
               screenParam !== "profile" && (
               <header className="db-page-head">
                 <div>
@@ -235,6 +236,17 @@ export default function PreviewPage() {
 
             {screen === "candidates" && (
               <CandidatesView
+                candidates={candidates}
+                onAddCandidate={noop}
+                onOpenCandidate={noop}
+                onEditCandidate={noop}
+                onDeleteCandidate={noop}
+              />
+            )}
+
+            {screen === "assigned-candidates" && (
+              <CandidatesView
+                assignedOnly
                 candidates={candidates}
                 onAddCandidate={noop}
                 onOpenCandidate={noop}

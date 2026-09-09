@@ -24,6 +24,7 @@ import {
   Clock,
   KeyRound,
   Loader2,
+  Pencil,
   Phone,
   RefreshCw,
   Scale,
@@ -118,6 +119,9 @@ export default function AdminStaffManagement({
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [editingMember, setEditingMember] = useState<StaffWorkloadRow | null>(null);
+  const [editForm, setEditForm] = useState({ email: "", name: "", phone: "" });
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const [rebalancing, setRebalancing] = useState(false);
   const [rehoming, setRehoming] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -433,6 +437,31 @@ export default function AdminStaffManagement({
       reload();
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not update the account.", "error");
+    }
+  };
+
+  const openEditStaff = (member: StaffWorkloadRow) => {
+    setEditingMember(member);
+    setEditForm({ email: member.email, name: member.name || "", phone: member.phone || "" });
+  };
+
+  const handleEditStaff = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingMember || !editForm.email.trim()) return;
+    setEditSubmitting(true);
+    try {
+      const result = await updateStaff(editingMember.id, {
+        email: editForm.email.trim(),
+        name: editForm.name.trim(),
+        phone: editForm.phone.trim(),
+      });
+      onToast(`${result.staff.name || result.staff.email} updated.`, "success");
+      setEditingMember(null);
+      reload();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not update the staff account.", "error");
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -948,6 +977,15 @@ export default function AdminStaffManagement({
                             <button
                               type="button"
                               className="ds-ghost-btn is-sm"
+                              onClick={() => openEditStaff(member)}
+                              title={`Edit ${member.name || member.email}`}
+                            >
+                              <Pencil size={14} />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="ds-ghost-btn is-sm"
                               onClick={() => void handleToggleActive(member)}
                               title={
                                 member.active
@@ -1288,6 +1326,56 @@ export default function AdminStaffManagement({
           </div>
         </div>
       </div>
+      {/* ---- Edit staff modal ---- */}
+      <div
+        className={`modal-overlay ${editingMember ? "active" : ""}`}
+        onClick={() => !editSubmitting && setEditingMember(null)}
+      >
+        <div
+          className="modal-container is-narrow"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Edit staff member"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <form onSubmit={handleEditStaff}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">Edit staff details</h3>
+                <p className="modal-subtitle">Update the name, sign-in email, and contact number.</p>
+              </div>
+              <button type="button" className="modal-close" onClick={() => setEditingMember(null)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-row-2">
+                <label className="field-group">
+                  <span className="modal-label">Full name</span>
+                  <input className="modal-input" value={editForm.name} onChange={(event) => setEditForm({ ...editForm, name: event.target.value })} />
+                </label>
+                <label className="field-group">
+                  <span className="modal-label">Email</span>
+                  <input className="modal-input" type="email" required value={editForm.email} onChange={(event) => setEditForm({ ...editForm, email: event.target.value })} />
+                </label>
+              </div>
+              <label className="field-group">
+                <span className="modal-label">Mobile number</span>
+                <input className="modal-input" type="tel" value={editForm.phone} onChange={(event) => setEditForm({ ...editForm, phone: event.target.value })} />
+              </label>
+              <p className="modal-hint">Changing the email changes the address this staff member uses to sign in. Existing allocations remain unchanged.</p>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="modal-cancel-btn" onClick={() => setEditingMember(null)} disabled={editSubmitting}>Cancel</button>
+              <button type="submit" className="modal-submit-btn" disabled={editSubmitting}>
+                {editSubmitting ? <Loader2 size={15} className="icon-spin" /> : <Pencil size={15} />}
+                {editSubmitting ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       {/* ---- Create staff modal ---- */}
       <div
         className={`modal-overlay ${creating ? "active" : ""}`}

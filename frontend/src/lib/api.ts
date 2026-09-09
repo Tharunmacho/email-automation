@@ -704,6 +704,7 @@ export function createStaff(payload: {
 export function updateStaff(
   staffId: string,
   payload: {
+    email?: string;
     name?: string;
     keywords?: string[];
     active?: boolean;

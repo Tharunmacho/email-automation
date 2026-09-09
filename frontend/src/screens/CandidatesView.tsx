@@ -7,6 +7,8 @@ import {
   Briefcase,
   Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Edit3,
   ExternalLink,
   FileSearch,
@@ -43,6 +45,7 @@ const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
 
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
+  assignedOnly?: boolean;
   onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
@@ -260,6 +263,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
  */
 export default function CandidatesView({
   candidates: allCandidates,
+  assignedOnly = false,
   onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
@@ -269,6 +273,12 @@ export default function CandidatesView({
 }: CandidatesViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<TalentFilter>("all");
+  const [assignmentFilter, setAssignmentFilter] = useState<"all" | "assigned" | "unassigned">("all");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const [industryFilter, setIndustryFilter] = useState("all");
+  const [experienceFilter, setExperienceFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const [view, setView] = useState<"table" | "cards">("table");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<CandidateRecord | null>(null);
@@ -293,28 +303,55 @@ export default function CandidatesView({
     };
   }, [assigning, assignmentSaving]);
 
+  const scopedCandidates = useMemo(
+    () => assignedOnly ? allCandidates.filter((candidate) => candidate.assigned_staff_id) : allCandidates,
+    [allCandidates, assignedOnly],
+  );
+
   const candidates = useMemo(() => {
-    if (filter === "verified") return allCandidates.filter((c) => getStatus(c).key === "verified");
-    if (filter === "pending") return allCandidates.filter((c) => getStatus(c).key === "review");
-    if (filter === "active") return allCandidates.filter((c) => getStatus(c).key === "active");
-    return allCandidates;
-  }, [allCandidates, filter]);
+    if (filter === "verified") return scopedCandidates.filter((c) => getStatus(c).key === "verified");
+    if (filter === "pending") return scopedCandidates.filter((c) => getStatus(c).key === "review");
+    if (filter === "active") return scopedCandidates.filter((c) => getStatus(c).key === "active");
+    return scopedCandidates;
+  }, [filter, scopedCandidates]);
 
   const filterCounts = useMemo(() => {
-    const counts = { all: allCandidates.length, verified: 0, pending: 0, active: 0 };
-    for (const candidate of allCandidates) {
+    const counts = { all: scopedCandidates.length, verified: 0, pending: 0, active: 0 };
+    for (const candidate of scopedCandidates) {
       const key = getStatus(candidate).key;
       if (key === "verified") counts.verified += 1;
       else if (key === "review") counts.pending += 1;
       else counts.active += 1;
     }
     return counts;
-  }, [allCandidates]);
+  }, [scopedCandidates]);
+
+  const industryOptions = useMemo(
+    () => Array.from(new Set(allCandidates.map(getIndustry))).sort((a, b) => a.localeCompare(b)),
+    [allCandidates],
+  );
+
+  const ownerOptions = useMemo(
+    () => Array.from(new Set(allCandidates.map((candidate) => candidate.assigned_staff_name).filter(Boolean) as string[]))
+      .sort((a, b) => a.localeCompare(b)),
+    [allCandidates],
+  );
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return candidates;
     return candidates.filter((c) => {
+      if ((assignedOnly || assignmentFilter === "assigned") && !c.assigned_staff_id) return false;
+      if (assignmentFilter === "unassigned" && c.assigned_staff_id) return false;
+      if (ownerFilter !== "all" && c.assigned_staff_name !== ownerFilter) return false;
+      if (industryFilter !== "all" && getIndustry(c) !== industryFilter) return false;
+
+      const years = getExperienceYears(c) ?? 0;
+      if (experienceFilter === "fresher" && years >= 1) return false;
+      if (experienceFilter === "junior" && (years < 1 || years > 3)) return false;
+      if (experienceFilter === "mid" && (years < 4 || years > 7)) return false;
+      if (experienceFilter === "senior" && years < 8) return false;
+
+      if (!needle) return true;
       const profile = c.profile ?? {};
       const haystack = [
         getDisplayName(c),
@@ -331,7 +368,7 @@ export default function CandidatesView({
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [candidates, query]);
+  }, [assignedOnly, assignmentFilter, candidates, experienceFilter, industryFilter, ownerFilter, query]);
 
   const sorted = useMemo(() => {
     const factor = sort.dir === "asc" ? 1 : -1;
@@ -363,6 +400,17 @@ export default function CandidatesView({
     });
   }, [filtered, sort]);
 
+  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(currentPage, pageCount);
+  const pageStart = (safePage - 1) * pageSize;
+  const visibleCandidates = sorted.slice(pageStart, pageStart + pageSize);
+  const activeOptionFilters = [
+    !assignedOnly && assignmentFilter !== "all",
+    ownerFilter !== "all",
+    industryFilter !== "all",
+    experienceFilter !== "all",
+  ].filter(Boolean).length;
+
   /**
    * This month against last, per slice.
    *
@@ -389,8 +437,8 @@ export default function CandidatesView({
       // one selected, or the three cards you are not on go blank.
       const rows =
         id === "all"
-          ? allCandidates
-          : allCandidates.filter((row) => {
+          ? scopedCandidates
+          : scopedCandidates.filter((row) => {
               const key = getStatus(row).key;
               if (id === "verified") return key === "verified";
               if (id === "pending") return key === "review";
@@ -401,7 +449,7 @@ export default function CandidatesView({
       out[id] = previous > 0 ? ((current - previous) / previous) * 100 : null;
     }
     return out;
-  }, [allCandidates]);
+  }, [scopedCandidates]);
 
   const toggleSort = (key: SortKey) =>
     setSort((prev) =>
@@ -528,8 +576,10 @@ export default function CandidatesView({
       {/* ── Page head ─────────────────────────────────────────────────── */}
       <header className="ds-head">
         <div>
-          <h1 className="ds-head-title">Candidates</h1>
-          <p className="ds-head-sub">Every parsed profile, and where each one stands</p>
+            <h1 className="ds-head-title">{assignedOnly ? "Assigned Candidates" : "Candidates"}</h1>
+          <p className="ds-head-sub">
+            {assignedOnly ? "Profiles currently owned by a staff member" : "Every parsed profile, and where each one stands"}
+          </p>
         </div>
 
         <div className="ds-head-actions">
@@ -557,7 +607,7 @@ export default function CandidatesView({
               role="tab"
               aria-selected={filter === id}
               className={`ds-stat ${filter === id ? "is-on" : ""}`}
-              onClick={() => setFilter(id)}
+              onClick={() => { setFilter(id); setCurrentPage(1); }}
             >
               <span className="ds-stat-top">
                 <span className="ds-stat-label">{label}</span>
@@ -589,7 +639,7 @@ export default function CandidatesView({
           <div>
             <h2 className="ds-panel-title">{activeLabel}</h2>
             <p className="ds-panel-sub">
-              {formatInt(sorted.length)} shown of {formatInt(candidates.length)} on file
+              {formatInt(sorted.length)} matching of {formatInt(candidates.length)} on file
             </p>
           </div>
 
@@ -600,7 +650,7 @@ export default function CandidatesView({
                 type="search"
                 value={query}
                 placeholder="Search name, role, skills or email"
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => { setQuery(e.target.value); setCurrentPage(1); }}
                 aria-label="Search candidates"
               />
             </label>
@@ -628,6 +678,73 @@ export default function CandidatesView({
           </div>
         </div>
 
+        <div className="ds-filterbar" aria-label="Candidate options">
+          <span className="ds-filterbar-label">Filters{activeOptionFilters ? ` (${activeOptionFilters})` : ""}</span>
+          {!assignedOnly && (
+            <Select
+              size="sm"
+              value={assignmentFilter}
+              options={[
+                { value: "all", label: "Any assignment" },
+                { value: "assigned", label: "Assigned" },
+                { value: "unassigned", label: "Unassigned" },
+              ]}
+              onChange={(value) => { setAssignmentFilter(value as typeof assignmentFilter); setCurrentPage(1); }}
+              ariaLabel="Assignment status"
+            />
+          )}
+          <Select
+            size="sm"
+            value={industryFilter}
+            options={[
+              { value: "all", label: "All industries" },
+              ...industryOptions.map((industry) => ({ value: industry, label: industry })),
+            ]}
+            onChange={(value) => { setIndustryFilter(value); setCurrentPage(1); }}
+            ariaLabel="Candidate industry"
+          />
+          <Select
+            size="sm"
+            value={experienceFilter}
+            options={[
+              { value: "all", label: "Any experience" },
+              { value: "fresher", label: "Fresher / under 1 year" },
+              { value: "junior", label: "1–3 years" },
+              { value: "mid", label: "4–7 years" },
+              { value: "senior", label: "8+ years" },
+            ]}
+            onChange={(value) => { setExperienceFilter(value); setCurrentPage(1); }}
+            ariaLabel="Candidate experience"
+          />
+          {ownerOptions.length > 0 && (
+            <Select
+              size="sm"
+              value={ownerFilter}
+              options={[
+                { value: "all", label: "All owners" },
+                ...ownerOptions.map((owner) => ({ value: owner, label: owner })),
+              ]}
+              onChange={(value) => { setOwnerFilter(value); setCurrentPage(1); }}
+              ariaLabel="Candidate owner"
+            />
+          )}
+          {activeOptionFilters > 0 && (
+            <button
+              type="button"
+              className="ds-filter-clear"
+              onClick={() => {
+                setAssignmentFilter("all");
+                setOwnerFilter("all");
+                setIndustryFilter("all");
+                setExperienceFilter("all");
+                setCurrentPage(1);
+              }}
+            >
+              <X size={13} /> Clear
+            </button>
+          )}
+        </div>
+
         {sorted.length === 0 ? (
           <div className="ds-empty-state">
             <UsersRound size={30} />
@@ -641,7 +758,7 @@ export default function CandidatesView({
           </div>
         ) : view === "cards" ? (
           <div className="ds-grid">
-            {sorted.map((candidate) => {
+            {visibleCandidates.map((candidate) => {
               const displayName = getDisplayName(candidate);
               const status = getStatus(candidate);
               const email = getEmail(candidate);
@@ -736,7 +853,7 @@ export default function CandidatesView({
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((candidate) => {
+                {visibleCandidates.map((candidate) => {
                   const displayName = getDisplayName(candidate);
                   const designation = getDesignation(candidate);
                   const contact = getContact(candidate);
@@ -807,13 +924,25 @@ export default function CandidatesView({
 
         <div className="ds-panel-foot">
           <span>
-            Showing <strong>{formatInt(sorted.length)}</strong> of{" "}
-            <strong>{formatInt(candidates.length)}</strong> candidates
+            Showing <strong>{formatInt(sorted.length === 0 ? 0 : pageStart + 1)}–{formatInt(Math.min(pageStart + pageSize, sorted.length))}</strong> of{" "}
+            <strong>{formatInt(sorted.length)}</strong> matching candidates
           </span>
-          <span className="ds-status is-ok">
-            <i aria-hidden="true" />
-            Live DB sync
-          </span>
+          <div className="ds-pagination" aria-label="Candidate pages">
+            <Select
+              size="sm"
+              value={String(pageSize)}
+              options={[10, 12, 25, 50].map((size) => ({ value: String(size), label: `${size} / page` }))}
+              onChange={(value) => { setPageSize(Number(value)); setCurrentPage(1); }}
+              ariaLabel="Candidates per page"
+            />
+            <button type="button" onClick={() => setCurrentPage(Math.max(1, safePage - 1))} disabled={safePage === 1} aria-label="Previous page">
+              <ChevronLeft size={15} />
+            </button>
+            <span>Page {safePage} of {pageCount}</span>
+            <button type="button" onClick={() => setCurrentPage(Math.min(pageCount, safePage + 1))} disabled={safePage === pageCount} aria-label="Next page">
+              <ChevronRight size={15} />
+            </button>
+          </div>
         </div>
       </section>
 

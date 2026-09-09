@@ -400,6 +400,7 @@ class UserRepository:
     def update_staff(
         self,
         staff_id: str,
+        email: str | None = None,
         name: str | None = None,
         keywords: list[str] | None = None,
         active: bool | None = None,
@@ -410,6 +411,14 @@ class UserRepository:
         if not doc:
             return None
         updates: dict = {"updated_at": utcnow()}
+        if email is not None:
+            normalized_email = _normalize(email)
+            if not normalized_email:
+                raise ValueError("Email address is required.")
+            existing = self._coll.find_one({"email": normalized_email, "_id": {"$ne": staff_id}})
+            if existing:
+                raise ValueError(f"A user with email {normalized_email} already exists.")
+            updates["email"] = normalized_email
         if name is not None:
             updates["name"] = name
         if keywords is not None:

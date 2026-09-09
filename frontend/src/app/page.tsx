@@ -1035,7 +1035,7 @@ export default function Home() {
   // controls.
   const ownsItsHeader =
     !screen &&
-    ["overview", "candidates", "candidate-entry", "staff", "users", "data-management"].includes(
+    ["overview", "candidates", "assigned-candidates", "candidate-entry", "staff", "users", "data-management"].includes(
       currentTab,
     );
 
@@ -1083,6 +1083,8 @@ export default function Home() {
         onDismissCandidateExtraction={() => setCandidateExtraction(null)}
         onSync={runPipeline}
         onToggleRail={() => setMobileOpen((open) => !open)}
+        onOpenProfile={() => handleNavigate("settings")}
+        onSignOut={handleSignOut}
       />
 
       <div className="app-body">
@@ -1097,7 +1099,6 @@ export default function Home() {
             onNavigate={handleNavigate}
             onToggleCollapse={() => setRailCollapsed((open) => !open)}
             onCloseMobile={() => setMobileOpen(false)}
-            onSignOut={handleSignOut}
           />
         )}
 
@@ -1255,6 +1256,30 @@ export default function Home() {
                       reachableTabs?.has("users") ? handleCreateStaff : undefined
                     }
                   />
+                )}
+
+                {currentTab === "assigned-candidates" && (
+                  user?.role === "staff" ? (
+                    <StaffDashboard
+                      candidates={candidates}
+                      arrivedIds={arrivedIds}
+                      focusCandidateId={queueFocusId}
+                      onFocusHandled={() => setQueueFocusId(null)}
+                      onToast={showToast}
+                      onOpenCandidate={handleOpenCandidate}
+                    />
+                  ) : (
+                    <CandidatesView
+                      assignedOnly
+                      candidates={candidates}
+                      onAddCandidate={handleAddCandidate}
+                      onOpenCandidate={handleOpenCandidate}
+                      onEditCandidate={handleEditCandidate}
+                      onDeleteCandidate={handleDeleteCandidate}
+                      onAssignmentChanged={() => void refreshCandidates()}
+                      onToast={showToast}
+                    />
+                  )
                 )}
 
                 {currentTab === "attendance" && (

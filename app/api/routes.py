@@ -2027,6 +2027,7 @@ class CreateStaffRequest(BaseModel):
 
 
 class UpdateStaffRequest(BaseModel):
+    email: str | None = None
     name: str | None = None
     keywords: list[str] | None = None
     active: bool | None = None
@@ -2132,6 +2133,7 @@ def update_staff(
     try:
         user = users.update_staff(
             staff_id,
+            email=payload.email,
             name=payload.name,
             keywords=payload.keywords,
             active=payload.active,
