@@ -245,10 +245,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
   { key: "role", label: "Role", sort: "role" },
   { key: "experience", label: "Experience", sort: "experience", align: "num" },
   { key: "contact", label: "Contact" },
-  { key: "added", label: "Added", sort: "added" },
-  { key: "owner", label: "Assigned to" },
-  { key: "source", label: "Source bot" },
-  { key: "status", label: "Status", sort: "status" },
+  { key: "workflow", label: "Assignment & status", sort: "status" },
   { key: "actions", label: "" },
 ];
 
@@ -825,8 +822,8 @@ export default function CandidatesView({
             })}
           </div>
         ) : (
-          <div className="ds-table-wrap is-ruled">
-            <table className="ds-table is-ruled">
+          <div className="ds-table-wrap is-ruled candidate-register-wrap">
+            <table className="ds-table is-ruled candidate-register-table">
               <thead>
                 <tr>
                   {COLUMNS.map((col) => (
@@ -862,7 +859,7 @@ export default function CandidatesView({
 
                   return (
                     <tr className="is-clickable" key={candidate.id} onClick={() => onOpenCandidate(candidate)}>
-                      <td>
+                      <td data-label="Candidate">
                         <span className="ds-who">
                           <span className="ds-avatar" aria-hidden="true">
                             {initialsOf(displayName)}
@@ -870,7 +867,7 @@ export default function CandidatesView({
                           <span className="ds-who-text">
                             <strong title={displayName}>{displayName}</strong>
                             <small className="crm-record-id">Candidate ID · {getReference(candidate)}</small>
-                            <small title={email}>{email || "No email on file"}</small>
+                            <small>Added {getAdded(candidate)}</small>
                           </span>
                         </span>
                       </td>
@@ -878,36 +875,41 @@ export default function CandidatesView({
                       {/* The role and the industry it sits in are one fact read
                           two ways, so they share a cell rather than take a
                           column each. */}
-                      <td>
-                        <span className="ds-cell-main" title={designation || undefined}>
-                          {designation || "—"}
-                        </span>
-                        <span className="ds-cell-sub">{getIndustry(candidate)}</span>
-                      </td>
-
-                      <td className="is-num">{formatExperience(getExperienceYears(candidate))}</td>
-
-                      <td title={contact || undefined}>{contact || "—"}</td>
-
-                      <td>{getAdded(candidate)}</td>
-
-                      <td>
-                        <span className={`ds-owner ${candidate.assigned_staff_id ? "" : "is-empty"}`}>
-                          <UserCheck size={13} />
-                          {candidate.assigned_staff_name || "Unassigned"}
+                      <td data-label="Role">
+                        <span className="candidate-role-cell">
+                          <span className="ds-cell-main" title={designation || undefined}>
+                            {designation || "—"}
+                          </span>
+                          <span className="ds-cell-sub">{getIndustry(candidate)}</span>
                         </span>
                       </td>
 
-                      <td>{getSourceLine(candidate)}</td>
+                      <td className="is-num" data-label="Experience">
+                        {formatExperience(getExperienceYears(candidate))}
+                      </td>
 
-                      <td>
-                        <span className={`ds-status is-${status.tone}`}>
-                          <i aria-hidden="true" />
-                          {status.label}
+                      <td data-label="Contact">
+                        <span className="candidate-contact-cell">
+                          <span className="ds-cell-main" title={contact || undefined}>{contact || "No phone"}</span>
+                          <span className="ds-cell-sub" title={email}>{email || "No email on file"}</span>
+                          <span className="ds-cell-sub">Source · {getSourceLine(candidate)}</span>
                         </span>
                       </td>
 
-                      <td className="is-actions" onClick={(e) => e.stopPropagation()}>
+                      <td data-label="Assignment & status">
+                        <span className="candidate-workflow-cell">
+                          <span className={`ds-owner ${candidate.assigned_staff_id ? "" : "is-empty"}`}>
+                            <UserCheck size={13} />
+                            {candidate.assigned_staff_name || "Unassigned"}
+                          </span>
+                          <span className={`ds-status is-${status.tone}`}>
+                            <i aria-hidden="true" />
+                            {status.label}
+                          </span>
+                        </span>
+                      </td>
+
+                      <td className="is-actions" data-label="Actions" onClick={(e) => e.stopPropagation()}>
                         <div className="ds-acts">
                           {deleteConfirm === candidate.id
                             ? confirmDelete(candidate.id)

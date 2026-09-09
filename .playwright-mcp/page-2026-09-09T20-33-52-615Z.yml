@@ -1,0 +1,513 @@
+- generic [ref=f15e1]:
+  - generic [ref=f15e2]:
+    - banner [ref=f15e3]:
+      - button "Open navigation" [ref=f15e4] [cursor=pointer]
+      - img "Adira Enterprises — We find, you shine" [ref=f15e8]
+      - generic [ref=f15e13]:
+        - button "Notifications" [ref=f15e15] [cursor=pointer]
+        - button [ref=f15e20] [cursor=pointer]:
+          - generic [aria-hidden] [ref=f15e21]: AM
+    - generic [ref=f15e22]:
+      - navigation "Main navigation" [ref=f15e23]:
+        - img "Adira Enterprises — We find, you shine" [ref=f15e26]
+        - generic [ref=f15e31]:
+          - generic [ref=f15e32]:
+            - generic [ref=f15e33]: Menu
+            - button "Collapse sidebar" [expanded] [ref=f15e34] [cursor=pointer]
+          - group "Overview" [ref=f15e37]:
+            - link "Overview" [ref=f15e39] [cursor=pointer]:
+              - /url: /overview
+          - group "Candidates" [ref=f15e46]:
+            - button "Candidates" [expanded] [ref=f15e47] [cursor=pointer]
+            - generic [ref=f15e56]:
+              - link "All Candidates" [ref=f15e57] [cursor=pointer]:
+                - /url: /candidates
+              - link "Candidate Entry" [ref=f15e64] [cursor=pointer]:
+                - /url: /candidate-entry
+              - link "Assigned Candidates" [ref=f15e69] [cursor=pointer]:
+                - /url: /assigned-candidates
+          - group "Staff Management" [ref=f15e75]:
+            - button "Staff Management" [ref=f15e76] [cursor=pointer]
+          - group "User Management" [ref=f15e83]:
+            - link "User Management" [ref=f15e85] [cursor=pointer]:
+              - /url: /users
+          - group "Recruitment" [ref=f15e99]:
+            - generic [ref=f15e100]:
+              - link "Job Orders" [ref=f15e101] [cursor=pointer]:
+                - /url: /job-orders
+              - link "Sourcing Hub" [ref=f15e106] [cursor=pointer]:
+                - /url: /sourcing
+              - link "B2B Enquiries" [ref=f15e112] [cursor=pointer]:
+                - /url: /b2b-enquiries
+              - link "Data Management" [ref=f15e119] [cursor=pointer]:
+                - /url: /data-management
+          - group "Support" [ref=f15e125]:
+            - link "Settings" [ref=f15e127] [cursor=pointer]:
+              - /url: /settings
+        - group "Colour theme" [ref=f15e133]:
+          - button "Light" [pressed] [ref=f15e134] [cursor=pointer]
+          - button "Dark" [ref=f15e142] [cursor=pointer]
+      - main [ref=f15e146]:
+        - generic [ref=f15e148]:
+          - generic [ref=f15e149]:
+            - generic [ref=f15e150]:
+              - heading "Candidates" [level=1] [ref=f15e151]
+              - paragraph [ref=f15e152]: Every parsed profile, and where each one stands
+            - generic [ref=f15e153]:
+              - button "Add candidate" [ref=f15e154] [cursor=pointer]
+              - button "Export CSV" [ref=f15e156] [cursor=pointer]
+          - tablist "Filter candidates" [ref=f15e161]:
+            - tab "All candidates 240 ↓ 43.8% since last month" [selected] [ref=f15e162] [cursor=pointer]:
+              - generic [ref=f15e163]: All candidates
+              - generic [ref=f15e171]: "240"
+              - generic [ref=f15e172]:
+                - emphasis [ref=f15e173]: ↓ 43.8%
+                - text: since last month
+            - tab "Needs review 75 ↓ 31.4% since last month" [ref=f15e174] [cursor=pointer]:
+              - generic [ref=f15e175]: Needs review
+              - generic [ref=f15e183]: "75"
+              - generic [ref=f15e184]:
+                - emphasis [ref=f15e185]: ↓ 31.4%
+                - text: since last month
+            - tab "Ready to review 101 ↓ 39.2% since last month" [ref=f15e186] [cursor=pointer]:
+              - generic [ref=f15e187]: Ready to review
+              - generic [ref=f15e193]: "101"
+              - generic [ref=f15e194]:
+                - emphasis [ref=f15e195]: ↓ 39.2%
+                - text: since last month
+            - tab "Verified 64 ↓ 62.9% since last month" [ref=f15e196] [cursor=pointer]:
+              - generic [ref=f15e197]: Verified
+              - generic [ref=f15e203]: "64"
+              - generic [ref=f15e204]:
+                - emphasis [ref=f15e205]: ↓ 62.9%
+                - text: since last month
+          - generic [ref=f15e206]:
+            - generic [ref=f15e207]:
+              - generic [ref=f15e208]:
+                - heading "All candidates" [level=2] [ref=f15e209]
+                - paragraph [ref=f15e210]: 240 matching of 240 on file
+              - generic [ref=f15e211]:
+                - searchbox "Search candidates" [ref=f15e216]
+                - group "View" [ref=f15e217]:
+                  - button "Table view" [ref=f15e218] [cursor=pointer]
+                  - button "Card view" [ref=f15e221] [cursor=pointer]
+            - generic "Candidate options" [ref=f15e227]:
+              - generic [ref=f15e228]: Filters
+              - combobox "Assignment status" [ref=f15e230] [cursor=pointer]:
+                - generic [ref=f15e231]: Any assignment
+              - combobox "Candidate industry" [ref=f15e235] [cursor=pointer]:
+                - generic [ref=f15e236]: All industries
+              - combobox "Candidate experience" [ref=f15e240] [cursor=pointer]:
+                - generic [ref=f15e241]: Any experience
+            - table [ref=f15e245]:
+              - rowgroup [ref=f15e246]:
+                - row [ref=f15e247] [cursor=pointer]:
+                  - cell "Candidate Joseph Nair Candidate ID · CAN-C442DAFCE Added Sep 10, 2026" [ref=f15e248]:
+                    - text: Candidate
+                    - generic [ref=f15e249]:
+                      - generic [aria-hidden] [ref=f15e250]: JN
+                      - generic [ref=f15e251]:
+                        - strong [ref=f15e252]: Joseph Nair
+                        - generic [ref=f15e253]: Candidate ID · CAN-C442DAFCE
+                        - generic [ref=f15e254]: Added Sep 10, 2026
+                  - cell "Role Heavy Vehicle Driver General" [ref=f15e255]:
+                    - text: Role
+                    - generic [ref=f15e256]:
+                      - generic "Heavy Vehicle Driver" [ref=f15e257]
+                      - generic [ref=f15e258]: General
+                  - cell "Experience 14 yrs" [ref=f15e259]
+                  - cell "Contact +91 90737005 candidate90@example.com Source · Email" [ref=f15e260]:
+                    - text: Contact
+                    - generic [ref=f15e261]:
+                      - generic "+91 90737005" [ref=f15e262]
+                      - generic "candidate90@example.com" [ref=f15e263]
+                      - generic [ref=f15e264]: Source · Email
+                  - cell [ref=f15e265]:
+                    - text: Assignment & status
+                    - generic [ref=f15e266]:
+                      - generic [ref=f15e267]: Unassigned
+                      - generic [ref=f15e272]: Ready to review
+                  - cell [ref=f15e274]:
+                    - text: Actions
+                    - generic [ref=f15e275]:
+                      - button "Review this candidate" [ref=f15e276]
+                      - button "Assign Joseph Nair to a staff member" [ref=f15e282]
+                      - button "Edit this profile" [ref=f15e287]
+                      - button "Delete this profile" [ref=f15e290]
+                - row [ref=f15e294] [cursor=pointer]:
+                  - cell "Candidate Arun Kumar Candidate ID · CAN-C40B874B3 Added Sep 9, 2026" [ref=f15e295]:
+                    - text: Candidate
+                    - generic [ref=f15e296]:
+                      - generic [aria-hidden] [ref=f15e297]: AK
+                      - generic [ref=f15e298]:
+                        - strong [ref=f15e299]: Arun Kumar
+                        - generic [ref=f15e300]: Candidate ID · CAN-C40B874B3
+                        - generic [ref=f15e301]: Added Sep 9, 2026
+                  - cell "Role HVAC Technician General" [ref=f15e302]:
+                    - text: Role
+                    - generic [ref=f15e303]:
+                      - generic "HVAC Technician" [ref=f15e304]
+                      - generic [ref=f15e305]: General
+                  - cell "Experience 10 yrs" [ref=f15e306]
+                  - cell "Contact +91 90464264 candidate35@example.com Source · Email" [ref=f15e307]:
+                    - text: Contact
+                    - generic [ref=f15e308]:
+                      - generic "+91 90464264" [ref=f15e309]
+                      - generic "candidate35@example.com" [ref=f15e310]
+                      - generic [ref=f15e311]: Source · Email
+                  - cell [ref=f15e312]:
+                    - text: Assignment & status
+                    - generic [ref=f15e313]:
+                      - generic [ref=f15e314]: Unassigned
+                      - generic [ref=f15e319]: Ready to review
+                  - cell [ref=f15e321]:
+                    - text: Actions
+                    - generic [ref=f15e322]:
+                      - button "Review this candidate" [ref=f15e323]
+                      - button "Assign Arun Kumar to a staff member" [ref=f15e329]
+                      - button "Edit this profile" [ref=f15e334]
+                      - button "Delete this profile" [ref=f15e337]
+                - row [ref=f15e341] [cursor=pointer]:
+                  - cell "Candidate Vikram Thomas Candidate ID · CAN-C40DC63D8 Added Sep 9, 2026" [ref=f15e342]:
+                    - text: Candidate
+                    - generic [ref=f15e343]:
+                      - generic [aria-hidden] [ref=f15e344]: VT
+                      - generic [ref=f15e345]:
+                        - strong [ref=f15e346]: Vikram Thomas
+                        - generic [ref=f15e347]: Candidate ID · CAN-C40DC63D8
+                        - generic [ref=f15e348]: Added Sep 9, 2026
+                  - cell "Role Warehouse Supervisor General" [ref=f15e349]:
+                    - text: Role
+                    - generic [ref=f15e350]:
+                      - generic "Warehouse Supervisor" [ref=f15e351]
+                      - generic [ref=f15e352]: General
+                  - cell "Experience 12 yrs" [ref=f15e353]
+                  - cell "Contact +91 90961979 candidate37@example.com Source · Email" [ref=f15e354]:
+                    - text: Contact
+                    - generic [ref=f15e355]:
+                      - generic "+91 90961979" [ref=f15e356]
+                      - generic "candidate37@example.com" [ref=f15e357]
+                      - generic [ref=f15e358]: Source · Email
+                  - cell [ref=f15e359]:
+                    - text: Assignment & status
+                    - generic [ref=f15e360]:
+                      - generic [ref=f15e361]: Unassigned
+                      - generic [ref=f15e366]: Needs review
+                  - cell [ref=f15e368]:
+                    - text: Actions
+                    - generic [ref=f15e369]:
+                      - button "Review this candidate" [ref=f15e370]
+                      - button "Assign Vikram Thomas to a staff member" [ref=f15e376]
+                      - button "Edit this profile" [ref=f15e381]
+                      - button "Delete this profile" [ref=f15e384]
+                - row [ref=f15e388] [cursor=pointer]:
+                  - cell "Candidate Divya Kumar Candidate ID · CAN-C4171E474 Added Sep 9, 2026" [ref=f15e389]:
+                    - text: Candidate
+                    - generic [ref=f15e390]:
+                      - generic [aria-hidden] [ref=f15e391]: DK
+                      - generic [ref=f15e392]:
+                        - strong [ref=f15e393]: Divya Kumar
+                        - generic [ref=f15e394]: Candidate ID · CAN-C4171E474
+                        - generic [ref=f15e395]: Added Sep 9, 2026
+                  - cell "Role Welder (6G) General" [ref=f15e396]:
+                    - text: Role
+                    - generic [ref=f15e397]:
+                      - generic "Welder (6G)" [ref=f15e398]
+                      - generic [ref=f15e399]: General
+                  - cell "Experience 2 yrs" [ref=f15e400]
+                  - cell "Contact +91 90780301 candidate47@example.com Source · Email" [ref=f15e401]:
+                    - text: Contact
+                    - generic [ref=f15e402]:
+                      - generic "+91 90780301" [ref=f15e403]
+                      - generic "candidate47@example.com" [ref=f15e404]
+                      - generic [ref=f15e405]: Source · Email
+                  - cell [ref=f15e406]:
+                    - text: Assignment & status
+                    - generic [ref=f15e407]:
+                      - generic [ref=f15e408]: Unassigned
+                      - generic [ref=f15e413]: Verified
+                  - cell [ref=f15e415]:
+                    - text: Actions
+                    - generic [ref=f15e416]:
+                      - button "Open the completed review" [ref=f15e417]
+                      - button "Assign Divya Kumar to a staff member" [ref=f15e421]
+                      - button "Edit this profile" [ref=f15e426]
+                      - button "Delete this profile" [ref=f15e429]
+                - row [ref=f15e433] [cursor=pointer]:
+                  - cell "Candidate Joseph Menon Candidate ID · CAN-C45CC6CFF Added Sep 9, 2026" [ref=f15e434]:
+                    - text: Candidate
+                    - generic [ref=f15e435]:
+                      - generic [aria-hidden] [ref=f15e436]: JM
+                      - generic [ref=f15e437]:
+                        - strong [ref=f15e438]: Joseph Menon
+                        - generic [ref=f15e439]: Candidate ID · CAN-C45CC6CFF
+                        - generic [ref=f15e440]: Added Sep 9, 2026
+                  - cell "Role Heavy Vehicle Driver General" [ref=f15e441]:
+                    - text: Role
+                    - generic [ref=f15e442]:
+                      - generic "Heavy Vehicle Driver" [ref=f15e443]
+                      - generic [ref=f15e444]: General
+                  - cell "Experience 3 yrs" [ref=f15e445]
+                  - cell "Contact +91 90993415 candidate116@example.com Source · Email" [ref=f15e446]:
+                    - text: Contact
+                    - generic [ref=f15e447]:
+                      - generic "+91 90993415" [ref=f15e448]
+                      - generic "candidate116@example.com" [ref=f15e449]
+                      - generic [ref=f15e450]: Source · Email
+                  - cell [ref=f15e451]:
+                    - text: Assignment & status
+                    - generic [ref=f15e452]:
+                      - generic [ref=f15e453]: Unassigned
+                      - generic [ref=f15e458]: Needs review
+                  - cell [ref=f15e460]:
+                    - text: Actions
+                    - generic [ref=f15e461]:
+                      - button "Review this candidate" [ref=f15e462]
+                      - button "Assign Joseph Menon to a staff member" [ref=f15e468]
+                      - button "Edit this profile" [ref=f15e473]
+                      - button "Delete this profile" [ref=f15e476]
+                - row [ref=f15e480] [cursor=pointer]:
+                  - cell "Candidate Karthik Khan Candidate ID · CAN-C43A2D41C Added Sep 9, 2026" [ref=f15e481]:
+                    - text: Candidate
+                    - generic [ref=f15e482]:
+                      - generic [aria-hidden] [ref=f15e483]: KK
+                      - generic [ref=f15e484]:
+                        - strong [ref=f15e485]: Karthik Khan
+                        - generic [ref=f15e486]: Candidate ID · CAN-C43A2D41C
+                        - generic [ref=f15e487]: Added Sep 9, 2026
+                  - cell "Role Welder (6G) General" [ref=f15e488]:
+                    - text: Role
+                    - generic [ref=f15e489]:
+                      - generic "Welder (6G)" [ref=f15e490]
+                      - generic [ref=f15e491]: General
+                  - cell "Experience 4 yrs" [ref=f15e492]
+                  - cell "Contact +91 90423443 candidate82@example.com Source · Email" [ref=f15e493]:
+                    - text: Contact
+                    - generic [ref=f15e494]:
+                      - generic "+91 90423443" [ref=f15e495]
+                      - generic "candidate82@example.com" [ref=f15e496]
+                      - generic [ref=f15e497]: Source · Email
+                  - cell [ref=f15e498]:
+                    - text: Assignment & status
+                    - generic [ref=f15e499]:
+                      - generic [ref=f15e500]: Unassigned
+                      - generic [ref=f15e505]: Needs review
+                  - cell [ref=f15e507]:
+                    - text: Actions
+                    - generic [ref=f15e508]:
+                      - button "Review this candidate" [ref=f15e509]
+                      - button "Assign Karthik Khan to a staff member" [ref=f15e515]
+                      - button "Edit this profile" [ref=f15e520]
+                      - button "Delete this profile" [ref=f15e523]
+                - row [ref=f15e527] [cursor=pointer]:
+                  - cell "Candidate Nisha Menon Candidate ID · CAN-C41A411 Added Sep 9, 2026" [ref=f15e528]:
+                    - text: Candidate
+                    - generic [ref=f15e529]:
+                      - generic [aria-hidden] [ref=f15e530]: NM
+                      - generic [ref=f15e531]:
+                        - strong [ref=f15e532]: Nisha Menon
+                        - generic [ref=f15e533]: Candidate ID · CAN-C41A411
+                        - generic [ref=f15e534]: Added Sep 9, 2026
+                  - cell "Role HVAC Technician General" [ref=f15e535]:
+                    - text: Role
+                    - generic [ref=f15e536]:
+                      - generic "HVAC Technician" [ref=f15e537]
+                      - generic [ref=f15e538]: General
+                  - cell "Experience 12 yrs" [ref=f15e539]
+                  - cell "Contact +91 90868515 candidate50@example.com Source · Email" [ref=f15e540]:
+                    - text: Contact
+                    - generic [ref=f15e541]:
+                      - generic "+91 90868515" [ref=f15e542]
+                      - generic "candidate50@example.com" [ref=f15e543]
+                      - generic [ref=f15e544]: Source · Email
+                  - cell [ref=f15e545]:
+                    - text: Assignment & status
+                    - generic [ref=f15e546]:
+                      - generic [ref=f15e547]: Unassigned
+                      - generic [ref=f15e552]: Ready to review
+                  - cell [ref=f15e554]:
+                    - text: Actions
+                    - generic [ref=f15e555]:
+                      - button "Review this candidate" [ref=f15e556]
+                      - button "Assign Nisha Menon to a staff member" [ref=f15e562]
+                      - button "Edit this profile" [ref=f15e567]
+                      - button "Delete this profile" [ref=f15e570]
+                - row [ref=f15e574] [cursor=pointer]:
+                  - cell "Candidate Karthik Pillai Candidate ID · CAN-C49F829E3 Added Sep 9, 2026" [ref=f15e575]:
+                    - text: Candidate
+                    - generic [ref=f15e576]:
+                      - generic [aria-hidden] [ref=f15e577]: KP
+                      - generic [ref=f15e578]:
+                        - strong [ref=f15e579]: Karthik Pillai
+                        - generic [ref=f15e580]: Candidate ID · CAN-C49F829E3
+                        - generic [ref=f15e581]: Added Sep 9, 2026
+                  - cell "Role Warehouse Supervisor General" [ref=f15e582]:
+                    - text: Role
+                    - generic [ref=f15e583]:
+                      - generic "Warehouse Supervisor" [ref=f15e584]
+                      - generic [ref=f15e585]: General
+                  - cell "Experience 11 yrs" [ref=f15e586]
+                  - cell "Contact +91 90395996 candidate183@example.com Source · Email" [ref=f15e587]:
+                    - text: Contact
+                    - generic [ref=f15e588]:
+                      - generic "+91 90395996" [ref=f15e589]
+                      - generic "candidate183@example.com" [ref=f15e590]
+                      - generic [ref=f15e591]: Source · Email
+                  - cell [ref=f15e592]:
+                    - text: Assignment & status
+                    - generic [ref=f15e593]:
+                      - generic [ref=f15e594]: Unassigned
+                      - generic [ref=f15e599]: Needs review
+                  - cell [ref=f15e601]:
+                    - text: Actions
+                    - generic [ref=f15e602]:
+                      - button "Review this candidate" [ref=f15e603]
+                      - button "Assign Karthik Pillai to a staff member" [ref=f15e609]
+                      - button "Edit this profile" [ref=f15e614]
+                      - button "Delete this profile" [ref=f15e617]
+                - row [ref=f15e621] [cursor=pointer]:
+                  - cell "Candidate Priya Sharma Candidate ID · CAN-C4785B8A7 Added Sep 9, 2026" [ref=f15e622]:
+                    - text: Candidate
+                    - generic [ref=f15e623]:
+                      - generic [aria-hidden] [ref=f15e624]: PS
+                      - generic [ref=f15e625]:
+                        - strong [ref=f15e626]: Priya Sharma
+                        - generic [ref=f15e627]: Candidate ID · CAN-C4785B8A7
+                        - generic [ref=f15e628]: Added Sep 9, 2026
+                  - cell "Role MEP Draughtsman General" [ref=f15e629]:
+                    - text: Role
+                    - generic [ref=f15e630]:
+                      - generic "MEP Draughtsman" [ref=f15e631]
+                      - generic [ref=f15e632]: General
+                  - cell "Experience 8 yrs" [ref=f15e633]
+                  - cell "Contact +91 90934102 candidate144@example.com Source · Email" [ref=f15e634]:
+                    - text: Contact
+                    - generic [ref=f15e635]:
+                      - generic "+91 90934102" [ref=f15e636]
+                      - generic "candidate144@example.com" [ref=f15e637]
+                      - generic [ref=f15e638]: Source · Email
+                  - cell [ref=f15e639]:
+                    - text: Assignment & status
+                    - generic [ref=f15e640]:
+                      - generic [ref=f15e641]: Unassigned
+                      - generic [ref=f15e646]: Ready to review
+                  - cell [ref=f15e648]:
+                    - text: Actions
+                    - generic [ref=f15e649]:
+                      - button "Review this candidate" [ref=f15e650]
+                      - button "Assign Priya Sharma to a staff member" [ref=f15e656]
+                      - button "Edit this profile" [ref=f15e661]
+                      - button "Delete this profile" [ref=f15e664]
+                - row [ref=f15e668] [cursor=pointer]:
+                  - cell "Candidate Vikram Sharma Candidate ID · CAN-C46627DCB Added Sep 9, 2026" [ref=f15e669]:
+                    - text: Candidate
+                    - generic [ref=f15e670]:
+                      - generic [aria-hidden] [ref=f15e671]: VS
+                      - generic [ref=f15e672]:
+                        - strong [ref=f15e673]: Vikram Sharma
+                        - generic [ref=f15e674]: Candidate ID · CAN-C46627DCB
+                        - generic [ref=f15e675]: Added Sep 9, 2026
+                  - cell "Role Senior Site Engineer IT / Software" [ref=f15e676]:
+                    - text: Role
+                    - generic [ref=f15e677]:
+                      - generic "Senior Site Engineer" [ref=f15e678]
+                      - generic [ref=f15e679]: IT / Software
+                  - cell "Experience 14 yrs" [ref=f15e680]
+                  - cell "Contact +91 90506816 candidate126@example.com Source · Email" [ref=f15e681]:
+                    - text: Contact
+                    - generic [ref=f15e682]:
+                      - generic "+91 90506816" [ref=f15e683]
+                      - generic "candidate126@example.com" [ref=f15e684]
+                      - generic [ref=f15e685]: Source · Email
+                  - cell [ref=f15e686]:
+                    - text: Assignment & status
+                    - generic [ref=f15e687]:
+                      - generic [ref=f15e688]: Unassigned
+                      - generic [ref=f15e693]: Needs review
+                  - cell [ref=f15e695]:
+                    - text: Actions
+                    - generic [ref=f15e696]:
+                      - button "Review this candidate" [ref=f15e697]
+                      - button "Assign Vikram Sharma to a staff member" [ref=f15e703]
+                      - button "Edit this profile" [ref=f15e708]
+                      - button "Delete this profile" [ref=f15e711]
+                - row [ref=f15e715] [cursor=pointer]:
+                  - cell "Candidate Lakshmi Pillai Candidate ID · CAN-C476F1A7C Added Sep 9, 2026" [ref=f15e716]:
+                    - text: Candidate
+                    - generic [ref=f15e717]:
+                      - generic [aria-hidden] [ref=f15e718]: LP
+                      - generic [ref=f15e719]:
+                        - strong [ref=f15e720]: Lakshmi Pillai
+                        - generic [ref=f15e721]: Candidate ID · CAN-C476F1A7C
+                        - generic [ref=f15e722]: Added Sep 9, 2026
+                  - cell "Role Senior Site Engineer IT / Software" [ref=f15e723]:
+                    - text: Role
+                    - generic [ref=f15e724]:
+                      - generic "Senior Site Engineer" [ref=f15e725]
+                      - generic [ref=f15e726]: IT / Software
+                  - cell "Experience 15 yrs" [ref=f15e727]
+                  - cell "Contact +91 90200096 candidate142@example.com Source · Email" [ref=f15e728]:
+                    - text: Contact
+                    - generic [ref=f15e729]:
+                      - generic "+91 90200096" [ref=f15e730]
+                      - generic "candidate142@example.com" [ref=f15e731]
+                      - generic [ref=f15e732]: Source · Email
+                  - cell [ref=f15e733]:
+                    - text: Assignment & status
+                    - generic [ref=f15e734]:
+                      - generic [ref=f15e735]: Unassigned
+                      - generic [ref=f15e740]: Needs review
+                  - cell [ref=f15e742]:
+                    - text: Actions
+                    - generic [ref=f15e743]:
+                      - button "Review this candidate" [ref=f15e744]
+                      - button "Assign Lakshmi Pillai to a staff member" [ref=f15e750]
+                      - button "Edit this profile" [ref=f15e755]
+                      - button "Delete this profile" [ref=f15e758]
+                - row [ref=f15e762] [cursor=pointer]:
+                  - cell "Candidate Lakshmi Rao Candidate ID · CAN-C42ABF1DF Added Sep 9, 2026" [ref=f15e763]:
+                    - text: Candidate
+                    - generic [ref=f15e764]:
+                      - generic [aria-hidden] [ref=f15e765]: LR
+                      - generic [ref=f15e766]:
+                        - strong [ref=f15e767]: Lakshmi Rao
+                        - generic [ref=f15e768]: Candidate ID · CAN-C42ABF1DF
+                        - generic [ref=f15e769]: Added Sep 9, 2026
+                  - cell "Role Electrical Foreman General" [ref=f15e770]:
+                    - text: Role
+                    - generic [ref=f15e771]:
+                      - generic "Electrical Foreman" [ref=f15e772]
+                      - generic [ref=f15e773]: General
+                  - cell "Experience 3 yrs" [ref=f15e774]
+                  - cell "Contact +91 90553153 candidate66@example.com Source · Email" [ref=f15e775]:
+                    - text: Contact
+                    - generic [ref=f15e776]:
+                      - generic "+91 90553153" [ref=f15e777]
+                      - generic "candidate66@example.com" [ref=f15e778]
+                      - generic [ref=f15e779]: Source · Email
+                  - cell [ref=f15e780]:
+                    - text: Assignment & status
+                    - generic [ref=f15e781]:
+                      - generic [ref=f15e782]: Unassigned
+                      - generic [ref=f15e787]: Ready to review
+                  - cell [ref=f15e789]:
+                    - text: Actions
+                    - generic [ref=f15e790]:
+                      - button "Review this candidate" [ref=f15e791]
+                      - button "Assign Lakshmi Rao to a staff member" [ref=f15e797]
+                      - button "Edit this profile" [ref=f15e802]
+                      - button "Delete this profile" [ref=f15e805]
+            - generic [ref=f15e809]:
+              - generic [ref=f15e810]:
+                - text: Showing
+                - strong [ref=f15e811]: 1–12
+                - text: of
+                - strong [ref=f15e812]: "240"
+                - text: matching candidates
+              - generic "Candidate pages" [ref=f15e813]:
+                - combobox "Candidates per page" [ref=f15e815] [cursor=pointer]:
+                  - generic [ref=f15e816]: 12 / page
+                - button "Previous page" [disabled] [ref=f15e819]
+                - generic [ref=f15e822]: Page 1 of 20
+                - button "Next page" [ref=f15e823] [cursor=pointer]
+  - alert [ref=f15e826]

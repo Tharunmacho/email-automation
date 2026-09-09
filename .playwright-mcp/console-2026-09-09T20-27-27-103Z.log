@@ -1,0 +1,9 @@
+[     688ms] [LOG] enable copy content js called @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:9
+[     690ms] [LOG] {} @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:255
+[     690ms] [LOG] E.C.P is not enabled, returning @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:290
+[     761ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2489
+[     809ms] [LOG] [HMR] connected @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_1ybzpk2._.js:2489
+[    2333ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/notifications?limit=30:0
+[    3201ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/notifications?limit=30:0
+[    3951ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=93A1--vvYXnNzfX59WOUM' failed: Page entered Back-Forward Cache. @ http://localhost:3000/preview?screen=candidates:0
+[  115886ms] [ERROR] Unchecked runtime.lastError: A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received @ http://localhost:3000/preview?screen=candidates:0

@@ -8585,19 +8585,12 @@ body {
 }
 
 .rail-group + .rail-group {
-  position: relative;
-  margin-top: 0.55rem;
-  padding-top: 0.6rem;
+  margin-top: 0.45rem;
+  padding-top: 0;
 }
 
 .rail-group + .rail-group::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: var(--rail-pad);
-  left: var(--rail-pad);
-  height: 1px;
-  background: rgba(17, 17, 17, 0.08);
+  content: none;
 }
 
 .rail-item,
@@ -15638,6 +15631,187 @@ body {
   background: var(--primary-glow);
 }
 
+/* Candidate records contain many facts, but a recruiter should never have to
+   pan sideways to read one. Related facts share six stable columns; secondary
+   details sit on quiet lines inside their primary cell. */
+.candidate-register-wrap {
+  overflow-x: clip;
+}
+
+.ds-table.candidate-register-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.candidate-register-table th:nth-child(1) { width: 21%; }
+.candidate-register-table th:nth-child(2) { width: 17%; }
+.candidate-register-table th:nth-child(3) { width: 9%; }
+.candidate-register-table th:nth-child(4) { width: 20%; }
+.candidate-register-table th:nth-child(5) { width: 18%; }
+.candidate-register-table th:nth-child(6) { width: 15%; }
+
+.candidate-register-table th,
+.candidate-register-table td {
+  padding-inline: clamp(0.55rem, 0.8vw, 0.85rem);
+}
+
+.candidate-register-table td {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.candidate-register-table .ds-who-text,
+.candidate-register-table .candidate-role-cell,
+.candidate-register-table .candidate-contact-cell,
+.candidate-register-table .candidate-workflow-cell {
+  min-width: 0;
+}
+
+.candidate-register-table .ds-who-text strong,
+.candidate-register-table .ds-who-text small,
+.candidate-register-table .candidate-contact-cell > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candidate-role-cell,
+.candidate-contact-cell,
+.candidate-workflow-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.candidate-register-table .ds-acts {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+}
+
+.candidate-register-table .ds-review-action {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.candidate-register-table .ds-review-action span {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .candidate-register-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .ds-table.candidate-register-table,
+  .candidate-register-table tbody,
+  .candidate-register-table tr,
+  .candidate-register-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .candidate-register-table thead {
+    display: none;
+  }
+
+  .candidate-register-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .candidate-register-table tbody tr,
+  :root[data-theme="dark"] .candidate-register-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(120px, 0.65fr);
+    border: 1px solid var(--border-main);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+
+  .candidate-register-table td,
+  .candidate-register-table td:last-child {
+    position: relative;
+    display: flex;
+    min-height: 70px;
+    padding: 1.8rem 0.85rem 0.75rem;
+    border-right: 1px solid var(--border-main);
+    border-bottom: 1px solid var(--border-main);
+    text-align: left;
+    align-items: center;
+  }
+
+  .candidate-register-table td:nth-child(even),
+  .candidate-register-table td:last-child {
+    border-right: 0;
+  }
+
+  .candidate-register-table td:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .candidate-register-table td::before {
+    content: attr(data-label);
+    position: absolute;
+    top: 0.55rem;
+    left: 0.85rem;
+    color: var(--text-light);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .candidate-register-table td.is-num {
+    text-align: left;
+  }
+
+  .candidate-register-table td.is-actions .ds-acts {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .candidate-register-table tbody tr {
+    grid-template-columns: 1fr;
+  }
+
+  .candidate-register-table td,
+  .candidate-register-table td:nth-child(even),
+  .candidate-register-table td:last-child {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-main);
+  }
+
+  .candidate-register-table td:last-child {
+    min-height: 62px;
+    border-bottom: 0;
+  }
+}
+
+/* The shell breakpoint is repeated beside the responsive registers so later
+   feature styles cannot accidentally restore the desktop rail gutter. This is
+   the shared mobile canvas rule for every CRM screen. */
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.is-collapsed {
+    --rail-w: 0px;
+  }
+
+  .app-shell .workspace {
+    width: 100%;
+    max-width: 100vw;
+    margin-left: 0 !important;
+    padding-inline: clamp(0.8rem, 3.5vw, 1.15rem);
+  }
+}
+
 .ds-who {
   display: flex;
   align-items: center;
@@ -19885,6 +20059,212 @@ a.um-phone:hover {
 .topbar-profile-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .topbar-profile-menu > button.is-danger { color: var(--error-ink); }
 .topbar-profile-error { margin: 0.15rem 0.7rem 0.35rem; color: var(--error-ink); font-size: 0.68rem; }
+
+.profile-photo-editor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 260;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(5px);
+}
+
+.profile-photo-editor {
+  width: min(660px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--border-main);
+  border-radius: 18px;
+  background: var(--bg-card);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+  animation: modal-in 0.18s ease-out;
+}
+
+.profile-photo-editor-head,
+.profile-photo-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+}
+
+.profile-photo-editor-head {
+  border-bottom: 1px solid var(--border-main);
+}
+
+.profile-photo-editor-head h2 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.profile-photo-editor-head p {
+  margin: 0.18rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.profile-photo-editor-head > button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.profile-photo-editor-head > button:hover {
+  background: var(--tint-2);
+  color: var(--text-main);
+}
+
+.profile-photo-editor-body {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 1.35rem;
+  align-items: center;
+  padding: 1.3rem;
+}
+
+.profile-photo-crop {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  overflow: hidden;
+  border-radius: 16px;
+  background-color: var(--tint-2);
+  background-image: linear-gradient(45deg, var(--border-main) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--border-main) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--border-main) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--border-main) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.profile-photo-crop:active { cursor: grabbing; }
+.profile-photo-crop > img { object-fit: cover; transform-origin: center; pointer-events: none; }
+
+.profile-photo-crop-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.18);
+  pointer-events: none;
+}
+
+.profile-photo-drag-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  font-size: 0.67rem;
+  font-weight: 700;
+  transform: translateX(-50%);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.profile-photo-controls {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-photo-controls label,
+.profile-photo-controls fieldset {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.55rem;
+  border: 0;
+}
+
+.profile-photo-controls label > span,
+.profile-photo-controls legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-main);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.profile-photo-controls label > span strong {
+  margin-left: auto;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-photo-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.profile-photo-size-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.profile-photo-size-options button,
+.profile-photo-reset {
+  min-height: 36px;
+  border: 1px solid var(--border-main);
+  border-radius: 9px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.profile-photo-size-options button:hover,
+.profile-photo-size-options button.is-on {
+  border-color: rgba(var(--primary-rgb), 0.45);
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.profile-photo-reset {
+  width: 100%;
+  background: var(--tint-1);
+}
+
+.profile-photo-reset:hover { color: var(--text-main); }
+.profile-photo-editor-error { color: var(--error-ink); font-size: 0.7rem; }
+
+.profile-photo-editor-foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-main);
+  background: var(--tint-1);
+}
+
+@media (max-width: 620px) {
+  .profile-photo-editor-overlay { align-items: end; padding: 0; }
+  .profile-photo-editor { max-height: 94vh; overflow-y: auto; border-radius: 18px 18px 0 0; }
+  .profile-photo-editor-body { grid-template-columns: 1fr; justify-items: center; }
+  .profile-photo-controls { width: 100%; }
+  .profile-photo-crop { width: min(280px, calc(100vw - 2.6rem)); height: min(280px, calc(100vw - 2.6rem)); }
+}
 
 .ds-filterbar {
   display: flex;
