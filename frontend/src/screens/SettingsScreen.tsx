@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AtSign, LogOut, Mail, Phone, ScanText, ShieldCheck, UserRound } from "lucide-react";
+import { AlertTriangle, AtSign, LogOut, Mail, Phone, RefreshCw, ScanText, ShieldCheck, UserRound } from "lucide-react";
 
 import {
   fetchIngestRules,
@@ -35,6 +35,7 @@ type AdminProbe =
 export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps) {
   const isAdmin = user.role === "admin";
   const [adminConfig, setAdminConfig] = useState<AdminProbe>({ state: "loading" });
+  const [configNonce, setConfigNonce] = useState(0);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -55,7 +56,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
     return () => {
       active = false;
     };
-  }, [isAdmin]);
+  }, [isAdmin, configNonce]);
 
   const configuredEmails = useMemo(() => {
     if (adminConfig.state !== "ready") return [];
@@ -137,9 +138,18 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
           </div>
 
           {adminConfig.state === "loading" ? (
-            <div className="settings-config-state"><span className="app-boot-spinner" /> Loading configuration…</div>
+            <div className="settings-config-state db-feedback is-loading" role="status" aria-live="polite">
+              <span className="app-boot-spinner" aria-hidden="true" />
+              <div><strong>Loading communication settings</strong><span>Checking configured accounts and OCR services…</span></div>
+            </div>
           ) : adminConfig.state === "error" ? (
-            <div className="settings-config-state is-error">{adminConfig.message}</div>
+            <div className="settings-config-state db-feedback is-error" role="alert">
+              <span className="db-feedback-icon"><AlertTriangle size={20} /></span>
+              <div><strong>Communication settings are unavailable</strong><span>{adminConfig.message}</span></div>
+              <button type="button" className="db-btn" onClick={() => { setAdminConfig({ state: "loading" }); setConfigNonce((value) => value + 1); }}>
+                <RefreshCw size={14} /> Try again
+              </button>
+            </div>
           ) : (
             <div className="settings-config-grid">
               <section className="settings-config-block">

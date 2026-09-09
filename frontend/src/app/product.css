@@ -1,0 +1,390 @@
+/*
+ * ADIRA product UI
+ *
+ * This is the authoritative visual layer loaded after the legacy feature
+ * modules. It keeps route-specific layout intact while enforcing one product
+ * language for the shell, surfaces, controls, data, feedback, and motion.
+ */
+
+html { background: var(--bg-main); }
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: rgba(var(--primary-rgb), 0.18); color: var(--text-main); }
+
+.topbar {
+  min-height: var(--app-header-h);
+  border-bottom-color: color-mix(in srgb, var(--border-main) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.rail {
+  border-right-color: var(--border-main);
+  box-shadow: 10px 0 32px -30px rgba(15, 23, 42, 0.34);
+}
+
+.rail-scroll { padding-top: 0.8rem; }
+.rail-collapse-row { margin-bottom: 0.8rem; }
+.rail-menu-label { color: var(--text-light); letter-spacing: 0.12em; }
+
+.rail-item,
+.rail-section-toggle {
+  min-height: 42px;
+  border-radius: 10px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.rail-item:hover,
+.rail-section-toggle:hover { transform: translateX(2px); }
+
+.rail-item.is-active,
+.rail-item.is-active:hover,
+.rail-section-toggle.is-current {
+  background: rgba(var(--primary-rgb), 0.09);
+  color: var(--primary-hover);
+}
+
+.rail-item.is-active::before {
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--primary);
+}
+
+.theme-switch { border-color: var(--border-main); background: var(--tint-2); }
+.theme-switch-btn.is-on { background: var(--bg-card); box-shadow: var(--shadow-sm); }
+
+.workspace {
+  padding: clamp(1.25rem, 2vw, 2rem) clamp(1rem, 2.3vw, 2.25rem) 3rem;
+  background: var(--bg-main);
+}
+
+.workspace > .db-page { width: min(100%, 1680px); margin-inline: auto; }
+.db-page, .ds-page { gap: 1.35rem; }
+
+.db-title,
+.ds-head-title {
+  font-size: clamp(1.55rem, 2vw, 2rem);
+  font-weight: 730;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+.db-eyebrow {
+  margin-bottom: 0.42rem;
+  color: var(--primary);
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.db-subtitle,
+.ds-head-sub { margin-top: 0.38rem; color: var(--text-muted); line-height: 1.55; }
+
+.db-card-title,
+.ds-card-title,
+.ds-panel-title { font-weight: 700; letter-spacing: -0.018em; }
+
+.db-card,
+.ds-card,
+.ds-panel,
+.job-order-card,
+.staff-card,
+.attendance-card,
+.attendance-request-card,
+.payroll-card,
+.settings-card,
+.dm-panel {
+  border-color: var(--border-main);
+  border-radius: var(--radius-xl);
+  background-color: var(--bg-card);
+  box-shadow: var(--shadow-card);
+}
+
+.ds-card,
+.job-order-card,
+.staff-card,
+.payroll-card {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.ds-card:hover,
+.job-order-card:hover,
+.staff-card:hover,
+.payroll-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
+
+.ds-card.is-feature {
+  background: var(--primary);
+  box-shadow: 0 16px 34px -20px rgba(var(--primary-rgb), 0.58);
+}
+
+.ds-card-icon,
+.ds-stat-icon,
+.ds-avatar { border: 1px solid rgba(var(--primary-rgb), 0.12); background: rgba(var(--primary-rgb), 0.08); }
+
+.db-btn,
+.ds-primary-btn,
+.ds-ghost-btn,
+.ds-pill-btn,
+.sh-new-btn,
+.btn-new-client,
+.jod-btn,
+.sh-empty-btn,
+.profile-photo-size-options button,
+.profile-photo-reset {
+  min-height: 38px;
+  border-radius: 9px;
+  font-weight: 650;
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease,
+    box-shadow 150ms ease, transform 100ms ease;
+}
+
+.ds-primary-btn,
+.db-btn.is-primary,
+.sh-new-btn,
+.btn-new-client,
+.sh-empty-btn.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 18px -12px rgba(var(--primary-rgb), 0.65);
+}
+
+.ds-primary-btn:hover:not(:disabled),
+.db-btn.is-primary:hover:not(:disabled),
+.sh-new-btn:hover:not(:disabled),
+.btn-new-client:hover:not(:disabled),
+.sh-empty-btn.primary:hover:not(:disabled) {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1), 0 10px 22px -12px rgba(var(--primary-rgb), 0.72);
+  transform: translateY(-1px);
+}
+
+.ds-ghost-btn,
+.ds-pill-btn,
+.db-btn:not(.is-primary):not(.is-danger) {
+  border-color: var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-main);
+  box-shadow: var(--shadow-sm);
+}
+
+.db-btn:active:not(:disabled),
+.ds-primary-btn:active:not(:disabled),
+.ds-ghost-btn:active:not(:disabled),
+.ds-pill-btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+
+button:disabled,
+[aria-disabled="true"] { cursor: not-allowed; filter: saturate(0.72); }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible { outline: 2px solid rgba(var(--primary-rgb), 0.62); outline-offset: 2px; }
+
+.modal-input,
+.modal-textarea,
+.ui-select-trigger,
+.ui-date-trigger,
+.ds-search,
+.topbar-search {
+  border-color: var(--border-main);
+  border-radius: 10px;
+  background-color: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+}
+
+.modal-input:focus,
+.modal-textarea:focus,
+.ui-select-trigger:focus-visible,
+.ui-date-trigger:focus-visible,
+.ds-search:focus-within,
+.topbar-search:focus-within {
+  border-color: rgba(var(--primary-rgb), 0.58);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.11);
+}
+
+.ui-select-menu,
+.ui-date-popover,
+.topbar-profile-menu,
+.notif-panel {
+  border-color: var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: 0 18px 44px -14px rgba(15, 23, 42, 0.24);
+  animation: product-popover-in 140ms ease-out;
+}
+
+.ds-table-wrap,
+.ctable-wrap,
+.rc-table-wrap { border-color: var(--border-main); border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025); }
+
+.ds-table thead,
+.ds-table.is-ruled thead { background: var(--tint-1); }
+
+.ds-table th,
+.ds-table.is-ruled th,
+.ds-table td,
+.ds-table.is-ruled td { border-right: 0; }
+
+.ds-table th,
+.ds-table.is-ruled th {
+  height: 44px;
+  color: var(--text-label);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.ds-table tbody tr:hover,
+.ds-table.is-ruled tbody tr:hover { background: rgba(var(--primary-rgb), 0.035); }
+
+.db-feedback {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  min-height: 88px;
+  padding: 1rem 1.1rem;
+}
+
+.db-feedback > div { display: flex; min-width: 0; flex-direction: column; gap: 0.18rem; }
+.db-feedback strong { color: var(--text-main); font-size: 0.84rem; }
+.db-feedback span { color: var(--text-muted); font-size: 0.75rem; }
+.db-feedback.is-loading { grid-template-columns: auto minmax(0, 1fr); }
+
+.db-feedback-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--error-edge);
+  border-radius: 10px;
+  background: var(--error-fill);
+  color: var(--error-ink) !important;
+}
+
+.settings-config-state.db-feedback {
+  min-height: 88px;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border-main);
+  border-radius: 11px;
+  background: var(--tint-1);
+  color: var(--text-main);
+  text-align: left;
+}
+
+.settings-config-state.db-feedback.is-error {
+  border-color: var(--error-edge);
+  background: color-mix(in srgb, var(--error-fill) 62%, var(--bg-card));
+}
+
+.cm-overlay,
+.modal-overlay,
+.profile-photo-editor-overlay { background: rgba(15, 23, 42, 0.52); backdrop-filter: blur(5px); }
+
+.cm-dialog,
+.modal-container,
+.candidate-assign-dialog,
+.profile-photo-editor {
+  border: 1px solid var(--border-main);
+  border-radius: 16px;
+  background: var(--bg-card);
+  box-shadow: 0 28px 80px -24px rgba(15, 23, 42, 0.38);
+  animation: product-dialog-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.db-empty,
+.ds-empty-state,
+.sh-empty,
+.payroll-empty { border-radius: var(--radius-xl); background: var(--tint-1); }
+
+.db-page > *,
+.ds-page > * { animation: product-reveal 260ms ease-out both; }
+.db-page > :nth-child(2), .ds-page > :nth-child(2) { animation-delay: 35ms; }
+.db-page > :nth-child(3), .ds-page > :nth-child(3) { animation-delay: 70ms; }
+.db-page > :nth-child(4), .ds-page > :nth-child(4) { animation-delay: 105ms; }
+
+@keyframes product-reveal {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes product-dialog-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes product-popover-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 900px) {
+  .app-shell, .app-shell.is-collapsed { --rail-w: 0px; }
+  .app-shell .workspace {
+    width: 100%;
+    max-width: 100vw;
+    margin-left: 0 !important;
+    padding: 1rem clamp(0.8rem, 3vw, 1.15rem) 2rem;
+  }
+  .topbar { padding-inline: 0.75rem; }
+}
+
+@media (max-width: 640px) {
+  .db-title, .ds-head-title { font-size: 1.5rem; }
+  .db-page, .ds-page { gap: 1rem; }
+  .ds-panel, .db-card-body { padding: 1rem; }
+
+  .ds-head-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .ds-head-actions > button {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 0.55rem;
+    justify-content: center;
+    font-size: 0.74rem;
+  }
+
+  .ds-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
+  .ds-stat { min-height: 126px; padding: 0.9rem; }
+
+  .db-feedback { grid-template-columns: auto minmax(0, 1fr); }
+  .db-feedback > button { grid-column: 1 / -1; width: 100%; }
+}
+
+@media (max-width: 340px) {
+  .ds-head-actions, .ds-stats { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

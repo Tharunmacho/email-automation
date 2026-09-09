@@ -289,8 +289,9 @@ export default function DataManagementScreen({ onActivity }: Props) {
 
   if (loading) {
     return (
-      <section className="db-card">
-        <span className="app-boot-spinner" />
+      <section className="db-card db-feedback is-loading" role="status" aria-live="polite">
+        <span className="app-boot-spinner" aria-hidden="true" />
+        <div><strong>Loading recruitment data</strong><span>Preparing jobs, destinations, and rules…</span></div>
       </section>
     );
   }
@@ -298,11 +299,11 @@ export default function DataManagementScreen({ onActivity }: Props) {
   return (
     <div className="dm-screen">
       {error && (
-        <section className="db-card">
-          <h3 className="db-card-title">Could not load</h3>
-          <p className="db-card-sub">{error}</p>
+        <section className="db-card db-feedback is-error" role="alert">
+          <span className="db-feedback-icon"><AlertTriangle size={20} /></span>
+          <div><strong>Could not load recruitment data</strong><span>{error}</span></div>
           <button type="button" className="db-btn" onClick={() => void load()}>
-            Try again
+            <RefreshCw size={14} /> Try again
           </button>
         </section>
       )}

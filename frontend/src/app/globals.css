@@ -11,7 +11,7 @@
      the alias every other rule in the sheet is written against, so the family
      is swapped in exactly one place. The stack after it is only what paints
      before the webfont lands. */
-  --font-outfit: var(--font-display), 'Nunito', Arial, sans-serif;
+  --font-outfit: Inter, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   /* Kept as a name because rules across the sheet still ask for it, and code
      and clocks want even digits wherever they appear. */
   --font-numeric: var(--font-outfit);
@@ -41,7 +41,7 @@
 
   /* Accent channel. Stated as raw RGB so every tint, ring and shadow can be
      mixed from it with an alpha instead of being hand-picked per rule. */
-  --primary-rgb: 0, 0, 255;
+  --primary-rgb: 37, 99, 235;
   /* Electric blue — 6.7:1 on white, so it is safe as text, not just as fill.
      There is exactly one blue in the product now. `--accent` used to be a
      second, lighter one (blue 500), which is why a chip, a connector and a card
@@ -51,9 +51,9 @@
   --accent-rgb: var(--primary-rgb);
 
   --primary: rgb(var(--primary-rgb));
-  --primary-hover: #0000cc;
+  --primary-hover: #1d4ed8;
   /* Pressed / hover — same hue, luminance only */
-  --primary-deep: #000080;
+  --primary-deep: #1e3a8a;
   --primary-glow: rgba(var(--primary-rgb), 0.08);
   --accent: rgb(var(--accent-rgb));
 
@@ -77,50 +77,50 @@
   /* Surfaces — white cards on an almost-white page plane. The canvas is
      brighter than the card border is dark, which is what makes a flat card
      read as lifted without needing a shadow to say so. */
-  --bg-main: #ffffff;
+  --bg-main: #f6f8fb;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
 
   /* Neutral fills in ascending weight. Grey, not tinted: a blue wash behind
      data is what made the old shell read as a theme rather than a tool. */
-  --tint-1: rgba(0, 0, 0, 0.02);
-  --tint-2: rgba(0, 0, 0, 0.04);
-  --tint-3: rgba(0, 0, 0, 0.10);
+  --tint-1: #f8fafc;
+  --tint-2: #f1f5f9;
+  --tint-3: #e2e8f0;
 
-  --border-main: rgba(0, 0, 0, 0.12);
-  --border-hover: rgba(0, 0, 0, 0.24);
-  --glass-border: rgba(0, 0, 0, 0.08);
+  --border-main: #e2e8f0;
+  --border-hover: #cbd5e1;
+  --glass-border: rgba(148, 163, 184, 0.22);
 
-  --text-main: #000000;
+  --text-main: #0f172a;
   /* Slate 900 — the sharp ink for headings, KPIs and table names */
-  --text-muted: rgba(0, 0, 0, 0.62);
+  --text-muted: #475569;
   /* Gray 500 — captions, subtitles, secondary cells, and section labels */
-  --text-light: rgba(0, 0, 0, 0.42);
+  --text-light: #94a3b8;
   /* Section labels sit one step darker than --text-light: at 700 and 0.68rem
      they are small enough that the lighter grey drops below readable. */
-  --text-label: rgba(0, 0, 0, 0.62);
+  --text-label: #64748b;
 
   /* Hairlines. `--border-blue` is a legacy name kept so the screens written
      against it inherit the new neutral edge; nothing about it is blue now. */
-  --border-blue: rgba(0, 0, 0, 0.12);
-  --border-blue-strong: rgba(0, 0, 0, 0.24);
-  --border-blue-faint: rgba(0, 0, 0, 0.05);
+  --border-blue: #e2e8f0;
+  --border-blue-strong: #cbd5e1;
+  --border-blue-faint: #f1f5f9;
 
   /* Both the sidebar's brand divider and the page header's rule are pinned to
      this height, so the two hairlines meet and read as one line across the
      whole shell. Change it in one place and both follow. */
-  --app-header-h: 68px;
+  --app-header-h: 72px;
 
   /* The single edge under the header band. There is exactly one line between
      the chrome and everything below it, stated here and drawn once — a second
      rule a few pixels under the first reads as a rendering fault rather than as
      structure, which is what the rail's old head row was doing. */
-  --header-hairline: rgba(0, 0, 0, 0.12);
+  --header-hairline: #e2e8f0;
 
   /* The DataBlue corner. One radius for cards and panels, one for the controls
      that sit inside them. */
-  --radius-xl: 16px;
-  --radius-md: 12px;
+  --radius-xl: 14px;
+  --radius-md: 10px;
   --radius-sm: 8px;
 
   --secondary: var(--primary);
@@ -167,8 +167,8 @@
      sitting flat on an almost-white one, so the lift is a real two-part
      shadow — a contact edge plus a soft cast — instead of a hairline's worth
      of grey. Every surface that reads as a card uses this one token. */
-  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.08), 0 4px 12px rgba(16, 24, 40, 0.05);
-  --shadow-card-hover: 0 1px 3px rgba(16, 24, 40, 0.10), 0 8px 22px -6px rgba(16, 24, 40, 0.12);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -16px rgba(15, 23, 42, 0.16);
+  --shadow-card-hover: 0 2px 4px rgba(15, 23, 42, 0.05), 0 16px 32px -18px rgba(15, 23, 42, 0.24);
 
   /* Shared card/tile surface tokens — used by every screen, not just the
      dashboard, so they live at the root rather than on the dashboard wrapper. */
@@ -200,9 +200,9 @@
      everywhere and left the one real blue — the accent — with nothing to
      contrast against. These greys have no hue at all, so the accent is the only
      colour in the theme and it reads as loudly on black as it does on white. */
-  --primary-rgb: 0, 0, 255;
-  --primary-hover: #3333ff;
-  --primary-deep: #000080;
+  --primary-rgb: 96, 165, 250;
+  --primary-hover: #93c5fd;
+  --primary-deep: #2563eb;
   /* An 8% wash is invisible on black. The active nav pill, the selected chip
      and the focus ring all mix from this, so it doubles here rather than being
      re-picked per rule. */
@@ -219,9 +219,9 @@
   --review-unopened: rgba(var(--primary-rgb), 0.38);
 
   /* True black canvas with neutral charcoal elevation. */
-  --bg-main: #000000;
-  --bg-card: #000000;
-  --bg-sidebar: #000000;
+  --bg-main: #090d12;
+  --bg-card: #11161d;
+  --bg-sidebar: #0d1218;
 
   --tint-1: rgba(255, 255, 255, 0.04);
   --tint-2: rgba(255, 255, 255, 0.08);
@@ -8552,7 +8552,7 @@ body {
   color: var(--success-ink);
 }
 
-/* ========================================================================== 
+/* ===========================================================================
    2026 SHELL REFINEMENT
    The navigation stays a high-contrast white surface in both app themes.
    Categories remain available to assistive technology but no longer interrupt

@@ -1,20 +1,6 @@
 import type { Metadata } from "next";
-import { Nunito } from "next/font/google";
 import "./globals.css";
-
-// One Nunito variable family, product-wide. Both upright and italic cuts are
-// loaded, and every control inherits the same root variable.
-//
-// The variable is `--font-display`; `globals.css` aliases the sheet's existing
-// `--font-outfit` name onto it in one line, so re-keying the face here re-keys
-// the whole product without touching the thousands of rules written against
-// the old name.
-const display = Nunito({
-  variable: "--font-display",
-  subsets: ["latin"],
-  style: ["normal", "italic"],
-  display: "swap",
-});
+import "./product.css";
 
 export const metadata: Metadata = {
   title: "ADIRA-Master CRM",
@@ -35,7 +21,7 @@ export default function RootLayout({
       lang="en"
       data-theme="light"
       style={{ colorScheme: "light" }}
-      className={`${display.variable} h-full antialiased`}
+      className="h-full antialiased"
     >
       {/* The shell owns its own layout now — a flex body would fight the fixed
           header and rail it lays out for itself. */}

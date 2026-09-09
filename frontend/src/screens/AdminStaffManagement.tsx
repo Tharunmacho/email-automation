@@ -613,19 +613,20 @@ export default function AdminStaffManagement({
   // ---- render ----------------------------------------------------------- //
   if (loading) {
     return (
-      <section className="db-card">
-        <span className="app-boot-spinner" />
+      <section className="db-card db-feedback is-loading" role="status" aria-live="polite">
+        <span className="app-boot-spinner" aria-hidden="true" />
+        <div><strong>Loading staff management</strong><span>Preparing workloads and assignments…</span></div>
       </section>
     );
   }
 
   if (error) {
     return (
-      <section className="db-card">
-        <h3 className="db-card-title">Could not load staff management</h3>
-        <p className="db-card-sub">{error}</p>
+      <section className="db-card db-feedback is-error" role="alert">
+        <span className="db-feedback-icon"><AlertTriangle size={20} /></span>
+        <div><strong>Could not load staff management</strong><span>{error}</span></div>
         <button type="button" className="db-btn" onClick={reload}>
-          Try again
+          <RefreshCw size={14} /> Try again
         </button>
       </section>
     );
