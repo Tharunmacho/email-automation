@@ -29,9 +29,9 @@ interface LoginScreenProps {
 }
 
 const LOGIN_BENEFITS = [
-  "Candidate records in one clear workspace",
-  "Fair assignment across your review team",
-  "Role-based access that keeps work focused",
+  { step: "01", title: "Capture", detail: "Candidate records and documents" },
+  { step: "02", title: "Review", detail: "Structured screening and allocation" },
+  { step: "03", title: "Place", detail: "Clear progress from role to hire" },
 ];
 
 export default function LoginScreen({ onSuccess }: LoginScreenProps) {
@@ -78,27 +78,40 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           <div className="auth-story-content">
             <span className="auth-eyebrow">
               <ShieldCheck size={15} />
-              ADIRA-Master CRM
+              Recruitment command centre
             </span>
             <h1>
-              Every candidate.
-              <span>One clear workflow.</span>
+              From first profile
+              <span>to perfect placement.</span>
             </h1>
             <p>
-              Move from sourcing to review with a focused workspace built for recruitment teams.
+              One calm, connected workspace for every candidate, requirement and decision.
             </p>
 
-            <ul className="auth-benefits">
+            <div className="auth-flow" aria-label="Recruitment workflow">
+              <div className="auth-flow-head">
+                <span>Recruitment pipeline</span>
+                <span className="auth-live"><i /> Live workspace</span>
+              </div>
+              <ol className="auth-benefits">
               {LOGIN_BENEFITS.map((benefit) => (
-                <li key={benefit}>
+                <li key={benefit.step}>
+                  <span className="auth-step">{benefit.step}</span>
+                  <span className="auth-step-copy">
+                    <strong>{benefit.title}</strong>
+                    <small>{benefit.detail}</small>
+                  </span>
                   <CheckCircle2 size={17} />
-                  <span>{benefit}</span>
                 </li>
               ))}
-            </ul>
+              </ol>
+            </div>
           </div>
 
-          <p className="auth-story-foot">Recruitment operations, organised.</p>
+          <div className="auth-story-foot">
+            <span>Secure by design</span>
+            <span>Role-based access</span>
+          </div>
         </aside>
 
         <main className="auth-access">
@@ -119,10 +132,10 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
 
             <header className="auth-head">
               <span className="auth-secure-label">
-                <ShieldCheck size={14} /> Secure staff access
+                <ShieldCheck size={14} /> Protected access
               </span>
               <h2 id="auth-title">Welcome back</h2>
-              <p>Sign in to continue to ADIRA-Master CRM.</p>
+              <p>Enter your details to open your recruitment workspace.</p>
             </header>
 
             <form className="auth-form" onSubmit={handleSubmit} noValidate aria-busy={busy}>
@@ -202,7 +215,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
 
           </section>
 
-          <p className="auth-access-foot">Protected workspace · Authorised access only</p>
+          <p className="auth-access-foot">ADIRA-Master CRM · Authorised staff only</p>
         </main>
       </div>
     </div>

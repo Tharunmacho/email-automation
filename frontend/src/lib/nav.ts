@@ -25,6 +25,7 @@ import {
   FilePlus2,
   Settings as SettingsIcon,
   ShieldCheck,
+  UserCheck,
   UserCog,
   Users,
   type LucideIcon,
@@ -34,6 +35,7 @@ export const NAV_IDS = [
   "overview",
   "candidates",
   "candidate-entry",
+  "assigned-candidates",
   "attendance",
   "payroll",
   "staff",
@@ -80,6 +82,9 @@ export interface NavItem {
 export interface NavGroup {
   label: string;
   items: NavItem[];
+  /** Named groups render as collapsible navigation sections. */
+  collapsible?: boolean;
+  icon?: LucideIcon;
 }
 
 /**
@@ -96,7 +101,7 @@ export interface NavGroup {
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
-    label: "Workspace",
+    label: "Overview",
     items: [
       // What each role opens onto: the admin's summary of the whole pipeline,
       // and the staff member's own allocated queue. One group, because they
@@ -105,18 +110,33 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "General",
+    label: "Candidates",
+    collapsible: true,
+    icon: Users,
     items: [
-      { id: "candidates", label: "Candidates", icon: Users, roles: ["admin", "manager", "staff"] },
+      { id: "candidates", label: "All Candidates", icon: Users, roles: ["admin", "manager", "staff"] },
       { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "manager", "staff"] },
+      { id: "assigned-candidates", label: "Assigned Candidates", icon: UserCheck, roles: ["admin", "manager", "staff"] },
+    ],
+  },
+  {
+    label: "Staff Management",
+    collapsible: true,
+    icon: ShieldCheck,
+    items: [
+      { id: "staff", label: "Staff Directory", icon: ShieldCheck, roles: ["admin", "manager"] },
       { id: "attendance", label: "Attendance", icon: CalendarCheck2, roles: ["admin", "manager", "staff"] },
       { id: "payroll", label: "Payroll", icon: Banknote, roles: ["admin", "manager", "staff"] },
-      { id: "staff", label: "Staff", icon: ShieldCheck, roles: ["admin", "manager"] },
+    ],
+  },
+  {
+    label: "User Management",
+    items: [
       { id: "users", label: "User Management", icon: UserCog, roles: ["admin"] },
     ],
   },
   {
-    label: "Tools",
+    label: "Recruitment",
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin", "manager"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin", "manager"] },
@@ -161,7 +181,9 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
   return NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
-      allowed ? allowed.has(item.id) : !item.roles || item.roles.includes(role ?? ""),
+      allowed
+        ? allowed.has(item.id) || (item.id === "assigned-candidates" && allowed.has("candidates"))
+        : !item.roles || item.roles.includes(role ?? ""),
     ),
   })).filter((group) => group.items.length > 0);
 }
@@ -235,6 +257,11 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "General",
     title: "Candidate Entry",
     subtitle: "Upload a resume and identity documents for VeriIS extraction.",
+  },
+  "assigned-candidates": {
+    eyebrow: "Candidates",
+    title: "Assigned Candidates",
+    subtitle: "Candidate profiles currently assigned to a staff member.",
   },
   attendance: {
     eyebrow: "General",

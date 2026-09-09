@@ -33,8 +33,9 @@ const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
 ];
 
 /**
- * The left rail: three labelled groups of destinations with the collapse control
- * on the first heading's row, and the account card at the bottom.
+ * The left rail: destinations are separated into quiet visual clusters without
+ * adding category copy above the links. The collapse control lives in its own
+ * compact row and the account card stays anchored at the bottom.
  *
  * Collapsed it keeps only the icons — same list, same order, same active
  * marker, so the muscle memory built at full width still works at 68px. Nothing
@@ -86,25 +87,22 @@ export default function Sidebar({
         </div>
 
         <div className="rail-scroll">
-          {groups.map((group, index) => (
-            <div key={group.label} className="rail-group">
-              {index === 0 ? (
-                <div className="rail-group-head">
-                  <p className="rail-group-label">{group.label}</p>
-                  <button
-                    type="button"
-                    className="rail-toggle"
-                    onClick={onToggleCollapse}
-                    title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                    aria-expanded={!collapsed}
-                  >
-                    {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
-                  </button>
-                </div>
-              ) : (
-                <p className="rail-group-label">{group.label}</p>
-              )}
+          <div className="rail-collapse-row">
+            <span className="rail-menu-label">Menu</span>
+            <button
+              type="button"
+              className="rail-toggle"
+              onClick={onToggleCollapse}
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+            >
+              {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
+            </button>
+          </div>
+
+          {groups.map((group) => (
+            <div key={group.label} className="rail-group" role="group" aria-label={group.label}>
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeId === item.id;
