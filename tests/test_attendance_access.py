@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from app.attendance.api import (
     WhatsAppAttendanceEvent,
+    attendance_employees,
     decide_permission as decide_permission_route,
     list_permissions,
     request_permission as request_permission_route,
@@ -56,7 +57,11 @@ class FakeUsers:
         return list(self.members.values())
 
     def list_employees(self, include_inactive=False):
-        return [member for member in self.members.values() if include_inactive or member.active]
+        return [
+            member
+            for member in self.members.values()
+            if member.role in {STAFF_ROLE, MANAGER_ROLE} and (include_inactive or member.active)
+        ]
 
 
 class RecordingRepository:
@@ -91,6 +96,25 @@ class CapturedNotifications:
 
     def record(self, user_id, **_values):
         type(self).recipients.append(user_id)
+
+
+def test_admin_attendance_roster_contains_staff_and_managers():
+    with patch("app.attendance.api.users", ApprovalUsers()):
+        result = attendance_employees(user={"id": "admin-1", "role": ADMIN_ROLE})
+
+    assert [employee["id"] for employee in result["items"]] == [
+        "staff-1",
+        "staff-2",
+        "manager-1",
+        "manager-2",
+    ]
+
+
+def test_manager_attendance_roster_contains_staff_only():
+    with patch("app.attendance.api.users", ApprovalUsers()):
+        result = attendance_employees(user={"id": "manager-1", "role": MANAGER_ROLE})
+
+    assert [employee["id"] for employee in result["items"]] == ["staff-1", "staff-2"]
 
 
 def test_manager_leave_request_notifies_only_super_admin():

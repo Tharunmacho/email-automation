@@ -18,10 +18,10 @@ import {
 import {
   decideAttendancePermission,
   fetchAttendanceDay,
+  fetchAttendanceEmployees,
   fetchAttendanceMonth,
   fetchAttendancePermissions,
   fetchAttendanceWeeklyOff,
-  listStaff,
   recordAttendancePunch,
   requestAttendancePermission,
   updateAttendanceWeeklyOff,
@@ -164,7 +164,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   useEffect(() => {
     if (!canManage) return;
     let active = true;
-    listStaff(false)
+    fetchAttendanceEmployees()
       .then(({ items }) => {
         if (!active) return;
         const roster = (items ?? []).filter((person) => person.active);

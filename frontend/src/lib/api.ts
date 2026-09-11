@@ -280,6 +280,11 @@ export interface AttendancePermission {
 
 const employeeQuery = (employeeId?: string) => employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
 
+/** Active employees visible to the signed-in attendance manager. */
+export function fetchAttendanceEmployees(): Promise<{ count: number; items: StaffMember[] }> {
+  return request("/attendance/employees", { cache: "no-store" });
+}
+
 export function fetchAttendanceDay(day: string, employeeId?: string): Promise<AttendanceDay> {
   return request(`/attendance/day/${day}${employeeQuery(employeeId)}`, { cache: "no-store" });
 }

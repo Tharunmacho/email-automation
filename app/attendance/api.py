@@ -175,6 +175,21 @@ def whatsapp_attendance_directory(
     return {"contacts": contacts, "count": len(contacts)}
 
 
+@router.get("/employees")
+def attendance_employees(user: dict = Depends(require_attendance_manager)) -> dict:
+    """Active people visible in the attendance team roster.
+
+    Administrators review attendance for every employee, including managers.
+    A manager's team view remains staff-only so one manager cannot inspect
+    another manager's attendance.
+    """
+    if user.get("role") == ADMIN_ROLE:
+        employees = users.list_employees(include_inactive=False)
+    else:
+        employees = users.list_staff(include_inactive=False)
+    return {"items": [employee.to_public() for employee in employees], "count": len(employees)}
+
+
 @router.get("/day/{attendance_date}")
 def attendance_day(attendance_date: date, employee_id: str | None = Query(default=None), user: dict = Depends(current_user)) -> dict:
     return service().day(_employee_id(user, employee_id), attendance_date)
