@@ -20070,12 +20070,18 @@ a.um-phone:hover {
   display: grid;
   place-items: center;
   padding: 1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgba(15, 23, 42, 0.58);
   backdrop-filter: blur(5px);
 }
 
 .profile-photo-editor {
+  display: flex;
+  flex-direction: column;
   width: min(660px, 100%);
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
   overflow: hidden;
   border: 1px solid var(--border-main);
   border-radius: 18px;
@@ -20087,6 +20093,7 @@ a.um-phone:hover {
 .profile-photo-editor-head,
 .profile-photo-editor-foot {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
@@ -20130,6 +20137,9 @@ a.um-phone:hover {
 
 .profile-photo-editor-body {
   display: grid;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 1.35rem;
   align-items: center;
@@ -20263,7 +20273,7 @@ a.um-phone:hover {
 
 @media (max-width: 620px) {
   .profile-photo-editor-overlay { align-items: end; padding: 0; }
-  .profile-photo-editor { max-height: 94vh; overflow-y: auto; border-radius: 18px 18px 0 0; }
+  .profile-photo-editor { max-height: 94vh; max-height: 94dvh; border-radius: 18px 18px 0 0; }
   .profile-photo-editor-body { grid-template-columns: 1fr; justify-items: center; }
   .profile-photo-controls { width: 100%; }
   .profile-photo-crop { width: min(280px, calc(100vw - 2.6rem)); height: min(280px, calc(100vw - 2.6rem)); }

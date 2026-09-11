@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { AlertTriangle, Camera, CheckCircle2, ChevronDown, LoaderCircle, LogOut, Menu, Move, ScanLine, Search, Settings, X, ZoomIn } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
 import NotificationBell from "@/components/NotificationBell";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf } from "@/lib/format";
 import type { AuthUser } from "@/lib/api";
 
@@ -57,6 +59,8 @@ export default function TopBar({
   const [cropImageSize, setCropImageSize] = useState({ width: 0, height: 0 });
   const [outputSize, setOutputSize] = useState<256 | 512 | 1024>(512);
   const profileRef = useRef<HTMLDivElement>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement>(null);
+  const editorRef = useModalFocus<HTMLDivElement>(Boolean(editorSource), () => setEditorSource(null));
   const cropDragRef = useRef<{ pointerId: number; x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const cropPreviewSize = 280;
 
@@ -90,6 +94,9 @@ export default function TopBar({
       setCropZoom(1);
       setCropOffset({ x: 0, y: 0 });
       setCropImageSize({ width: 0, height: 0 });
+      // The file input disappears with the menu. Restore focus to the lasting
+      // profile button before the dialog captures its return-focus target.
+      profileTriggerRef.current?.focus();
       setEditorSource(value);
       setProfileOpen(false);
     };
@@ -188,7 +195,7 @@ export default function TopBar({
 
         <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
         <div className="topbar-profile" ref={profileRef}>
-          <button type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu">
+          <button ref={profileTriggerRef} type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu">
             <span className="topbar-profile-avatar" aria-hidden="true">{profilePhoto ? <Image src={profilePhoto} alt="" width={30} height={30} unoptimized /> : initialsOf(user.name || user.email)}</span>
             <span className="topbar-profile-copy"><strong>{user.name || user.email}</strong><small>{user.role}</small></span>
             <ChevronDown size={14} />
@@ -209,16 +216,18 @@ export default function TopBar({
         </div>
       </div>
 
-      {editorSource && (
-        <div className="profile-photo-editor-overlay" role="dialog" aria-modal="true" aria-labelledby="profile-photo-editor-title">
-          <div className="profile-photo-editor">
-            <header className="profile-photo-editor-head">
+      {/* The top bar's backdrop-filter creates a containing block for fixed
+          descendants. Portal the editor so its overlay fills the viewport. */}
+      {editorSource && createPortal(
+        <div className="profile-photo-editor-overlay">
+          <div ref={editorRef} className="profile-photo-editor" role="dialog" aria-modal="true" aria-labelledby="profile-photo-editor-title" tabIndex={-1}>
+            <div className="profile-photo-editor-head">
               <div>
                 <h2 id="profile-photo-editor-title">Adjust profile photo</h2>
                 <p>Drag to reposition, then zoom and choose the saved size.</p>
               </div>
               <button type="button" onClick={() => setEditorSource(null)} aria-label="Close photo editor"><X size={18} /></button>
-            </header>
+            </div>
 
             <div className="profile-photo-editor-body">
               <div
@@ -277,12 +286,13 @@ export default function TopBar({
               </div>
             </div>
 
-            <footer className="profile-photo-editor-foot">
+            <div className="profile-photo-editor-foot">
               <button type="button" className="ds-ghost-btn" onClick={() => setEditorSource(null)}>Cancel</button>
               <button type="button" className="ds-primary-btn" onClick={saveCroppedPhoto}><Camera size={15} /> Save photo</button>
-            </footer>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </header>
   );
