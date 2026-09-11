@@ -626,6 +626,11 @@ export interface IngestRules {
   mailbox: {
     account: string;
     configured: boolean;
+    accounts?: Array<{
+      address: string;
+      provider: string;
+      configured: boolean;
+    }>;
     inbox_folder: string;
     processed_folder: string;
     deleted_folder: string;

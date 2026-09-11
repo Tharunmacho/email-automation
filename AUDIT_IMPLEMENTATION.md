@@ -7,7 +7,7 @@ features were invented. The initial findings were reported before implementation
 
 ## Findings and changes
 
-17 grouped UI findings were addressed. Related occurrences are grouped rather
+20 grouped UI findings were addressed, including the three follow-up findings below. Related occurrences are grouped rather
 than counting every failing table cell as a separate issue. Integration regressions
 found during implementation are included. No critical issue was confirmed.
 
@@ -44,6 +44,17 @@ clear period comparisons, native candidate Open actions, and useful empty states
   and fresh mounts. Users can expand/collapse them, including the active group.
 - Dark theme uses pure black canvas/sidebar/header and neutral charcoal surfaces,
   retaining blue for interactive accents and semantic status colors.
+- Settings now derives its email list only from the automation mailbox
+  configuration. Staff, manager and administrator sign-in addresses are no
+  longer mixed into that operational list; multi-inbox deployments are exposed
+  through a new credentials-free API summary.
+- Assigned Candidates is scoped to the signed-in account. An administrator with
+  no personal allocation sees "No candidates assigned to you" instead of other
+  staff members' candidates.
+- Login now follows the supplied reference direction with one centered,
+  responsive email sign-in card and an airy light surface. The real email,
+  password, remember-device, loading and error behavior remains intact; social
+  and password-recovery controls were not invented.
 
 ## Verification
 
@@ -72,6 +83,9 @@ build was also exercised to check CSS ordering and hydration.
 | User email editor | Admin/manager/staff edits, invalid/blank blocking, duplicate correction, in-flight guards, six role/theme editor axe scans and self-email session refresh passed |
 | Collapsed navigation login flow | Initial login, re-login, fresh deep link and manual active-group toggle passed |
 | Pure-black theme | Overview, Payroll and Settings canvas/header/sidebar compute to `#000000`; cards `#0a0a0a`; axe and 320px containment passed |
+| Requested login and scoping flows | 5 login widths, light/dark screenshots, validation, password visibility, two automation mailboxes, admin empty assignment, and manager/staff personal queues passed |
+| Changed-state accessibility | Login at 320/375/414/768/1440, login dark, Settings mailbox list, and admin assignment empty state: no automated WCAG A/AA violations |
+| Mailbox API security | 12 tests passed across multi-inbox resolution and credentials-free Settings summaries |
 | Staff/manager attendance roster tests | 2 passed |
 | Full attendance access test file | 16 passed, 1 failed: historical WhatsApp punch expected `provisional=True` but returned `False` |
 
@@ -93,6 +107,9 @@ that behavior.
 - Data feedback: `PayrollScreen.tsx` and candidate-loading state in the main page.
 - Requested email support: frontend `lib/api.ts`, `app/api/routes.py`,
   `app/db/users.py`, and focused user-email tests.
+- Latest requested flows: `LoginScreen.tsx`, `SettingsScreen.tsx`,
+  `CandidatesView.tsx`, the main route switch, credentials-free ingest rules,
+  `verify_requested_flows.py`, and mailbox-summary tests.
 - Repeatable browser checks: `scripts/verify_ui_audit.py`,
   `verify_candidate_loading.py`, `verify_command_search.py`,
   `verify_dashboard_ui.py`, `verify_dashboard_resize.py`,

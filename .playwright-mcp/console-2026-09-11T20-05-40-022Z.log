@@ -1,0 +1,10 @@
+[-2885889ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://crm.adiragroups.com/users:0
+[-2877787ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ https://crm.adiragroups.com/staff:0
+[-2872858ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://crm.adiragroups.com/users:0
+[-3176565ms] [LOG] enable copy content js called @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:9
+[-3176564ms] [LOG] Object @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:255
+[-3176564ms] [LOG] E.C.P is not enabled, returning @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:290
+[-2372205ms] [ERROR] Unchecked runtime.lastError: Could not establish connection. Receiving end does not exist. @ https://ai.blaze.today/iframe/?app=tooltip:0
+[-2372164ms] [LOG] enable copy content js called @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:9
+[-2372156ms] [LOG] Object @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:255
+[-2372156ms] [LOG] E.C.P is not enabled, returning @ chrome-extension://fpjppnhnpnknbenelmbnidjbolhandnf/content_script/enable_copy.js:290

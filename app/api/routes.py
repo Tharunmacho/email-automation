@@ -957,6 +957,45 @@ def _local_ocr_report() -> dict:
         return {"error": str(exc)}
 
 
+def _public_email_accounts(accounts: list[dict]) -> list[dict]:
+    """Return only the non-secret mailbox facts the Settings UI needs.
+
+    ``email_accounts`` contains passwords and connection details, so the API
+    must build a new, deliberately small object instead of returning a lightly
+    filtered copy of each account.
+    """
+    public: list[dict] = []
+    seen: set[str] = set()
+    for account in accounts:
+        address = str(
+            account.get("imap_username")
+            or account.get("smtp_username")
+            or account.get("account")
+            or ""
+        ).strip()
+        key = address.casefold()
+        if not address or key in seen:
+            continue
+        seen.add(key)
+        provider = str(account.get("provider") or settings.email_provider or "smtp_imap")
+        configured = bool(
+            address
+            and (
+                account.get("imap_password")
+                or account.get("smtp_password")
+                or provider.casefold() == "gmail"
+            )
+        )
+        public.append(
+            {
+                "address": address,
+                "provider": provider,
+                "configured": configured,
+            }
+        )
+    return public
+
+
 @app.get("/ingest/rules")
 def ingest_rules(_user: dict = Depends(require_admin)) -> dict:
     """The pipeline configuration visible to administrators in Settings.
@@ -966,13 +1005,18 @@ def ingest_rules(_user: dict = Depends(require_admin)) -> dict:
     serialisation would put them on a web page the first time someone adds a
     field. Credentials are reported only as "is this configured", never by value.
     """
+    email_accounts = _public_email_accounts(settings.email_accounts)
+    primary_account = email_accounts[0]["address"] if email_accounts else ""
     return {
         "provider": settings.email_provider,
         "mailbox": {
             # The address is shown so a recruiter can confirm which inbox is
             # being drained; the password behind it never leaves the server.
-            "account": settings.imap_username or settings.smtp_username,
-            "configured": bool(settings.imap_username and settings.imap_password),
+            "account": primary_account,
+            "configured": bool(email_accounts and email_accounts[0]["configured"]),
+            # Every inbox the automation actually polls. User-management email
+            # addresses intentionally do not belong in this list.
+            "accounts": email_accounts,
             "inbox_folder": settings.imap_folder,
             "processed_folder": settings.imap_processed_folder,
             "deleted_folder": settings.imap_deleted_folder,

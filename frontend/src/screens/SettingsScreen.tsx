@@ -60,21 +60,25 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
 
   const configuredEmails = useMemo(() => {
     if (adminConfig.state !== "ready") return [];
-    const entries: { id: string; label: string; value: string; active: boolean }[] = [];
+    const mailboxes = adminConfig.value.rules.mailbox.accounts;
+    if (mailboxes?.length) {
+      return mailboxes.map((mailbox) => ({
+        id: `mailbox-${mailbox.address.toLowerCase()}`,
+        label: "Email automation inbox",
+        value: mailbox.address,
+        active: mailbox.configured,
+      }));
+    }
+
+    // Older API deployments report one mailbox. Keep that deployment-safe
+    // fallback, but never mix user-management email addresses into it.
     const mailbox = adminConfig.value.rules.mailbox.account?.trim();
-    if (mailbox) {
-      entries.push({ id: `mailbox-${mailbox}`, label: "Recruitment mailbox", value: mailbox, active: true });
-    }
-    for (const account of adminConfig.value.users) {
-      if (!account.email || entries.some((entry) => entry.value.toLowerCase() === account.email.toLowerCase())) continue;
-      entries.push({
-        id: account.id,
-        label: account.role === "admin" ? "Admin account" : account.role === "manager" ? "Manager account" : "Staff account",
-        value: account.email,
-        active: account.active,
-      });
-    }
-    return entries;
+    return mailbox ? [{
+      id: `mailbox-${mailbox.toLowerCase()}`,
+      label: "Email automation inbox",
+      value: mailbox,
+      active: adminConfig.value.rules.mailbox.configured,
+    }] : [];
   }, [adminConfig]);
 
   const configuredMobiles = useMemo(() => {
@@ -132,7 +136,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
           <div className="ds-panel-head is-split">
             <div>
               <h2 id="settings-config-title" className="ds-panel-title">Configured communication</h2>
-              <p className="ds-panel-sub">Read-only addresses, mobile contacts, and OCR source currently in use.</p>
+              <p className="ds-panel-sub">Read-only automation inboxes, mobile contacts, and OCR source currently in use.</p>
             </div>
             <span className="db-pill is-info">Admin only</span>
           </div>
@@ -153,7 +157,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
           ) : (
             <div className="settings-config-grid">
               <section className="settings-config-block">
-                <div className="settings-config-head"><Mail size={16} /><h3>Configured emails</h3></div>
+                <div className="settings-config-head"><Mail size={16} /><h3>Email automation inboxes</h3></div>
                 <div className="settings-config-list">
                   {configuredEmails.length ? configuredEmails.map((entry) => (
                     <div className="settings-config-row" key={entry.id}>

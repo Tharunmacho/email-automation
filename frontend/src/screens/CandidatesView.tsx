@@ -47,6 +47,8 @@ const FILTER_ICONS: Record<TalentFilter, LucideIcon> = {
 interface CandidatesViewProps {
   candidates: CandidateRecord[];
   assignedOnly?: boolean;
+  /** Restrict Assigned Candidates to the signed-in account, not any owner. */
+  assignedToUserId?: string;
   onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
@@ -262,6 +264,7 @@ const COLUMNS: { key: string; label: string; sort?: SortKey; align?: "num" }[] =
 export default function CandidatesView({
   candidates: allCandidates,
   assignedOnly = false,
+  assignedToUserId,
   onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
@@ -292,8 +295,14 @@ export default function CandidatesView({
   });
 
   const scopedCandidates = useMemo(
-    () => assignedOnly ? allCandidates.filter((candidate) => candidate.assigned_staff_id) : allCandidates,
-    [allCandidates, assignedOnly],
+    () => assignedOnly
+      ? allCandidates.filter((candidate) => (
+        assignedToUserId
+          ? candidate.assigned_staff_id === assignedToUserId
+          : Boolean(candidate.assigned_staff_id)
+      ))
+      : allCandidates,
+    [allCandidates, assignedOnly, assignedToUserId],
   );
 
   const candidates = useMemo(() => {
@@ -315,14 +324,14 @@ export default function CandidatesView({
   }, [scopedCandidates]);
 
   const industryOptions = useMemo(
-    () => Array.from(new Set(allCandidates.map(getIndustry))).sort((a, b) => a.localeCompare(b)),
-    [allCandidates],
+    () => Array.from(new Set(scopedCandidates.map(getIndustry))).sort((a, b) => a.localeCompare(b)),
+    [scopedCandidates],
   );
 
   const ownerOptions = useMemo(
-    () => Array.from(new Set(allCandidates.map((candidate) => candidate.assigned_staff_name).filter(Boolean) as string[]))
+    () => Array.from(new Set(scopedCandidates.map((candidate) => candidate.assigned_staff_name).filter(Boolean) as string[]))
       .sort((a, b) => a.localeCompare(b)),
-    [allCandidates],
+    [scopedCandidates],
   );
 
   const filtered = useMemo(() => {
@@ -566,7 +575,7 @@ export default function CandidatesView({
         <div>
             <h1 className="ds-head-title">{assignedOnly ? "Assigned Candidates" : "Candidates"}</h1>
           <p className="ds-head-sub">
-            {assignedOnly ? "Profiles currently owned by a staff member" : "Every parsed profile, and where each one stands"}
+            {assignedOnly ? "Profiles assigned directly to your account" : "Every parsed profile, and where each one stands"}
           </p>
         </div>
 
@@ -704,7 +713,7 @@ export default function CandidatesView({
             onChange={(value) => { setExperienceFilter(value); setCurrentPage(1); }}
             ariaLabel="Candidate experience"
           />
-          {ownerOptions.length > 0 && (
+          {!assignedOnly && ownerOptions.length > 0 && (
             <Select
               size="sm"
               value={ownerFilter}
@@ -736,8 +745,8 @@ export default function CandidatesView({
         {sorted.length === 0 ? (
           <div className="ds-empty-state">
             <UsersRound size={30} />
-            <h3>{query ? "Nothing matches that search" : EMPTY_COPY[filter].title}</h3>
-            <p>{query ? "No profile matches what you typed." : EMPTY_COPY[filter].sub}</p>
+            <h3>{query ? "Nothing matches that search" : assignedOnly && filter === "all" ? "No candidates assigned to you" : EMPTY_COPY[filter].title}</h3>
+            <p>{query ? "No profile matches what you typed." : assignedOnly && filter === "all" ? "Candidates assigned to your account will appear here." : EMPTY_COPY[filter].sub}</p>
             {query && (
               <button type="button" className="ds-ghost-btn" onClick={() => setQuery("")}>
                 Clear search

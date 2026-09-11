@@ -1,0 +1,67 @@
+{
+  "viewports": [
+    {
+      "width": 320,
+      "scrollWidth": 320
+    },
+    {
+      "width": 375,
+      "scrollWidth": 375
+    },
+    {
+      "width": 414,
+      "scrollWidth": 414
+    },
+    {
+      "width": 768,
+      "scrollWidth": 768
+    },
+    {
+      "width": 1440,
+      "scrollWidth": 1440
+    }
+  ],
+  "axe": [
+    {
+      "screen": "login-320",
+      "violations": []
+    },
+    {
+      "screen": "login-375",
+      "violations": []
+    },
+    {
+      "screen": "login-414",
+      "violations": []
+    },
+    {
+      "screen": "login-768",
+      "violations": []
+    },
+    {
+      "screen": "login-1440",
+      "violations": []
+    },
+    {
+      "screen": "login-dark",
+      "violations": []
+    },
+    {
+      "screen": "settings-mailboxes",
+      "violations": []
+    },
+    {
+      "screen": "assigned-admin-empty",
+      "violations": []
+    }
+  ],
+  "checks": [
+    "Login validation and password visibility work",
+    "Dark login surface is pure black",
+    "Settings lists automation inboxes without user/staff emails",
+    "Admin personal queue is empty when nothing is assigned to admin",
+    "Manager personal queue contains only candidates assigned to that manager",
+    "Staff queue contains only candidates assigned to that staff account"
+  ],
+  "errors": []
+}

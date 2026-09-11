@@ -1307,7 +1307,7 @@ export default function Home() {
                 {currentTab === "assigned-candidates" && (
                   user?.role === "staff" ? (
                     <StaffDashboard
-                      candidates={candidates}
+                      candidates={candidates.filter((candidate) => candidate.assigned_staff_id === user.id)}
                       arrivedIds={arrivedIds}
                       focusCandidateId={queueFocusId}
                       onFocusHandled={() => setQueueFocusId(null)}
@@ -1317,6 +1317,7 @@ export default function Home() {
                   ) : (
                     <CandidatesView
                       assignedOnly
+                      assignedToUserId={user.id}
                       candidates={candidates}
                       onAddCandidate={handleAddCandidate}
                       onOpenCandidate={handleOpenCandidate}
