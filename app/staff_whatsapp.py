@@ -114,6 +114,7 @@ def relay_sla_breach(
     threshold_hours: float,
     *,
     recipient_stage: str = "manager",
+    recipient_ids: List[str] | None = None,
 ) -> bool:
     """Tell the bot to message the admins that work has gone unattended.
 
@@ -126,7 +127,7 @@ def relay_sla_breach(
     ships will find every historic breach at once, and a message each would be
     both a bill and a channel nobody reads afterwards.
     """
-    if not alerts:
+    if not alerts or not recipient_ids:
         return False
 
     first = alerts[0]
@@ -138,6 +139,9 @@ def relay_sla_breach(
         "staff_count": len(staff_names),
         "recipient_stage": recipient_stage,
         "super_admin_name": settings.sla_super_admin_name,
+        # The bot resolves and retains only these active CRM contacts. It must
+        # never infer SLA recipients from the complete staff directory.
+        "recipient_ids": list(dict.fromkeys(recipient_ids or [])),
     }
 
     # The single-breach case is the one worth naming. A digest that named the

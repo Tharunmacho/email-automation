@@ -201,11 +201,17 @@ def test_a_sweep_that_found_nothing_sends_nothing():
     urlopen.assert_not_called()
 
 
+def test_a_sweep_without_an_active_recipient_allowlist_sends_nothing():
+    with _configured(), patch("urllib.request.urlopen") as urlopen:
+        assert relay_sla_breach([_breach()], 48, recipient_ids=[]) is False
+    urlopen.assert_not_called()
+
+
 def test_one_overdue_profile_travels_named():
     import json
 
     with _configured(), patch("urllib.request.urlopen", return_value=_Response()) as urlopen:
-        assert relay_sla_breach([_breach()], 48) is True
+        assert relay_sla_breach([_breach()], 48, recipient_ids=["manager-1"]) is True
 
     request = urlopen.call_args.args[0]
     assert request.full_url == f"https://bot.example.com{SLA_RELAY_PATH}"
@@ -214,6 +220,7 @@ def test_one_overdue_profile_travels_named():
     assert payload["threshold_hours"] == 48
     assert payload["recipient_stage"] == "manager"
     assert payload["super_admin_name"] == "Yoosuf"
+    assert payload["recipient_ids"] == ["manager-1"]
     assert payload["candidate_name"] == "John Doe"
     assert payload["staff_name"] == "Priya Sharma"
     assert payload["reason"] == "unviewed"
@@ -229,7 +236,7 @@ def test_a_backlog_travels_as_a_count_and_names_nobody():
         _breach(candidate_id="c3", assigned_staff_name="Priya Sharma"),
     ]
     with _configured(), patch("urllib.request.urlopen", return_value=_Response()) as urlopen:
-        assert relay_sla_breach(alerts, 48) is True
+        assert relay_sla_breach(alerts, 48, recipient_ids=["manager-1"]) is True
 
     payload = json.loads(urlopen.call_args.args[0].data)
     assert payload["count"] == 3
@@ -241,7 +248,7 @@ def test_a_backlog_travels_as_a_count_and_names_nobody():
 
 def test_the_bot_being_down_does_not_break_the_sweep():
     with _configured(), patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
-        assert relay_sla_breach([_breach()], 48) is False
+        assert relay_sla_breach([_breach()], 48, recipient_ids=["manager-1"]) is False
 
 
 def test_a_breach_notification_asks_the_bot_to_tell_the_admins():
@@ -260,4 +267,9 @@ def test_a_breach_notification_asks_the_bot_to_tell_the_admins():
             users=_NoAdmins(),
         )
 
-    relay.assert_called_once_with(alerts, 48, recipient_stage="manager")
+    relay.assert_called_once_with(
+        alerts,
+        48,
+        recipient_stage="manager",
+        recipient_ids=[],
+    )

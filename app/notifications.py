@@ -280,6 +280,11 @@ def notify_sla_breaches(
     # Outside `notified` for the same reason as the allocation relay: that
     # counts feed rows written, and an admin who was messaged as well was not
     # notified twice.
-    relay_sla_breach(alerts, threshold_hours, recipient_stage=recipient_stage)
+    relay_sla_breach(
+        alerts,
+        threshold_hours,
+        recipient_stage=recipient_stage,
+        recipient_ids=recipient_ids,
+    )
 
     return notified

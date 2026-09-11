@@ -174,6 +174,38 @@ def test_sla_stages_target_managers_then_only_yoosuf():
     assert _sla_recipient_ids(users, "super_admin") == ["admin-1"]
 
 
+def test_sla_whatsapp_relay_gets_only_the_resolved_active_recipients():
+    from app.notifications import notify_sla_breaches
+
+    manager = _Admin("manager-1", "Rafi")
+    users = type(
+        "SlaUsers",
+        (),
+        {
+            "list_managers": lambda self: [manager],
+            "list_admins": lambda self: [],
+        },
+    )()
+    alert = [{"candidate_id": "cand-1", "full_name": "Candidate One"}]
+
+    with patch("app.api.websocket.publish_event", return_value=True), patch(
+        "app.notifications.relay_sla_breach", return_value=True
+    ) as relay:
+        notify_sla_breaches(
+            alert,
+            48,
+            repo=NotificationRepository(collection=FakeNotifications()),
+            users=users,
+        )
+
+    relay.assert_called_once_with(
+        alert,
+        48,
+        recipient_stage="manager",
+        recipient_ids=["manager-1"],
+    )
+
+
 def test_the_staff_member_and_every_admin_get_a_row():
     from app.notifications import notify_candidate_assigned
 
