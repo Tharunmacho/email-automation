@@ -42,4 +42,5 @@ def test_the_window_is_two_days_and_the_sweep_is_well_inside_it():
     """A sweep interval near the window would report a breach up to a whole
     interval late, and the alert's "51 hours" would be off by that much."""
     assert settings.sla_threshold_hours == 48
+    assert settings.sla_super_admin_threshold_hours == 72
     assert settings.sla_scan_interval_seconds < settings.sla_threshold_hours * 3600 / 10

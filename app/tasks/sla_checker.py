@@ -120,15 +120,29 @@ def list_alerts(status: str | None = None, limit: int = 100) -> List[Dict[str, A
 
 
 def scan(threshold_hours: float | None = None) -> Dict[str, Any]:
-    """Record newly-breached profiles, close the ones that were dealt with."""
+    """Warn managers first, then escalate unresolved work to Yoosuf."""
     hours = _threshold(threshold_hours)
+    escalation_hours = max(hours, float(settings.sla_super_admin_threshold_hours))
     now = utcnow()
 
     breaches = find_breaches(hours)
     alerts = get_alerts_collection()
 
-    already_open = {doc["candidate_id"] for doc in alerts.find({"status": "active"})}
+    open_docs = list(alerts.find({"status": "active"}))
+    already_open = {doc["candidate_id"] for doc in open_docs}
     fresh = [b for b in breaches if b["candidate_id"] not in already_open]
+
+    eligible_for_escalation = {
+        b["candidate_id"]: b for b in breaches if b["hours_overdue"] >= escalation_hours
+    }
+    previously_escalated = {
+        doc["candidate_id"] for doc in open_docs if doc.get("super_admin_notified_at")
+    }
+    escalated = [
+        breach
+        for candidate_id, breach in eligible_for_escalation.items()
+        if candidate_id not in previously_escalated
+    ]
 
     if fresh:
         alerts.insert_many([{
@@ -139,10 +153,23 @@ def scan(threshold_hours: float | None = None) -> Dict[str, Any]:
             "hours_overdue": b["hours_overdue"],
             "reason": b["reason"],
             "threshold_hours": hours,
+            "manager_notified_at": now,
+            "super_admin_notified_at": (
+                now if b["candidate_id"] in eligible_for_escalation else None
+            ),
             "status": "active",
             "created_at": now,
             "resolved_at": None,
         } for b in fresh])
+
+    existing_escalation_ids = [
+        b["candidate_id"] for b in escalated if b["candidate_id"] in already_open
+    ]
+    if existing_escalation_ids:
+        alerts.update_many(
+            {"status": "active", "candidate_id": {"$in": existing_escalation_ids}},
+            {"$set": {"super_admin_notified_at": now}},
+        )
 
     still_breaching = [b["candidate_id"] for b in breaches]
     resolved = alerts.update_many(
@@ -152,20 +179,33 @@ def scan(threshold_hours: float | None = None) -> Dict[str, Any]:
 
     if fresh:
         try:
-            notify_sla_breaches(fresh, hours)
+            notify_sla_breaches(fresh, hours, recipient_stage="manager")
         except Exception as exc:  # noqa: BLE001 — a lost toast must not fail the sweep
-            log.warning("Could not send SLA notifications: %s", exc)
+            log.warning("Could not send manager SLA notifications: %s", exc)
 
-    if fresh or resolved:
+    if escalated:
+        try:
+            notify_sla_breaches(
+                escalated,
+                escalation_hours,
+                recipient_stage="super_admin",
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not send super-admin SLA notifications: %s", exc)
+
+    if fresh or escalated or resolved:
         log.info(
-            "SLA sweep: %d in breach, %d newly alerted, %d resolved",
-            len(breaches), len(fresh), resolved,
+            "SLA sweep: %d in breach, %d manager alerts, "
+            "%d super-admin escalations, %d resolved",
+            len(breaches), len(fresh), len(escalated), resolved,
         )
     return {
         "in_breach": len(breaches),
         "new_alerts": len(fresh),
+        "new_escalations": len(escalated),
         "resolved": resolved,
         "threshold_hours": hours,
+        "escalation_threshold_hours": escalation_hours,
     }
 
 

@@ -109,7 +109,12 @@ def relay_assignment(candidate_id: str, staff_id: str) -> bool:
     )
 
 
-def relay_sla_breach(alerts: List[Dict[str, Any]], threshold_hours: float) -> bool:
+def relay_sla_breach(
+    alerts: List[Dict[str, Any]],
+    threshold_hours: float,
+    *,
+    recipient_stage: str = "manager",
+) -> bool:
     """Tell the bot to message the admins that work has gone unattended.
 
     Facts, not ids, and this one is a push where the allocation relay is a pull.
@@ -131,6 +136,8 @@ def relay_sla_breach(alerts: List[Dict[str, Any]], threshold_hours: float) -> bo
         "count": len(alerts),
         "threshold_hours": threshold_hours,
         "staff_count": len(staff_names),
+        "recipient_stage": recipient_stage,
+        "super_admin_name": settings.sla_super_admin_name,
     }
 
     # The single-breach case is the one worth naming. A digest that named the

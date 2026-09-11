@@ -59,9 +59,15 @@ class FakeAlerts:
     def update_many(self, query, update):
         status = query.get("status")
         excluded = set(query.get("candidate_id", {}).get("$nin", []))
+        included = set(query.get("candidate_id", {}).get("$in", []))
         changed = 0
         for doc in self.docs:
-            if doc.get("status") == status and doc["candidate_id"] not in excluded:
+            candidate_matches = (
+                doc["candidate_id"] in included
+                if included
+                else doc["candidate_id"] not in excluded
+            )
+            if doc.get("status") == status and candidate_matches:
                 doc.update(update["$set"])
                 changed += 1
 
@@ -106,6 +112,17 @@ def sla_env(monkeypatch):
     monkeypatch.setattr(
         "app.api.websocket.publish_event", lambda e: published.append(e) or True
     )
+    manager = type("User", (), {"id": "manager-1", "name": "Rafi"})()
+    yoosuf = type("User", (), {"id": "admin-1", "name": "Yoosuf"})()
+    fake_users = type(
+        "Users",
+        (),
+        {
+            "list_managers": lambda self: [manager],
+            "list_admins": lambda self: [yoosuf],
+        },
+    )()
+    monkeypatch.setattr("app.notifications.UserRepository", lambda: fake_users)
     return alerts, published
 
 
@@ -167,6 +184,52 @@ def test_profile_inside_the_threshold_is_not_a_breach(sla_env, monkeypatch):
     assert result["in_breach"] == 0
     assert alerts.docs == []
     assert published == []
+
+
+def test_unresolved_profile_escalates_to_yoosuf_once(sla_env, monkeypatch):
+    alerts, _ = sla_env
+    row = breach_row("c1", hours_ago=50)
+    monkeypatch.setattr(sla_checker, "CandidateRepository", lambda: FakeRepo([row]))
+    sent = []
+    monkeypatch.setattr(
+        sla_checker,
+        "notify_sla_breaches",
+        lambda rows, threshold, recipient_stage: sent.append((threshold, recipient_stage)),
+    )
+
+    first = sla_checker.scan(threshold_hours=48)
+    assert first["new_alerts"] == 1
+    assert first["new_escalations"] == 0
+    assert sent == [(48.0, "manager")]
+
+    row["assigned_at"] = utcnow() - timedelta(hours=73)
+    second = sla_checker.scan(threshold_hours=48)
+    third = sla_checker.scan(threshold_hours=48)
+
+    assert second["new_escalations"] == 1
+    assert third["new_escalations"] == 0
+    assert sent == [(48.0, "manager"), (72.0, "super_admin")]
+    assert alerts.docs[0]["super_admin_notified_at"] is not None
+
+
+def test_late_first_scan_still_notifies_manager_before_yoosuf(sla_env, monkeypatch):
+    monkeypatch.setattr(
+        sla_checker,
+        "CandidateRepository",
+        lambda: FakeRepo([breach_row("c1", hours_ago=73)]),
+    )
+    sent = []
+    monkeypatch.setattr(
+        sla_checker,
+        "notify_sla_breaches",
+        lambda rows, threshold, recipient_stage: sent.append(recipient_stage),
+    )
+
+    result = sla_checker.scan(threshold_hours=48)
+
+    assert result["new_alerts"] == 1
+    assert result["new_escalations"] == 1
+    assert sent == ["manager", "super_admin"]
 
 
 def test_breach_reason_distinguishes_unviewed_from_unevaluated(monkeypatch):

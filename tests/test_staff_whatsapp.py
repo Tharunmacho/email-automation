@@ -212,6 +212,8 @@ def test_one_overdue_profile_travels_named():
     payload = json.loads(request.data)
     assert payload["count"] == 1
     assert payload["threshold_hours"] == 48
+    assert payload["recipient_stage"] == "manager"
+    assert payload["super_admin_name"] == "Yoosuf"
     assert payload["candidate_name"] == "John Doe"
     assert payload["staff_name"] == "Priya Sharma"
     assert payload["reason"] == "unviewed"
@@ -258,4 +260,4 @@ def test_a_breach_notification_asks_the_bot_to_tell_the_admins():
             users=_NoAdmins(),
         )
 
-    relay.assert_called_once_with(alerts, 48)
+    relay.assert_called_once_with(alerts, 48, recipient_stage="manager")

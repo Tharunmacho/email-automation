@@ -333,6 +333,8 @@ class Settings(BaseSettings):
     # whether to answer somebody else. A tighter window turns the alert channel
     # into noise, and a muted channel reports nothing at all.
     sla_threshold_hours: int = 48
+    sla_super_admin_threshold_hours: int = 72
+    sla_super_admin_name: str = "Yoosuf"
     auto_assign_enabled: bool = True
 
     # ---- WhatsApp bot integration ----

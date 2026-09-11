@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import List
 
+from app.config import settings
 from app.db import notifications as store
 from app.db.notifications import NotificationRepository
 from app.db.users import UserRepository
@@ -36,6 +37,20 @@ log = get_logger(__name__)
 
 def _admin_ids(users: UserRepository) -> List[str]:
     return [user.id for user in users.list_admins()]
+
+
+def _sla_recipient_ids(users: UserRepository, recipient_stage: str) -> List[str]:
+    """Return managers for the first warning and only Yoosuf for escalation."""
+    if recipient_stage == "manager":
+        return [user.id for user in users.list_managers()]
+    if recipient_stage == "super_admin":
+        target = settings.sla_super_admin_name.strip().casefold()
+        return [
+            user.id
+            for user in users.list_admins()
+            if user.name.strip().casefold() == target
+        ]
+    raise ValueError(f"Unknown SLA recipient stage: {recipient_stage}")
 
 
 def notify_candidate_assigned(
@@ -199,6 +214,7 @@ def notify_sla_breaches(
     alerts: List[dict],
     threshold_hours: float,
     *,
+    recipient_stage: str = "manager",
     repo: NotificationRepository | None = None,
     users: UserRepository | None = None,
 ) -> int:
@@ -214,10 +230,16 @@ def notify_sla_breaches(
     from app.api import websocket as ws
 
     notified = 0
+    recipient_ids: List[str] = []
+    try:
+        users = users or UserRepository()
+        recipient_ids = _sla_recipient_ids(users, recipient_stage)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Could not resolve SLA notification recipients: %s", exc)
+
     if alerts:
         try:
             repo = repo or NotificationRepository()
-            users = users or UserRepository()
             count = len(alerts)
             hours = f"{threshold_hours:g}"
             if count == 1:
@@ -228,7 +250,7 @@ def notify_sla_breaches(
             else:
                 message = f"{count} profiles have gone over the {hours}-hour review window."
 
-            for admin_id in _admin_ids(users):
+            for admin_id in recipient_ids:
                 repo.record(
                     admin_id,
                     type=store.SLA_ALERT,
@@ -242,7 +264,12 @@ def notify_sla_breaches(
             log.warning("Could not store the SLA notification: %s", exc)
 
     try:
-        ws.publish_event(ws.sla_alert_event(alerts, threshold_hours))
+        for recipient_id in recipient_ids:
+            event = ws.sla_alert_event(alerts, threshold_hours)
+            event.pop("target_role", None)
+            event["target_user_id"] = recipient_id
+            event["recipient_stage"] = recipient_stage
+            ws.publish_event(event)
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not push the SLA event: %s", exc)
 
@@ -253,6 +280,6 @@ def notify_sla_breaches(
     # Outside `notified` for the same reason as the allocation relay: that
     # counts feed rows written, and an admin who was messaged as well was not
     # notified twice.
-    relay_sla_breach(alerts, threshold_hours)
+    relay_sla_breach(alerts, threshold_hours, recipient_stage=recipient_stage)
 
     return notified

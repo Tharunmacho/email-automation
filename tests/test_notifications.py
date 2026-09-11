@@ -149,10 +149,29 @@ class FakeUsers:
 
 
 class _Admin:
-    def __init__(self, user_id):
+    def __init__(self, user_id, name="Admin"):
         self.id = user_id
+        self.name = name
         self.role = "admin"
         self.active = True
+
+
+def test_sla_stages_target_managers_then_only_yoosuf():
+    from app.notifications import _sla_recipient_ids
+
+    managers = [_Admin("manager-1", "Rafi"), _Admin("manager-2", "Maya")]
+    admins = [_Admin("admin-1", "Yoosuf"), _Admin("admin-2", "Another Admin")]
+    users = type(
+        "SlaUsers",
+        (),
+        {
+            "list_managers": lambda self: managers,
+            "list_admins": lambda self: admins,
+        },
+    )()
+
+    assert _sla_recipient_ids(users, "manager") == ["manager-1", "manager-2"]
+    assert _sla_recipient_ids(users, "super_admin") == ["admin-1"]
 
 
 def test_the_staff_member_and_every_admin_get_a_row():
