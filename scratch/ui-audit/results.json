@@ -1,0 +1,832 @@
+{
+  "matrix": [
+    {
+      "screen": "overview",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Overview"
+    },
+    {
+      "screen": "overview",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Overview"
+    },
+    {
+      "screen": "candidates",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidates",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Candidates"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "candidate-entry",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Add candidate"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "assigned-candidates",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Assigned Candidates"
+    },
+    {
+      "screen": "attendance",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "attendance",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Staff attendance"
+    },
+    {
+      "screen": "payroll",
+      "width": 320,
+      "scroll": 320,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 375,
+      "scroll": 375,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 414,
+      "scroll": 414,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 768,
+      "scroll": 768,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "payroll",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "September 2026"
+    },
+    {
+      "screen": "staff",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "staff",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Staff & allocation"
+    },
+    {
+      "screen": "job-orders",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "job-orders",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Job Orders"
+    },
+    {
+      "screen": "sourcing",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "sourcing",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Sourcing Hub"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 320,
+      "scroll": 320,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 375,
+      "scroll": 375,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 414,
+      "scroll": 414,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 768,
+      "scroll": 768,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "b2b-enquiries",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "B2B Enquiries"
+    },
+    {
+      "screen": "data-management",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Data management"
+    },
+    {
+      "screen": "data-management",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Data management"
+    },
+    {
+      "screen": "users",
+      "width": 320,
+      "scroll": 320,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 375,
+      "scroll": 375,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 414,
+      "scroll": 414,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 768,
+      "scroll": 768,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "User management"
+    },
+    {
+      "screen": "users",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "User management"
+    },
+    {
+      "screen": "settings",
+      "width": 320,
+      "scroll": 320,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 375,
+      "scroll": 375,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 414,
+      "scroll": 414,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 768,
+      "scroll": 768,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 1024,
+      "scroll": 1024,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 1280,
+      "scroll": 1280,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 1440,
+      "scroll": 1440,
+      "heading": "Settings"
+    },
+    {
+      "screen": "settings",
+      "width": 1920,
+      "scroll": 1920,
+      "heading": "Settings"
+    }
+  ],
+  "accessibility": [
+    {
+      "screen": "overview",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "overview",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "overview",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "candidates",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "candidates",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "candidates",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "candidate-entry",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "candidate-entry",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "candidate-entry",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "assigned-candidates",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "assigned-candidates",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "assigned-candidates",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "attendance",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "attendance",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "attendance",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "payroll",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "payroll",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "payroll",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "staff",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "staff",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "staff",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "job-orders",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "job-orders",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "job-orders",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "sourcing",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "sourcing",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "sourcing",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "b2b-enquiries",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "b2b-enquiries",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "b2b-enquiries",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "data-management",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "data-management",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "data-management",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "users",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "users",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "users",
+      "theme": "dark",
+      "violations": []
+    },
+    {
+      "screen": "settings",
+      "theme": "light-mobile",
+      "violations": []
+    },
+    {
+      "screen": "settings",
+      "theme": "light",
+      "violations": []
+    },
+    {
+      "screen": "settings",
+      "theme": "dark",
+      "violations": []
+    }
+  ],
+  "errors": [],
+  "interactions": [
+    "Admin attendance renders staff AND manager fixture records",
+    "Command search opens real candidate detail callback",
+    "Command navigation and browser Back/Forward preserve routes",
+    "Mobile navigation closes on Escape and restores focus"
+  ]
+}

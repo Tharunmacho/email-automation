@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 
 import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
@@ -22,6 +23,7 @@ import StaffDashboard from "@/screens/StaffDashboard";
 import AttendanceScreen from "@/screens/AttendanceScreen";
 import PayrollScreen from "@/screens/PayrollScreen";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf } from "@/lib/format";
 import { summariseProfileChange } from "@/lib/candidateProfile";
@@ -137,6 +139,7 @@ export default function Home() {
   // The admin's SLA modal. Held here rather than in the staff screen because it
   // has to appear over whatever the admin is currently looking at.
   const [slaPopup, setSlaPopup] = useState<{ message: string; alerts: SlaAlert[] } | null>(null);
+  const slaDialogRef = useModalFocus<HTMLDivElement>(Boolean(slaPopup), () => setSlaPopup(null));
   // Candidates that arrived over the socket during this session, so the queue
   // can still mark them "new" long after the toast has faded.
   const [arrivedIds, setArrivedIds] = useState<Set<string>>(() => new Set());
@@ -147,6 +150,9 @@ export default function Home() {
   const [usersOpenCreate, setUsersOpenCreate] = useState(false);
 
   const [candidates, setCandidates] = useState<CandidateRecord[]>([]);
+  const [candidateDataLoaded, setCandidateDataLoaded] = useState(false);
+  const [candidateLoading, setCandidateLoading] = useState(true);
+  const [candidateLoadError, setCandidateLoadError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -258,11 +264,7 @@ export default function Home() {
     [candidates],
   );
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const dismissToast = useCallback(() => setToast(null), []);
 
   const refreshCandidates = useCallback(async () => {
     try {
@@ -270,12 +272,17 @@ export default function Home() {
       lastRefreshRef.current = Date.now();
       setCandidates(data.items ?? []);
       setTotal(data.total ?? 0);
+      setCandidateDataLoaded(true);
+      setCandidateLoadError(null);
       return data.items ?? [];
     } catch (err) {
+      setCandidateLoadError("Check your connection and try again. Your stored candidate records have not been changed.");
       log(err instanceof Error ? err.message : "Failed to fetch candidates from DB.", "error");
       // null, not []: callers that report the record count must not turn a
       // failed fetch into "0 records remaining".
       return null;
+    } finally {
+      setCandidateLoading(false);
     }
   }, [log]);
 
@@ -317,6 +324,9 @@ export default function Home() {
     clearSession();
     setUser(null);
     setCandidates([]);
+    setCandidateDataLoaded(false);
+    setCandidateLoading(true);
+    setCandidateLoadError(null);
     setTotal(0);
     setLogs([]);
     setCandidateExtraction(null);
@@ -341,6 +351,9 @@ export default function Home() {
         lastRefreshRef.current = Date.now();
         setCandidates(data.items ?? []);
         setTotal(data.total ?? 0);
+        setCandidateDataLoaded(true);
+        setCandidateLoading(false);
+        setCandidateLoadError(null);
         // The connect banner is a once-per-session statement. A remount — a
         // dev fast-refresh, a re-run of this effect — was appending a second
         // identical pair, so the trace opened with the same two lines twice.
@@ -356,7 +369,10 @@ export default function Home() {
         ]);
       },
       (err: unknown) => {
-        if (!active || bootLoggedRef.current) return;
+        if (!active) return;
+        setCandidateLoading(false);
+        setCandidateLoadError("Check your connection and try again. Your stored candidate records have not been changed.");
+        if (bootLoggedRef.current) return;
         bootLoggedRef.current = true;
         setLogs((prev) => [
           ...prev,
@@ -421,6 +437,8 @@ export default function Home() {
     if (!user || !reachableTabs) return routeTab;
     return reachableTabs.has(routeTab) ? routeTab : defaultNavFor(user.role, user.pages);
   }, [user, reachableTabs, routeTab]);
+  const usesCandidateData = canReadCandidates && ["overview", "candidates", "assigned-candidates", "staff"].includes(currentTab);
+  const candidateDataBlocked = usesCandidateData && !candidateDataLoaded;
 
   /**
    * Whether this session gets a navigation rail.
@@ -1065,12 +1083,16 @@ export default function Home() {
     <div
       className={`app-shell ${railCollapsed ? "is-collapsed" : ""} ${hasRail ? "" : "is-railless"}`}
     >
+      <a className="skip-link" href="#workspace-content">Skip to main content</a>
       <TopBar
         user={user}
         syncing={syncing}
         realtime={realtimeStatus}
         realtimeNonce={realtimeNonce}
         hasRail={hasRail}
+        candidates={canReadCandidates ? candidates : []}
+        candidatesLoading={candidateLoading && canReadCandidates}
+        onNavigate={handleNavigate}
         onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
         candidateExtraction={candidateExtraction}
         onOpenCandidateExtraction={
@@ -1102,7 +1124,7 @@ export default function Home() {
           />
         )}
 
-        <main className="workspace">
+        <main id="workspace-content" className="workspace" tabIndex={-1}>
           <div className="db-page">
             {/* Every destination opens the same way, the staff workspace
                 included. It used to be excepted here on the grounds that it
@@ -1187,7 +1209,28 @@ export default function Home() {
               </section>
             )}
 
-            {!screen && (
+            {!screen && usesCandidateData && (candidateDataBlocked || candidateLoadError) && (
+              <section className="candidate-data-state">
+                {candidateDataBlocked && <h1 className="ds-head-title">{meta.title}</h1>}
+                <div className={`db-card db-feedback ${candidateLoading ? "is-loading" : "is-error"}`} role="status" aria-live="polite">
+                  <span className={candidateLoading ? "app-boot-spinner" : "db-feedback-icon"} aria-hidden="true">
+                    {!candidateLoading && <AlertTriangle size={20} />}
+                  </span>
+                  <div>
+                    <strong>{candidateLoading ? "Loading candidate records…" : candidateDataLoaded ? "Candidate data could not be refreshed" : "Could not load candidate records"}</strong>
+                    <span>{candidateLoading ? "Please wait while your workspace loads." : candidateDataLoaded ? "Showing the last loaded records. Retry to get the latest data." : candidateLoadError}</span>
+                  </div>
+                  {!candidateLoading && <button type="button" className="db-btn" onClick={() => { setCandidateLoading(true); void refreshCandidates(); }}>Retry</button>}
+                </div>
+                {candidateDataBlocked && candidateLoading && (
+                  <div className="candidate-data-skeleton" aria-hidden="true">
+                    {[0, 1, 2].map((item) => <div key={item} className="dash-skel" />)}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {!screen && !candidateDataBlocked && (
               <>
                 {currentTab === "overview" && (
                   <OverviewScreen
@@ -1219,6 +1262,9 @@ export default function Home() {
                     onActivity={announceActivity}
                     currentUserId={user?.id}
                     openCreate={usersOpenCreate}
+                    onUserUpdated={(updated) => setUser((current) => current?.id === updated.id
+                      ? { ...current, email: updated.email, name: updated.name }
+                      : current)}
                   />
                 )}
 
@@ -1308,6 +1354,8 @@ export default function Home() {
         <div className="modal-overlay active" onClick={() => setSlaPopup(null)}>
           <div
             className="modal-container is-narrow"
+            ref={slaDialogRef}
+            tabIndex={-1}
             role="alertdialog"
             aria-modal="true"
             aria-label="Overdue reviews"
@@ -1369,7 +1417,7 @@ export default function Home() {
         </div>
       )}
 
-      <Toast toast={toast} />
+      <Toast toast={toast} onDismiss={dismissToast} />
     </div>
   );
 }

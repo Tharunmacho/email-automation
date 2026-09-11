@@ -6,6 +6,49 @@
  * language for the shell, surfaces, controls, data, feedback, and motion.
  */
 
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --motion-fast: 120ms;
+  --motion-standard: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --control-height: 40px;
+  --radius-control: 9px;
+  --radius-lg: 12px;
+  --radius-dialog: 16px;
+  --shadow-popover: 0 12px 32px -10px rgba(15, 23, 42, 0.24);
+  /* Captions carry useful data, so they must meet AA even on tinted rows. */
+  --text-light: #5b6b80;
+  --border-control: #8797ac;
+}
+
+[data-theme="dark"] {
+  /* Pure black foundations with neutral elevation; blue is the action accent. */
+  --bg-main: #000000;
+  --bg-sidebar: #000000;
+  --bg-card: #0a0a0a;
+  --tint-1: rgba(255, 255, 255, 0.04);
+  --tint-2: rgba(255, 255, 255, 0.08);
+  --tint-3: rgba(255, 255, 255, 0.16);
+  --text-main: #f5f5f5;
+  --text-muted: #b3b3b3;
+  --text-light: #a3a3a3;
+  --text-label: #b3b3b3;
+  --border-main: #2e2e2e;
+  --border-hover: #4a4a4a;
+  --border-control: #737373;
+  --border-blue: var(--border-main);
+  --border-blue-strong: var(--border-hover);
+  --border-blue-faint: rgba(255, 255, 255, 0.08);
+  --dash-surface: var(--bg-card);
+  --dash-muted: var(--text-muted);
+  --shadow-popover: 0 12px 32px -10px rgba(0, 0, 0, 0.6);
+}
+
 html { background: var(--bg-main); }
 
 body {
@@ -19,9 +62,8 @@ body {
 .topbar {
   min-height: var(--app-header-h);
   border-bottom-color: color-mix(in srgb, var(--border-main) 82%, transparent);
-  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+  background: var(--bg-card);
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
-  backdrop-filter: blur(16px) saturate(140%);
 }
 
 .rail {
@@ -39,11 +81,11 @@ body {
   border-radius: 10px;
   font-size: 0.84rem;
   font-weight: 600;
-  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+  transition: color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard);
 }
 
 .rail-item:hover,
-.rail-section-toggle:hover { transform: translateX(2px); }
+.rail-section-toggle:hover { transform: none; }
 
 .rail-item.is-active,
 .rail-item.is-active:hover,
@@ -112,7 +154,7 @@ body {
 .job-order-card,
 .staff-card,
 .payroll-card {
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transition: border-color var(--motion-standard) var(--ease-standard), box-shadow var(--motion-standard) var(--ease-standard);
 }
 
 .ds-card:hover,
@@ -121,7 +163,7 @@ body {
 .payroll-card:hover {
   border-color: var(--border-hover);
   box-shadow: var(--shadow-card-hover);
-  transform: translateY(-2px);
+  transform: none;
 }
 
 .ds-card.is-feature {
@@ -143,8 +185,8 @@ body {
 .sh-empty-btn,
 .profile-photo-size-options button,
 .profile-photo-reset {
-  min-height: 38px;
-  border-radius: 9px;
+  min-height: var(--control-height);
+  border-radius: var(--radius-control);
   font-weight: 650;
   transition: color 150ms ease, background 150ms ease, border-color 150ms ease,
     box-shadow 150ms ease, transform 100ms ease;
@@ -158,7 +200,7 @@ body {
   border-color: var(--primary);
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 18px -12px rgba(var(--primary-rgb), 0.65);
+  box-shadow: var(--shadow-sm);
 }
 
 .ds-primary-btn:hover:not(:disabled),
@@ -168,7 +210,7 @@ body {
 .sh-empty-btn.primary:hover:not(:disabled) {
   border-color: var(--primary-hover);
   background: var(--primary-hover);
-  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.1), 0 10px 22px -12px rgba(var(--primary-rgb), 0.72);
+  box-shadow: var(--shadow-md);
   transform: translateY(-1px);
 }
 
@@ -194,7 +236,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
-[tabindex]:focus-visible { outline: 2px solid rgba(var(--primary-rgb), 0.62); outline-offset: 2px; }
+[tabindex]:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 
 .modal-input,
 .modal-textarea,
@@ -202,7 +244,7 @@ select:focus-visible,
 .ui-date-trigger,
 .ds-search,
 .topbar-search {
-  border-color: var(--border-main);
+  border-color: var(--border-control);
   border-radius: 10px;
   background-color: var(--bg-card);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
@@ -225,7 +267,7 @@ select:focus-visible,
   border-color: var(--border-main);
   border-radius: 12px;
   background: var(--bg-card);
-  box-shadow: 0 18px 44px -14px rgba(15, 23, 42, 0.24);
+  box-shadow: var(--shadow-popover);
   animation: product-popover-in 140ms ease-out;
 }
 
@@ -330,6 +372,7 @@ select:focus-visible,
    brand treatments, so these overrides keep their dark equivalents explicit. */
 [data-theme="dark"] .topbar-profile-avatar,
 [data-theme="dark"] .ds-primary-btn,
+[data-theme="dark"] .modal-submit-btn,
 [data-theme="dark"] .db-btn.is-primary,
 [data-theme="dark"] .cscreen-btn.is-primary,
 [data-theme="dark"] .sh-new-btn,
@@ -344,9 +387,59 @@ select:focus-visible,
 
 [data-theme="dark"] .rail,
 [data-theme="dark"] .rail-brand,
-[data-theme="dark"] .rail-scroll {
+[data-theme="dark"] .rail-scroll,
+[data-theme="dark"] .rail-foot {
   background: var(--bg-sidebar);
 }
+
+[data-theme="dark"] .topbar {
+  background: var(--bg-main);
+  box-shadow: none;
+}
+
+[data-theme="dark"] .rail { box-shadow: none; }
+
+[data-theme="dark"] .cm-overlay,
+[data-theme="dark"] .modal-overlay,
+[data-theme="dark"] .profile-photo-editor-overlay,
+[data-theme="dark"] .command-search-overlay,
+[data-theme="dark"] .rail-backdrop.is-open {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+[data-theme="dark"] .cm-dialog,
+[data-theme="dark"] .modal-container,
+[data-theme="dark"] .candidate-assign-dialog,
+[data-theme="dark"] .profile-photo-editor {
+  box-shadow: var(--shadow-popover);
+}
+
+[data-theme="dark"] .auth-page,
+[data-theme="dark"] .auth-story {
+  background: var(--bg-main);
+}
+
+[data-theme="dark"] .ds-stat.is-review-progress {
+  border-color: var(--border-main);
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .ds-stat.is-review-progress .ds-donut-legend li {
+  background: var(--tint-1);
+}
+
+[data-theme="dark"] .rail-item,
+[data-theme="dark"] .rail-section-toggle,
+[data-theme="dark"] .theme-switch-btn { color: var(--text-muted); }
+
+[data-theme="dark"] .rail-toggle,
+[data-theme="dark"] .rail-toggle svg,
+[data-theme="dark"] .rail-item svg,
+[data-theme="dark"] .rail-section-toggle > svg:first-child,
+[data-theme="dark"] .rail-signout svg { color: var(--text-muted); }
+
+[data-theme="dark"] .rail .brand-art.is-light { display: none; }
+[data-theme="dark"] .rail .brand-art.is-dark { display: block; }
 
 [data-theme="dark"] .rail-item:hover,
 [data-theme="dark"] .rail-item.is-active,
@@ -355,6 +448,21 @@ select:focus-visible,
 [data-theme="dark"] .rail-section-toggle.is-current {
   background: var(--primary-glow);
   color: #dbeafe;
+}
+
+.payroll-state.is-review,
+.payroll-money-flow .is-deduction strong { color: var(--warning-ink); }
+.payroll-money-flow .is-net strong { color: var(--success-ink); }
+[data-theme="dark"] .payroll-avatar,
+[data-theme="dark"] .payroll-pay-btn,
+[data-theme="dark"] .payroll-section-icon {
+  background: var(--primary-deep);
+  color: #fff;
+}
+
+[data-theme="dark"] .payroll-summary.is-violet .payroll-summary-icon {
+  background: var(--tint-2);
+  color: #c4b5fd;
 }
 
 [data-theme="dark"] .rail-item.is-active svg,
@@ -417,6 +525,93 @@ select:focus-visible,
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+.skip-link {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100300;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  color: var(--text-main);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-160%);
+}
+.skip-link:focus { transform: translateY(0); }
+.workspace:focus { outline: none; }
+.candidate-data-state { display: grid; gap: var(--space-6); }
+.candidate-data-skeleton { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+.candidate-data-skeleton > div { height: 160px; border-radius: var(--radius-lg); }
+.um-password-reveal { width: 32px; height: 32px; right: 0.4rem; border-radius: var(--radius-sm); }
+.candidate-assign-person > .ds-avatar,
+.queue-head > .ds-avatar { background: var(--primary-glow); color: var(--primary-hover); }
+.be-dialog-eyebrow > .be-status.is-new { color: var(--primary-hover); }
+[data-theme="dark"] .candidate-assign-person > .ds-avatar,
+[data-theme="dark"] .queue-head > .ds-avatar,
+[data-theme="dark"] .be-dialog-eyebrow > .be-status.is-new { color: var(--primary); }
+
+.toast {
+  width: max-content;
+  max-width: min(440px, calc(100vw - 2rem));
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border-main);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.toast > [role="status"] { min-width: 0; overflow-wrap: anywhere; }
+.toast-icon { flex: 0 0 auto; }
+.toast-dismiss {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.toast-dismiss:hover { background: var(--tint-2); color: var(--text-main); }
+
+.rail-account-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2);
+  margin-top: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.rail-account-summary:hover { border-color: var(--border-main); background: var(--tint-1); }
+.rail-account-monogram {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  color: var(--primary);
+  background: var(--primary-glow);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.rail-account-copy { display: grid; gap: 2px; min-width: 0; }
+.rail-account-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
+.rail-account-copy small { color: var(--text-muted); text-transform: capitalize; font-size: 0.7rem; }
+.rail.is-collapsed .rail-account-copy { display: none; }
+.rail.is-collapsed .rail-account-summary { justify-content: center; padding-inline: 0; }
+.rail-mobile-close { display: none; }
+
 @media (max-width: 900px) {
   .app-shell, .app-shell.is-collapsed { --rail-w: 0px; }
   .app-shell .workspace {
@@ -426,9 +621,16 @@ select:focus-visible,
     padding: 1rem clamp(0.8rem, 3vw, 1.15rem) 2rem;
   }
   .topbar { padding-inline: 0.75rem; }
+  .topbar-logo { width: 100%; max-width: 184px; flex-shrink: 1; justify-content: flex-start; }
+  .rail-mobile-close { display: grid; place-items: center; }
+  .rail-collapse-row > .rail-toggle:not(.rail-mobile-close) { display: none; }
+  .rail.is-collapsed .rail-account-copy { display: grid; }
+  .rail.is-collapsed .rail-account-summary { justify-content: flex-start; padding-inline: var(--space-2); }
+  .toast { bottom: var(--space-4); right: var(--space-4); }
 }
 
 @media (max-width: 640px) {
+  .candidate-data-skeleton { grid-template-columns: 1fr; }
   .db-title, .ds-head-title { font-size: 1.5rem; }
   .db-page, .ds-page { gap: 1rem; }
   .ds-panel, .db-card-body { padding: 1rem; }
@@ -457,6 +659,14 @@ select:focus-visible,
 
   .db-feedback { grid-template-columns: auto minmax(0, 1fr); }
   .db-feedback > button { grid-column: 1 / -1; width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .topbar-logo { --brand-mark-size: 34px; --brand-name-size: 0.64rem; --brand-gap: 0.3rem; }
+}
+
+@media (max-width: 359px) {
+  .topbar-logo .brand-copy { display: none; }
 }
 
 @media (max-width: 340px) {

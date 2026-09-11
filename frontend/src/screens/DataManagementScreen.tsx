@@ -52,6 +52,7 @@ import {
   type JobQuestion,
 } from "@/lib/api";
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 
 /**
  * WhatsApp shows at most ten rows in a list and rejects an eleventh outright,
@@ -125,23 +126,6 @@ export default function DataManagementScreen({ onActivity }: Props) {
       live = false;
     };
   }, [load]);
-
-  useEffect(() => {
-    if (!editingJob && !editingCountry && !editingQuestion) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setEditingJob(null);
-      setEditingCountry(null);
-      setEditingQuestion(null);
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [editingJob, editingCountry, editingQuestion]);
 
   /** Active jobs in the order the bot will show them. */
   const orderedJobs = useMemo(
@@ -901,6 +885,7 @@ function JobEditor({
   const [order, setOrder] = useState(job?.bot_order ?? 50);
   const [defaultRequired, setDefaultRequired] = useState(job?.cv_required_default ?? true);
   const [overrides, setOverrides] = useState<Record<string, boolean>>(job?.cv_overrides ?? {});
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onCancel);
 
   /**
    * A country's rule is one of three states, and the third is the important
@@ -924,10 +909,10 @@ function JobEditor({
   };
 
   return (
-    <div className="cm-dialog dm-dialog" onClick={(event) => event.stopPropagation()}>
+    <div ref={dialogRef} className="cm-dialog dm-dialog" role="dialog" aria-modal="true" aria-labelledby="job-editor-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
-        <div className="modal-label">{job ? `Edit ${job.title}` : "Add a job"}</div>
-        <button type="button" className="modal-close" onClick={onCancel}>
+        <h2 className="modal-title" id="job-editor-title">{job ? `Edit ${job.title}` : "Add a job"}</h2>
+        <button type="button" className="modal-close" onClick={onCancel} aria-label="Close job editor">
           <X size={16} />
         </button>
       </div>
@@ -943,7 +928,7 @@ function JobEditor({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="CNC Operator"
-            autoFocus
+            data-dialog-initial-focus
           />
           {job && (
             <div className="modal-hint">
@@ -1072,12 +1057,13 @@ function CountryEditor({
   const [name, setName] = useState(country?.name ?? "");
   const [botVisible, setBotVisible] = useState(country?.bot_visible ?? true);
   const [order, setOrder] = useState(country?.bot_order ?? 50);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onCancel);
 
   return (
-    <div className="cm-dialog dm-dialog is-compact" onClick={(event) => event.stopPropagation()}>
+    <div ref={dialogRef} className="cm-dialog dm-dialog is-compact" role="dialog" aria-modal="true" aria-labelledby="country-editor-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
-        <div className="modal-label">{country ? `Edit ${country.name}` : "Add a country"}</div>
-        <button type="button" className="modal-close" onClick={onCancel}>
+        <h2 className="modal-title" id="country-editor-title">{country ? `Edit ${country.name}` : "Add a country"}</h2>
+        <button type="button" className="modal-close" onClick={onCancel} aria-label="Close country editor">
           <X size={16} />
         </button>
       </div>
@@ -1093,7 +1079,7 @@ function CountryEditor({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Kuwait"
-            autoFocus
+            data-dialog-initial-focus
           />
           <div className="modal-hint">
             One country, not a region. “The Gulf” is six countries with six sets of rules, and a CV
@@ -1179,6 +1165,7 @@ function QuestionEditor({
   const [choices, setChoices] = useState((question?.choices ?? []).join("\n"));
   const [required, setRequired] = useState(question?.required ?? false);
   const [order, setOrder] = useState(question?.order ?? 50);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, onCancel);
 
   const choiceList = choices
     .split("\n")
@@ -1186,10 +1173,10 @@ function QuestionEditor({
     .filter(Boolean);
 
   return (
-    <div className="cm-dialog dm-dialog" onClick={(event) => event.stopPropagation()}>
+    <div ref={dialogRef} className="cm-dialog dm-dialog" role="dialog" aria-modal="true" aria-labelledby="question-editor-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
       <div className="modal-header">
-        <div className="modal-label">{question ? "Edit question" : "Add a question"}</div>
-        <button type="button" className="modal-close" onClick={onCancel}>
+        <h2 className="modal-title" id="question-editor-title">{question ? "Edit question" : "Add a question"}</h2>
+        <button type="button" className="modal-close" onClick={onCancel} aria-label="Close question editor">
           <X size={16} />
         </button>
       </div>
@@ -1218,7 +1205,7 @@ function QuestionEditor({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Which controllers have you run — Fanuc, Siemens, Haas?"
-            autoFocus
+            data-dialog-initial-focus
           />
           <div className="modal-hint">
             Written as you would say it out loud. It is sent to the candidate exactly as typed.

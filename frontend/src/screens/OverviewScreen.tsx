@@ -27,6 +27,7 @@ import { useIsMounted } from "@/lib/useIsMounted";
 import type { NavId } from "@/lib/nav";
 import type { CandidateRecord } from "@/lib/api";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
+import styles from "./OverviewScreen.module.css";
 
 interface OverviewScreenProps {
   total: number;
@@ -47,17 +48,25 @@ type Grain = "weekly" | "monthly";
 
 /** Up or down against the period before, or nothing when there is no before. */
 function Delta({ pct, against }: { pct: number | null; against: string }) {
-  if (pct === null) return null;
+  if (pct === null) return <span className={styles.comparison}>No earlier data</span>;
   const up = pct >= 0;
   return (
-    <span
-      className={`ds-delta ${up ? "is-up" : "is-down"}`}
-      title={`${up ? "Up" : "Down"} ${Math.abs(pct).toFixed(1)}% on the ${against} before this one`}
-    >
-      {Math.abs(pct).toFixed(1)}%
-      {up ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+    <span className={styles.comparison}>
+      <span
+        className={`ds-delta ${up ? "is-up" : "is-down"}`}
+        aria-label={`${up ? "Up" : "Down"} ${Math.abs(pct).toFixed(1)} percent`}
+      >
+        {up ? "+" : "−"}{Math.abs(pct).toFixed(1)}%
+        {up ? <TrendingUp size={11} aria-hidden="true" /> : <TrendingDown size={11} aria-hidden="true" />}
+      </span>
+      <span>vs. previous {against}</span>
     </span>
   );
+}
+
+/** One brief entrance when a value changes; the final metric is always readable. */
+function MetricValue({ value }: { value: number }) {
+  return <span key={value} className={styles.metricValue}>{formatInt(value)}</span>;
 }
 
 /**
@@ -137,7 +146,7 @@ function clockOf(value: string | undefined): string {
 /**
  * Everything the product is doing, on one screen.
  *
- * Three readings across the top with the headline one filled, then the state of
+ * Three readings across the top with a quiet accent on the headline, then the state of
  * the pipeline beside the shape of the intake, then the profiles themselves.
  * Nothing here is decoration: every figure is derived from the candidate
  * collection this page already holds, so an empty workspace shows an empty
@@ -213,12 +222,12 @@ export default function OverviewScreen({
   if (!mounted) return <DashboardSkeleton />;
 
   return (
-    <div className="ds-page">
+    <div className={`ds-page ${styles.overview}`}>
       {/* ── Page head ─────────────────────────────────────────────────── */}
       <header className="ds-head">
         <div>
           <h1 className="ds-head-title">Overview</h1>
-          <p className="ds-head-sub">Here is the summary of overall data</p>
+          <p className="ds-head-sub">Your candidate pipeline, intake, and latest arrivals.</p>
         </div>
 
         <div className="ds-head-actions">
@@ -226,6 +235,7 @@ export default function OverviewScreen({
             <button
               type="button"
               className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+              aria-pressed={grain === "weekly"}
               onClick={() => setGrain("weekly")}
             >
               This week
@@ -233,6 +243,7 @@ export default function OverviewScreen({
             <button
               type="button"
               className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+              aria-pressed={grain === "monthly"}
               onClick={() => setGrain("monthly")}
             >
               This month
@@ -245,7 +256,7 @@ export default function OverviewScreen({
         </div>
       </header>
 
-      {/* ── Three readings, the headline one filled ───────────────────── */}
+      {/* ── Three readings with a clear headline metric ─────────────── */}
       <div className="ds-cards">
         <article className="ds-card is-feature">
           <div className="ds-card-top">
@@ -259,7 +270,7 @@ export default function OverviewScreen({
           </div>
 
           <div className="ds-card-value">
-            {formatInt(total)}
+            <MetricValue value={total} />
             <Delta pct={deltaTotal.percent} against={against} />
           </div>
 
@@ -280,7 +291,7 @@ export default function OverviewScreen({
           </div>
 
           <div className="ds-card-value">
-            {formatInt(verified)}
+            <MetricValue value={verified} />
             <Delta pct={deltaVerified.percent} against={against} />
           </div>
 
@@ -300,7 +311,10 @@ export default function OverviewScreen({
             </div>
           </div>
 
-          <div className="ds-card-value">{formatInt(review)}</div>
+          <div className="ds-card-value">
+            <MetricValue value={review} />
+            <span className={styles.comparison}>{review > 0 ? "Awaiting a closer look" : "Review queue is clear"}</span>
+          </div>
 
           <button type="button" className="ds-card-foot" onClick={() => onNavigate("staff")}>
             Open the queue <ArrowRight size={16} />
@@ -385,14 +399,18 @@ export default function OverviewScreen({
         <section className="ds-panel ds-flow-panel">
           <div className="ds-panel-head">
             <div>
-              <p className="ds-panel-eyebrow">Candidates parsed</p>
-              <p className="ds-flow-total">{formatInt(flowTotal)}</p>
+              <h2 className="ds-panel-title">Candidate intake</h2>
+              <div className={styles.chartSummary}>
+                <p className="ds-flow-total"><MetricValue value={flowTotal} /></p>
+                <span>parsed across {grain === "weekly" ? "8 weeks" : "7 months"}</span>
+              </div>
             </div>
 
             <div className="ds-seg is-quiet" role="group" aria-label="Chart grain">
               <button
                 type="button"
                 className={`ds-seg-btn ${grain === "weekly" ? "is-on" : ""}`}
+                aria-pressed={grain === "weekly"}
                 onClick={() => setGrain("weekly")}
               >
                 Weekly
@@ -400,6 +418,7 @@ export default function OverviewScreen({
               <button
                 type="button"
                 className={`ds-seg-btn ${grain === "monthly" ? "is-on" : ""}`}
+                aria-pressed={grain === "monthly"}
                 onClick={() => setGrain("monthly")}
               >
                 Monthly
@@ -414,7 +433,7 @@ export default function OverviewScreen({
       {/* ── The profiles themselves ───────────────────────────────────── */}
       <section className="ds-panel">
         <div className="ds-panel-head">
-          <h2 className="ds-panel-title">Recent activity</h2>
+          <h2 className="ds-panel-title">Recent candidates</h2>
 
           <div className="ds-panel-tools">
             <label className="ds-search">
@@ -434,23 +453,33 @@ export default function OverviewScreen({
         </div>
 
         {recent.length === 0 ? (
-          <p className="ds-empty">
-            {candidates.length === 0
-              ? "Nothing has been parsed yet. Run a sync to bring résumés in."
-              : "No profile matches that search."}
-          </p>
+          <div className={styles.empty}>
+            {candidates.length === 0 ? <Users size={26} aria-hidden="true" /> : <Search size={26} aria-hidden="true" />}
+            <h3>{candidates.length === 0 ? "Your candidate pipeline starts here" : "No matching candidates"}</h3>
+            <p>{candidates.length === 0
+              ? "Open Sourcing to bring in resumes. New candidate profiles will appear here after they are parsed."
+              : "Try a different name, designation, or email address, or clear your search."}</p>
+            <button
+              type="button"
+              className={candidates.length === 0 ? "ds-primary-btn" : "ds-ghost-btn"}
+              onClick={() => candidates.length === 0 ? onNavigate("sourcing") : setQuery("")}
+            >
+              {candidates.length === 0 ? "Open Sourcing" : "Clear search"}
+              {candidates.length === 0 && <ArrowRight size={15} aria-hidden="true" />}
+            </button>
+          </div>
         ) : (
           <div className="ds-table-wrap is-ruled">
             <table className="ds-table is-ruled">
               <thead>
                 <tr>
-                  <th>Candidate</th>
-                  <th>Designation</th>
-                  <th>Date</th>
-                  <th>Time</th>
-                  <th className="is-num">Confidence</th>
-                  <th>Status</th>
-                  <th className="is-actions" aria-label="Open">Open</th>
+                  <th scope="col">Candidate</th>
+                  <th scope="col">Designation</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Time</th>
+                  <th scope="col" className="is-num">Confidence</th>
+                  <th scope="col">Status</th>
+                  <th scope="col" className="is-actions">Open</th>
                 </tr>
               </thead>
               <tbody>
@@ -491,9 +520,17 @@ export default function OverviewScreen({
                         </span>
                       </td>
                       <td className="is-actions">
-                        <span className="ds-open">
-                          <ArrowRight size={15} />
-                        </span>
+                        <button
+                          type="button"
+                          className={styles.openCandidate}
+                          aria-label={`Open ${name}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenCandidate(candidate);
+                          }}
+                        >
+                          <ArrowRight size={15} aria-hidden="true" />
+                        </button>
                       </td>
                     </tr>
                   );

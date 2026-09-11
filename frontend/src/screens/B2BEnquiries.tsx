@@ -28,6 +28,7 @@ import {
 
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf, timeAgo } from "@/lib/format";
 import {
@@ -281,18 +282,9 @@ export default function B2BEnquiries({ onActivity }: B2BEnquiriesProps) {
     };
   }, []);
 
-  // Escape closes whichever dialog is on top, innermost first.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (confirmDeleteId) setConfirmDeleteId(null);
-      else if (logOpen) setLogOpen(false);
-      else if (detailMode === "convert") setDetailMode("read");
-      else if (openId) setOpenId(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [confirmDeleteId, logOpen, detailMode, openId]);
+  const confirmDialogRef = useModalFocus<HTMLDivElement>(Boolean(confirmDeleteId), () => {
+    if (!busy) setConfirmDeleteId(null);
+  });
 
   const open = useMemo(
     () => records.find((r) => r.id === openId) ?? null,
@@ -842,26 +834,29 @@ export default function B2BEnquiries({ onActivity }: B2BEnquiriesProps) {
       )}
 
       {confirmDeleteId && (
-        <div className="cm-overlay active" onClick={() => setConfirmDeleteId(null)}>
+        <div className="cm-overlay active" onClick={() => !busy && setConfirmDeleteId(null)}>
           <div
+            ref={confirmDialogRef}
             className="cm-dialog be-confirm-dialog"
             onClick={(e) => e.stopPropagation()}
             role="alertdialog"
             aria-modal="true"
             aria-label="Delete enquiry"
+            aria-describedby="delete-enquiry-note"
+            tabIndex={-1}
           >
             <div className="modal-body">
-              <h3 className="be-confirm-title">
+              <h2 className="be-confirm-title">
                 <AlertTriangle size={16} />
                 Delete this enquiry?
-              </h3>
-              <p className="be-confirm-note">
+              </h2>
+              <p className="be-confirm-note" id="delete-enquiry-note">
                 This removes the record of what was asked for. If the enquiry was real and
                 came to nothing, close it instead — a closed enquiry keeps its history.
               </p>
             </div>
             <div className="modal-footer">
-              <button className="modal-cancel-btn" onClick={() => setConfirmDeleteId(null)}>
+              <button className="modal-cancel-btn" onClick={() => setConfirmDeleteId(null)} disabled={busy} data-dialog-initial-focus>
                 Cancel
               </button>
               <button
@@ -918,6 +913,11 @@ function EnquiryDialog({
   onConvert,
   onDelete,
 }: EnquiryDialogProps) {
+  const dialogRef = useModalFocus<HTMLDivElement>(true, () => {
+    if (busy) return;
+    if (mode === "convert") onSetMode("read");
+    else onClose();
+  });
   const status = normaliseStatus(enquiry.status);
   const converted = Boolean(enquiry.converted_job_order_id);
 
@@ -959,13 +959,15 @@ function EnquiryDialog({
   });
 
   return (
-    <div className="cm-overlay active" onClick={onClose}>
+    <div className="cm-overlay active" onClick={() => !busy && onClose()}>
       <div
+        ref={dialogRef}
         className="cm-dialog be-dialog"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={`Enquiry ${enquiry.id}`}
+        tabIndex={-1}
       >
         <div className="be-dialog-head">
           <div className="be-dialog-headings">
@@ -974,14 +976,14 @@ function EnquiryDialog({
               {enquiry.id}
               <span className={`be-status is-${status}`}>{STATUS_META[status].label}</span>
             </span>
-            <h3 className="be-dialog-title">{displayName(enquiry)}</h3>
+            <h2 className="be-dialog-title">{displayName(enquiry)}</h2>
             <p className="be-dialog-sub">
               {mode === "convert"
                 ? "Raise the job order this enquiry asked for. What you enter here is what the agency commits to."
                 : requirementLine(enquiry)}
             </p>
           </div>
-          <button className="sh-modal-close" onClick={onClose} aria-label="Close">
+          <button className="sh-modal-close" onClick={onClose} disabled={busy} aria-label="Close enquiry">
             <X size={18} />
           </button>
         </div>
@@ -1236,6 +1238,9 @@ interface LogEnquiryDialogProps {
 }
 
 function LogEnquiryDialog({ busy, onClose, onSubmit }: LogEnquiryDialogProps) {
+  const dialogRef = useModalFocus<HTMLDivElement>(true, () => {
+    if (!busy) onClose();
+  });
   const [partyType, setPartyType] = useState("agent");
   const [companyName, setCompanyName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -1278,23 +1283,25 @@ function LogEnquiryDialog({ busy, onClose, onSubmit }: LogEnquiryDialogProps) {
   };
 
   return (
-    <div className="cm-overlay active" onClick={onClose}>
+    <div className="cm-overlay active" onClick={() => !busy && onClose()}>
       <div
+        ref={dialogRef}
         className="cm-dialog sh-modal"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Log a B2B enquiry"
+        tabIndex={-1}
       >
         <div className="sh-modal-head">
           <div>
-            <h3 className="sh-modal-title">Log a B2B enquiry</h3>
+            <h2 className="sh-modal-title">Log a B2B enquiry</h2>
             <p className="sh-modal-sub">
               For a requirement that came in by phone or email. Anything the bot takes on
               WhatsApp arrives here on its own.
             </p>
           </div>
-          <button className="sh-modal-close" onClick={onClose} aria-label="Close">
+          <button className="sh-modal-close" onClick={onClose} disabled={busy} aria-label="Close enquiry form">
             <X size={18} />
           </button>
         </div>

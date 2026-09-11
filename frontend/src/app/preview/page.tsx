@@ -194,6 +194,8 @@ export default function PreviewPage() {
         syncing={false}
         realtime="live"
         hasRail
+        candidates={candidates}
+        onNavigate={go}
         onSync={noop}
         onToggleRail={noop}
         onOpenProfile={() => go("settings")}

@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, LoaderCircle, LogOut, Menu, Move, ScanLine, Search, Settings, X, ZoomIn } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, LoaderCircle, LogOut, Menu, Move, ScanLine, Settings, X, ZoomIn } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
+import CommandSearch from "@/components/CommandSearch";
 import NotificationBell from "@/components/NotificationBell";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf } from "@/lib/format";
-import type { AuthUser } from "@/lib/api";
+import type { AuthUser, CandidateRecord } from "@/lib/api";
+import type { NavId } from "@/lib/nav";
 
 export interface CandidateExtractionNotice {
   status: "extracting" | "complete" | "error";
@@ -24,6 +26,9 @@ interface TopBarProps {
   syncing?: boolean;
   realtime?: "connecting" | "live" | "offline";
   realtimeNonce?: number;
+  candidates?: CandidateRecord[];
+  candidatesLoading?: boolean;
+  onNavigate?: (id: NavId) => void;
   onOpenCandidate?: (candidateId: string) => void;
   candidateExtraction?: CandidateExtractionNotice | null;
   onOpenCandidateExtraction?: () => void;
@@ -41,6 +46,9 @@ export default function TopBar({
   user,
   realtimeNonce = 0,
   hasRail = true,
+  candidates,
+  candidatesLoading,
+  onNavigate,
   onOpenCandidate,
   candidateExtraction = null,
   onOpenCandidateExtraction,
@@ -176,7 +184,7 @@ export default function TopBar({
     <header className="topbar">
       {hasRail && <button className="topbar-icon-btn topbar-menu-btn" onClick={onToggleRail} aria-label="Open navigation"><Menu size={20} /></button>}
       <div className="topbar-brand"><span className="topbar-logo"><BrandLogo /></span></div>
-      <label className="topbar-search"><Search size={15} /><input type="search" placeholder="Search…" aria-label="Search" /><kbd className="topbar-kbd">⌘K</kbd></label>
+      <CommandSearch user={user} candidates={candidates} candidatesLoading={candidatesLoading} onNavigate={onNavigate} onOpenCandidate={onOpenCandidate} />
 
       <div className="topbar-actions">
         {candidateExtraction && (
@@ -195,7 +203,7 @@ export default function TopBar({
 
         <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
         <div className="topbar-profile" ref={profileRef}>
-          <button ref={profileTriggerRef} type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu">
+          <button ref={profileTriggerRef} type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu" aria-label={`Open profile menu for ${user.name || user.email}`}>
             <span className="topbar-profile-avatar" aria-hidden="true">{profilePhoto ? <Image src={profilePhoto} alt="" width={30} height={30} unoptimized /> : initialsOf(user.name || user.email)}</span>
             <span className="topbar-profile-copy"><strong>{user.name || user.email}</strong><small>{user.role}</small></span>
             <ChevronDown size={14} />

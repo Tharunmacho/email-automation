@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import {
   assignCandidate,
   listStaff,
@@ -286,19 +287,9 @@ export default function CandidatesView({
   const [assignmentError, setAssignmentError] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
-  useEffect(() => {
-    if (!assigning) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !assignmentSaving) setAssigning(null);
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [assigning, assignmentSaving]);
+  const assignmentDialogRef = useModalFocus<HTMLDivElement>(Boolean(assigning), () => {
+    if (!assignmentSaving) setAssigning(null);
+  });
 
   const scopedCandidates = useMemo(
     () => assignedOnly ? allCandidates.filter((candidate) => candidate.assigned_staff_id) : allCandidates,
@@ -951,15 +942,17 @@ export default function CandidatesView({
       {assigning && (
         <div className="cm-overlay active" onClick={() => !assignmentSaving && setAssigning(null)}>
           <div
+            ref={assignmentDialogRef}
             className="cm-dialog candidate-assign-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="candidate-assign-title"
+            tabIndex={-1}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
               <div>
-                <h3 id="candidate-assign-title" className="modal-title">Assign candidate</h3>
+                <h2 id="candidate-assign-title" className="modal-title">Assign candidate</h2>
                 <p className="modal-subtitle">Choose who will own and review this profile.</p>
               </div>
               <button
@@ -985,7 +978,7 @@ export default function CandidatesView({
               <div className="field-group">
                 <label className="modal-label" htmlFor="candidate-owner">Assign to</label>
                 {staffLoading ? (
-                  <div className="candidate-assign-loading">
+                  <div className="candidate-assign-loading" role="status">
                     <Loader2 size={16} className="icon-spin" /> Loading staff…
                   </div>
                 ) : (
@@ -1006,7 +999,7 @@ export default function CandidatesView({
                 </span>
               </div>
 
-              {assignmentError && <div className="sh-form-error">{assignmentError}</div>}
+              {assignmentError && <div className="sh-form-error" role="alert">{assignmentError}</div>}
             </div>
 
             <div className="modal-footer">

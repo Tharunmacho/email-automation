@@ -1,0 +1,198 @@
+.plot {
+  min-width: 0;
+}
+
+.plot svg {
+  display: block;
+  max-width: 100%;
+}
+
+.plot :global(.ds-flow-label),
+.plot :global(.ds-flow-tick),
+.plot :global(.dash-axis-text) {
+  fill: var(--text-muted);
+}
+
+.plot :global(.ds-flow-tip),
+.plot :global(.dash-tooltip) {
+  z-index: 2;
+  width: 200px;
+  max-width: min(220px, calc(100% - 16px));
+  border: 1px solid var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-main);
+  box-shadow: var(--shadow-md);
+  white-space: normal;
+  animation: tipIn 120ms ease-out;
+}
+
+.plot :global(.ds-flow-tip-when),
+.plot :global(.dash-tooltip-date),
+.plot :global(.dash-tooltip-muted) {
+  color: var(--text-muted);
+}
+
+.barTargets {
+  position: absolute;
+  display: grid;
+  right: 0;
+}
+
+.barTarget {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  cursor: crosshair;
+}
+
+.barMark {
+  fill: var(--primary);
+  opacity: 0.82;
+  transition: opacity 140ms ease;
+}
+
+.barMark.activeBar {
+  opacity: 1;
+}
+
+.barTarget:focus-visible,
+.keyboardPlot:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  background-color: rgba(var(--primary-rgb), 0.035);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.compareSwatch {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed var(--text-muted);
+}
+
+.empty {
+  display: flex;
+  min-height: 190px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
+  border: 1px dashed var(--border-main);
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  text-align: center;
+}
+
+.empty strong {
+  color: var(--text-main);
+  font-size: 0.88rem;
+}
+
+.empty p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.details {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.details summary {
+  width: fit-content;
+  min-height: 32px;
+  padding: 7px 0;
+  cursor: pointer;
+}
+
+.details summary:hover {
+  color: var(--primary);
+}
+
+.details summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-main);
+  text-align: left;
+}
+
+.dataTable th {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dataTable td:last-child,
+.dataTable th:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.screenReader {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes tipIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barMark {
+    transition: none;
+  }
+
+  .plot :global(.ds-flow-tip),
+  .plot :global(.dash-tooltip) {
+    animation: none;
+  }
+}

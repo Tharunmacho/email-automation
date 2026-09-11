@@ -1,0 +1,273 @@
+.overview :global(.ds-head-title) {
+  font-size: clamp(1.5rem, 2vw, 1.9rem);
+  letter-spacing: -0.035em;
+}
+
+.overview :global(.ds-cards) {
+  gap: 16px;
+}
+
+.overview :global(.ds-card) {
+  gap: 16px;
+  padding: 20px 20px 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.overview :global(.ds-card.is-feature) {
+  border-color: var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-main);
+  box-shadow: inset 0 3px 0 var(--primary), var(--shadow-sm);
+}
+
+.overview :global(.ds-card.is-feature .ds-card-title),
+.overview :global(.ds-card.is-feature .ds-card-value),
+.overview :global(.ds-card.is-feature .ds-card-foot) {
+  color: var(--text-main);
+}
+
+.overview :global(.ds-card.is-feature .ds-card-sub) {
+  color: var(--text-muted);
+}
+
+.overview :global(.ds-card.is-feature .ds-card-icon) {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+.overview :global(.ds-card.is-feature .ds-delta) {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.overview :global(.ds-card.is-feature .ds-delta.is-down) {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.overview :global(.ds-card.is-feature .ds-card-foot) {
+  border-color: var(--border-main);
+}
+
+.overview :global(.ds-card-title) {
+  font-size: 0.875rem;
+}
+
+.overview :global(.ds-card-sub) {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.overview :global(.ds-card-value) {
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 12px;
+  row-gap: 4px;
+  font-size: clamp(1.8rem, 2.7vw, 2.2rem);
+  line-height: 1.1;
+}
+
+.overview :global(.ds-card-foot) {
+  min-height: 44px;
+  padding: 12px 0;
+  font-size: 0.75rem;
+}
+
+.overview :global(.ds-card-foot:hover) {
+  color: var(--primary);
+}
+
+.comparison {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.metricValue {
+  display: inline-block;
+  animation: metricIn 220ms ease-out;
+}
+
+.overview :global(.ds-panel),
+.overview :global(.ds-tile) {
+  border-radius: var(--radius-lg);
+}
+
+.overview :global(.ds-panel-title) {
+  font-size: 0.94rem;
+}
+
+.overview :global(.ds-tile) {
+  gap: 5px;
+  padding: 16px;
+  background: var(--tint-1);
+  box-shadow: none;
+}
+
+.overview :global(.ds-tile:hover) {
+  background: var(--primary-glow);
+  border-color: var(--border-blue);
+  box-shadow: none;
+}
+
+.overview :global(.ds-tile-note) {
+  color: var(--text-muted);
+}
+
+.overview :global(.ds-tile-value) {
+  font-size: 1.5rem;
+}
+
+.chartSummary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  margin-top: 4px;
+}
+
+.chartSummary > span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.empty {
+  display: flex;
+  min-height: 210px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border-block: 1px solid var(--border-main);
+  text-align: center;
+}
+
+.empty > svg {
+  margin-bottom: 2px;
+  color: var(--primary);
+}
+
+.empty h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 0.94rem;
+}
+
+.empty p {
+  max-width: 44ch;
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.overview .openCandidate {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.overview .openCandidate:hover,
+.overview .openCandidate:focus-visible {
+  color: var(--primary);
+  background: var(--primary-glow);
+}
+
+.overview :global(.ds-table tr):focus-within {
+  background: var(--primary-glow);
+}
+
+.overview :global(.ds-see-all) {
+  min-height: 36px;
+}
+
+@keyframes metricIn {
+  from { opacity: 0.35; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (min-width: 900px) and (max-width: 1100px) {
+  .overview :global(.ds-cards) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .overview :global(.ds-card-top) {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .overview :global(.ds-card) {
+    gap: 12px;
+    padding: 16px 16px 0;
+  }
+
+  .overview :global(.ds-card-value) {
+    font-size: 1.9rem;
+  }
+
+  .overview :global(.ds-tiles) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .overview :global(.ds-tile) {
+    padding: 12px 10px;
+  }
+
+  .overview :global(.ds-tile-head) {
+    align-items: flex-start;
+    font-size: 0.74rem;
+  }
+
+  .overview :global(.ds-tile-dot) {
+    flex: none;
+    margin-top: 4px;
+  }
+
+  .overview :global(.ds-panel-head) {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .overview :global(.ds-panel-tools) {
+    width: 100%;
+  }
+
+  .overview :global(.ds-search) {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .overview :global(.ds-search input) {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metricValue {
+    animation: none;
+  }
+
+  .overview .openCandidate {
+    transition: none;
+  }
+}

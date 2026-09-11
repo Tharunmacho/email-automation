@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
 import SplitDonut from "@/components/dashboard/SplitDonut";
 import {
@@ -365,14 +366,25 @@ export default function AdminStaffManagement({
 
   const closeQueue = useCallback(() => setDetailId(null), []);
 
-  useEffect(() => {
-    if (!detailId) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeQueue();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [closeQueue, detailId]);
+  const handleQueueKeyDown = (event: React.KeyboardEvent<HTMLElement>, id: string) => {
+    // Nested Edit, Delete and telephone controls retain their native keyboard
+    // action. Only an activation on the row itself should open its queue.
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openQueue(id);
+    }
+  };
+
+  const queueDialogRef = useModalFocus<HTMLDivElement>(Boolean(detailId), () => {
+    if (!movingId) closeQueue();
+  });
+  const editDialogRef = useModalFocus<HTMLDivElement>(Boolean(editingMember), () => {
+    if (!editSubmitting) setEditingMember(null);
+  });
+  const createDialogRef = useModalFocus<HTMLDivElement>(creating, () => {
+    if (!submitting) setCreating(false);
+  });
 
   /** Who the open queue belongs to — null for either of the two buckets. */
   const queueMember = useMemo(
@@ -903,12 +915,7 @@ export default function AdminStaffManagement({
                       } is-clickable`}
                       onClick={openMemberQueue}
                       tabIndex={0}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openMemberQueue();
-                        }
-                      }}
+                      onKeyDown={(event) => handleQueueKeyDown(event, member.id)}
                     >
                       <td>
                         <span className="ds-who">
@@ -1016,7 +1023,7 @@ export default function AdminStaffManagement({
                 })}
 
                 {buckets.unallocated > 0 && (
-                  <tr className="is-clickable is-bucket" onClick={() => openQueue(UNALLOCATED)}>
+                  <tr className="is-clickable is-bucket" onClick={() => openQueue(UNALLOCATED)} tabIndex={0} onKeyDown={(event) => handleQueueKeyDown(event, UNALLOCATED)}>
                     <td>
                       <span className="ds-who">
                         <span className="ds-avatar is-bucket" aria-hidden="true"><Users size={15} /></span>
@@ -1033,7 +1040,7 @@ export default function AdminStaffManagement({
                 )}
 
                 {buckets.orphaned > 0 && (
-                  <tr className="is-clickable is-bucket is-overdue" onClick={() => openQueue(ORPHANED)}>
+                  <tr className="is-clickable is-bucket is-overdue" onClick={() => openQueue(ORPHANED)} tabIndex={0} onKeyDown={(event) => handleQueueKeyDown(event, ORPHANED)}>
                     <td>
                       <span className="ds-who">
                         <span className="ds-avatar is-alert" aria-hidden="true"><AlertTriangle size={15} /></span>
@@ -1068,13 +1075,17 @@ export default function AdminStaffManagement({
           want to look at, and that is the only pile you get. */}
       <div
         className={`modal-overlay ${detailId ? "active" : ""}`}
+        inert={!detailId}
+        aria-hidden={!detailId}
         onClick={() => !movingId && closeQueue()}
       >
         <div
+          ref={queueDialogRef}
           className="modal-container is-queue"
           role="dialog"
           aria-modal="true"
           aria-label={queueTitle}
+          tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
         >
           <div className="modal-header">
@@ -1108,7 +1119,7 @@ export default function AdminStaffManagement({
                 </p>
               </div>
             </div>
-            <button type="button" className="modal-close" onClick={closeQueue} aria-label="Close">
+            <button type="button" className="modal-close" onClick={closeQueue} disabled={Boolean(movingId)} aria-label="Close queue">
               <X size={18} />
             </button>
           </div>
@@ -1225,25 +1236,27 @@ export default function AdminStaffManagement({
                         className={`alloc-row ${overdue ? "is-overdue" : ""}`}
                         role="row"
                       >
-                        <button
-                          type="button"
-                          className="alloc-name"
-                          onClick={() => onOpenCandidate(candidate)}
-                          title="Open this profile"
-                        >
-                          <span className="staff-avatar is-small">{initialsOf(name)}</span>
-                          <span>
-                            <strong>{name}</strong>
-                            <em>
-                              {candidate.profile?.current_designation ?? candidate.profile?.email}
-                            </em>
-                          </span>
-                        </button>
+                        <div role="cell">
+                          <button
+                            type="button"
+                            className="alloc-name"
+                            onClick={() => onOpenCandidate(candidate)}
+                            title="Open this profile"
+                          >
+                            <span className="staff-avatar is-small">{initialsOf(name)}</span>
+                            <span>
+                              <strong>{name}</strong>
+                              <em>
+                                {candidate.profile?.current_designation ?? candidate.profile?.email}
+                              </em>
+                            </span>
+                          </button>
+                        </div>
 
                         {/* An orphan still carries the name of whoever owned it,
                             which on its own reads as "allocated, fine". Saying
                             the account is gone is the whole point of the row. */}
-                        <span className="alloc-owner">
+                        <span className="alloc-owner" role="cell">
                           {candidate.assigned_staff_name ?? (
                             <em className="alloc-none">unallocated</em>
                           )}
@@ -1256,7 +1269,7 @@ export default function AdminStaffManagement({
                           )}
                         </span>
 
-                        <span className="alloc-state">
+                        <span className="alloc-state" role="cell">
                           <span className={`db-pill is-${status}`}>
                             {candidate.viewed_at ? status.replace("_", " ") : "unviewed"}
                           </span>
@@ -1267,7 +1280,7 @@ export default function AdminStaffManagement({
                           )}
                         </span>
 
-                        <div className="alloc-assign">
+                        <div className="alloc-assign" role="cell">
                           <Select
                             size="sm"
                             value={candidate.assigned_staff_id ?? ""}
@@ -1330,22 +1343,26 @@ export default function AdminStaffManagement({
       {/* ---- Edit staff modal ---- */}
       <div
         className={`modal-overlay ${editingMember ? "active" : ""}`}
+        inert={!editingMember}
+        aria-hidden={!editingMember}
         onClick={() => !editSubmitting && setEditingMember(null)}
       >
         <div
+          ref={editDialogRef}
           className="modal-container is-narrow"
           role="dialog"
           aria-modal="true"
           aria-label="Edit staff member"
+          tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
         >
           <form onSubmit={handleEditStaff}>
             <div className="modal-header">
               <div>
-                <h3 className="modal-title">Edit staff details</h3>
+                <h2 className="modal-title">Edit staff details</h2>
                 <p className="modal-subtitle">Update the name, sign-in email, and contact number.</p>
               </div>
-              <button type="button" className="modal-close" onClick={() => setEditingMember(null)} aria-label="Close">
+              <button type="button" className="modal-close" onClick={() => setEditingMember(null)} disabled={editSubmitting} aria-label="Close staff editor">
                 <X size={18} />
               </button>
             </div>
@@ -1380,19 +1397,23 @@ export default function AdminStaffManagement({
       {/* ---- Create staff modal ---- */}
       <div
         className={`modal-overlay ${creating ? "active" : ""}`}
+        inert={!creating}
+        aria-hidden={!creating}
         onClick={() => !submitting && setCreating(false)}
       >
         <div
+          ref={createDialogRef}
           className="modal-container is-narrow"
           role="dialog"
           aria-modal="true"
           aria-label="Create staff member"
+          tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
         >
           <form onSubmit={handleCreate}>
             <div className="modal-header">
               <div>
-                <h3 className="modal-title">Create staff member</h3>
+                <h2 className="modal-title">Create staff member</h2>
                 <p className="modal-subtitle">
                   They sign in with these credentials and see only what they are allocated.
                 </p>
@@ -1401,6 +1422,7 @@ export default function AdminStaffManagement({
                 type="button"
                 className="modal-close"
                 onClick={() => setCreating(false)}
+                disabled={submitting}
                 aria-label="Close"
               >
                 <X size={18} />

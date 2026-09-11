@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { isTopModalPopover, registerModalPopover } from "./useModalFocus";
 
 /**
  * The plumbing every popover control in the product shares: open state, a click
@@ -92,6 +93,11 @@ export function usePopover(minRoomBelow = 260): PopoverState {
 
   useEffect(() => {
     if (!open) return;
+    const anchorElement = anchorRef.current;
+    const panelElement = panelRef.current;
+    const unregister = anchorElement && panelElement
+      ? registerModalPopover(anchorElement, panelElement)
+      : undefined;
 
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -104,8 +110,9 @@ export function usePopover(minRoomBelow = 260): PopoverState {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
+      if (event.key === "Escape" && panelElement && isTopModalPopover(panelElement)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
         close();
       }
     };
@@ -134,6 +141,7 @@ export function usePopover(minRoomBelow = 260): PopoverState {
     window.addEventListener("resize", onReflow);
 
     return () => {
+      unregister?.();
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("scroll", onReflow, true);

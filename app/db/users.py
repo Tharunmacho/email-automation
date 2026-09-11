@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from pymongo import ASCENDING
+from pymongo.errors import DuplicateKeyError
 
 from app.core.crm_ids import staff_code
 from app.core.models import utcnow
@@ -344,6 +345,7 @@ class UserRepository:
         self,
         user_id: str,
         *,
+        email: str | None = None,
         name: str | None = None,
         role: str | None = None,
         active: bool | None = None,
@@ -363,6 +365,14 @@ class UserRepository:
             return None
 
         updates: dict = {"updated_at": utcnow()}
+        if email is not None:
+            normalized_email = _normalize(email)
+            if not normalized_email:
+                raise ValueError("Email address is required.")
+            existing = self._coll.find_one({"email": normalized_email, "_id": {"$ne": user_id}})
+            if existing:
+                raise ValueError(f"A user with email {normalized_email} already exists.")
+            updates["email"] = normalized_email
         if name is not None:
             updates["name"] = name
         if role in (ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE):
@@ -385,7 +395,14 @@ class UserRepository:
             # for whoever reads the record later.
             updates["page_grants"] = [p for p in page_grants if p in PAGES]
 
-        self._coll.update_one({"_id": user_id}, {"$set": updates})
+        try:
+            self._coll.update_one({"_id": user_id}, {"$set": updates})
+        except DuplicateKeyError as exc:
+            # The unique email index also protects concurrent edits that pass
+            # the friendly preflight lookup at the same time.
+            if email is None:
+                raise
+            raise ValueError(f"A user with email {updates['email']} already exists.") from exc
         return self.get(user_id)
 
     def count_active_admins(self) -> int:

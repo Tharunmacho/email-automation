@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import { deriveStatus } from "@/screens/JobOrders";
@@ -599,6 +600,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setIsModalOpen(false);
     setEditingId(null);
   };
+  const dialogRef = useModalFocus<HTMLDivElement>(isModalOpen, closeModal);
 
   const updateContact = (index: number, field: keyof SourcingContact, value: string) => {
     setNewContacts((contacts) => contacts.map((contact, contactIndex) =>
@@ -786,7 +788,16 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                   </div>
                 ) : (
                   <>
-                    <button className="dropdown-item" onClick={() => openEditModal(item)}><Pencil size={14} /><span>Edit details</span></button>
+                    <button
+                      className="dropdown-item"
+                      onClick={(event) => {
+                        // This menu item unmounts as the editor opens. Keep the
+                        // persistent row trigger as the focus-return target.
+                        event.currentTarget.closest(".sh-actions")
+                          ?.querySelector<HTMLButtonElement>(".sh-icon-btn")?.focus();
+                        openEditModal(item);
+                      }}
+                    ><Pencil size={14} /><span>Edit details</span></button>
                     <button className="dropdown-item danger" onClick={() => setConfirmDeleteId(item.id)}><Trash2 size={14} /><span>Delete</span></button>
                   </>
                 )}
@@ -1027,15 +1038,17 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       {isModalOpen && (
         <div className="cm-overlay active" onClick={closeModal}>
           <div
+            ref={dialogRef}
             className="cm-dialog sh-modal"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={editingId ? "Edit client" : "Create new client"}
+            tabIndex={-1}
           >
             <div className="sh-modal-head">
               <div>
-                <h3 className="sh-modal-title">{editingId ? "Edit client" : "New sourcing client"}</h3>
+                <h2 className="sh-modal-title">{editingId ? "Edit client" : "New sourcing client"}</h2>
                 <p className="sh-modal-sub">
                   {editingId
                     ? "Job orders match clients by name — renaming this one detaches the orders raised under the old name."

@@ -34,7 +34,7 @@ from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.config import settings
 from app.core.models import (
@@ -3851,6 +3851,7 @@ class UserIn(BaseModel):
 class UserPatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    email: str | None = Field(default=None, min_length=3)
     name: str | None = None
     role: str | None = None
     active: bool | None = None
@@ -3858,6 +3859,13 @@ class UserPatch(BaseModel):
     page_grants: list[str] | None = None
     keywords: list[str] | None = None
     phone: str | None = Field(default=None, max_length=40)
+
+    @field_validator("email")
+    @classmethod
+    def email_is_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Email address is required.")
+        return value
 
 
 @app.get("/users")
@@ -3922,16 +3930,20 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
             detail="This is the last active administrator; promote someone else first.",
         )
 
-    updated = users.update_user(
-        user_id,
-        name=payload.name,
-        role=payload.role,
-        active=payload.active,
-        password=payload.password,
-        page_grants=payload.page_grants,
-        keywords=payload.keywords,
-        phone=payload.phone,
-    )
+    try:
+        updated = users.update_user(
+            user_id,
+            email=payload.email,
+            name=payload.name,
+            role=payload.role,
+            active=payload.active,
+            password=payload.password,
+            page_grants=payload.page_grants,
+            keywords=payload.keywords,
+            phone=payload.phone,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
 

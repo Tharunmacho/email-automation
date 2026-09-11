@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronDown, ChevronLeft, Menu, Moon, Sun } from "lucide-react";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import { ChevronDown, ChevronLeft, Menu, Moon, Sun, X } from "lucide-react";
 import Link from "next/link";
 
 import BrandLogo from "@/components/BrandLogo";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import { navGroupsFor, navPath, type NavId } from "@/lib/nav";
 import {
   getThemeServerSnapshot,
@@ -50,52 +51,16 @@ export default function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
-  const railRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const frame = window.requestAnimationFrame(() => railRef.current?.querySelector<HTMLElement>("a[href]")?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseMobile();
-        return;
-      }
-      if (event.key === "Tab" && railRef.current) {
-        const controls = [...railRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        )].filter((control) => control.getClientRects().length > 0);
-        const first = controls[0];
-        const last = controls.at(-1);
-        if (!first || !last) return;
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-      window.requestAnimationFrame(() => opener?.isConnected && opener.focus());
-    };
-  }, [mobileOpen, onCloseMobile]);
+  const railRef = useModalFocus<HTMLElement>(mobileOpen, onCloseMobile);
 
   // A staff member gets a shorter rail: the destinations they cannot use are
   // refused by the API anyway, and offering them is offering a dead end.
   const groups = useMemo(() => navGroupsFor(user.role, user.pages), [user.role, user.pages]);
-  const activeGroup = groups.find((group) => group.items.some((item) => item.id === activeId));
-  const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set(activeGroup?.collapsible ? [activeGroup.label] : ["Candidates"]),
-  );
+  const canOpenAccount = groups.some((group) => group.items.some((item) => item.id === "settings"));
+  // Each new signed-in workspace starts with its navigation groups closed.
+  // The active parent still highlights the current destination, without forcing
+  // its children open or preventing the user from collapsing that group.
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
 
   const go = (id: NavId) => {
     onNavigate(id);
@@ -114,6 +79,9 @@ export default function Sidebar({
         ref={railRef}
         className={`rail ${collapsed ? "is-collapsed" : ""} ${mobileOpen ? "is-open" : ""}`}
         aria-label="Main navigation"
+        role={mobileOpen ? "dialog" : undefined}
+        aria-modal={mobileOpen || undefined}
+        tabIndex={mobileOpen ? -1 : undefined}
       >
         {/* The brand, at the top of the navigation it names. It is held to the
             header bar's own height so the hairline under it continues the one
@@ -129,6 +97,9 @@ export default function Sidebar({
         <div className="rail-scroll">
           <div className="rail-collapse-row">
             <span className="rail-menu-label">Menu</span>
+            <button type="button" className="rail-toggle rail-mobile-close" aria-label="Close navigation" onClick={onCloseMobile}>
+              <X size={18} aria-hidden="true" />
+            </button>
             <button
               type="button"
               className="rail-toggle"
@@ -144,7 +115,7 @@ export default function Sidebar({
           {groups.map((group) => {
             const GroupIcon = group.icon;
             const groupActive = group.items.some((item) => item.id === activeId);
-            const isOpen = openGroups.has(group.label) || groupActive;
+            const isOpen = openGroups.has(group.label);
             return (
             <div
               key={group.label}
@@ -235,6 +206,12 @@ export default function Sidebar({
           >
             {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
           </button>
+          {canOpenAccount && (
+            <button type="button" className="rail-account-summary" onClick={() => go("settings")} aria-label={`Account settings for ${user.name || user.email}`} title={collapsed ? `${user.name || user.email} · Account settings` : undefined}>
+              <span className="rail-account-monogram" aria-hidden="true">{(user.name || user.email).split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</span>
+              <span className="rail-account-copy"><strong>{user.name || user.email}</strong><small>{user.role}</small></span>
+            </button>
+          )}
         </div>
       </nav>
     </>

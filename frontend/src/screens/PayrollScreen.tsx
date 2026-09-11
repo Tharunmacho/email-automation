@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   Banknote,
   CalendarRange,
   Check,
@@ -48,28 +49,44 @@ function monthLabel(period: string): string {
 
 export default function PayrollScreen({ user, onToast }: Props) {
   const [period, setPeriod] = useState(currentMonth);
-  const [payroll, setPayroll] = useState<PayrollMonth | null>(null);
+  const [loadedPayroll, setLoadedPayroll] = useState<{ period: string; data: PayrollMonth } | null>(null);
+  const [loadError, setLoadError] = useState<{ period: string; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
   const personalView = !canManage || viewMode === "mine";
+  const loadRun = useRef(0);
+  // A previously loaded month's figures must never appear under a new month.
+  const payroll = loadedPayroll?.period === period ? loadedPayroll.data : null;
+  const error = loadError?.period === period ? loadError.message : null;
+  const initialLoading = !payroll && (loading || !error);
 
   const load = useCallback(async () => {
+    const run = ++loadRun.current;
     setLoading(true);
+    setLoadError(null);
     try {
-      setPayroll(await fetchPayrollMonth(year, month));
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : "Could not load payroll", "error");
+      const data = await fetchPayrollMonth(year, month);
+      if (run !== loadRun.current) return;
+      setLoadedPayroll({ period, data });
+    } catch (failure) {
+      if (run !== loadRun.current) return;
+      const message = failure instanceof Error ? failure.message : "Could not load payroll";
+      setLoadError({ period, message });
+      onToast(message, "error");
     } finally {
-      setLoading(false);
+      if (run === loadRun.current) setLoading(false);
     }
-  }, [month, onToast, year]);
+  }, [month, onToast, period, year]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRun.current += 1;
+    };
   }, [load]);
 
   const visibleItems = useMemo(
@@ -137,18 +154,33 @@ export default function PayrollScreen({ user, onToast }: Props) {
             Pay period
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
-          <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading}>
+          <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading || initialLoading}>
             <RefreshCw size={15} className={loading ? "icon-spin" : ""} /> Refresh
           </button>
         </div>
       </header>
 
-      <div className={`payroll-summary-grid ${personalView ? "is-personal" : ""}`}>
+      {error && (
+        <div className="db-card db-feedback is-error" role="alert">
+          <span className="db-feedback-icon" aria-hidden="true"><AlertTriangle size={20} /></span>
+          <div><strong>{payroll ? "Payroll could not be refreshed" : "Payroll could not be loaded"}</strong><span>{error}</span>{payroll && <span>Showing the last loaded values for this month. Refresh before confirming payments.</span>}</div>
+          <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading}><RefreshCw size={15} /> Retry</button>
+        </div>
+      )}
+
+      {loading && payroll && (
+        <div className="db-card db-feedback is-loading" role="status" aria-live="polite">
+          <RefreshCw size={20} className="icon-spin" aria-hidden="true" />
+          <div><strong>Refreshing payroll</strong><span>Showing the last loaded values while this month is updated.</span></div>
+        </div>
+      )}
+
+      {payroll && <div className={`payroll-summary-grid ${personalView ? "is-personal" : ""}`}>
         <SummaryCard label={personalView ? "Gross salary" : "Gross payroll"} value={money.format(totals.gross)} note="Before deductions" icon={<Banknote />} tone="blue" />
         <SummaryCard label="Attendance deductions" value={money.format(totals.deduction)} note="LOP and uncovered time" icon={<Clock3 />} tone="amber" />
         <SummaryCard label="Net payable" value={money.format(totals.net)} note="Final amount for this month" icon={<WalletCards />} tone="green" />
         {!personalView && <SummaryCard label="Payment progress" value={`${totals.paid} of ${visibleItems.length}`} note="Employees marked paid" icon={<CheckCircle2 />} tone="violet" />}
-      </div>
+      </div>}
 
       <section className="payroll-policy-strip">
         <span><CalendarRange size={17} /><strong>480-minute workday</strong> 10:00 AM–7:00 PM with a one-hour break</span>
@@ -161,11 +193,13 @@ export default function PayrollScreen({ user, onToast }: Props) {
             <span className="payroll-section-icon"><Banknote size={18} /></span>
             <div><h2>{personalView ? "My salary breakdown" : "Employee pay breakdown"}</h2><p>Attendance allowance and uncovered time determine the final salary.</p></div>
           </div>
-          {!personalView && <span className="payroll-count">{visibleItems.length} employees</span>}
+          {!personalView && payroll && <span className="payroll-count">{visibleItems.length} employees</span>}
         </div>
 
-        {loading ? (
-          <div className="payroll-empty"><RefreshCw className="icon-spin" /><strong>Preparing payroll</strong><span>Calculating attendance and salary details…</span></div>
+        {initialLoading ? (
+          <div className="payroll-empty" role="status" aria-live="polite" aria-busy="true"><RefreshCw className="icon-spin" aria-hidden="true" /><strong>Preparing payroll</strong><span>Calculating attendance and salary details…</span></div>
+        ) : !payroll ? (
+          <div className="payroll-empty"><AlertTriangle aria-hidden="true" /><strong>Payroll is unavailable</strong><span>Retry the request above to load this month’s salary details.</span></div>
         ) : !visibleItems.length ? (
           <div className="payroll-empty"><WalletCards /><strong>No active employees</strong><span>Add staff before generating payroll.</span></div>
         ) : (
@@ -174,7 +208,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
               <EmployeePayCard
                 key={`${row.employee_id}:${row.monthly_salary}:${row.weekly_off_pattern}:${row.alternate_friday_parity}`}
                 row={row}
-                busy={busyId === row.employee_id}
+                busy={busyId === row.employee_id || loading}
                 canManage={canManage}
                 onSave={savePolicy}
                 onTogglePaid={togglePaid}

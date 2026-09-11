@@ -8644,14 +8644,6 @@ body {
   background: #ffffff;
 }
 
-.rail .brand-art.is-light {
-  display: block !important;
-}
-
-.rail .brand-art.is-dark {
-  display: none !important;
-}
-
 .rail.is-collapsed .rail-collapse-row {
   justify-content: center;
   padding: 0;

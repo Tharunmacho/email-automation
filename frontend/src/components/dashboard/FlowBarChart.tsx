@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BarChart3 } from "lucide-react";
+import styles from "./Chart.module.css";
 
 export interface FlowBucket {
   /** The axis label — "Mar", "W-32". */
@@ -29,7 +31,10 @@ function axisTicks(peak: number): number[] {
   const rough = peak / (TICKS - 1);
   const magnitude = 10 ** Math.floor(Math.log10(rough));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((s) => s >= rough) ?? magnitude * 10;
-  return Array.from({ length: TICKS }, (_, i) => Math.round(step * i));
+  // Candidate counts are whole numbers: fractional steps would repeat labels
+  // (0, 0, 1, 1, 1) when there are only one or two candidates in a period.
+  const integerStep = Math.max(1, Math.ceil(step));
+  return Array.from({ length: TICKS }, (_, i) => integerStep * i);
 }
 
 /**
@@ -76,21 +81,19 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
     value > 0 ? Math.max(radius, Math.round((value / ceiling) * HEIGHT)) : 2;
 
   const active = hovered !== null ? buckets[hovered] : null;
+  const labelEvery = slotW < 46 ? 2 : 1;
 
   return (
-    <div className="ds-flow" ref={containerRef}>
-      <svg width={width} height={totalH} role="img" aria-label="Candidates parsed per period">
-        <defs>
-          <linearGradient id="ds-bar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.04" />
-          </linearGradient>
-          <linearGradient id="ds-bar-on" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--primary-rgb))" stopOpacity="1" />
-            <stop offset="100%" stopColor="rgb(var(--primary-rgb))" stopOpacity="0.72" />
-          </linearGradient>
-        </defs>
-
+    <div className={`ds-flow ${styles.plot}`} ref={containerRef}>
+      {peak === 0 ? (
+        <div className={styles.empty}>
+          <BarChart3 size={24} aria-hidden="true" />
+          <strong>No candidates parsed in this period</strong>
+          <p>Your intake trend will appear here as new resumes are parsed.</p>
+        </div>
+      ) : (
+      <>
+      <svg width={width} height={totalH} aria-hidden="true">
         {/* Gridlines, drawn behind everything and labelled down the left. */}
         {ticks.map((tick, index) => {
           const y = TOP_BAND + HEIGHT - (tick / ceiling) * HEIGHT;
@@ -118,7 +121,7 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
                 width={barW}
                 height={barH}
                 rx={radius}
-                fill={on ? "url(#ds-bar-on)" : "url(#ds-bar)"}
+                className={`${styles.barMark} ${on ? styles.activeBar : ""}`}
               />
               {on && (
                 <>
@@ -132,17 +135,7 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
                   <circle cx={x + barW / 2} cy={y} r={5} className="ds-flow-knob" />
                 </>
               )}
-              {/* One hit area per column, the full height of the plot, so a
-                  short bar is as easy to read as a tall one. */}
-              <rect
-                x={AXIS_W + index * slotW}
-                y={TOP_BAND}
-                width={slotW}
-                height={HEIGHT}
-                fill="transparent"
-                onMouseEnter={() => setHovered(index)}
-                onMouseLeave={() => setHovered((current) => (current === index ? null : current))}
-              />
+              {((index % labelEvery === 0 && index < buckets.length - labelEvery) || index === buckets.length - 1) && (
               <text
                 x={x + barW / 2}
                 y={TOP_BAND + HEIGHT + 18}
@@ -151,19 +144,43 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
               >
                 {bucket.label}
               </text>
+              )}
             </g>
           );
         })}
       </svg>
 
+      {/* Native buttons give pointer, touch, and keyboard users the same exact
+          values. CSS sizes their grid immediately on a viewport change, so a
+          pending ResizeObserver update cannot leave old hit targets offscreen. */}
+      <div
+        className={styles.barTargets}
+        style={{ left: AXIS_W, top: TOP_BAND, height: HEIGHT, gridTemplateColumns: `repeat(${buckets.length}, minmax(0, 1fr))` }}
+      >
+      {buckets.map((bucket, index) => (
+        <button
+          key={`${bucket.full}-target`}
+          type="button"
+          className={styles.barTarget}
+          aria-label={`${bucket.full}: ${bucket.value} candidates ${caption?.toLowerCase() ?? "parsed"}`}
+          onMouseEnter={() => setHovered(index)}
+          onMouseLeave={() => setHovered((current) => (current === index ? null : current))}
+          onFocus={() => setHovered(index)}
+          onBlur={() => setHovered(null)}
+          onClick={() => setHovered(index)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setHovered(null);
+          }}
+        />
+      ))}
+      </div>
+
       {active && (
         <div
           className="ds-flow-tip"
+          aria-hidden="true"
           style={{
-            left: `${Math.min(
-              Math.max(xOf(hovered as number) + barW / 2, 82),
-              Math.max(width - 82, 82),
-            )}px`,
+            left: `clamp(108px, ${xOf(hovered as number) + barW / 2}px, calc(100% - 108px))`,
             top: `${Math.max(TOP_BAND, TOP_BAND + HEIGHT - heightOf(active.value) - 78)}px`,
           }}
         >
@@ -173,6 +190,23 @@ export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
             <strong>{active.value}</strong>
           </span>
         </div>
+      )}
+      <div className={styles.legend}>
+        <span><i className={styles.swatch} aria-hidden="true" />{caption ?? "Parsed"} candidates</span>
+      </div>
+      </>
+      )}
+      {buckets.length > 0 && (
+        <details className={styles.details}>
+          <summary>View chart data</summary>
+          <table className={styles.dataTable}>
+            <caption className={styles.screenReader}>Candidates parsed per period</caption>
+            <thead><tr><th scope="col">Period</th><th scope="col">Candidates</th></tr></thead>
+            <tbody>{buckets.map((bucket) => (
+              <tr key={bucket.full}><th scope="row">{bucket.full}</th><td>{bucket.value}</td></tr>
+            ))}</tbody>
+          </table>
+        </details>
       )}
     </div>
   );

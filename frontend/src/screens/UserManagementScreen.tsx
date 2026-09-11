@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   KeyRound,
+  Loader2,
   Lock,
   Pencil,
   RefreshCw,
@@ -34,6 +35,7 @@ import {
 
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf, timeAgo } from "@/lib/format";
 import {
   createUserAPI,
@@ -130,11 +132,13 @@ function PasswordInput({
   value,
   onChange,
   placeholder,
+  disabled = false,
 }: {
   id: string;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
+  disabled?: boolean;
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -148,10 +152,12 @@ function PasswordInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         autoComplete="new-password"
+        disabled={disabled}
       />
       <button
         type="button"
         className="um-password-reveal"
+        disabled={disabled}
         onClick={() => setVisible((current) => !current)}
         aria-label={visible ? "Hide password" : "Show password"}
         title={visible ? "Hide password" : "Show password"}
@@ -179,6 +185,8 @@ type Section = "create" | "manage";
 
 interface Props {
   onActivity?: (message: string, type?: "info" | "success" | "error") => void;
+  /** Refresh signed-in account details when its own record was edited. */
+  onUserUpdated?: (user: ManagedUser) => void;
   /** The signed-in admin, so the screen can refuse to let them lock themselves out. */
   currentUserId?: string;
   /**
@@ -197,6 +205,7 @@ interface Props {
 
 export default function UserManagementScreen({
   onActivity,
+  onUserUpdated,
   currentUserId,
   openCreate = false,
 }: Props) {
@@ -273,12 +282,14 @@ export default function UserManagementScreen({
 
   const save = async (user: ManagedUser, patch: Parameters<typeof updateUserAPI>[1]) => {
     try {
-      await updateUserAPI(user.id, patch);
-      say(`${user.email} updated`, "success");
+      const result = await updateUserAPI(user.id, patch);
+      onUserUpdated?.(result.user);
+      say(`${result.user.email} updated`, "success");
       setEditing(null);
       await load();
     } catch (err) {
-      say(err instanceof Error ? err.message : "Could not update the user", "error");
+      const message = err instanceof Error ? err.message : "Could not update the user";
+      throw new Error(message);
     }
   };
 
@@ -484,7 +495,7 @@ export default function UserManagementScreen({
           isSelf={editing.id === currentUserId}
           isLastAdmin={editing.role === "admin" && activeAdmins <= 1}
           onCancel={() => setEditing(null)}
-          onSave={(patch) => void save(editing, patch)}
+          onSave={(patch) => save(editing, patch)}
         />
       )}
     </div>
@@ -673,33 +684,65 @@ function EditUserModal({
   isSelf: boolean;
   isLastAdmin: boolean;
   onCancel: () => void;
-  onSave: (patch: {
-    name?: string;
-    role?: string;
-    active?: boolean;
-    password?: string;
-    page_grants?: string[];
-    phone?: string;
-  }) => void;
+  onSave: (patch: Parameters<typeof updateUserAPI>[1]) => Promise<void>;
 }) {
   const [name, setName] = useState(user.name);
+  const [email, setEmail] = useState(user.email);
+  const [emailError, setEmailError] = useState("");
   const [phone, setPhone] = useState(user.phone ?? "");
   const [role, setRole] = useState(user.role);
   const [active, setActive] = useState(user.active);
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [grants, setGrants] = useState<string[]>(user.page_grants ?? []);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const close = () => {
+    if (!saving) onCancel();
+  };
+  const dialogRef = useModalFocus<HTMLFormElement>(true, close);
 
   const locked = isLastAdmin;
   const passwordInvalid =
     password.length > 0 && (password.length < 6 || password !== passwordConfirmation);
 
+  const validateEmail = (input: HTMLInputElement) => {
+    setEmailError(input.validity.valueMissing
+      ? "Email address is required."
+      : input.validity.typeMismatch ? "Enter a valid email address." : "");
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving || passwordInvalid || !email.trim()) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      await onSave({
+        email: email.trim(),
+        name,
+        phone,
+        role,
+        active,
+        page_grants: grants,
+        ...(password ? { password } : {}),
+      });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Could not save this account. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="modal-overlay active" onClick={onCancel}>
-      <div className="modal-container is-narrow" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay active" onClick={close}>
+      <form ref={dialogRef} className="modal-container is-narrow" role="dialog" aria-modal="true" aria-labelledby="edit-user-title" aria-describedby="edit-user-email" aria-busy={saving} tabIndex={-1} onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <div className="modal-header">
-          <div className="modal-label">{user.email}</div>
-          <button type="button" className="modal-close" onClick={onCancel}>
+          <div>
+            <h2 className="modal-title" id="edit-user-title">Edit account</h2>
+            <p className="modal-subtitle" id="edit-user-email">{email.trim() || user.email}</p>
+          </div>
+          <button type="button" className="modal-close" onClick={close} disabled={saving} aria-label="Close account editor">
             <X size={16} />
           </button>
         </div>
@@ -715,7 +758,30 @@ function EditUserModal({
                 className="modal-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={saving}
               />
+            </div>
+            <div className="field-group">
+              <label className="modal-label" htmlFor="e-email">Email address</label>
+              <input
+                id="e-email"
+                className="modal-input"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                disabled={saving}
+                aria-invalid={emailError ? true : undefined}
+                aria-describedby={emailError ? "e-email-hint e-email-error" : "e-email-hint"}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  if (emailError) validateEmail(event.currentTarget);
+                }}
+                onBlur={(event) => validateEmail(event.currentTarget)}
+                onInvalid={(event) => validateEmail(event.currentTarget)}
+              />
+              <p className="modal-hint" id="e-email-hint">Used to sign in to this account.</p>
+              {emailError && <p className="sh-form-error" id="e-email-error" role="alert">{emailError}</p>}
             </div>
             <div className="field-group">
               <label className="modal-label" htmlFor="e-phone">
@@ -728,6 +794,7 @@ function EditUserModal({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+91 98765 43210"
+                disabled={saving}
               />
             </div>
           </div>
@@ -739,7 +806,7 @@ function EditUserModal({
                 value={role}
                 options={ROLE_OPTIONS}
                 onChange={setRole}
-                disabled={locked}
+                disabled={locked || saving}
                 ariaLabel="Role"
               />
             </div>
@@ -752,7 +819,7 @@ function EditUserModal({
               <div className="um-form-control">
                 <Checkbox
                   checked={active}
-                  disabled={locked}
+                  disabled={locked || saving}
                   onChange={setActive}
                   label="Account is active"
                   hint={
@@ -782,6 +849,7 @@ function EditUserModal({
               value={password}
               placeholder="Leave blank to keep the current one"
               onChange={setPassword}
+              disabled={saving}
             />
           </div>
 
@@ -795,6 +863,7 @@ function EditUserModal({
                 value={passwordConfirmation}
                 placeholder="Enter the new password again"
                 onChange={setPasswordConfirmation}
+                disabled={saving}
               />
               <p className={`modal-hint ${passwordInvalid ? "is-warn" : ""}`}>
                 {password.length < 6
@@ -806,32 +875,24 @@ function EditUserModal({
             </div>
           )}
 
-          <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
+          <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} disabled={saving} />
+          {saveError && <p className="sh-form-error" role="alert">{saveError}</p>}
         </div>
 
         <div className="modal-footer">
-          <button type="button" className="modal-cancel-btn" onClick={onCancel}>
+          <button type="button" className="modal-cancel-btn" onClick={close} disabled={saving}>
             Cancel
           </button>
           <button
-            type="button"
+            type="submit"
             className="db-btn is-primary"
-            disabled={passwordInvalid}
-            onClick={() =>
-              onSave({
-                name,
-                phone,
-                role,
-                active,
-                page_grants: grants,
-                ...(password ? { password } : {}),
-              })
-            }
+            disabled={passwordInvalid || saving}
           >
-            <Check size={14} /> Save
+            {saving ? <Loader2 size={14} className="icon-spin" /> : <Check size={14} />}
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -848,11 +909,13 @@ function PagePicker({
   grants,
   pages,
   onChange,
+  disabled = false,
 }: {
   role: string;
   grants: string[];
   pages: string[];
   onChange: (next: string[]) => void;
+  disabled?: boolean;
 }) {
   const floor = new Set(ROLE_FLOOR[role] ?? []);
   const isAdmin = role === "admin";
@@ -907,6 +970,7 @@ function PagePicker({
                   // Required role pages use a lock. Optional pages say exactly
                   // whether the user will see or not see the destination.
                   locked={isAdmin || inFloor}
+                  disabled={disabled}
                   onChange={() => toggle(page)}
                   label={PAGE_LABELS[page] ?? page}
                   hint={

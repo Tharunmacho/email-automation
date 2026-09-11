@@ -1216,6 +1216,7 @@ export function createUserAPI(payload: {
 export function updateUserAPI(
   userId: string,
   patch: {
+    email?: string;
     name?: string;
     role?: string;
     active?: boolean;
