@@ -4579,6 +4579,7 @@ body {
 .sh-add-contact,
 .sh-remove-contact {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
@@ -4661,14 +4662,14 @@ body {
 .jo-age-range label > span {
   display: block;
   margin-bottom: 0.3rem;
-  color: var(--text-light);
+  color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 600;
 }
 
 .jo-age-separator {
   padding-bottom: 0.72rem;
-  color: var(--text-light);
+  color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 650;
 }
@@ -10217,7 +10218,7 @@ body {
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.09em;
-  color: var(--text-label);
+  color: var(--text-muted);
 }
 
 /* Sourcing Hub's segmented control is already the right idea; these are the
@@ -12623,7 +12624,7 @@ body {
 .cupload-slot-title span {
   padding: 2px 7px;
   border-radius: 999px;
-  color: #64748b;
+  color: var(--text-muted);
   background: #f1f5f9;
   font-size: 10px;
   font-weight: 700;
@@ -12679,7 +12680,7 @@ body {
   margin-left: 2px;
   border: 0;
   border-radius: 7px;
-  color: #64748b;
+  color: var(--text-muted);
   background: transparent;
   cursor: pointer;
 }
@@ -14671,7 +14672,7 @@ body {
 }
 
 .ui-select-trigger.is-empty .ui-select-value {
-  color: var(--text-light);
+  color: var(--text-muted);
   font-weight: 400;
 }
 
@@ -15205,7 +15206,7 @@ body {
 }
 
 .ds-card.is-feature .ds-card-sub {
-  color: rgba(255, 255, 255, 0.82);
+  color: #fff;
 }
 
 .ds-card-value {
@@ -15283,6 +15284,7 @@ body {
 
 .ds-panel {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   padding: 1.15rem 1.25rem 1.25rem;
   border-radius: var(--radius-xl);
@@ -15420,6 +15422,7 @@ body {
 .ds-flow {
   position: relative;
   width: 100%;
+  min-width: 0;
   margin-top: auto;
 }
 
@@ -15843,7 +15846,7 @@ body {
 }
 
 .ds-who-text small {
-  color: var(--text-light);
+  color: var(--text-muted);
   font-size: 0.74rem;
 }
 
@@ -16346,7 +16349,7 @@ body {
   align-items: center;
   gap: 0.35rem;
   font-size: 0.74rem;
-  color: var(--text-light);
+  color: var(--text-muted);
 }
 
 .ds-stat-foot em {
@@ -16363,7 +16366,7 @@ body {
 }
 
 .ds-stat-quiet {
-  color: var(--text-light);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
@@ -18337,7 +18340,7 @@ a.um-phone:hover {
 .attendance-self-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .attendance-roster .ds-table tr.is-selected td { background: var(--tint-2); }
 .attendance-roster .ds-table th { white-space: nowrap; }
-.attendance-cell-note { display: block; margin-top: .25rem; color: var(--text-light); font-size: .68rem; font-weight: 500; }
+.attendance-cell-note { display: block; margin-top: .25rem; color: var(--text-muted); font-size: .68rem; font-weight: 500; }
 .attendance-exception-list { display: flex; flex-wrap: wrap; gap: .3rem; min-width: 210px; }
 .attendance-exception-list span { padding: .26rem .42rem; border-radius: 6px; background: var(--tint-2); color: var(--text-muted); font-size: .67rem; white-space: nowrap; }
 .attendance-unpaid { color: var(--warning); }
@@ -19906,7 +19909,7 @@ a.um-phone:hover {
 .payroll-summary span:not(.payroll-summary-icon), .payroll-summary strong, .payroll-summary small { display: block; }
 .payroll-summary > div > span { color: var(--text-muted); font-size: .7rem; font-weight: 700; }
 .payroll-summary strong { overflow: hidden; margin: .25rem 0 .15rem; color: var(--text-main); font-size: 1.15rem; text-overflow: ellipsis; white-space: nowrap; }
-.payroll-summary small { color: var(--text-light); font-size: .68rem; }
+.payroll-summary small { color: var(--text-muted); font-size: .68rem; }
 .payroll-summary.is-amber .payroll-summary-icon { background: var(--warning-fill); color: var(--warning); }
 .payroll-summary.is-green .payroll-summary-icon { background: var(--success-fill); color: var(--success); }
 .payroll-summary.is-violet .payroll-summary-icon { background: #f3f0ff; color: #7048e8; }
@@ -20034,7 +20037,7 @@ a.um-phone:hover {
 .topbar-profile-avatar.is-large { width: 48px; height: 48px; border-radius: 14px; font-size: 0.85rem; }
 .topbar-profile-copy { display: flex; min-width: 104px; flex-direction: column; align-items: flex-start; line-height: 1.2; }
 .topbar-profile-copy strong { max-width: 150px; overflow: hidden; font-size: 0.76rem; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-profile-copy small { color: var(--text-light); font-size: 0.64rem; text-transform: capitalize; }
+.topbar-profile-copy small { color: var(--text-muted); font-size: 0.64rem; text-transform: capitalize; }
 .topbar-profile-menu {
   position: absolute;
   top: calc(100% + 8px);

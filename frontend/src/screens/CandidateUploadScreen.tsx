@@ -100,6 +100,8 @@ function UploadSlot({ id, title, copy, accept, files, maxFiles = 1, icon, disabl
         id={id}
         className="cupload-native"
         type="file"
+        tabIndex={-1}
+        aria-hidden="true"
         accept={accept}
         multiple={maxFiles > 1}
         disabled={disabled}
@@ -132,7 +134,7 @@ function UploadSlot({ id, title, copy, accept, files, maxFiles = 1, icon, disabl
         ) : <p>{copy}</p>}
       </div>
       {remaining > 0 && (
-        <button type="button" className="cscreen-btn" disabled={disabled} onClick={() => inputRef.current?.click()}>
+        <button type="button" className="cscreen-btn" disabled={disabled} aria-label={`Choose ${title} file${maxFiles > 1 ? "s" : ""}`} onClick={() => inputRef.current?.click()}>
           <UploadCloud size={15} /> {files.length ? "Add another" : `Choose file${maxFiles > 1 ? "s" : ""}`}
         </button>
       )}
@@ -206,7 +208,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
       <header className="cedit-hero cupload-hero">
         <span className="cprof-monogram" aria-hidden="true"><ScanLine size={28} /></span>
         <div>
-          <h2 className="cprof-name">Add candidate</h2>
+          <h1 className="cprof-name">Add candidate</h1>
           <p className="cprof-meta">Enter candidate details and preferences. A resume can be added now or later.</p>
         </div>
       </header>

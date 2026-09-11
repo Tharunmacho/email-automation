@@ -1035,7 +1035,7 @@ export default function Home() {
   // controls.
   const ownsItsHeader =
     !screen &&
-    ["overview", "candidates", "assigned-candidates", "candidate-entry", "staff", "users", "data-management"].includes(
+    ["overview", "candidates", "assigned-candidates", "candidate-entry", "attendance", "payroll", "staff", "users", "data-management"].includes(
       currentTab,
     );
 

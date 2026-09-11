@@ -43,7 +43,9 @@ function axisTicks(peak: number): number[] {
  */
 export default function FlowBarChart({ buckets, caption }: FlowBarChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(560);
+  // Start without an intrinsic SVG width. A desktop-sized default makes the
+  // SVG itself widen its grid cell before ResizeObserver can measure it.
+  const [width, setWidth] = useState(0);
   const [hovered, setHovered] = useState<number | null>(null);
 
   useEffect(() => {

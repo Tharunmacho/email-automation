@@ -88,7 +88,8 @@ function smoothPath(points: { x: number; y: number }[]): string {
 /** Tracks the rendered width so the SVG draws at 1:1 instead of being scaled. */
 function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
-  const [width, setWidth] = useState(720);
+  // Let the container establish its responsive width before the SVG is drawn.
+  const [width, setWidth] = useState(0);
 
   useEffect(() => {
     const node = ref.current;

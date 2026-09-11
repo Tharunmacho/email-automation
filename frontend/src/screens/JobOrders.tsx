@@ -37,6 +37,7 @@ import {
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
+import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { candidateNameOf, formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import {
@@ -670,6 +671,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     setIsEditModalOpen(false);
     setEditingOrder(null);
   };
+  const editDialogRef = useModalFocus<HTMLDivElement>(isEditModalOpen, closeEditModal);
+  const createDialogRef = useModalFocus<HTMLDivElement>(isCreateModalOpen, () => setIsCreateModalOpen(false));
 
   const handleUpdateOrder = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1059,10 +1062,18 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
 
     return (
       <div className="cm-overlay active" onClick={closeEditModal}>
-        <div className="cm-dialog sh-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div
+          ref={editDialogRef}
+          className="cm-dialog sh-modal"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-job-order-title"
+          tabIndex={-1}
+        >
           <div className="sh-modal-head">
             <div>
-              <h3 className="sh-modal-title">Edit job order</h3>
+              <h2 id="edit-job-order-title" className="sh-modal-title">Edit job order</h2>
               {editingOrder && (
                 <p className="sh-modal-sub">
                   {editingOrder.client} · {editingOrder.id}
@@ -1080,6 +1091,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 <label className="modal-label">Job Title</label>
                 <input
                   type="text"
+                  aria-label="Job title"
                   className="modal-input"
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
@@ -1092,6 +1104,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   <label className="modal-label">Headcount</label>
                   <input
                     type="number"
+                    aria-label="Headcount"
                     min="1"
                     className="modal-input"
                     value={editHeadcount}
@@ -1163,6 +1176,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 <label className="modal-label">Required Designation</label>
                 <input
                   type="text"
+                  aria-label="Required designation"
                   className="modal-input"
                   value={editDesignation}
                   onChange={(e) => setEditDesignation(e.target.value)}
@@ -1184,6 +1198,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   <label className="modal-label">Expected Salary</label>
                   <input
                     type="text"
+                    aria-label="Expected salary"
                     className="modal-input"
                     value={editSalary}
                     onChange={(e) => setEditSalary(e.target.value)}
@@ -1226,6 +1241,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 <label className="modal-label">Required Skills</label>
                 <input
                   type="text"
+                  aria-label="Required skills"
                   className="modal-input"
                   value={editSkills}
                   onChange={(e) => setEditSkills(e.target.value)}
@@ -1236,6 +1252,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               <div>
                 <label className="modal-label">Remarks</label>
                 <textarea
+                  aria-label="Remarks"
                   className="modal-textarea"
                   value={editRemarks}
                   onChange={(e) => setEditRemarks(e.target.value)}
@@ -1536,7 +1553,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               </div>
 
               <div className="jod-heading">
-                <h1 className="jod-title">{selectedOrder.title}</h1>
+                <h2 className="jod-title">{selectedOrder.title}</h2>
                 <span className="jod-client">
                   <Building2 size={15} />
                   {selectedOrder.client}
@@ -1881,6 +1898,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
             <Search size={18} />
             <input
               type="text"
+              aria-label="Search job orders"
               className="search-input"
               placeholder="Search by job title or required skills..."
               value={searchQuery}
@@ -2328,10 +2346,18 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
 
       {isCreateModalOpen && (
         <div className="cm-overlay active" onClick={() => setIsCreateModalOpen(false)}>
-          <div className="cm-dialog sh-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div
+            ref={createDialogRef}
+            className="cm-dialog sh-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-job-order-title"
+            tabIndex={-1}
+          >
             <div className="sh-modal-head">
               <div>
-                <h3 className="sh-modal-title">New job order</h3>
+                <h2 id="create-job-order-title" className="sh-modal-title">New job order</h2>
                 <p className="sh-modal-sub">
                   Raise a requisition for an associate or client — candidates are matched to it automatically.
                 </p>
@@ -2359,6 +2385,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                     <label className="modal-label">Designation / Role</label>
                     <input
                       type="text"
+                      aria-label="Designation or role"
                       className="modal-input"
                       placeholder="e.g. Senior Frontend Developer"
                       required
@@ -2439,6 +2466,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                     <label className="modal-label">Headcount (Positions)</label>
                     <input
                       type="number"
+                      aria-label="Headcount"
                       min="1"
                       className="modal-input"
                       placeholder="1"
@@ -2466,6 +2494,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   <label className="modal-label">Required Skills & Expertise</label>
                   <input
                     type="text"
+                    aria-label="Required skills and expertise"
                     className="modal-input"
                     placeholder="e.g. React, Node, AI, Typescript..."
                     value={requiredSkills}
@@ -2477,6 +2506,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   <label className="modal-label">Salary Range / Budget</label>
                   <input
                     type="text"
+                    aria-label="Salary range or budget"
                     className="modal-input"
                     placeholder="e.g. ₹80,000 - ₹120,000"
                     value={salaryRange}
@@ -2487,6 +2517,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 <div>
                   <label className="modal-label">Internal Remarks / Notes</label>
                   <textarea
+                    aria-label="Internal remarks or notes"
                     className="modal-textarea"
                     placeholder="Add any internal notes here..."
                     value={internalNotes}

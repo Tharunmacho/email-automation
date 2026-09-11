@@ -31,7 +31,7 @@ body {
 
 .rail-scroll { padding-top: 0.8rem; }
 .rail-collapse-row { margin-bottom: 0.8rem; }
-.rail-menu-label { color: var(--text-light); letter-spacing: 0.12em; }
+.rail-menu-label { color: var(--text-label); letter-spacing: 0.12em; }
 
 .rail-item,
 .rail-section-toggle {
@@ -314,14 +314,97 @@ select:focus-visible,
 .payroll-empty { border-radius: var(--radius-xl); background: var(--tint-1); }
 
 .db-page > *,
-.ds-page > * { animation: product-reveal 260ms ease-out both; }
+.ds-page > * { animation: product-reveal 260ms ease-out backwards; }
 .db-page > :nth-child(2), .ds-page > :nth-child(2) { animation-delay: 35ms; }
 .db-page > :nth-child(3), .ds-page > :nth-child(3) { animation-delay: 70ms; }
 .db-page > :nth-child(4), .ds-page > :nth-child(4) { animation-delay: 105ms; }
 
 @keyframes product-reveal {
-  from { opacity: 0; transform: translateY(7px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Dark mode keeps the bright accent for links and focus rings, while controls
+   carrying white text need the deeper brand blue to meet AA contrast. The
+   late shell rules in globals.css also contain a few intentionally light
+   brand treatments, so these overrides keep their dark equivalents explicit. */
+[data-theme="dark"] .topbar-profile-avatar,
+[data-theme="dark"] .ds-primary-btn,
+[data-theme="dark"] .db-btn.is-primary,
+[data-theme="dark"] .cscreen-btn.is-primary,
+[data-theme="dark"] .sh-new-btn,
+[data-theme="dark"] .btn-new-client,
+[data-theme="dark"] .sh-empty-btn.primary,
+[data-theme="dark"] .ds-seg-btn.is-on,
+[data-theme="dark"] .ds-card.is-feature {
+  border-color: var(--primary-deep);
+  background: var(--primary-deep);
+  color: #fff;
+}
+
+[data-theme="dark"] .rail,
+[data-theme="dark"] .rail-brand,
+[data-theme="dark"] .rail-scroll {
+  background: var(--bg-sidebar);
+}
+
+[data-theme="dark"] .rail-item:hover,
+[data-theme="dark"] .rail-item.is-active,
+[data-theme="dark"] .rail-item.is-active:hover,
+[data-theme="dark"] .rail-section-toggle:hover,
+[data-theme="dark"] .rail-section-toggle.is-current {
+  background: var(--primary-glow);
+  color: #dbeafe;
+}
+
+[data-theme="dark"] .rail-item.is-active svg,
+[data-theme="dark"] .rail-section-toggle.is-current svg {
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .theme-switch-btn.is-on {
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+/* Candidate intake previously retained translucent white cards in dark mode,
+   reducing both body copy and placeholder contrast. */
+[data-theme="dark"] .cupload-details,
+[data-theme="dark"] .cupload-slot,
+[data-theme="dark"] .cupload-process > div {
+  border-color: var(--border-main);
+  background: var(--bg-card);
+}
+
+[data-theme="dark"] .cupload-section-title h3,
+[data-theme="dark"] .cupload-field > span,
+[data-theme="dark"] .cupload-field > label,
+[data-theme="dark"] .cupload-slot-title,
+[data-theme="dark"] .cupload-process strong {
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .cupload-section-title p,
+[data-theme="dark"] .cupload-slot-copy p,
+[data-theme="dark"] .cupload-file small,
+[data-theme="dark"] .cupload-process small {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .cupload-slot-title span {
+  color: var(--text-muted);
+  background: var(--tint-2);
+}
+
+[data-theme="dark"] .cupload input {
+  border-color: var(--border-main);
+  background: var(--bg-card);
+  color: var(--text-main);
+}
+
+[data-theme="dark"] .cupload input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 @keyframes product-dialog-in {
