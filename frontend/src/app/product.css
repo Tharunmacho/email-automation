@@ -842,6 +842,7 @@ select:focus-visible,
 }
 
 .signin-access {
+  --signin-input-bg: var(--bg-card);
   position: relative;
   min-width: 0;
   display: flex;
@@ -986,6 +987,16 @@ select:focus-visible,
 
 .signin-field input::placeholder {
   color: var(--text-light);
+}
+
+/* Browser autofill paints its own pale background on the input element. Cover
+   that paint with the panel surface so the field keeps its underline layout. */
+.signin-field input:autofill,
+.signin-field input:-webkit-autofill {
+  -webkit-text-fill-color: var(--text-main);
+  caret-color: var(--text-main);
+  -webkit-box-shadow: 0 0 0 100px var(--signin-input-bg) inset;
+  box-shadow: 0 0 0 100px var(--signin-input-bg) inset;
 }
 
 .signin-field input:disabled {
@@ -1144,6 +1155,7 @@ select:focus-visible,
 }
 
 [data-theme="dark"] .signin-access {
+  --signin-input-bg: #080b10;
   background: #080b10;
 }
 
