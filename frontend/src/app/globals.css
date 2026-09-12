@@ -8864,7 +8864,6 @@ body {
   .auth-live i { animation: none; }
 }
 
-
 @media (max-height: 720px) and (min-width: 861px) {
   .auth-story { padding: 1.25rem 2rem; }
   .auth-story-logo { width: 210px; height: 48px; }
