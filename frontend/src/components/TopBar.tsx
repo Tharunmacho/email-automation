@@ -10,6 +10,7 @@ import CommandSearch from "@/components/CommandSearch";
 import NotificationBell from "@/components/NotificationBell";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf } from "@/lib/format";
+import { saveProfilePhotoAPI } from "@/lib/api";
 import type { AuthUser, CandidateRecord } from "@/lib/api";
 import type { NavId } from "@/lib/nav";
 
@@ -61,6 +62,7 @@ export default function TopBar({
   const [profileOpen, setProfileOpen] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState("");
+  const [savingPhoto, setSavingPhoto] = useState(false);
   const [editorSource, setEditorSource] = useState<string | null>(null);
   const [cropZoom, setCropZoom] = useState(1);
   const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
@@ -77,9 +79,28 @@ export default function TopBar({
     let stored: string | null = null;
     try { stored = window.localStorage.getItem(photoKey); }
     catch { stored = null; }
-    queueMicrotask(() => { if (active) setProfilePhoto(stored); });
+    queueMicrotask(() => { if (active) setProfilePhoto(user.profile_photo || stored); });
+    // Photos saved before server storage existed lived only in this browser.
+    // Migrate the signed-in person's old crop on their next visit.
+    if (stored && !user.profile_photo) {
+      const image = new window.Image();
+      image.onload = () => {
+        if (!active) return;
+        const canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        canvas.getContext("2d")?.drawImage(image, 0, 0, 256, 256);
+        const thumbnail = canvas.toDataURL("image/jpeg", 0.8);
+        void saveProfilePhotoAPI(thumbnail).then(() => {
+          if (active) window.dispatchEvent(new CustomEvent("adira-profile-photo-updated", { detail: { id: user.id, photo: thumbnail } }));
+        }).catch(() => {
+          if (active) setPhotoError("Your old photo could not sync. Please save it again.");
+        });
+      };
+      image.src = stored;
+    }
     return () => { active = false; };
-  }, [photoKey]);
+  }, [photoKey, user.id, user.profile_photo]);
 
   useEffect(() => {
     if (!profileOpen) return;
@@ -148,13 +169,15 @@ export default function TopBar({
 
   const saveCroppedPhoto = () => {
     if (!editorSource) return;
+    setSavingPhoto(true);
+    setPhotoError("");
     const image = new window.Image();
-    image.onload = () => {
+    image.onload = async () => {
       const canvas = document.createElement("canvas");
       canvas.width = outputSize;
       canvas.height = outputSize;
       const context = canvas.getContext("2d");
-      if (!context) return setPhotoError("This browser could not crop the photo.");
+      if (!context) { setPhotoError("This browser could not crop the photo."); setSavingPhoto(false); return; }
 
       const coverScale = Math.max(outputSize / image.naturalWidth, outputSize / image.naturalHeight) * cropZoom;
       const width = image.naturalWidth * coverScale;
@@ -169,14 +192,23 @@ export default function TopBar({
       );
 
       const value = canvas.toDataURL("image/jpeg", 0.9);
+      const thumbnail = document.createElement("canvas");
+      thumbnail.width = 256;
+      thumbnail.height = 256;
+      thumbnail.getContext("2d")?.drawImage(canvas, 0, 0, 256, 256);
       try {
-        window.localStorage.setItem(photoKey, value);
+        const sharedPhoto = thumbnail.toDataURL("image/jpeg", 0.8);
+        await saveProfilePhotoAPI(sharedPhoto);
+        try { window.localStorage.setItem(photoKey, value); } catch { /* The shared photo is already saved. */ }
         setProfilePhoto(value);
+        window.dispatchEvent(new CustomEvent("adira-profile-photo-updated", { detail: { id: user.id, photo: sharedPhoto } }));
         setEditorSource(null);
         setPhotoError("");
-      } catch { setPhotoError("This browser could not save the photo."); }
+      } catch (error) {
+        setPhotoError(error instanceof Error ? error.message : "This photo could not be saved.");
+      } finally { setSavingPhoto(false); }
     };
-    image.onerror = () => setPhotoError("This image could not be opened.");
+    image.onerror = () => { setPhotoError("This image could not be opened."); setSavingPhoto(false); };
     image.src = editorSource;
   };
 
@@ -295,8 +327,8 @@ export default function TopBar({
             </div>
 
             <div className="profile-photo-editor-foot">
-              <button type="button" className="ds-ghost-btn" onClick={() => setEditorSource(null)}>Cancel</button>
-              <button type="button" className="ds-primary-btn" onClick={saveCroppedPhoto}><Camera size={15} /> Save photo</button>
+              <button type="button" className="ds-ghost-btn" onClick={() => setEditorSource(null)} disabled={savingPhoto}>Cancel</button>
+              <button type="button" className="ds-primary-btn" onClick={saveCroppedPhoto} disabled={savingPhoto}><Camera size={15} /> {savingPhoto ? "Saving…" : "Save photo"}</button>
             </div>
           </div>
         </div>,

@@ -386,6 +386,40 @@ def whoami(user: dict = Depends(current_user)) -> dict:
     return {"user": user}
 
 
+class ProfilePhotoRequest(BaseModel):
+    photo: str = Field(max_length=400_000)
+
+
+@app.put("/auth/me/photo")
+def save_profile_photo(payload: ProfilePhotoRequest, user: dict = Depends(current_user)) -> dict:
+    """Share the signed-in user's cropped avatar with account lists."""
+    import base64
+    import binascii
+    from io import BytesIO
+    from PIL import Image, UnidentifiedImageError
+
+    prefix = "data:image/jpeg;base64,"
+    if not payload.photo.startswith(prefix):
+        raise HTTPException(status_code=400, detail="A cropped JPEG photo is required")
+    try:
+        image = base64.b64decode(payload.photo[len(prefix):], validate=True)
+    except binascii.Error as exc:
+        raise HTTPException(status_code=400, detail="Invalid photo data") from exc
+    if len(image) > 300_000:
+        raise HTTPException(status_code=400, detail="Photo must be a JPEG smaller than 300 KB")
+    try:
+        with Image.open(BytesIO(image)) as opened:
+            if opened.format != "JPEG" or opened.size != (256, 256):
+                raise ValueError("Expected a 256 px JPEG thumbnail")
+            opened.verify()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Photo must be a valid 256 px JPEG") from exc
+    saved = users.set_profile_photo(user["id"], payload.photo)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"user": saved.to_public()}
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "candidates": repo().count()}
@@ -2235,6 +2269,7 @@ def delete_staff(
 # --------------------------------------------------------------------------- #
 class AssignRequest(BaseModel):
     staff_id: str
+    remarks: str = Field(default="", max_length=1000)
 
 
 @app.post("/candidates/{candidate_id}/assign")
@@ -2270,7 +2305,20 @@ def assign_candidate_route(
             "assigned_staff_name": member.name,
         }
 
-    repository.assign(candidate_id, member.id, member.name)
+    remarks = payload.remarks.strip()
+    event = {
+        "from_staff_id": record.assigned_staff_id,
+        "from_staff_name": record.assigned_staff_name,
+        "to_staff_id": member.id,
+        "to_staff_name": member.name,
+        "by_user_id": _admin.get("id"),
+        "by_user_name": _admin.get("name") or _admin.get("email"),
+        "remarks": remarks,
+    } if remarks else None
+    if event:
+        repository.assign(candidate_id, member.id, member.name, assignment_event=event)
+    else:
+        repository.assign(candidate_id, member.id, member.name)
     notify_candidate_assigned(
         member.id,
         {

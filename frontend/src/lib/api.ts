@@ -181,6 +181,14 @@ export async function fetchMe(): Promise<AuthUser> {
   return (await request<{ user: AuthUser }>("/auth/me")).user;
 }
 
+export function saveProfilePhotoAPI(photo: string): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>("/auth/me/photo", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photo }),
+  });
+}
+
 export function logout(): void {
   setToken(null);
 }
@@ -750,14 +758,14 @@ export function deleteStaff(staffId: string, rebalance = true): Promise<DeleteSt
 //  Allocation
 // --------------------------------------------------------------------------- //
 /** Move one profile to a named staff member. */
-export function assignCandidate(candidateId: string, staffId: string): Promise<{
+export function assignCandidate(candidateId: string, staffId: string, remarks = ""): Promise<{
   status: string;
   whatsapp_notified?: boolean;
 }> {
   return request<{ status: string; whatsapp_notified?: boolean }>(`/candidates/${candidateId}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ staff_id: staffId }),
+    body: JSON.stringify({ staff_id: staffId, remarks }),
   });
 }
 
@@ -1187,6 +1195,7 @@ export interface ManagedUser {
   email: string;
   name: string;
   role: string;
+  profile_photo?: string | null;
   active: boolean;
   keywords: string[];
   /** Mobile number, free text. Empty when nobody has recorded one. */

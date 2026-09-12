@@ -288,6 +288,7 @@ export default function CandidatesView({
   const [staffLoading, setStaffLoading] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [assignmentError, setAssignmentError] = useState("");
+  const [assignmentRemarks, setAssignmentRemarks] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const assignmentDialogRef = useModalFocus<HTMLDivElement>(Boolean(assigning), () => {
@@ -457,6 +458,7 @@ export default function CandidatesView({
     setAssigning(candidate);
     setSelectedStaffId(candidate.assigned_staff_id ?? "");
     setAssignmentError("");
+    setAssignmentRemarks("");
     setStaffLoading(true);
     try {
       const response = await listStaff(false);
@@ -473,7 +475,7 @@ export default function CandidatesView({
     setAssignmentSaving(true);
     setAssignmentError("");
     try {
-      const result = await assignCandidate(assigning.id, selectedStaffId);
+      const result = await assignCandidate(assigning.id, selectedStaffId, assignmentRemarks.trim());
       const owner = staff.find((member) => member.id === selectedStaffId);
       const ownerName = owner?.name || owner?.email || "staff";
       onToast?.(
@@ -1007,6 +1009,21 @@ export default function CandidatesView({
                   New candidates continue to be distributed automatically to the least-loaded active staff member.
                 </span>
               </div>
+
+              {assigning.latest_assignment_remark && (
+                <p className="modal-hint">Last saved reassignment remark: {assigning.latest_assignment_remark}</p>
+              )}
+              <label className="field-group">
+                <span className="modal-label">Remarks (optional)</span>
+                <textarea
+                  className="modal-textarea"
+                  maxLength={1000}
+                  value={assignmentRemarks}
+                  onChange={(event) => setAssignmentRemarks(event.target.value)}
+                  placeholder="Why is this candidate being reassigned?"
+                  disabled={assignmentSaving}
+                />
+              </label>
 
               {assignmentError && <div className="sh-form-error" role="alert">{assignmentError}</div>}
             </div>

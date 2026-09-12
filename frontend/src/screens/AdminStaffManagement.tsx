@@ -128,6 +128,8 @@ export default function AdminStaffManagement({
   const [scanning, setScanning] = useState(false);
   /** Which candidate row is mid-move, so only its own controls lock. */
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [pendingReassignment, setPendingReassignment] = useState<{ candidate: CandidateRecord; staffId: string } | null>(null);
+  const [reassignmentRemarks, setReassignmentRemarks] = useState("");
 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<AllocFilter>("all");
@@ -385,6 +387,9 @@ export default function AdminStaffManagement({
   const createDialogRef = useModalFocus<HTMLDivElement>(creating, () => {
     if (!submitting) setCreating(false);
   });
+  const reassignmentDialogRef = useModalFocus<HTMLDivElement>(Boolean(pendingReassignment), () => {
+    if (!movingId) setPendingReassignment(null);
+  });
 
   /** Who the open queue belongs to — null for either of the two buckets. */
   const queueMember = useMemo(
@@ -565,15 +570,16 @@ export default function AdminStaffManagement({
     }
   };
 
-  const handleReassign = async (candidateId: string, staffId: string) => {
+  const handleReassign = async (candidateId: string, staffId: string, remarks: string) => {
     if (!staffId) return;
     setMovingId(candidateId);
     try {
-      await assignCandidate(candidateId, staffId);
+      await assignCandidate(candidateId, staffId, remarks.trim());
       const name = staff.find((member) => member.id === staffId)?.name ?? "the selected staff member";
       onToast(`Reassigned to ${name}.`, "success");
       reload();
       onCandidatesChanged();
+      setPendingReassignment(null);
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Could not reassign.", "error");
     } finally {
@@ -1285,7 +1291,12 @@ export default function AdminStaffManagement({
                             size="sm"
                             value={candidate.assigned_staff_id ?? ""}
                             disabled={busy || activeStaff.length === 0}
-                            onChange={(staffId) => void handleReassign(candidate.id, staffId)}
+                            onChange={(staffId) => {
+                              if (staffId && staffId !== candidate.assigned_staff_id) {
+                                setReassignmentRemarks("");
+                                setPendingReassignment({ candidate, staffId });
+                              }
+                            }}
                             placeholder={
                               activeStaff.length === 0 ? "No active staff" : "Select staff…"
                             }
@@ -1340,6 +1351,34 @@ export default function AdminStaffManagement({
           </div>
         </div>
       </div>
+      {pendingReassignment && (
+        <div className="modal-overlay active" onClick={() => !movingId && setPendingReassignment(null)}>
+          <div ref={reassignmentDialogRef} className="modal-container is-narrow" role="dialog" aria-modal="true" aria-labelledby="reassignment-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 id="reassignment-title" className="modal-title">Confirm staff reassignment</h2>
+                <p className="modal-subtitle">{pendingReassignment.candidate.profile?.full_name || "This candidate"} will move from {pendingReassignment.candidate.assigned_staff_name || "Unassigned"} to {staff.find((member) => member.id === pendingReassignment.staffId)?.name || "the selected staff member"}.</p>
+              </div>
+              <button type="button" className="modal-close" aria-label="Close reassignment" disabled={Boolean(movingId)} onClick={() => setPendingReassignment(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              {pendingReassignment.candidate.latest_assignment_remark && <p className="modal-hint">Last saved remark: {pendingReassignment.candidate.latest_assignment_remark}</p>}
+              <label className="field-group">
+                <span className="modal-label">Remarks (optional)</span>
+                <textarea className="modal-textarea" maxLength={1000} value={reassignmentRemarks} onChange={(event) => setReassignmentRemarks(event.target.value)} placeholder="Why is this candidate being reassigned?" data-dialog-initial-focus />
+              </label>
+              <p className="modal-hint">Saved remarks remain in this candidate&apos;s assignment history.</p>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="modal-cancel-btn" disabled={Boolean(movingId)} onClick={() => setPendingReassignment(null)}>Cancel</button>
+              <button type="button" className="modal-submit-btn" disabled={Boolean(movingId)} onClick={() => void handleReassign(pendingReassignment.candidate.id, pendingReassignment.staffId, reassignmentRemarks)}>
+                {movingId ? <Loader2 size={15} className="icon-spin" /> : null}
+                {movingId ? "Reassigning…" : "Confirm reassignment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ---- Edit staff modal ---- */}
       <div
         className={`modal-overlay ${editingMember ? "active" : ""}`}

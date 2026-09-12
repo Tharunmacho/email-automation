@@ -1150,6 +1150,26 @@ export default function CandidateProfileScreen({
           </section>
         )}
 
+        {Boolean(candidate.assignment_history?.length) && (
+          <section className="cprof-card">
+            <h3 className="cprof-card-title">Staff reassignment history</h3>
+            <div className="cprof-facts">
+              {[...(candidate.assignment_history ?? [])].reverse().map((entry, index) => (
+                <React.Fragment key={`${entry.at}-${index}`}>
+                  <div className="cprof-fact-label">
+                    {entry.at ? formatDateFull(new Date(entry.at)) : "Reassignment"}
+                  </div>
+                  <div className="cprof-fact-value is-multiline">
+                    <strong>{entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}</strong>
+                    {entry.by_user_name && <div>By {entry.by_user_name}</div>}
+                    <div>{entry.remarks}</div>
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </section>
+        )}
+
         {hasJob && job && !hasJobDetails && (
           <section className="cprof-card" id={sectionId("job")}>
             <h3 className="cprof-card-title">Job</h3>

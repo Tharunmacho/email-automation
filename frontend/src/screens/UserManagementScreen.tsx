@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   Check,
   Eye,
@@ -257,6 +258,18 @@ export default function UserManagementScreen({
     };
   }, [load]);
 
+  useEffect(() => {
+    const onPhotoUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ id: string; photo: string }>).detail;
+      if (!detail?.id || !detail.photo) return;
+      setUsers((current) => current.map((account) => (
+        account.id === detail.id ? { ...account, profile_photo: detail.photo } : account
+      )));
+    };
+    window.addEventListener("adira-profile-photo-updated", onPhotoUpdated);
+    return () => window.removeEventListener("adira-profile-photo-updated", onPhotoUpdated);
+  }, []);
+
   const activeAdmins = useMemo(
     () => users.filter((u) => u.role === "admin" && u.active).length,
     [users],
@@ -393,7 +406,9 @@ export default function UserManagementScreen({
                     <td>
                       <span className="ds-who">
                         <span className="ds-avatar" aria-hidden="true">
-                          {initialsOf(user.name || user.email)}
+                          {user.profile_photo
+                            ? <Image src={user.profile_photo} alt="" width={32} height={32} unoptimized />
+                            : initialsOf(user.name || user.email)}
                         </span>
                         <span className="ds-who-text">
                           <strong>

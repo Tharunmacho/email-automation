@@ -148,6 +148,7 @@ LIST_PROJECTION = {
     "assigned_staff_id": 1,
     "assigned_staff_name": 1,
     "assigned_at": 1,
+    "latest_assignment_remark": 1,
     "viewed_at": 1,
     "evaluation_status": 1,
     "evaluation_score": 1,
@@ -1087,7 +1088,10 @@ class CandidateRepository:
         return self._coll.count_documents(_scoped(query, staff_id))
 
     # ---- allocation -------------------------------------------------------- #
-    def assign(self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None) -> bool:
+    def assign(
+        self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None,
+        *, assignment_event: Optional[dict] = None,
+    ) -> bool:
         """Hand one profile to a staff member, clearing any prior review state.
 
         The clear is deliberate and is what makes a profile "locked" to its
@@ -1099,20 +1103,24 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         now = utcnow()
+        update = {"$set": {
+            "assigned_staff_id": staff_id,
+            "assigned_staff_name": staff_name,
+            "assigned_at": now,
+            "viewed_at": None,
+            "evaluation_status": "pending",
+            "evaluation_score": None,
+            "evaluation_notes": None,
+            "evaluated_at": None,
+            "evaluated_by": None,
+            "updated_at": now,
+        }}
+        if assignment_event:
+            update["$set"]["latest_assignment_remark"] = assignment_event["remarks"]
+            update["$push"] = {"assignment_history": {**assignment_event, "at": now}}
         res = self._coll.update_one(
             _id_filter(candidate_id),
-            {"$set": {
-                "assigned_staff_id": staff_id,
-                "assigned_staff_name": staff_name,
-                "assigned_at": now,
-                "viewed_at": None,
-                "evaluation_status": "pending",
-                "evaluation_score": None,
-                "evaluation_notes": None,
-                "evaluated_at": None,
-                "evaluated_by": None,
-                "updated_at": now,
-            }},
+            update,
         )
         return res.matched_count > 0
 

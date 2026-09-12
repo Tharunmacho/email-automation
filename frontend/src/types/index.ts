@@ -332,6 +332,14 @@ export interface CandidateRecord {
   assigned_staff_id?: string | null;
   assigned_staff_name?: string | null;
   assigned_at?: string | null;
+  latest_assignment_remark?: string | null;
+  assignment_history?: Array<{
+    from_staff_name?: string | null;
+    to_staff_name?: string | null;
+    by_user_name?: string | null;
+    remarks: string;
+    at: string;
+  }>;
 
   /** Stamped once, on the owner's first open. Null means the SLA is running. */
   viewed_at?: string | null;
@@ -690,6 +698,7 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  profile_photo?: string | null;
   /** Personal mobile number recorded on this account, when configured. */
   phone?: string;
   /**

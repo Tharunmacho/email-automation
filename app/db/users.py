@@ -99,6 +99,7 @@ class User:
     #: rejects "+971 50 123 4567" or an extension is a format that gets worked
     #: around by typing the number into the name field.
     phone: str = "" 
+    profile_photo: str = ""
     #: Extra pages this account may reach, beyond what its role already gives.
     #: Never a restriction — see `ROLE_DEFAULT_PAGES`.
     page_grants: list[str] = None
@@ -115,6 +116,7 @@ class User:
             ),
             "keywords": self.keywords or [],
             "phone": self.phone or "",
+            "profile_photo": self.profile_photo or None,
             "active": self.active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "page_grants": self.page_grants or [],
@@ -188,6 +190,7 @@ class UserRepository:
             ),
             keywords=doc.get("keywords", []),
             phone=doc.get("phone") or "",
+            profile_photo=doc.get("profile_photo") or "",
             active=doc.get("active", True),
             created_at=doc.get("created_at"),
             page_grants=doc.get("page_grants", []),
@@ -404,6 +407,14 @@ class UserRepository:
                 raise
             raise ValueError(f"A user with email {updates['email']} already exists.") from exc
         return self.get(user_id)
+
+    def set_profile_photo(self, user_id: str, photo: str) -> User | None:
+        """Store a small, browser-generated JPEG for the signed-in account."""
+        result = self._coll.update_one(
+            {"_id": user_id},
+            {"$set": {"profile_photo": photo, "updated_at": utcnow()}},
+        )
+        return self.get(user_id) if result.matched_count else None
 
     def count_active_admins(self) -> int:
         """How many people can still administer the system.

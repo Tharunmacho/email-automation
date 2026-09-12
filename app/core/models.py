@@ -688,6 +688,9 @@ class CandidateRecord(BaseModel):
     assigned_staff_id: Optional[str] = None
     assigned_staff_name: Optional[str] = None
     assigned_at: Optional[datetime] = None
+    # Manual reassignment remarks survive later changes of owner.
+    assignment_history: List[Dict[str, Any]] = Field(default_factory=list)
+    latest_assignment_remark: Optional[str] = None
 
     # ---- evaluation ------------------------------------------------------- #
     # `viewed_at` is stamped once, on the owner's first open; while it is null
