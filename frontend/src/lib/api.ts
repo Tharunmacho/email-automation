@@ -46,6 +46,7 @@ import type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  WhatsAppChatResponse,
 } from "@/types";
 
 export type {
@@ -81,6 +82,7 @@ export type {
   DeleteStaffResult,
   DemoAccount,
   NotificationRecord,
+  WhatsAppChatResponse,
 };
 
 export { EVALUATION_STATUSES } from "@/types";
@@ -235,6 +237,13 @@ export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResp
 /** The complete record for one candidate — every field, OCR payload included. */
 export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
+}
+
+/** The WhatsApp conversation stored by the separate automation service. */
+export function getCandidateWhatsAppChat(candidateId: string): Promise<WhatsAppChatResponse> {
+  return request<WhatsAppChatResponse>(`/candidates/${candidateId}/whatsapp-chat`, {
+    cache: "no-store",
+  });
 }
 
 // --------------------------------------------------------------------------- //
@@ -1203,12 +1212,16 @@ export interface ManagedUser {
   created_at: string | null;
   /** The extra pages an admin ticked. */
   page_grants: string[];
+  /** High-impact actions explicitly granted by an administrator. */
+  action_grants: string[];
   /** What the rail actually shows: the role's floor plus the grants. */
   pages: string[];
+  /** Effective high-impact actions, including administrator defaults. */
+  actions: string[];
 }
 
-export function listUsersAPI(): Promise<{ items: ManagedUser[]; pages: string[] }> {
-  return request<{ items: ManagedUser[]; pages: string[] }>("/users");
+export function listUsersAPI(): Promise<{ items: ManagedUser[]; pages: string[]; actions: string[] }> {
+  return request<{ items: ManagedUser[]; pages: string[]; actions: string[] }>("/users");
 }
 
 export function createUserAPI(payload: {
@@ -1217,6 +1230,7 @@ export function createUserAPI(payload: {
   name?: string;
   role?: string;
   page_grants?: string[];
+  action_grants?: string[];
   keywords?: string[];
   phone?: string;
 }): Promise<{ status: string; user: ManagedUser }> {
@@ -1236,6 +1250,7 @@ export function updateUserAPI(
     active?: boolean;
     password?: string;
     page_grants?: string[];
+    action_grants?: string[];
     keywords?: string[];
     phone?: string;
   },

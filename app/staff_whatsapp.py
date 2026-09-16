@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List
 
 from app.config import settings
+from app.core.crm_ids import candidate_code
 from app.logging_config import get_logger
 
 log = get_logger(__name__)
@@ -36,6 +38,11 @@ log = get_logger(__name__)
 #: mistyped in one of them.
 RELAY_PATH = "/api/staff-assignment"
 SLA_RELAY_PATH = "/api/sla-breach"
+CANDIDATE_CHAT_PATH = "/api/candidates"
+
+
+class WhatsAppChatError(RuntimeError):
+    """The bot was configured but its protected transcript API could not answer."""
 
 
 def relay_enabled() -> bool:
@@ -49,12 +56,49 @@ def relay_enabled() -> bool:
     return bool(settings.wa_bot_url and settings.wa_bot_api_key)
 
 
-def _post(path: str, payload: Dict[str, Any], what: str) -> bool:
-    """One request to the bot. Returns whether it accepted, never raises.
+def fetch_candidate_chat(wa_id: str) -> dict | None:
+    """Read one candidate's WhatsApp transcript from the bot.
 
-    Uses `urllib` rather than a client library on purpose: the payloads are a
-    handful of fields, the responses are discarded, and this service makes no
-    other outbound HTTP calls to justify the dependency.
+    ``None`` means the bot has no matching conversation. Transport and
+    authentication failures raise so the CRM can distinguish an empty chat from
+    a service it could not reach.
+    """
+    if not relay_enabled():
+        raise WhatsAppChatError("WhatsApp chat service is not configured")
+
+    normalized = "".join(character for character in str(wa_id) if character.isdigit())
+    if not normalized:
+        return None
+    url = (
+        f"{settings.wa_bot_url.rstrip('/')}{CANDIDATE_CHAT_PATH}/"
+        f"{urllib.parse.quote(normalized, safe='')}"
+    )
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"X-Api-Key": settings.wa_bot_api_key, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=settings.wa_bot_timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise WhatsAppChatError(f"WhatsApp bot replied with HTTP {exc.code}") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise WhatsAppChatError("Could not reach the WhatsApp chat service") from exc
+
+    transcript = payload.get("transcript") if isinstance(payload, dict) else None
+    if not isinstance(transcript, list):
+        raise WhatsAppChatError("WhatsApp bot returned an invalid transcript")
+    return {"wa_id": normalized, "sessions": transcript}
+
+
+def _post(path: str, payload: Dict[str, Any], what: str, *, require_sent: bool = False) -> bool:
+    """One request to the bot. Optionally verify its send result, never raises.
+
+    Uses `urllib` rather than a client library: the payloads are a handful of
+    fields and this service makes no other outbound HTTP calls.
     """
     if not relay_enabled():
         return False
@@ -73,6 +117,19 @@ def _post(path: str, payload: Dict[str, Any], what: str) -> bool:
     try:
         with urllib.request.urlopen(request, timeout=settings.wa_bot_timeout_seconds) as response:
             if 200 <= response.status < 300:
+                if require_sent:
+                    try:
+                        outcome = json.load(response)
+                    except (ValueError, TypeError, AttributeError) as exc:
+                        log.warning("The bot gave no valid send result for %s: %s", what, exc)
+                        return False
+                    if (not isinstance(outcome, dict)
+                            or outcome.get("sent") is not True
+                            or outcome.get("shadowed") is True):
+                        reason = (outcome.get("reason", "not_sent")
+                                  if isinstance(outcome, dict) else "invalid_result")
+                        log.warning("The bot did not send %s: %s", what, reason)
+                        return False
                 log.info("Asked the bot to send %s", what)
                 return True
             log.warning("The bot refused %s: HTTP %s", what, response.status)
@@ -123,37 +180,41 @@ def relay_sla_breach(
     it asked, another sweep may have resolved half of it, and re-reading would
     report a different set than the one that actually breached.
 
-    One call per sweep rather than one per profile. The first sweep after this
-    ships will find every historic breach at once, and a message each would be
-    both a bill and a channel nobody reads afterwards.
+    The bot's approved template names one candidate and one owner, so it rejects
+    a digest. Send one callback for each newly breached profile instead.
     """
     if not alerts or not recipient_ids:
         return False
+    if not relay_enabled():
+        log.warning("SLA WhatsApp relay disabled: WA_BOT_URL or WA_BOT_API_KEY is missing")
+        return False
 
-    first = alerts[0]
-    staff_names = {a.get("assigned_staff_name") for a in alerts if a.get("assigned_staff_name")}
-
-    payload: Dict[str, Any] = {
-        "count": len(alerts),
-        "threshold_hours": threshold_hours,
-        "staff_count": len(staff_names),
-        "recipient_stage": recipient_stage,
-        "super_admin_name": settings.sla_super_admin_name,
-        # The bot resolves and retains only these active CRM contacts. It must
-        # never infer SLA recipients from the complete staff directory.
-        "recipient_ids": list(dict.fromkeys(recipient_ids or [])),
-    }
-
-    # The single-breach case is the one worth naming. A digest that named the
-    # first of six would read as though it were the only one.
-    if len(alerts) == 1:
-        payload.update({
-            "candidate_id": first.get("candidate_id"),
-            "candidate_name": first.get("full_name") or first.get("candidate_name"),
-            "staff_name": first.get("assigned_staff_name"),
-            "hours_overdue": first.get("hours_overdue"),
+    recipients = list(dict.fromkeys(recipient_ids))
+    sent = True
+    for alert in alerts:
+        internal_id = alert.get("candidate_id")
+        payload: Dict[str, Any] = {
+            "count": 1,
+            "threshold_hours": threshold_hours,
+            "recipient_stage": recipient_stage,
+            "super_admin_name": settings.sla_super_admin_name,
+            # The bot resolves and retains only these active CRM contacts. It must
+            # never infer SLA recipients from the complete staff directory.
+            "recipient_ids": recipients,
+            "candidate_code": alert.get("candidate_code") or (
+                candidate_code(internal_id) if internal_id else None
+            ),
+            "candidate_name": alert.get("full_name") or alert.get("candidate_name"),
+            "staff_name": alert.get("assigned_staff_name"),
+            "hours_overdue": alert.get("hours_overdue"),
             # "unviewed" — never opened. "unevaluated" — opened, never judged.
-            "reason": first.get("reason"),
-        })
-
-    return _post(SLA_RELAY_PATH, payload, f"an SLA alert covering {len(alerts)} profile(s)")
+            "reason": alert.get("reason"),
+        }
+        if not _post(
+            SLA_RELAY_PATH,
+            payload,
+            f"an SLA alert for candidate {internal_id}",
+            require_sent=True,
+        ):
+            sent = False
+    return sent

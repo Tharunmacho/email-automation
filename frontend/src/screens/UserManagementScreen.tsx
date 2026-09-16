@@ -82,6 +82,14 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
   settings: "Personal account details",
 };
 
+const ACTION_LABELS: Record<string, string> = {
+  "reallocate-candidates": "Reallocate candidates",
+};
+
+const ACTION_DESCRIPTIONS: Record<string, string> = {
+  "reallocate-candidates": "Move candidates between staff and re-home orphaned profiles",
+};
+
 /**
  * The permission list, grouped the way the rail is grouped.
  *
@@ -213,6 +221,7 @@ export default function UserManagementScreen({
   const [section, setSection] = useState<Section>(openCreate ? "create" : "manage");
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [pages, setPages] = useState<string[]>([]);
+  const [actions, setActions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ManagedUser | null>(null);
@@ -228,6 +237,7 @@ export default function UserManagementScreen({
     try {
       const res = await listUsersAPI();
       setUsers(res.items ?? []);
+      setActions(res.actions ?? []);
       setPages(
         Array.from(
           new Set(
@@ -284,6 +294,7 @@ export default function UserManagementScreen({
         phone: draft.phone.trim(),
         role: draft.role,
         page_grants: draft.grants,
+        action_grants: draft.actionGrants,
       });
       say(`${draft.email} created`, "success");
       setSection("manage");
@@ -369,7 +380,7 @@ export default function UserManagementScreen({
       </header>
 
       {section === "create" && (
-        <CreateUserForm pages={pages} onCancel={() => setSection("manage")} onCreate={create} />
+        <CreateUserForm pages={pages} actions={actions} onCancel={() => setSection("manage")} onCreate={create} />
       )}
 
       <section className="db-card">
@@ -507,6 +518,7 @@ export default function UserManagementScreen({
         <EditUserModal
           user={editing}
           pages={pages}
+          actions={actions}
           isSelf={editing.id === currentUserId}
           isLastAdmin={editing.role === "admin" && activeAdmins <= 1}
           onCancel={() => setEditing(null)}
@@ -527,14 +539,17 @@ interface CreateDraft {
   phone: string;
   role: string;
   grants: string[];
+  actionGrants: string[];
 }
 
 function CreateUserForm({
   pages,
+  actions,
   onCancel,
   onCreate,
 }: {
   pages: string[];
+  actions: string[];
   onCancel: () => void;
   onCreate: (draft: CreateDraft) => void;
 }) {
@@ -545,6 +560,7 @@ function CreateUserForm({
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [role, setRole] = useState("staff");
   const [grants, setGrants] = useState<string[]>([]);
+  const [actionGrants, setActionGrants] = useState<string[]>([]);
 
   // Stated once, next to the control it governs, rather than being discovered
   // by pressing a disabled button and guessing why.
@@ -667,6 +683,7 @@ function CreateUserForm({
         </div>
 
         <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
+        <ActionPicker role={role} grants={actionGrants} actions={actions} onChange={setActionGrants} />
       </div>
 
       <div className="modal-footer">
@@ -677,7 +694,7 @@ function CreateUserForm({
           type="button"
           className="db-btn is-primary"
           disabled={!ready}
-          onClick={() => onCreate({ email, password, name, phone, role, grants })}
+          onClick={() => onCreate({ email, password, name, phone, role, grants, actionGrants })}
         >
           <Check size={14} /> Create
         </button>
@@ -689,6 +706,7 @@ function CreateUserForm({
 function EditUserModal({
   user,
   pages,
+  actions,
   isSelf,
   isLastAdmin,
   onCancel,
@@ -696,6 +714,7 @@ function EditUserModal({
 }: {
   user: ManagedUser;
   pages: string[];
+  actions: string[];
   isSelf: boolean;
   isLastAdmin: boolean;
   onCancel: () => void;
@@ -710,6 +729,7 @@ function EditUserModal({
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [grants, setGrants] = useState<string[]>(user.page_grants ?? []);
+  const [actionGrants, setActionGrants] = useState<string[]>(user.action_grants ?? []);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const close = () => {
@@ -740,6 +760,7 @@ function EditUserModal({
         role,
         active,
         page_grants: grants,
+        action_grants: actionGrants,
         ...(password ? { password } : {}),
       });
     } catch (err) {
@@ -891,6 +912,7 @@ function EditUserModal({
           )}
 
           <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} disabled={saving} />
+          <ActionPicker role={role} grants={actionGrants} actions={actions} onChange={setActionGrants} disabled={saving} />
           {saveError && <p className="sh-form-error" role="alert">{saveError}</p>}
         </div>
 
@@ -1004,6 +1026,71 @@ function PagePicker({
             })}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** High-impact controls that are deliberately independent of page access. */
+function ActionPicker({
+  role,
+  grants,
+  actions,
+  onChange,
+  disabled = false,
+}: {
+  role: string;
+  grants: string[];
+  actions: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+}) {
+  if (actions.length === 0) return null;
+  const isAdmin = role === "admin";
+  const toggle = (action: string) => {
+    onChange(grants.includes(action)
+      ? grants.filter((item) => item !== action)
+      : [...grants, action]);
+  };
+
+  return (
+    <div className="um-pages">
+      <div className="um-pages-head">
+        <div>
+          <span className="modal-label">Action permissions</span>
+          <p className="modal-hint">
+            Page access controls what a user can see. These permissions control what they can change.
+          </p>
+        </div>
+        <span className="um-pages-count">
+          {isAdmin ? "All actions" : `${grants.filter((action) => actions.includes(action)).length} of ${actions.length}`}
+        </span>
+      </div>
+      <div className="um-page-grid">
+        <div className="um-page-group">
+          <p className="um-page-group-label">Candidate ownership</p>
+          {actions.map((action) => (
+            <Checkbox
+              key={action}
+              checked={grants.includes(action)}
+              locked={isAdmin}
+              disabled={disabled}
+              onChange={() => toggle(action)}
+              label={ACTION_LABELS[action] ?? action}
+              hint={
+                <>
+                  {ACTION_DESCRIPTIONS[action] ?? "High-impact application action"}
+                  {" · "}
+                  {isAdmin
+                    ? "Included with the Super Admin role"
+                    : grants.includes(action)
+                      ? "Allowed for this user"
+                      : "Not allowed for this user"}
+                </>
+              }
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

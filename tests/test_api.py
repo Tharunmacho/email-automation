@@ -49,12 +49,16 @@ class MockRepository:
     def delete(self, candidate_id: str) -> bool:
         return self.candidates.pop(candidate_id, None) is not None
 
-    def assign(self, candidate_id: str, staff_id: str, staff_name=None) -> bool:
+    def assign(
+        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None
+    ) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:
             return False
         record.assigned_staff_id = staff_id
         record.assigned_staff_name = staff_name
+        if assignment_event:
+            record.assignment_history.append(assignment_event)
         return True
 
     def count(self, query=None, staff_id=None):

@@ -68,17 +68,19 @@ from app.services.whatsapp_reply_policy import reply_policy as whatsapp_reply_po
 from app.services.identity_intake import file_documents as file_identity_documents
 from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
+    ACTION_PERMISSIONS,
     ADMIN_ROLE,
     MANAGER_ROLE,
     STAFF_ROLE,
     UserRepository,
+    actions_for,
     ensure_demo_accounts,
     ensure_seed_user,
     ensure_rafi_manager,
     remove_legacy_demo_staff,
 )
 from app.notifications import notify_candidate_assigned
-from app.staff_whatsapp import relay_assignment
+from app.staff_whatsapp import WhatsAppChatError, fetch_candidate_chat, relay_assignment
 from app.storage.factory import get_storage_backend
 from app.tasks import sla_checker
 from app.api.websocket import router as websocket_router
@@ -304,6 +306,27 @@ def require_page(*pages: str):
     return dependency
 
 
+def _has_action(user: dict, *actions: str) -> bool:
+    """Whether this account may perform at least one named high-impact action."""
+    if user.get("role") == ADMIN_ROLE:
+        return True
+    declared = user.get("actions")
+    if declared is None:
+        declared = actions_for(user.get("role", STAFF_ROLE), user.get("action_grants") or [])
+    allowed = set(declared)
+    return any(action in allowed for action in actions)
+
+
+def require_action(*actions: str):
+    """Require an action grant without coupling it to navigation access."""
+    def dependency(user: dict = Depends(current_user)) -> dict:
+        if not _has_action(user, *actions):
+            raise HTTPException(status_code=404, detail="Not found")
+        return user
+
+    return dependency
+
+
 def _staff_scope(user: dict) -> str | None:
     """Return the staff_id when scoped to a staff member, or None for admin."""
     return user["id"] if user.get("role") == STAFF_ROLE else None
@@ -475,6 +498,30 @@ def get_candidate(candidate_id: str, user: dict = Depends(require_page("candidat
     """The whole record, OCR payload included. The only place that serves it."""
     record = _owned_or_404(candidate_id, user)
     return record.model_dump(mode="json")
+
+
+@app.get("/candidates/{candidate_id}/whatsapp-chat")
+def get_candidate_whatsapp_chat(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Proxy the candidate's protected bot transcript into the CRM."""
+    record = _owned_or_404(candidate_id, user)
+    key_parts = str(record.idempotency_key or "").split("/")
+    wa_id = key_parts[2] if len(key_parts) >= 3 and key_parts[0] == "whatsapp" else ""
+    if not wa_id and record.source == "whatsapp":
+        wa_id = str(record.profile.phone_e164 or record.profile.phone or "")
+    wa_id = "".join(character for character in wa_id if character.isdigit())
+    if not wa_id:
+        return {"available": False, "reason": "not_whatsapp", "sessions": []}
+
+    try:
+        chat = fetch_candidate_chat(wa_id)
+    except WhatsAppChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not chat:
+        return {"available": False, "reason": "not_found", "sessions": []}
+    return {"available": True, **chat}
 
 
 def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> Response:
@@ -2247,12 +2294,15 @@ def delete_staff(
     `rebalance=false` skips the redistribution entirely, leaving the whole queue
     orphaned — for an admin who wants to place it by hand.
     """
+    if rebalance and not _has_action(_admin, "reallocate-candidates"):
+        raise HTTPException(status_code=404, detail="Not found")
+
     deleted = users.delete_staff(staff_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Staff account not found")
 
     outcome = (
-        redistribute_from_staff(staff_id, repo=repo(), users=users)
+        redistribute_from_staff(staff_id, repo=repo(), users=users, actor=_admin)
         if rebalance
         else {"reallocated": 0, "orphaned": repo().count({"assigned_staff_id": staff_id})}
     )
@@ -2274,7 +2324,9 @@ class AssignRequest(BaseModel):
 
 @app.post("/candidates/{candidate_id}/assign")
 def assign_candidate_route(
-    candidate_id: str, payload: AssignRequest, _admin: dict = Depends(require_page("staff"))
+    candidate_id: str,
+    payload: AssignRequest,
+    _admin: dict = Depends(require_action("reallocate-candidates")),
 ) -> dict:
     member = users.get(payload.staff_id)
     if not member or member.role != STAFF_ROLE or not member.active:
@@ -2314,11 +2366,9 @@ def assign_candidate_route(
         "by_user_id": _admin.get("id"),
         "by_user_name": _admin.get("name") or _admin.get("email"),
         "remarks": remarks,
-    } if remarks else None
-    if event:
-        repository.assign(candidate_id, member.id, member.name, assignment_event=event)
-    else:
-        repository.assign(candidate_id, member.id, member.name)
+        "reason": "manual_reassignment",
+    }
+    repository.assign(candidate_id, member.id, member.name, assignment_event=event)
     notify_candidate_assigned(
         member.id,
         {
@@ -2340,7 +2390,10 @@ def assign_candidate_route(
 
 
 @app.post("/candidates/{candidate_id}/auto-assign")
-def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_page("staff"))) -> dict:
+def auto_assign_candidate(
+    candidate_id: str,
+    _admin: dict = Depends(require_action("reallocate-candidates")),
+) -> dict:
     repository = repo()
     record = repository.get(candidate_id)
     if not record:
@@ -2359,16 +2412,20 @@ def auto_assign_candidate(candidate_id: str, _admin: dict = Depends(require_page
 
 
 @app.post("/candidates/rebalance")
-def rebalance_candidates(_admin: dict = Depends(require_page("staff"))) -> dict:
+def rebalance_candidates(
+    _admin: dict = Depends(require_action("reallocate-candidates")),
+) -> dict:
     """Level untouched profiles across the roster. Reviewed work stays put."""
-    result = rebalance_all()
+    result = rebalance_all(actor=_admin)
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result.get("detail"))
     return result
 
 
 @app.post("/candidates/rehome-orphans")
-def rehome_orphaned_candidates(_admin: dict = Depends(require_page("staff"))) -> dict:
+def rehome_orphaned_candidates(
+    _admin: dict = Depends(require_action("reallocate-candidates")),
+) -> dict:
     """Re-home profiles stranded on a deleted account, verdicts intact.
 
     Separate from `/candidates/rebalance` because it does the opposite thing to
@@ -2376,7 +2433,7 @@ def rehome_orphaned_candidates(_admin: dict = Depends(require_page("staff"))) ->
     orphan is reviewed — that is why it was orphaned instead of reallocated when
     the account was deleted. Only this endpoint can clear them.
     """
-    result = rehome_orphans(repo=repo(), users=users)
+    result = rehome_orphans(repo=repo(), users=users, actor=_admin)
     if result.get("status") == "error":
         raise HTTPException(status_code=409, detail=result.get("detail"))
     return result
@@ -3936,6 +3993,7 @@ class UserIn(BaseModel):
     name: str = ""
     role: str = STAFF_ROLE
     page_grants: list[str] = Field(default_factory=list)
+    action_grants: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     phone: str = Field(default="", max_length=40)
 
@@ -3949,6 +4007,7 @@ class UserPatch(BaseModel):
     active: bool | None = None
     password: str | None = Field(default=None, min_length=6)
     page_grants: list[str] | None = None
+    action_grants: list[str] | None = None
     keywords: list[str] | None = None
     phone: str | None = Field(default=None, max_length=40)
 
@@ -3970,6 +4029,7 @@ def list_users(_user: dict = Depends(require_page("users"))) -> dict:
         # The vocabulary the permission screen renders its checkboxes from, so a
         # page added to the system appears there without a frontend release.
         "pages": list(PAGES),
+        "actions": list(ACTION_PERMISSIONS),
     }
 
 
@@ -3985,6 +4045,7 @@ def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -
             name=payload.name,
             role=role,
             page_grants=payload.page_grants,
+            action_grants=payload.action_grants,
             phone=payload.phone,
         )
     except ValueError as exc:
@@ -4031,6 +4092,7 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
             active=payload.active,
             password=payload.password,
             page_grants=payload.page_grants,
+            action_grants=payload.action_grants,
             keywords=payload.keywords,
             phone=payload.phone,
         )
@@ -4061,13 +4123,15 @@ def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> d
             status_code=409,
             detail="This is the last active administrator; promote someone else first.",
         )
+    if target.role == STAFF_ROLE and not _has_action(admin, "reallocate-candidates"):
+        raise HTTPException(status_code=404, detail="Not found")
 
     deleted = users.delete_user(user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="User not found")
 
     outcome = (
-        redistribute_from_staff(user_id, repo=repo(), users=users)
+        redistribute_from_staff(user_id, repo=repo(), users=users, actor=admin)
         if target.role == STAFF_ROLE
         else {"reallocated": 0, "orphaned": 0}
     )

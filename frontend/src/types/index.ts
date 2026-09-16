@@ -309,6 +309,8 @@ export interface CandidateRecord {
   /** What the CV policy decided when this candidate registered. */
   cv_required?: boolean;
   cv_policy_version?: string | null;
+  /** Stable WhatsApp conversation key when this record came from the bot. */
+  idempotency_key?: string | null;
   email_key?: string | null;
   phone_key?: string | null;
   resume_hash?: string | null;
@@ -334,10 +336,14 @@ export interface CandidateRecord {
   assigned_at?: string | null;
   latest_assignment_remark?: string | null;
   assignment_history?: Array<{
+    from_staff_id?: string | null;
     from_staff_name?: string | null;
+    to_staff_id?: string | null;
     to_staff_name?: string | null;
+    by_user_id?: string | null;
     by_user_name?: string | null;
-    remarks: string;
+    remarks?: string;
+    reason?: string;
     at: string;
   }>;
 
@@ -712,6 +718,41 @@ export interface AuthUser {
   pages?: string[];
   /** Only the granted half, for the permission screen's checkboxes. */
   page_grants?: string[];
+  /** High-impact actions granted separately from navigation access. */
+  action_grants?: string[];
+  /** Effective high-impact actions, including role defaults. */
+  actions?: string[];
+}
+
+export interface WhatsAppChatTurn {
+  direction: "inbound" | "outbound";
+  wamid?: string;
+  type: "text" | "image" | "document" | "audio" | "video" | "template" | "interactive" | "other";
+  text?: string;
+  replyId?: string;
+  filename?: string;
+  mimeType?: string;
+  step?: string;
+  shadowed?: boolean;
+  error?: string;
+  at: string;
+}
+
+export interface WhatsAppChatSession {
+  _id?: string;
+  open?: true;
+  startedAt: string;
+  lastAt: string;
+  endedAt?: string;
+  turnCount: number;
+  turns: WhatsAppChatTurn[];
+}
+
+export interface WhatsAppChatResponse {
+  available: boolean;
+  reason?: "not_whatsapp" | "not_found";
+  wa_id?: string;
+  sessions: WhatsAppChatSession[];
 }
 
 /** Who a sourcing relationship is with. */

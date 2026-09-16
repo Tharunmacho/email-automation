@@ -134,6 +134,36 @@ def test_existing_explicit_user_management_grants_still_authorize_edit(user_api,
     assert repository.get(actor.id).role == role
 
 
+def test_admin_can_grant_reallocation_without_granting_staff_directory(user_api):
+    http, repository, accounts = user_api
+    target = accounts["staff"]
+
+    response = http.patch(
+        f"/users/{target.id}",
+        headers=authorization(accounts["admin"]),
+        json={"action_grants": ["reallocate-candidates", "unknown-action"]},
+    )
+
+    assert response.status_code == 200
+    account = response.json()["user"]
+    assert account["action_grants"] == ["reallocate-candidates"]
+    assert account["actions"] == ["reallocate-candidates"]
+    assert "staff" not in account["pages"]
+    assert repository.get(target.id).action_grants == ["reallocate-candidates"]
+
+
+def test_user_management_access_alone_cannot_delete_and_reallocate_staff(user_api):
+    http, repository, accounts = user_api
+    actor = accounts["manager"]
+    target = accounts["staff"]
+    repository.update_user(actor.id, page_grants=["users"])
+
+    response = http.delete(f"/users/{target.id}", headers=authorization(actor))
+
+    assert response.status_code == 404
+    assert repository.get(target.id) is not None
+
+
 def test_email_edit_does_not_bypass_last_admin_guard(user_api):
     http, repository, accounts = user_api
     admin = accounts["admin"]

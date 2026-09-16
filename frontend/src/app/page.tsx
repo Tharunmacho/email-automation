@@ -437,6 +437,7 @@ export default function Home() {
     if (!user || !reachableTabs) return routeTab;
     return reachableTabs.has(routeTab) ? routeTab : defaultNavFor(user.role, user.pages);
   }, [user, reachableTabs, routeTab]);
+  const canReallocate = user?.role === "admin" || Boolean(user?.actions?.includes("reallocate-candidates"));
   const usesCandidateData = canReadCandidates && ["overview", "candidates", "assigned-candidates", "staff"].includes(currentTab);
   const candidateDataBlocked = usesCandidateData && !candidateDataLoaded;
 
@@ -1281,6 +1282,7 @@ export default function Home() {
                   ) : (
                     <CandidatesView
                       candidates={candidates}
+                      canReallocate={canReallocate}
                       onAddCandidate={handleAddCandidate}
                       onOpenCandidate={handleOpenCandidate}
                       onEditCandidate={handleEditCandidate}
@@ -1294,6 +1296,7 @@ export default function Home() {
                 {currentTab === "staff" && (
                   <AdminStaffManagement
                     candidates={candidates}
+                    canReallocate={canReallocate}
                     refreshNonce={realtimeNonce}
                     onToast={showToast}
                     onCandidatesChanged={() => void refreshCandidates()}
@@ -1319,6 +1322,7 @@ export default function Home() {
                       assignedOnly
                       assignedToUserId={user.id}
                       candidates={candidates}
+                      canReallocate={canReallocate}
                       onAddCandidate={handleAddCandidate}
                       onOpenCandidate={handleOpenCandidate}
                       onEditCandidate={handleEditCandidate}

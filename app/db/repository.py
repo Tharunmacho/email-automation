@@ -1124,7 +1124,14 @@ class CandidateRepository:
         )
         return res.matched_count > 0
 
-    def reassign(self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None) -> bool:
+    def reassign(
+        self,
+        candidate_id: str,
+        staff_id: str,
+        staff_name: Optional[str] = None,
+        *,
+        assignment_event: Optional[dict] = None,
+    ) -> bool:
         """Change who owns a profile, keeping everything already done to it.
 
         The counterpart to `assign`, and the difference is the whole point:
@@ -1141,15 +1148,17 @@ class CandidateRepository:
         from app.core.models import utcnow
 
         now = utcnow()
-        res = self._coll.update_one(
-            _id_filter(candidate_id),
-            {"$set": {
+        update = {"$set": {
                 "assigned_staff_id": staff_id,
                 "assigned_staff_name": staff_name,
                 "reassigned_at": now,
                 "updated_at": now,
-            }},
-        )
+            }}
+        if assignment_event:
+            if assignment_event.get("remarks"):
+                update["$set"]["latest_assignment_remark"] = assignment_event["remarks"]
+            update["$push"] = {"assignment_history": {**assignment_event, "at": now}}
+        res = self._coll.update_one(_id_filter(candidate_id), update)
         return res.matched_count > 0
 
     def list_owned_by(self, staff_id: str) -> List[dict]:

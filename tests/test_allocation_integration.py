@@ -181,6 +181,29 @@ def test_creating_a_second_account_levels_an_existing_pile(db, users, repo):
     assert db["candidates"].count_documents({"assigned_staff_id": evaluator.id}) == 6
 
 
+def test_user_triggered_rebalance_records_each_ownership_change(db, users, repo):
+    first = make_staff(users, "First Owner")
+    second = make_staff(users, "Second Owner")
+    for i in range(4):
+        insert_candidate(db, f"audit-{i}", first.id, first.name, created_offset=i)
+
+    result = rebalance_all(
+        repo=repo,
+        users=users,
+        actor={"id": "manager-1", "name": "Operations Manager"},
+    )
+
+    assert result["moved"] == 2
+    moved = list(db["candidates"].find({"assigned_staff_id": second.id}))
+    assert len(moved) == 2
+    for candidate in moved:
+        event = candidate["assignment_history"][0]
+        assert event["from_staff_name"] == "First Owner"
+        assert event["to_staff_name"] == "Second Owner"
+        assert event["by_user_name"] == "Operations Manager"
+        assert event["reason"] == "workload_rebalance"
+
+
 def test_the_exact_reported_state_levels_to_six_six(db, users, repo):
     """The workload matrix as reported: 0/10 for tharun, 0/2 for Staff Evaluator.
 
@@ -411,7 +434,11 @@ def test_rehoming_orphans_keeps_the_verdict_a_rebalance_would_have_kept_stranded
     rebalance_all(repo=repo, users=users)
     assert repo.orphaned_count([alice.id]) == 1
 
-    result = rehome_orphans(repo=repo, users=users)
+    result = rehome_orphans(
+        repo=repo,
+        users=users,
+        actor={"id": "admin-1", "name": "Admin"},
+    )
 
     assert result == {"status": "ok", "rehomed": 1, "remaining": 0}
     stranded = db["candidates"].find_one({"_id": "stranded"})
@@ -419,6 +446,11 @@ def test_rehoming_orphans_keeps_the_verdict_a_rebalance_would_have_kept_stranded
     assert stranded["assigned_staff_name"] == "Alice"
     assert stranded["evaluation_status"] == "interviewing"
     assert stranded["viewed_at"] is not None
+    event = stranded["assignment_history"][0]
+    assert event["from_staff_name"] == "Ghost"
+    assert event["to_staff_name"] == "Alice"
+    assert event["by_user_name"] == "Admin"
+    assert event["reason"] == "orphan_rehomed"
     assert repo.orphaned_count([alice.id]) == 0
 
 

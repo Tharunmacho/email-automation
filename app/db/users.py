@@ -51,6 +51,14 @@ PAGES = (
     "settings",
 )
 
+#: Actions that can be granted independently of page visibility.  Keeping
+#: these separate is important: seeing the staff directory is read access;
+#: moving candidates between staff members changes ownership and needs its own
+#: explicit permission.
+ACTION_PERMISSIONS = (
+    "reallocate-candidates",
+)
+
 #: What a role reaches without anybody granting it anything.
 #:
 #: An admin reaches everything: they are the account that hands out permissions,
@@ -78,6 +86,13 @@ def pages_for(role: str, granted: "list[str] | None" = None) -> list[str]:
     return [p for p in PAGES if p in allowed]
 
 
+def actions_for(role: str, granted: "list[str] | None" = None) -> list[str]:
+    """The non-page actions an account may perform."""
+    allowed = set(ACTION_PERMISSIONS) if role == ADMIN_ROLE else set()
+    allowed.update(action for action in (granted or []) if action in ACTION_PERMISSIONS)
+    return [action for action in ACTION_PERMISSIONS if action in allowed]
+
+
 def get_users_collection():
     return get_db()[USERS_COLLECTION]
 
@@ -103,6 +118,8 @@ class User:
     #: Extra pages this account may reach, beyond what its role already gives.
     #: Never a restriction — see `ROLE_DEFAULT_PAGES`.
     page_grants: list[str] = None
+    #: High-impact actions granted independently of navigation access.
+    action_grants: list[str] = None
 
     def to_public(self) -> dict:
         """The shape sent to the browser — never includes the hash."""
@@ -120,9 +137,11 @@ class User:
             "active": self.active,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "page_grants": self.page_grants or [],
+            "action_grants": self.action_grants or [],
             # What the rail should actually show. Computed here so the browser
             # never has to reimplement the role rules to draw a menu.
             "pages": pages_for(self.role, self.page_grants),
+            "actions": actions_for(self.role, self.action_grants),
         }
 
 
@@ -194,6 +213,7 @@ class UserRepository:
             active=doc.get("active", True),
             created_at=doc.get("created_at"),
             page_grants=doc.get("page_grants", []),
+            action_grants=doc.get("action_grants", []),
         )
 
     def authenticate(self, email: str, password: str) -> Optional[User]:
@@ -215,6 +235,7 @@ class UserRepository:
         name: str = "",
         role: str = "admin",
         page_grants: "list[str] | None" = None,
+        action_grants: "list[str] | None" = None,
         phone: str = "",
     ) -> User:
         email = _normalize(email)
@@ -227,6 +248,9 @@ class UserRepository:
             "name": name or email.split("@")[0].title(),
             "role": role,
             "page_grants": [p for p in (page_grants or []) if p in PAGES],
+            "action_grants": [
+                action for action in (action_grants or []) if action in ACTION_PERMISSIONS
+            ],
             "phone": (phone or "").strip(),
             # Stored explicitly: an account without the field would be filtered
             # out of every `active: True` query, and a staff member allocation
@@ -354,6 +378,7 @@ class UserRepository:
         active: bool | None = None,
         password: str | None = None,
         page_grants: list[str] | None = None,
+        action_grants: list[str] | None = None,
         keywords: list[str] | None = None,
         phone: str | None = None,
     ) -> User | None:
@@ -397,6 +422,10 @@ class UserRepository:
             # that does not exist is a permission nobody can use and a puzzle
             # for whoever reads the record later.
             updates["page_grants"] = [p for p in page_grants if p in PAGES]
+        if action_grants is not None:
+            updates["action_grants"] = [
+                action for action in action_grants if action in ACTION_PERMISSIONS
+            ]
 
         try:
             self._coll.update_one({"_id": user_id}, {"$set": updates})

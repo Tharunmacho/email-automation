@@ -160,7 +160,9 @@ class IdentityRepo:
         record.resume_hash = resume.sha256
         return True
 
-    def assign(self, candidate_id: str, staff_id: str, staff_name=None) -> bool:
+    def assign(
+        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None
+    ) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:
             return False
@@ -171,6 +173,8 @@ class IdentityRepo:
         record.evaluation_status = "pending"
         record.evaluation_score = None
         record.evaluation_notes = None
+        if assignment_event:
+            record.assignment_history.append({**assignment_event, "at": record.assigned_at})
         return True
 
 

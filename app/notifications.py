@@ -274,8 +274,8 @@ def notify_sla_breaches(
         log.warning("Could not push the SLA event: %s", exc)
 
     # ---- and the admins' phones ------------------------------------------ #
-    # One call for the whole sweep, not one per profile. `alerts` is already
-    # only what newly breached, so this does not re-announce anything.
+    # `alerts` contains only newly breached profiles. The relay sends one
+    # callback per profile because the approved bot template names one person.
     #
     # Outside `notified` for the same reason as the allocation relay: that
     # counts feed rows written, and an admin who was messaged as well was not

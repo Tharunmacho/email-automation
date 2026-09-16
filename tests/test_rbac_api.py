@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import _has_page, app, current_user
+from app.api.routes import _has_action, _has_page, app, current_user
 from app.core.models import CandidateProfile, CandidateRecord, SourceEmail, StoredResume
 
 
@@ -88,13 +88,19 @@ def api():
         ]
     )
 
-    def sign_in_as(role: str, user_id: str = "staff-1", pages: list[str] | None = None):
+    def sign_in_as(
+        role: str,
+        user_id: str = "staff-1",
+        pages: list[str] | None = None,
+        actions: list[str] | None = None,
+    ):
         app.dependency_overrides[current_user] = lambda: {
             "id": user_id,
             "email": f"{user_id}@x.com",
             "name": user_id,
             "role": role,
             "pages": pages if pages is not None else ["candidates", "settings"],
+            "actions": actions if actions is not None else [],
         }
 
     with patch("app.api.routes.repo", return_value=repo):
@@ -140,6 +146,33 @@ def test_job_order_pool_includes_candidates_owned_by_other_staff(api):
 def test_staff_can_open_their_own_candidate(api):
     api.sign_in_as("staff", "staff-1")
     assert api.get("/candidates/cand-mine").status_code == 200
+
+
+def test_candidate_whatsapp_chat_is_proxied_for_the_owner(api):
+    api.sign_in_as("staff", "staff-1")
+    record = api.repo.get("cand-mine")
+    record.source = "whatsapp"
+    record.idempotency_key = "whatsapp/line-1/919876543210"
+    transcript = {
+        "wa_id": "919876543210",
+        "sessions": [{"turns": [{"direction": "inbound", "text": "Hello"}]}],
+    }
+
+    with patch("app.api.routes.fetch_candidate_chat", return_value=transcript) as fetch:
+        response = api.get("/candidates/cand-mine/whatsapp-chat")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    assert response.json()["sessions"][0]["turns"][0]["text"] == "Hello"
+    fetch.assert_called_once_with("919876543210")
+
+
+def test_candidate_whatsapp_chat_keeps_candidate_scope(api):
+    api.sign_in_as("staff", "staff-1")
+    with patch("app.api.routes.fetch_candidate_chat") as fetch:
+        response = api.get("/candidates/cand-theirs/whatsapp-chat")
+    assert response.status_code == 404
+    fetch.assert_not_called()
 
 
 def test_staff_gets_404_not_403_for_someone_elses_candidate(api):
@@ -304,6 +337,26 @@ def test_a_granted_page_is_recognised_and_an_ungranted_page_is_not():
 
 def test_an_admin_reaches_every_page_even_with_an_old_session_shape():
     assert _has_page({"role": "admin"}, "users") is True
+
+
+def test_reallocation_is_independent_of_staff_directory_access():
+    manager_with_directory = {"role": "manager", "pages": ["staff"], "actions": []}
+    granted_staff = {
+        "role": "staff",
+        "pages": ["candidates"],
+        "actions": ["reallocate-candidates"],
+    }
+
+    assert _has_page(manager_with_directory, "staff") is True
+    assert _has_action(manager_with_directory, "reallocate-candidates") is False
+    assert _has_action(granted_staff, "reallocate-candidates") is True
+    assert _has_action({"role": "admin"}, "reallocate-candidates") is True
+
+
+def test_staff_directory_access_alone_cannot_call_reallocation_api(api):
+    api.sign_in_as("manager", "manager-1", pages=["candidates", "staff"], actions=[])
+    response = api.post("/candidates/cand-mine/assign", json={"staff_id": "staff-2"})
+    assert response.status_code == 404
 
 
 # --------------------------------------------------------------------------- #

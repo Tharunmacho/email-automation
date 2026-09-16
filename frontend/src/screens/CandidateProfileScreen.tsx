@@ -36,6 +36,7 @@ import {
   type AnsweredQuestion,
   type IdentityDocument,
   getCandidateIdentity,
+  getCandidateWhatsAppChat,
   identityFileUrl,
   resumeDownloadUrl,
   type AadhaarRecord,
@@ -43,6 +44,7 @@ import {
   type EvaluationStatus,
   type IdentityDocuments,
   type PassportRecord,
+  type WhatsAppChatResponse,
 } from "@/lib/api";
 import { formatDateFull, initialsOf } from "@/lib/format";
 
@@ -480,6 +482,11 @@ export default function CandidateProfileScreen({
     documents: IdentityDocuments | null;
     error: string | null;
   } | null>(null);
+  const [chatState, setChatState] = useState<{
+    candidateId: string;
+    chat: WhatsAppChatResponse | null;
+    error: string | null;
+  } | null>(null);
 
   // The verdict controls, seeded from whatever is already on the record so
   // re-opening an evaluated profile shows the decision that was made rather
@@ -502,6 +509,7 @@ export default function CandidateProfileScreen({
   const hasRemarks = remarks.trim().length > 0;
 
   const profile = candidate.profile ?? {};
+  const fromWhatsApp = candidate.source === "whatsapp" || Boolean(candidate.idempotency_key?.startsWith("whatsapp/"));
   const view = useMemo(() => toEditableState(candidate.profile ?? {}, candidate), [candidate]);
 
   useEffect(() => {
@@ -530,9 +538,32 @@ export default function CandidateProfileScreen({
     };
   }, [candidate.id]);
 
+  useEffect(() => {
+    if (!fromWhatsApp) return;
+    let cancelled = false;
+    const candidateId = candidate.id;
+    getCandidateWhatsAppChat(candidateId)
+      .then((chat) => {
+        if (!cancelled) setChatState({ candidateId, chat, error: null });
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setChatState({
+            candidateId,
+            chat: null,
+            error: err instanceof Error ? err.message : "Could not load the WhatsApp conversation.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [candidate.id, fromWhatsApp]);
+
   /** Only this candidate's answer counts; an older one is still in flight. */
   const identityFor = identityState?.candidateId === candidate.id ? identityState : null;
   const identityError = identityFor?.error ?? null;
+  const chatFor = chatState?.candidateId === candidate.id ? chatState : null;
 
   const skills = useMemo(
     () =>
@@ -652,6 +683,7 @@ export default function CandidateProfileScreen({
   /** Only sections that actually carry something are offered or drawn. */
   const sections = [
     { id: "details", label: "Details", present: true },
+    { id: "whatsapp-chat", label: "WhatsApp chat", present: Boolean(fromWhatsApp) },
     { id: "job", label: "Job & preferences", present: hasJobDetails },
     { id: "passport", label: "Passport", present: hasPassportSection },
     { id: "aadhaar", label: "Aadhaar", present: hasAadhaarSection },
@@ -721,7 +753,6 @@ export default function CandidateProfileScreen({
   const hasResume = Boolean(
     candidate.resume?.storage_key || candidate.resume?.original_filename,
   );
-  const fromWhatsApp = candidate.source === "whatsapp";
   const sourceLabel = candidate.source === "upload"
     ? "Admin upload"
     : candidate.source === "manual" ? "Legacy manual entry" : fromWhatsApp ? "WhatsApp" : "Email";
@@ -1150,6 +1181,55 @@ export default function CandidateProfileScreen({
           </section>
         )}
 
+        {fromWhatsApp && (
+          <section className="cprof-card" id={sectionId("whatsapp-chat")}>
+            <h3 className="cprof-card-title cprof-chat-title">
+              <MessageSquareText size={17} /> WhatsApp conversation
+            </h3>
+            {!chatFor ? (
+              <div className="cprof-chat-state" role="status">
+                <Loader2 size={16} className="icon-spin" /> Loading conversation…
+              </div>
+            ) : chatFor.error ? (
+              <div className="cprof-chat-state is-error" role="alert">
+                <AlertTriangle size={16} /> {chatFor.error}
+              </div>
+            ) : !chatFor.chat?.available || chatFor.chat.sessions.length === 0 ? (
+              <div className="cprof-chat-state">
+                No WhatsApp messages were found for this candidate.
+              </div>
+            ) : (
+              <div className="cprof-chat-sessions">
+                {chatFor.chat.sessions.map((session, sessionIndex) => (
+                  <div className="cprof-chat-session" key={session._id ?? `${session.startedAt}-${sessionIndex}`}>
+                    <div className="cprof-chat-session-label">
+                      Conversation {sessionIndex + 1}
+                      {session.startedAt ? ` · ${formatDateFull(new Date(session.startedAt))}` : ""}
+                    </div>
+                    <div className="cprof-chat-turns">
+                      {session.turns.map((turn, turnIndex) => (
+                        <article
+                          className={`cprof-chat-turn is-${turn.direction}`}
+                          key={turn.wamid ?? `${turn.at}-${turnIndex}`}
+                        >
+                          <span className="cprof-chat-speaker">
+                            {turn.direction === "inbound" ? "Candidate" : "WhatsApp bot"}
+                          </span>
+                          <p>{turn.text || turn.filename || humanizeKey(turn.type)}</p>
+                          <time dateTime={turn.at}>
+                            {turn.at ? formatDateFull(new Date(turn.at)) : "Time unavailable"}
+                          </time>
+                          {turn.error && <span className="cprof-chat-error">Delivery issue: {turn.error}</span>}
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {Boolean(candidate.assignment_history?.length) && (
           <section className="cprof-card">
             <h3 className="cprof-card-title">Staff reassignment history</h3>
@@ -1162,7 +1242,7 @@ export default function CandidateProfileScreen({
                   <div className="cprof-fact-value is-multiline">
                     <strong>{entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}</strong>
                     {entry.by_user_name && <div>By {entry.by_user_name}</div>}
-                    <div>{entry.remarks}</div>
+                    <div>{entry.remarks || "No remark provided"}</div>
                   </div>
                 </React.Fragment>
               ))}

@@ -9,8 +9,10 @@ from unittest.mock import patch
 
 from app.config import settings
 from app.staff_whatsapp import (
+    CANDIDATE_CHAT_PATH,
     RELAY_PATH,
     SLA_RELAY_PATH,
+    fetch_candidate_chat,
     relay_assignment,
     relay_enabled,
     relay_sla_breach,
@@ -20,14 +22,22 @@ from app.staff_whatsapp import (
 class _Response:
     """Enough of `urlopen`'s return value to stand in for it."""
 
-    def __init__(self, status=200):
+    def __init__(self, status=200, body=None):
+        import json
+
         self.status = status
+        if body is None:
+            body = {"sent": True, "recipients": 1, "shadowed": False}
+        self.body = json.dumps(body).encode("utf-8") if isinstance(body, dict) else body
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
         return False
+
+    def read(self):
+        return self.body
 
 
 def _configured():
@@ -105,6 +115,26 @@ def test_it_sends_two_ids_and_nothing_else():
     # Header names are canonicalised by urllib, hence the capitalisation.
     assert request.get_header("X-api-key") == "secret"
     assert json.loads(request.data) == {"candidate_id": "cand-1", "staff_id": "staff-7"}
+
+
+def test_candidate_chat_is_read_from_the_bots_protected_transcript_api():
+    import json
+
+    body = json.dumps({
+        "candidate": {"waId": "919876543210"},
+        "documents": [],
+        "transcript": [{"turns": [{"direction": "inbound", "text": "Hello"}]}],
+    }).encode()
+    with _configured(), patch(
+        "urllib.request.urlopen", return_value=_Response(body=body)
+    ) as urlopen:
+        result = fetch_candidate_chat("+91 98765 43210")
+
+    request = urlopen.call_args.args[0]
+    assert request.full_url == f"https://bot.example.com{CANDIDATE_CHAT_PATH}/919876543210"
+    assert request.method == "GET"
+    assert request.get_header("X-api-key") == "secret"
+    assert result["sessions"][0]["turns"][0]["text"] == "Hello"
 
 
 def test_a_missing_id_is_not_sent():
@@ -201,6 +231,14 @@ def test_a_sweep_that_found_nothing_sends_nothing():
     urlopen.assert_not_called()
 
 
+def test_an_unconfigured_sla_relay_does_not_call_the_bot():
+    with patch.multiple(settings, wa_bot_url="", wa_bot_api_key=""), patch(
+        "urllib.request.urlopen"
+    ) as urlopen:
+        assert relay_sla_breach([_breach()], 48, recipient_ids=["manager-1"]) is False
+    urlopen.assert_not_called()
+
+
 def test_a_sweep_without_an_active_recipient_allowlist_sends_nothing():
     with _configured(), patch("urllib.request.urlopen") as urlopen:
         assert relay_sla_breach([_breach()], 48, recipient_ids=[]) is False
@@ -218,6 +256,8 @@ def test_one_overdue_profile_travels_named():
     payload = json.loads(request.data)
     assert payload["count"] == 1
     assert payload["threshold_hours"] == 48
+    assert payload["candidate_code"].startswith("CAN-")
+    assert "candidate_id" not in payload
     assert payload["recipient_stage"] == "manager"
     assert payload["super_admin_name"] == "Yoosuf"
     assert payload["recipient_ids"] == ["manager-1"]
@@ -226,8 +266,8 @@ def test_one_overdue_profile_travels_named():
     assert payload["reason"] == "unviewed"
 
 
-def test_a_backlog_travels_as_a_count_and_names_nobody():
-    """Naming the first of six would read as though it were the only one."""
+def test_a_backlog_sends_each_candidate_with_its_own_name():
+    """The approved template names one candidate, so a digest is rejected."""
     import json
 
     alerts = [
@@ -238,12 +278,30 @@ def test_a_backlog_travels_as_a_count_and_names_nobody():
     with _configured(), patch("urllib.request.urlopen", return_value=_Response()) as urlopen:
         assert relay_sla_breach(alerts, 48, recipient_ids=["manager-1"]) is True
 
-    payload = json.loads(urlopen.call_args.args[0].data)
-    assert payload["count"] == 3
-    # Two distinct people hold those three profiles, not three.
-    assert payload["staff_count"] == 2
-    assert "candidate_name" not in payload
-    assert "staff_name" not in payload
+    payloads = [json.loads(call.args[0].data) for call in urlopen.call_args_list]
+    assert len(payloads) == 3
+    assert [payload["count"] for payload in payloads] == [1, 1, 1]
+    assert [payload["staff_name"] for payload in payloads] == [
+        "Priya Sharma", "Arun Nair", "Priya Sharma"
+    ]
+    assert all(payload["recipient_ids"] == ["manager-1"] for payload in payloads)
+    assert len({payload["candidate_code"] for payload in payloads}) == 3
+
+
+def test_a_bot_http_200_with_sent_false_is_a_failed_alert():
+    with _configured(), patch(
+        "urllib.request.urlopen",
+        return_value=_Response(body={"sent": False, "reason": "sla_template_not_configured"}),
+    ):
+        assert relay_sla_breach([_breach()], 48, recipient_ids=["manager-1"]) is False
+
+
+def test_shadow_mode_does_not_count_as_a_sent_alert():
+    with _configured(), patch(
+        "urllib.request.urlopen",
+        return_value=_Response(body={"sent": True, "recipients": 1, "shadowed": True}),
+    ):
+        assert relay_sla_breach([_breach()], 48, recipient_ids=["manager-1"]) is False
 
 
 def test_the_bot_being_down_does_not_break_the_sweep():

@@ -49,6 +49,8 @@ interface CandidatesViewProps {
   assignedOnly?: boolean;
   /** Restrict Assigned Candidates to the signed-in account, not any owner. */
   assignedToUserId?: string;
+  /** Ownership changes require a separate action grant, not merely page access. */
+  canReallocate?: boolean;
   onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
@@ -265,6 +267,7 @@ export default function CandidatesView({
   candidates: allCandidates,
   assignedOnly = false,
   assignedToUserId,
+  canReallocate = false,
   onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
@@ -518,15 +521,17 @@ export default function CandidatesView({
           {reviewed ? <CheckCircle2 size={14} /> : <FileSearch size={14} />}
           <span>{reviewed ? "Reviewed" : "Review"}</span>
         </button>
-        <button
-          type="button"
-          className="ds-review-action is-assign"
-          title={`Assign ${getDisplayName(candidate)} to a staff member`}
-          onClick={() => void openAssignment(candidate)}
-        >
-          <UserCheck size={14} />
-          <span>Assign</span>
-        </button>
+        {canReallocate && (
+          <button
+            type="button"
+            className="ds-review-action is-assign"
+            title={`Assign ${getDisplayName(candidate)} to a staff member`}
+            onClick={() => void openAssignment(candidate)}
+          >
+            <UserCheck size={14} />
+            <span>Assign</span>
+          </button>
+        )}
         <button
           type="button"
           className="ds-act"
@@ -950,7 +955,7 @@ export default function CandidatesView({
         </div>
       </section>
 
-      {assigning && (
+      {canReallocate && assigning && (
         <div className="cm-overlay active" onClick={() => !assignmentSaving && setAssigning(null)}>
           <div
             ref={assignmentDialogRef}

@@ -49,7 +49,7 @@ def _conflict(call):
 
 
 class WhatsAppAttendanceEvent(BaseModel):
-    """A silent private-chat attendance command forwarded by the bot."""
+    """A private-chat attendance command forwarded by the bot."""
 
     message_id: str = Field(min_length=1, max_length=200)
     sender_phone: str = Field(min_length=5, max_length=50)
@@ -129,7 +129,7 @@ def whatsapp_private_attendance(
     payload: WhatsAppAttendanceEvent,
     _service: None = Depends(require_service_key),
 ) -> dict:
-    """Record a private staff WhatsApp command without sending any response."""
+    """Record a private staff WhatsApp command; the bot confirms successful records."""
     employee = _whatsapp_employee(payload.sender_phone, payload.stated_name)
     request = PunchRequest(
         action=payload.action,

@@ -48,7 +48,6 @@ import {
   deleteStaff,
   fetchSlaBreaches,
   fetchStaffWorkload,
-  rebalanceCandidates,
   rehomeOrphans,
   runSlaScan,
   updateStaff,
@@ -65,6 +64,8 @@ interface AdminStaffManagementProps {
   onToast: (message: string, type?: "info" | "success" | "error") => void;
   onCandidatesChanged: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
+  /** Candidate ownership changes are independent of directory visibility. */
+  canReallocate?: boolean;
   /**
    * Where "Add staff" goes.
    *
@@ -108,6 +109,7 @@ export default function AdminStaffManagement({
   onToast,
   onCandidatesChanged,
   onOpenCandidate,
+  canReallocate = false,
   onCreateStaff,
 }: AdminStaffManagementProps) {
   const [workload, setWorkload] = useState<StaffWorkloadResponse | null>(null);
@@ -123,7 +125,6 @@ export default function AdminStaffManagement({
   const [editingMember, setEditingMember] = useState<StaffWorkloadRow | null>(null);
   const [editForm, setEditForm] = useState({ email: "", name: "", phone: "" });
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [rebalancing, setRebalancing] = useState(false);
   const [rehoming, setRehoming] = useState(false);
   const [scanning, setScanning] = useState(false);
   /** Which candidate row is mid-move, so only its own controls lock. */
@@ -483,6 +484,10 @@ export default function AdminStaffManagement({
   };
 
   const handleDelete = async (member: StaffWorkloadRow) => {
+    if (!canReallocate && member.assigned > 0) {
+      onToast("This account still owns candidates. Reallocation permission is required before deleting it.", "error");
+      return;
+    }
     // Say which half of their queue does what before it happens. "Will be
     // redistributed" was true of only the unread part, and an admin who had
     // just deleted an account was surprised to find the evaluated profiles
@@ -501,7 +506,7 @@ export default function AdminStaffManagement({
     if (!window.confirm(warning)) return;
 
     try {
-      const result = await deleteStaff(member.id, true);
+      const result = await deleteStaff(member.id, canReallocate);
       onToast(
         result.orphaned > 0
           ? `${member.name} removed. ${result.reallocated} reallocated, ${result.orphaned} reviewed ` +
@@ -518,38 +523,7 @@ export default function AdminStaffManagement({
     }
   };
 
-  const handleRebalance = async () => {
-    if (activeStaff.length === 0) {
-      onToast("There is no active staff account to rebalance across.", "error");
-      return;
-    }
-    setRebalancing(true);
-    try {
-      const result = await rebalanceCandidates();
-      onToast(
-        result.moved === 0
-          ? "Already level — nothing needed moving."
-          : `${result.moved} profile${result.moved === 1 ? "" : "s"} rebalanced.` +
-              (result.locked > 0 ? ` ${result.locked} left in place (already reviewed).` : ""),
-        "success",
-      );
-      reload();
-      onCandidatesChanged();
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not rebalance.", "error");
-    } finally {
-      setRebalancing(false);
-    }
-  };
-
-  /**
-   * Clear the orphan backlog: give every stranded profile a live owner.
-   *
-   * Not `handleRebalance`, which the banner used to call and which could never
-   * have worked — an orphan is orphaned because it has been reviewed, and a
-   * rebalance is defined by leaving reviewed profiles alone. The banner
-   * therefore stayed on screen no matter how many times it was pressed.
-   */
+  /** Clear the orphan backlog by giving every stranded profile a live owner. */
   const handleRehome = async () => {
     setRehoming(true);
     try {
@@ -727,16 +701,6 @@ export default function AdminStaffManagement({
         <button
           type="button"
           className="ds-ghost-btn"
-          onClick={() => void handleRebalance()}
-          disabled={rebalancing || activeStaff.length === 0}
-          title="Level untouched profiles across the active roster. Reviewed work stays put."
-        >
-          {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
-          {rebalancing ? "Levelling…" : "Rebalance"}
-        </button>
-        <button
-          type="button"
-          className="ds-ghost-btn"
           onClick={() => void handleScan()}
           disabled={scanning}
           title={`Re-check every allocation against the ${thresholdHours}-hour window`}
@@ -824,7 +788,7 @@ export default function AdminStaffManagement({
             </strong>{" "}
             Nobody can see {totals.orphaned === 1 ? "it" : "them"}. Re-homing keeps the evaluation.
           </span>
-          <button
+          {canReallocate && <button
             type="button"
             className="db-btn is-primary"
             onClick={() => void handleRehome()}
@@ -837,7 +801,7 @@ export default function AdminStaffManagement({
           >
             {rehoming ? <Loader2 size={15} className="icon-spin" /> : <Users size={15} />}
             {rehoming ? "Re-homing…" : "Re-home"}
-          </button>
+          </button>}
         </div>
       )}
 
@@ -849,15 +813,6 @@ export default function AdminStaffManagement({
             {formatInt(imbalance.busiest.assigned)}; {imbalance.lightest.name} holds{" "}
             {formatInt(imbalance.lightest.assigned)}. Reviewed profiles stay with their owner.
           </span>
-          <button
-            type="button"
-            className="db-btn is-primary"
-            onClick={() => void handleRebalance()}
-            disabled={rebalancing}
-          >
-            {rebalancing ? <Loader2 size={15} className="icon-spin" /> : <Scale size={15} />}
-            {rebalancing ? "Levelling…" : "Level now"}
-          </button>
         </div>
       )}
 
@@ -1287,7 +1242,8 @@ export default function AdminStaffManagement({
                         </span>
 
                         <div className="alloc-assign" role="cell">
-                          <Select
+                          {canReallocate ? <>
+                            <Select
                             size="sm"
                             value={candidate.assigned_staff_id ?? ""}
                             disabled={busy || activeStaff.length === 0}
@@ -1329,6 +1285,7 @@ export default function AdminStaffManagement({
                               Auto
                             </button>
                           )}
+                          </> : <span className="modal-hint">View only</span>}
                         </div>
                       </div>
                     );
@@ -1351,7 +1308,7 @@ export default function AdminStaffManagement({
           </div>
         </div>
       </div>
-      {pendingReassignment && (
+      {canReallocate && pendingReassignment && (
         <div className="modal-overlay active" onClick={() => !movingId && setPendingReassignment(null)}>
           <div ref={reassignmentDialogRef} className="modal-container is-narrow" role="dialog" aria-modal="true" aria-labelledby="reassignment-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
@@ -1519,8 +1476,7 @@ export default function AdminStaffManagement({
               <p className="modal-hint">
                 Candidates are allocated purely by workload — whoever is holding the fewest gets
                 the next résumé — so there is nothing else to configure. Nothing already allocated
-                moves: this account starts empty and fills up as résumés arrive. To level the
-                existing pile across it, use <strong>Rebalance Workload</strong>.
+                moves: this account starts empty and fills up as new résumés arrive.
               </p>
             </div>
 

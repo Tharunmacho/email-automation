@@ -9152,6 +9152,100 @@ body {
   color: var(--primary-hover);
 }
 
+.cprof-chat-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cprof-chat-state {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 3rem;
+  color: var(--dash-muted);
+  font-size: 0.88rem;
+}
+
+.cprof-chat-state.is-error,
+.cprof-chat-error {
+  color: var(--danger);
+}
+
+.cprof-chat-sessions,
+.cprof-chat-turns {
+  display: flex;
+  flex-direction: column;
+}
+
+.cprof-chat-sessions {
+  gap: 1.15rem;
+}
+
+.cprof-chat-session-label {
+  margin-bottom: 0.65rem;
+  color: var(--dash-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cprof-chat-turns {
+  gap: 0.55rem;
+}
+
+.cprof-chat-turn {
+  width: min(78%, 720px);
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-blue-faint);
+  border-radius: 0.9rem 0.9rem 0.9rem 0.25rem;
+  background: var(--tint-1);
+  color: var(--dash-ink);
+}
+
+.cprof-chat-turn.is-outbound {
+  align-self: flex-end;
+  border-radius: 0.9rem 0.9rem 0.25rem 0.9rem;
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border-blue-faint));
+  background: color-mix(in srgb, var(--primary) 10%, var(--dash-surface));
+}
+
+.cprof-chat-speaker,
+.cprof-chat-turn time,
+.cprof-chat-error {
+  display: block;
+  font-size: 0.7rem;
+}
+
+.cprof-chat-speaker {
+  margin-bottom: 0.25rem;
+  color: var(--primary-hover);
+  font-weight: 700;
+}
+
+.cprof-chat-turn p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cprof-chat-turn time {
+  margin-top: 0.35rem;
+  color: var(--dash-muted);
+}
+
+.cprof-chat-error {
+  margin-top: 0.25rem;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .cprof-chat-turn {
+    width: 92%;
+  }
+}
+
 /* Label/value pairs. `minmax(0, 1fr)` rather than `1fr`: a `1fr` track refuses
    to shrink below its content, so one long URL widens the whole card and forces
    the page to scroll sideways. */

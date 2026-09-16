@@ -81,3 +81,38 @@ def test_reassignment_remark_is_saved_with_actor_and_survives_repeat_request():
     assert event["by_user_name"] == "Admin"
     assert event["remarks"] == "Covering leave"
     assert event["at"] is not None
+
+
+def test_reassignment_without_a_remark_is_still_kept_in_history():
+    database = mongomock.MongoClient(tz_aware=True)["assignment_history_without_remark"]
+    database["candidates"].insert_one({
+        "_id": "candidate-1",
+        "profile": {"full_name": "Candidate One"},
+        "source": "manual",
+        "assigned_staff_id": "old-staff",
+        "assigned_staff_name": "Old Owner",
+    })
+    repository = CandidateRepository(collection=database["candidates"])
+    new_owner = User(id="new-staff", email="new@example.com", name="New Owner", role="staff")
+
+    class StaffLookup:
+        def get(self, staff_id):
+            return new_owner if staff_id == new_owner.id else None
+
+    with patch("app.api.routes.users", StaffLookup()), patch(
+        "app.api.routes.repo", return_value=repository
+    ), patch("app.api.routes.notify_candidate_assigned"), patch(
+        "app.api.routes.relay_assignment", return_value=True
+    ):
+        routes.assign_candidate_route(
+            "candidate-1",
+            routes.AssignRequest(staff_id=new_owner.id),
+            _admin={"id": "manager-1", "name": "Manager"},
+        )
+
+    event = repository.get("candidate-1").assignment_history[0]
+    assert event["from_staff_name"] == "Old Owner"
+    assert event["to_staff_name"] == "New Owner"
+    assert event["by_user_name"] == "Manager"
+    assert event["remarks"] == ""
+    assert event["reason"] == "manual_reassignment"

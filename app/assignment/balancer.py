@@ -178,6 +178,7 @@ def rebalance_all(
     *,
     repo: Optional[CandidateRepository] = None,
     users: Optional[UserRepository] = None,
+    actor: Optional[dict] = None,
 ) -> dict:
     """Level the collection across the active roster. Admin-triggered only.
 
@@ -240,7 +241,17 @@ def rebalance_all(
         if row.get("assigned_staff_id") == chosen.id:
             unchanged += 1
             continue
-        repo.assign(row["_id"], chosen.id, chosen.name)
+        if actor:
+            repo.assign(
+                row["_id"],
+                chosen.id,
+                chosen.name,
+                assignment_event=_assignment_event(
+                    actor, row, chosen, "Workload rebalance", "workload_rebalance"
+                ),
+            )
+        else:
+            repo.assign(row["_id"], chosen.id, chosen.name)
         moved += 1
 
     log.info(
@@ -269,6 +280,10 @@ def _deal(
     staff: Sequence[User],
     workloads: Dict[str, int],
     place,
+    *,
+    actor: Optional[dict] = None,
+    reason: str = "",
+    remarks: str = "",
 ) -> int:
     """Deal `rows` out one at a time to whoever is holding the fewest.
 
@@ -286,9 +301,31 @@ def _deal(
         workloads[chosen.id] += 1
         if row.get("assigned_staff_id") == chosen.id:
             continue
-        place(row["_id"], chosen.id, chosen.name)
+        if actor:
+            place(
+                row["_id"],
+                chosen.id,
+                chosen.name,
+                assignment_event=_assignment_event(actor, row, chosen, remarks, reason),
+            )
+        else:
+            place(row["_id"], chosen.id, chosen.name)
         placed += 1
     return placed
+
+
+def _assignment_event(actor: dict, row: dict, chosen: User, remarks: str, reason: str) -> dict:
+    """Build the durable ownership audit entry shared by bulk operations."""
+    return {
+        "from_staff_id": row.get("assigned_staff_id"),
+        "from_staff_name": row.get("assigned_staff_name"),
+        "to_staff_id": chosen.id,
+        "to_staff_name": chosen.name,
+        "by_user_id": actor.get("id"),
+        "by_user_name": actor.get("name") or actor.get("email"),
+        "remarks": remarks,
+        "reason": reason,
+    }
 
 
 def allocate_unassigned(
@@ -329,6 +366,7 @@ def redistribute_from_staff(
     *,
     repo: Optional[CandidateRepository] = None,
     users: Optional[UserRepository] = None,
+    actor: Optional[dict] = None,
 ) -> dict:
     """Deal with one staff member's queue after their account is removed.
 
@@ -368,7 +406,15 @@ def redistribute_from_staff(
         return {"status": "no_staff", "reallocated": 0, "orphaned": len(rows)}
 
     workloads = _current_workloads(staff, repo)
-    reallocated = _deal(movable, staff, workloads, repo.assign)
+    reallocated = _deal(
+        movable,
+        staff,
+        workloads,
+        repo.assign,
+        actor=actor,
+        reason="staff_account_deleted",
+        remarks="Previous staff account removed",
+    )
     # A country desk may temporarily have no active member. Those profiles are
     # still orphaned; reporting them as reallocated would hide work from the
     # admin console even though no write occurred.
@@ -385,6 +431,7 @@ def rehome_orphans(
     *,
     repo: Optional[CandidateRepository] = None,
     users: Optional[UserRepository] = None,
+    actor: Optional[dict] = None,
 ) -> dict:
     """Hand every profile stranded on a deleted account to somebody who exists.
 
@@ -414,7 +461,15 @@ def rehome_orphans(
         }
 
     workloads = _current_workloads(staff, repo)
-    rehomed = _deal(rows, staff, workloads, repo.reassign)
+    rehomed = _deal(
+        rows,
+        staff,
+        workloads,
+        repo.reassign,
+        actor=actor,
+        reason="orphan_rehomed",
+        remarks="Re-homed from a deleted staff account",
+    )
     remaining = len(rows) - rehomed
 
     log.info("Re-homed %d orphaned profile(s) across %d active staff", rehomed, len(staff))
