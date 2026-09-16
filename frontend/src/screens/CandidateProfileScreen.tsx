@@ -684,6 +684,7 @@ export default function CandidateProfileScreen({
   const sections = [
     { id: "details", label: "Details", present: true },
     { id: "whatsapp-chat", label: "WhatsApp chat", present: Boolean(fromWhatsApp) },
+    { id: "reallocation-history", label: "Reallocation history", present: true },
     { id: "job", label: "Job & preferences", present: hasJobDetails },
     { id: "passport", label: "Passport", present: hasPassportSection },
     { id: "aadhaar", label: "Aadhaar", present: hasAadhaarSection },
@@ -1230,25 +1231,27 @@ export default function CandidateProfileScreen({
           </section>
         )}
 
-        {Boolean(candidate.assignment_history?.length) && (
-          <section className="cprof-card">
-            <h3 className="cprof-card-title">Staff reassignment history</h3>
-            <div className="cprof-facts">
-              {[...(candidate.assignment_history ?? [])].reverse().map((entry, index) => (
-                <React.Fragment key={`${entry.at}-${index}`}>
-                  <div className="cprof-fact-label">
-                    {entry.at ? formatDateFull(new Date(entry.at)) : "Reassignment"}
-                  </div>
-                  <div className="cprof-fact-value is-multiline">
-                    <strong>{entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}</strong>
-                    {entry.by_user_name && <div>By {entry.by_user_name}</div>}
-                    <div>{entry.remarks || "No remark provided"}</div>
-                  </div>
-                </React.Fragment>
-              ))}
-            </div>
+        <section className="cprof-card" id={sectionId("reallocation-history")}>
+          <h3 className="cprof-card-title">Reallocation history</h3>
+          {candidate.assignment_history?.length ? (
+              <div className="cprof-facts">
+                {[...candidate.assignment_history].reverse().map((entry, index) => (
+                  <React.Fragment key={`${entry.at}-${index}`}>
+                    <div className="cprof-fact-label">
+                      {entry.at ? formatDateFull(new Date(entry.at)) : "Reallocation"}
+                    </div>
+                    <div className="cprof-fact-value is-multiline">
+                      <strong>{entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}</strong>
+                      {entry.by_user_name && <div>Reallocated by {entry.by_user_name}</div>}
+                      <div>{entry.remarks || "No remark provided"}</div>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
+          ) : (
+            <div className="cprof-chat-state">No staff reallocations have been recorded.</div>
+          )}
           </section>
-        )}
 
         {hasJob && job && !hasJobDetails && (
           <section className="cprof-card" id={sectionId("job")}>
