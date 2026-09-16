@@ -9158,6 +9158,10 @@ body {
   gap: 0.5rem;
 }
 
+.cprof-activity-modal {
+  max-width: 760px;
+}
+
 .cprof-chat-state {
   display: flex;
   align-items: center;

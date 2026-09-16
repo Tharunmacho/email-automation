@@ -9,6 +9,7 @@ import {
   Download,
   Edit3,
   FolderGit2,
+  History,
   IdCard,
   Link as LinkIcon,
   Loader2,
@@ -20,7 +21,10 @@ import {
   Plane,
   RotateCcw,
   Star,
+  X,
 } from "lucide-react";
+
+import { useModalFocus } from "@/components/ui/useModalFocus";
 
 import {
   flattenExtras,
@@ -487,6 +491,11 @@ export default function CandidateProfileScreen({
     chat: WhatsAppChatResponse | null;
     error: string | null;
   } | null>(null);
+  const [activityModal, setActivityModal] = useState<"whatsapp" | "reallocation" | null>(null);
+  const activityDialogRef = useModalFocus<HTMLDivElement>(
+    Boolean(activityModal),
+    () => setActivityModal(null),
+  );
 
   // The verdict controls, seeded from whatever is already on the record so
   // re-opening an evaluated profile shows the decision that was made rather
@@ -539,7 +548,7 @@ export default function CandidateProfileScreen({
   }, [candidate.id]);
 
   useEffect(() => {
-    if (!fromWhatsApp) return;
+    if (!fromWhatsApp || activityModal !== "whatsapp") return;
     let cancelled = false;
     const candidateId = candidate.id;
     getCandidateWhatsAppChat(candidateId)
@@ -558,7 +567,7 @@ export default function CandidateProfileScreen({
     return () => {
       cancelled = true;
     };
-  }, [candidate.id, fromWhatsApp]);
+  }, [activityModal, candidate.id, fromWhatsApp]);
 
   /** Only this candidate's answer counts; an older one is still in flight. */
   const identityFor = identityState?.candidateId === candidate.id ? identityState : null;
@@ -683,8 +692,6 @@ export default function CandidateProfileScreen({
   /** Only sections that actually carry something are offered or drawn. */
   const sections = [
     { id: "details", label: "Details", present: true },
-    { id: "whatsapp-chat", label: "WhatsApp chat", present: Boolean(fromWhatsApp) },
-    { id: "reallocation-history", label: "Reallocation history", present: true },
     { id: "job", label: "Job & preferences", present: hasJobDetails },
     { id: "passport", label: "Passport", present: hasPassportSection },
     { id: "aadhaar", label: "Aadhaar", present: hasAadhaarSection },
@@ -785,6 +792,27 @@ export default function CandidateProfileScreen({
         )}
 
         <div className="cscreen-topbar-actions">
+          {fromWhatsApp && (
+            <button
+              type="button"
+              className="cscreen-btn"
+              onClick={() => {
+                setChatState(null);
+                setActivityModal("whatsapp");
+              }}
+            >
+              <MessageSquareText size={15} /> WhatsApp conversation
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="cscreen-btn"
+            onClick={() => setActivityModal("reallocation")}
+          >
+            <History size={15} /> Reallocation history
+          </button>
+
           {evaluation && (
             <button type="button" className="cscreen-btn is-primary" onClick={openRemarks}>
               <MessageSquareText size={15} />
@@ -1182,77 +1210,6 @@ export default function CandidateProfileScreen({
           </section>
         )}
 
-        {fromWhatsApp && (
-          <section className="cprof-card" id={sectionId("whatsapp-chat")}>
-            <h3 className="cprof-card-title cprof-chat-title">
-              <MessageSquareText size={17} /> WhatsApp conversation
-            </h3>
-            {!chatFor ? (
-              <div className="cprof-chat-state" role="status">
-                <Loader2 size={16} className="icon-spin" /> Loading conversation…
-              </div>
-            ) : chatFor.error ? (
-              <div className="cprof-chat-state is-error" role="alert">
-                <AlertTriangle size={16} /> {chatFor.error}
-              </div>
-            ) : !chatFor.chat?.available || chatFor.chat.sessions.length === 0 ? (
-              <div className="cprof-chat-state">
-                No WhatsApp messages were found for this candidate.
-              </div>
-            ) : (
-              <div className="cprof-chat-sessions">
-                {chatFor.chat.sessions.map((session, sessionIndex) => (
-                  <div className="cprof-chat-session" key={session._id ?? `${session.startedAt}-${sessionIndex}`}>
-                    <div className="cprof-chat-session-label">
-                      Conversation {sessionIndex + 1}
-                      {session.startedAt ? ` · ${formatDateFull(new Date(session.startedAt))}` : ""}
-                    </div>
-                    <div className="cprof-chat-turns">
-                      {session.turns.map((turn, turnIndex) => (
-                        <article
-                          className={`cprof-chat-turn is-${turn.direction}`}
-                          key={turn.wamid ?? `${turn.at}-${turnIndex}`}
-                        >
-                          <span className="cprof-chat-speaker">
-                            {turn.direction === "inbound" ? "Candidate" : "WhatsApp bot"}
-                          </span>
-                          <p>{turn.text || turn.filename || humanizeKey(turn.type)}</p>
-                          <time dateTime={turn.at}>
-                            {turn.at ? formatDateFull(new Date(turn.at)) : "Time unavailable"}
-                          </time>
-                          {turn.error && <span className="cprof-chat-error">Delivery issue: {turn.error}</span>}
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="cprof-card" id={sectionId("reallocation-history")}>
-          <h3 className="cprof-card-title">Reallocation history</h3>
-          {candidate.assignment_history?.length ? (
-              <div className="cprof-facts">
-                {[...candidate.assignment_history].reverse().map((entry, index) => (
-                  <React.Fragment key={`${entry.at}-${index}`}>
-                    <div className="cprof-fact-label">
-                      {entry.at ? formatDateFull(new Date(entry.at)) : "Reallocation"}
-                    </div>
-                    <div className="cprof-fact-value is-multiline">
-                      <strong>{entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}</strong>
-                      {entry.by_user_name && <div>Reallocated by {entry.by_user_name}</div>}
-                      <div>{entry.remarks || "No remark provided"}</div>
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
-          ) : (
-            <div className="cprof-chat-state">No staff reallocations have been recorded.</div>
-          )}
-          </section>
-
         {hasJob && job && !hasJobDetails && (
           <section className="cprof-card" id={sectionId("job")}>
             <h3 className="cprof-card-title">Job</h3>
@@ -1596,6 +1553,121 @@ export default function CandidateProfileScreen({
           </aside>
         )}
       </div>
+
+      {activityModal && (
+        <div className="modal-overlay active" onClick={() => setActivityModal(null)}>
+          <div
+            ref={activityDialogRef}
+            className="modal-container cprof-activity-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="candidate-activity-title"
+            tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2 id="candidate-activity-title" className="modal-title">
+                  {activityModal === "whatsapp" ? "WhatsApp conversation" : "Reallocation history"}
+                </h2>
+                <p className="modal-subtitle">
+                  {activityModal === "whatsapp"
+                    ? `Messages exchanged with ${view.full_name}.`
+                    : `${candidate.assignment_history?.length ?? 0} staff ownership change${
+                        candidate.assignment_history?.length === 1 ? "" : "s"
+                      } recorded for ${view.full_name}.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                aria-label={`Close ${activityModal === "whatsapp" ? "WhatsApp conversation" : "reallocation history"}`}
+                onClick={() => setActivityModal(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              {activityModal === "whatsapp" ? (
+                !chatFor ? (
+                  <div className="cprof-chat-state" role="status">
+                    <Loader2 size={16} className="icon-spin" /> Loading conversation…
+                  </div>
+                ) : chatFor.error ? (
+                  <div className="cprof-chat-state is-error" role="alert">
+                    <AlertTriangle size={16} /> {chatFor.error}
+                  </div>
+                ) : !chatFor.chat?.available || chatFor.chat.sessions.length === 0 ? (
+                  <div className="cprof-chat-state">
+                    No WhatsApp messages were found for this candidate.
+                  </div>
+                ) : (
+                  <div className="cprof-chat-sessions">
+                    {chatFor.chat.sessions.map((session, sessionIndex) => (
+                      <div
+                        className="cprof-chat-session"
+                        key={session._id ?? `${session.startedAt}-${sessionIndex}`}
+                      >
+                        <div className="cprof-chat-session-label">
+                          Conversation {sessionIndex + 1}
+                          {session.startedAt
+                            ? ` · ${formatDateFull(new Date(session.startedAt))}`
+                            : ""}
+                        </div>
+                        <div className="cprof-chat-turns">
+                          {session.turns.map((turn, turnIndex) => (
+                            <article
+                              className={`cprof-chat-turn is-${turn.direction}`}
+                              key={turn.wamid ?? `${turn.at}-${turnIndex}`}
+                            >
+                              <span className="cprof-chat-speaker">
+                                {turn.direction === "inbound" ? "Candidate" : "WhatsApp bot"}
+                              </span>
+                              <p>{turn.text || turn.filename || humanizeKey(turn.type)}</p>
+                              <time dateTime={turn.at}>
+                                {turn.at
+                                  ? formatDateFull(new Date(turn.at))
+                                  : "Time unavailable"}
+                              </time>
+                              {turn.error && (
+                                <span className="cprof-chat-error">
+                                  Delivery issue: {turn.error}
+                                </span>
+                              )}
+                            </article>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : candidate.assignment_history?.length ? (
+                <div className="cprof-facts">
+                  {[...candidate.assignment_history].reverse().map((entry, index) => (
+                    <React.Fragment key={`${entry.at}-${index}`}>
+                      <div className="cprof-fact-label">
+                        {entry.at ? formatDateFull(new Date(entry.at)) : "Reallocation"}
+                      </div>
+                      <div className="cprof-fact-value is-multiline">
+                        <strong>
+                          {entry.from_staff_name || "Unassigned"} → {entry.to_staff_name || "Staff"}
+                        </strong>
+                        {entry.by_user_name && <div>Reallocated by {entry.by_user_name}</div>}
+                        <div>{entry.remarks || "No remark provided"}</div>
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+              ) : (
+                <div className="cprof-chat-state">
+                  No staff reallocations have been recorded.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
