@@ -132,6 +132,14 @@ function downloadInBackground(url: string): void {
  */
 function nameFromDisposition(response: Response): string | null {
   const header = response.headers.get("content-disposition") || "";
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // A malformed extended filename can still have a usable plain fallback.
+    }
+  }
   const plain = /filename="([^"]+)"/.exec(header);
   return plain ? plain[1] : null;
 }

@@ -30,7 +30,6 @@ import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import styles from "./OverviewScreen.module.css";
 
 interface OverviewScreenProps {
-  total: number;
   candidates: CandidateRecord[];
   logs: LogEntry[];
   onNavigate: (id: NavId) => void;
@@ -153,11 +152,11 @@ function clockOf(value: string | undefined): string {
  * dashboard rather than a demonstration one.
  */
 export default function OverviewScreen({
-  total,
   candidates,
   onNavigate,
   onOpenCandidate,
 }: OverviewScreenProps) {
+  const total = candidates.length;
   // Weekly by default. The pool is young — a monthly chart of a database that
   // started filling this month is one bar and five empty months, which reads as
   // a broken chart rather than as a new one.

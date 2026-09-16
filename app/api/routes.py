@@ -535,10 +535,14 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
     """
     import urllib.parse
 
-    safe = (filename or "download").replace('"', "").replace("'", "")
+    name = (filename or "download").replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(ch for ch in name if ord(ch) >= 32 and ord(ch) != 127) or "download"
+    # HTTP headers must be Latin-1 encodable. Keep Unicode in filename* and
+    # supply an ASCII fallback for browsers that only understand filename.
+    safe = name.encode("ascii", "replace").decode("ascii").replace('"', "").replace("'", "")
     # `UTF-8''<pct-encoded>` — the two quotes are the empty language tag RFC
     # 5987 requires between the charset and the name, not a stray pair.
-    extended = f"UTF-8''{urllib.parse.quote(safe)}"
+    extended = f"UTF-8''{urllib.parse.quote(name, safe='')}"
     return Response(
         content=data,
         media_type=mime_type or "application/octet-stream",
@@ -548,100 +552,35 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
     )
 
 
-def _fetch_resume_from_email(record: CandidateRecord) -> bytes | None:
-    """Last resort: go back to the mailbox for a file storage has lost.
-
-    Addressed by the RFC822 ``Message-ID`` rather than the UID recorded at
-    ingestion, because that UID stopped meaning anything the moment the mail was
-    filed into `Resumes/Processed` — re-fetching it either failed or, worse,
-    returned somebody else's message.
-
-    Whatever comes back is written to storage on the way out, so the next
-    download does not have to repeat this.
-    """
-    source = record.source_email
-    if not source or not source.message_id:
-        return None
-
-    mid = source.message_id
-    # `thread_id` is where the IMAP client keeps the Message-ID header.
-    rfc_id = getattr(source, "thread_id", "") or ""
-    wanted_hash = (record.resume.sha256 if record.resume else "") or ""
-
-    try:
-        from app.db.dedup import sha256_hex
-        from app.email_client.factory import get_all_email_clients
-
-        for client in get_all_email_clients():
-            try:
-                msg = None
-                finder = getattr(client, "get_message_by_rfc_id", None)
-                if rfc_id and callable(finder):
-                    msg = finder(rfc_id)
-                if msg is None:
-                    msg = client.get_message(mid)
-                if not msg or not msg.attachments:
-                    continue
-
-                loaded = [a for a in msg.attachments if a.data]
-                # The bundle can hold several files; the hash says which one
-                # became this candidate. Without it, a covering letter attached
-                # alongside the CV would be served as the résumé.
-                for att in loaded:
-                    if wanted_hash and sha256_hex(att.data) != wanted_hash:
-                        continue
-                    _restore_to_storage(record, att.data, att.mime_type)
-                    return att.data
-                if not wanted_hash and loaded:
-                    att = loaded[0]
-                    _restore_to_storage(record, att.data, att.mime_type)
-                    return att.data
-            except Exception as err:  # noqa: BLE001 — try the next account
-                log.debug("Could not re-fetch %s from %s: %s",
-                          rfc_id or mid, getattr(client, "imap_username", "client"), err)
-                continue
-    except Exception as err:  # noqa: BLE001
-        log.warning("Live email fallback download failed for message %s: %s", mid, err)
-    return None
-
-
-def _restore_to_storage(record: CandidateRecord, data: bytes, mime_type: str | None) -> None:
-    """Put a recovered file back where it should have been all along."""
-    if not (record.resume and record.resume.storage_key):
-        return
-    try:
-        backend = get_storage_backend()
-        backend.save(record.resume.storage_key, data, content_type=mime_type)
-        repo().set_storage_backend(record.id, backend.name)
-        log.info("Restored the résumé for %s into %s storage", record.id, backend.name)
-    except Exception as err:  # noqa: BLE001 — the download itself still succeeds
-        log.warning("Could not restore the résumé for %s: %s", record.id, err)
-
-
 @app.get("/candidates/{candidate_id}/resume")
 def download_resume(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> Response:
+    from app.services.resume_recovery import recover_from_email
+
     record = _owned_or_404(candidate_id, user)
     if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
     backend_name = record.resume.storage_backend or settings.storage_backend
     data = None
-    try:
-        data = get_storage_backend(backend_name).load(record.resume.storage_key)
-    except Exception as e1:
-        # Fallback check: if record backend failed, try alternate storage backend (local vs gridfs)
+    unavailable = False
+    for name in (backend_name, "local" if backend_name == "gridfs" else "gridfs"):
         try:
-            alt_backend = "local" if backend_name == "gridfs" else "gridfs"
-            data = get_storage_backend(alt_backend).load(record.resume.storage_key)
-        except Exception as e2:
-            # Fallback 2: dynamically download attachment straight from the email mailbox
-            data = _fetch_resume_from_email(record)
-            if not data:
-                filename = record.resume.original_filename or "resume.pdf"
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Resume file '{filename}' is missing from server storage."
-                )
+            data = get_storage_backend(name).load(record.resume.storage_key)
+            break
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            unavailable = True
+            log.warning("Resume storage %s unavailable for candidate %s: %s", name, candidate_id, exc)
+    if data is None:
+        data = recover_from_email(record)
+    if data is None:
+        if unavailable:
+            raise HTTPException(status_code=503, detail="The resume could not be read just now. Try again.")
+        raise HTTPException(
+            status_code=404,
+            detail="The original resume file could not be found in storage or recovered from email. Please upload it again.",
+        )
     
     return _attachment_response(
         data,

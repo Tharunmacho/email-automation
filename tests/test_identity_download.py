@@ -121,8 +121,9 @@ def passport_row(**overrides) -> dict:
 
 
 @pytest.fixture
-def api():
+def api(monkeypatch):
     """A signed-in client over one candidate whose bundle is really in storage."""
+    monkeypatch.setattr("app.services.resume_recovery.recover_from_email", lambda record: None)
     repo = Repo([make_record("cand-mine", "staff-1"), make_record("cand-theirs", "staff-2")])
     storage = Storage(
         {
@@ -182,6 +183,24 @@ def test_the_passport_page_is_cut_out_of_the_bundle(api):
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith("application/pdf")
     assert text_of(response.content) == ["PAGE 55"]
+
+
+def test_missing_bundle_is_recovered_before_cutting_identity_pages(api, monkeypatch):
+    api.sign_in_as("admin", "admin-1")
+    bundle = api.storage.files.pop("2026/08/cand-mine_application.pdf")
+    monkeypatch.setattr("app.services.resume_recovery.recover_from_email", lambda record: bundle)
+    response = api.get(url("passport", "rec-passport"))
+    assert response.status_code == 200
+    assert text_of(response.content) == ["PAGE 55"]
+
+
+def test_identity_download_supports_unicode_filenames(api):
+    api.sign_in_as("admin", "admin-1")
+    api.rows["passport"][0]["source"]["filename"] = "தமிழ்.pdf"
+    response = api.get(url("passport", "rec-passport"))
+    assert response.status_code == 200
+    assert text_of(response.content) == ["PAGE 55"]
+    assert "%E0%AE" in response.headers["content-disposition"]
 
 
 def test_the_download_is_named_after_the_document_and_its_pages(api):

@@ -234,6 +234,36 @@ export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResp
   });
 }
 
+/**
+ * The complete candidate directory, assembled from the API's bounded pages.
+ *
+ * The API intentionally caps one response at 200 rows. The CRM's overview,
+ * filters, and client-side pagination all describe the whole pool, so stopping
+ * after that first response makes the directory say "200" while the API's
+ * total says (for example) "225". Follow the server total until every row has
+ * been loaded, while keeping each individual response small.
+ */
+export async function listAllCandidates(): Promise<CandidateListResponse> {
+  const pageSize = 200;
+  const items: CandidateRecord[] = [];
+  let skip = 0;
+  let expected = Number.POSITIVE_INFINITY;
+
+  while (skip < expected) {
+    const page = await listCandidates(pageSize, skip);
+    const rows = page.items ?? [];
+    items.push(...rows);
+    skip += rows.length;
+    expected = page.total ?? skip;
+
+    // A short or empty page is the server's definitive end of the collection.
+    // This also terminates safely if records are deleted between page requests.
+    if (rows.length < pageSize) break;
+  }
+
+  return { total: items.length, count: items.length, items };
+}
+
 /** The complete record for one candidate — every field, OCR payload included. */
 export function getCandidate(candidateId: string): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });

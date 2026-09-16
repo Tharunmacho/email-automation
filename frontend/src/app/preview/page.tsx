@@ -228,7 +228,6 @@ export default function PreviewPage() {
 
             {screen === "overview" && (
               <OverviewScreen
-                total={candidates.length}
                 candidates={candidates}
                 logs={[]}
                 onNavigate={go}

@@ -48,7 +48,7 @@ import {
   getToken,
   logout as clearSession,
   deleteCandidateAPI,
-  listCandidates,
+  listAllCandidates,
   markCandidateViewed,
   runPollCycle,
   updateCandidateProfile,
@@ -153,7 +153,6 @@ export default function Home() {
   const [candidateDataLoaded, setCandidateDataLoaded] = useState(false);
   const [candidateLoading, setCandidateLoading] = useState(true);
   const [candidateLoadError, setCandidateLoadError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -268,10 +267,9 @@ export default function Home() {
 
   const refreshCandidates = useCallback(async () => {
     try {
-      const data = await listCandidates();
+      const data = await listAllCandidates();
       lastRefreshRef.current = Date.now();
       setCandidates(data.items ?? []);
-      setTotal(data.total ?? 0);
       setCandidateDataLoaded(true);
       setCandidateLoadError(null);
       return data.items ?? [];
@@ -327,7 +325,6 @@ export default function Home() {
     setCandidateDataLoaded(false);
     setCandidateLoading(true);
     setCandidateLoadError(null);
-    setTotal(0);
     setLogs([]);
     setCandidateExtraction(null);
     setCreationError(null);
@@ -345,12 +342,11 @@ export default function Home() {
     if (!user || !canReadCandidates) return;
     let active = true;
 
-    listCandidates().then(
+    listAllCandidates().then(
       (data) => {
         if (!active) return;
         lastRefreshRef.current = Date.now();
         setCandidates(data.items ?? []);
-        setTotal(data.total ?? 0);
         setCandidateDataLoaded(true);
         setCandidateLoading(false);
         setCandidateLoadError(null);
@@ -1235,7 +1231,6 @@ export default function Home() {
               <>
                 {currentTab === "overview" && (
                   <OverviewScreen
-                    total={total}
                     candidates={candidates}
                     logs={logs}
                     onNavigate={handleNavigate}

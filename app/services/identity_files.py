@@ -232,7 +232,16 @@ def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
             "read from, so the pages it names cannot be trusted"
         )
 
-    data = _load(record.resume.storage_backend, record.resume.storage_key)
+    try:
+        data = _load(record.resume.storage_backend, record.resume.storage_key)
+    except (IdentityFileMissing, IdentityFileUnavailable):
+        # Older records may point at a bundle lost during a storage migration.
+        # Recover that same bundle before cutting out this document's pages.
+        from app.services.resume_recovery import recover_from_email
+
+        data = recover_from_email(record)
+        if data is None:
+            raise
     pages = _pages(doc)
     stem = _stem((doc.get("source") or {}).get("filename") or record.resume.original_filename)
 
