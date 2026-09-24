@@ -31,6 +31,9 @@ import {
 } from "lucide-react";
 
 import { useModalFocus } from "@/components/ui/useModalFocus";
+// The Sourcing Hub owns what a relationship's `type` means, and exports the
+// reading of it. Duplicating that rule here is how the two would drift.
+import { normaliseType, type SourcingType } from "@/screens/SourcingHub";
 
 import {
   reassignCandidate,
@@ -44,6 +47,7 @@ import {
   type Office,
   type OfferStatus,
   type RecruitmentStatus,
+  type SourcingClientRecord,
   type StaffMember,
 } from "@/lib/api";
 
@@ -58,6 +62,12 @@ interface Props {
   countries: { id: string; name: string }[];
   offices: Office[];
   staff: StaffMember[];
+  /**
+   * The agency's commercial relationships, from the Sourcing Hub. A candidate
+   * is submitted *to* one of these, so the name is picked rather than typed —
+   * two spellings of one company are two companies nobody can reconcile later.
+   */
+  partners: SourcingClientRecord[];
   onToast: Toast;
   /** Called with the updated record so the page can refresh what it holds. */
   onChanged: (record: CandidateRecord) => void;
@@ -96,6 +106,25 @@ const SUBMITTED_STATES: RecruitmentStatus[] = [
   "interview_completed",
 ];
 
+/**
+ * Which sourcing relationships a candidate of each target type goes to.
+ *
+ * A *company* is a client that hires directly. An *associate* is a partner the
+ * agency places through — an agent or an association.
+ *
+ * The stored `type` is read through the Sourcing Hub's own `normaliseType`
+ * rather than compared directly: `POST /sourcing-clients` takes an unvalidated
+ * dict, and real rows carry values outside the union ("business" is on file
+ * today). That helper already rules that anything which is not an agent or an
+ * association is a client, so reusing it keeps one answer — and, more to the
+ * point, means an unrecognised type shows up under Company instead of
+ * vanishing from both dropdowns.
+ */
+const PARTNER_TYPES: Record<"company" | "associate", SourcingType[]> = {
+  company: ["client"],
+  associate: ["agent", "association"],
+};
+
 function tone(status: RecruitmentStatus): string {
   if (status === "offer_accepted") return "is-ok";
   if (status === "selected" || status === "offer_issued") return "is-info";
@@ -118,7 +147,7 @@ function whenExact(value?: string | null): string {
 }
 
 export default function RecruitmentPanel({
-  candidate, canManage, canReassign, countries, offices, staff, onToast, onChanged,
+  candidate, canManage, canReassign, countries, offices, staff, partners, onToast, onChanged,
 }: Props) {
   const status = (candidate.recruitment_status ?? "available") as RecruitmentStatus;
   const locked = Boolean(candidate.placement_locked);
@@ -141,6 +170,13 @@ export default function RecruitmentPanel({
   // Submission
   const [targetType, setTargetType] = useState<"company" | "associate">("company");
   const [targetName, setTargetName] = useState("");
+  /**
+   * True when the destination is not in the Sourcing Hub yet, which happens —
+   * a recruiter should not be blocked from recording a real submission because
+   * somebody has not filed the company first. Picking "Not listed" reveals the
+   * free-text field the form used to be.
+   */
+  const [targetIsCustom, setTargetIsCustom] = useState(false);
   const [jobOrderId, setJobOrderId] = useState("");
   const [submitNotes, setSubmitNotes] = useState("");
   // Interview
@@ -190,7 +226,14 @@ export default function RecruitmentPanel({
   };
 
   const doSubmit = () => {
-    if (!targetName.trim()) return onToast("Name the company or associate", "info");
+    if (!targetName.trim()) {
+      return onToast(
+        targetIsCustom
+          ? `Type the ${targetType}'s name`
+          : `Choose ${article} ${targetType} to submit to`,
+        "info",
+      );
+    }
     return run(`Submitted to ${targetName.trim()}`, () =>
       submitCandidate(candidate.id, {
         target_type: targetType,
@@ -265,6 +308,27 @@ export default function RecruitmentPanel({
     } finally {
       setBusy(false);
     }
+  };
+
+  // Active relationships of the right kind, by name. Inactive ones are left out
+  // — submitting a candidate to a relationship the agency has ended is not a
+  // thing anyone means to do — but a name already typed is never hidden.
+  const partnerOptions = partners
+    .filter((row) => PARTNER_TYPES[targetType].includes(normaliseType(row.type)))
+    .filter((row) => row.status !== "INACTIVE")
+    .map((row) => row.name)
+    .filter((name, index, all) => name && all.indexOf(name) === index)
+    .sort((left, right) => left.localeCompare(right));
+
+  // "an associate", "a company".
+  const article = targetType === "associate" ? "an" : "a";
+
+  const chooseTargetType = (next: "company" | "associate") => {
+    setTargetType(next);
+    // The previous pick belongs to the other list, so it is cleared rather than
+    // left showing a company under "associate".
+    setTargetName("");
+    setTargetIsCustom(false);
   };
 
   // Which actions make sense from here. The backend is the authority; this just
@@ -433,15 +497,44 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Send to
-            <select value={targetType} onChange={(e) => setTargetType(e.target.value as "company" | "associate")}>
+            <select value={targetType} onChange={(e) => chooseTargetType(e.target.value as "company" | "associate")}>
               <option value="company">Company</option>
               <option value="associate">Associate</option>
             </select>
           </label>
           <label>
-            Name
-            <input value={targetName} onChange={(e) => setTargetName(e.target.value)} placeholder="Keppel Shipyard" maxLength={200} />
+            {targetType === "company" ? "Company" : "Associate"}
+            <select
+              value={targetIsCustom ? "__custom__" : targetName}
+              onChange={(e) => {
+                const picked = e.target.value;
+                setTargetIsCustom(picked === "__custom__");
+                setTargetName(picked === "__custom__" ? "" : picked);
+              }}
+            >
+              <option value="">
+                {partnerOptions.length
+                  ? `Select ${article} ${targetType}`
+                  : `No ${targetType} on file — choose "Not listed"`}
+              </option>
+              {partnerOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value="__custom__">Not listed — type a name</option>
+            </select>
           </label>
+          {targetIsCustom && (
+            <label>
+              Name
+              <input
+                value={targetName}
+                onChange={(e) => setTargetName(e.target.value)}
+                placeholder="Keppel Shipyard"
+                maxLength={200}
+                autoFocus
+              />
+            </label>
+          )}
           <label>
             Job order (optional)
             <input value={jobOrderId} onChange={(e) => setJobOrderId(e.target.value)} placeholder="JO-1042" />

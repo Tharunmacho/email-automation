@@ -19,6 +19,7 @@ import TopBar from "@/components/TopBar";
 import OverviewScreen from "@/screens/OverviewScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import RecruitmentPanel from "@/components/RecruitmentPanel";
+import type { SourcingClientRecord } from "@/lib/api";
 import JobOrders from "@/screens/JobOrders";
 import SourcingHub from "@/screens/SourcingHub";
 import DataManagementScreen from "@/screens/DataManagementScreen";
@@ -104,6 +105,17 @@ const PREVIEW_COUNTRIES = [
 const PREVIEW_OFFICES = [
   { id: "mount_road", name: "Mount Road", active: true },
 ];
+/** Sourcing relationships, so the submit form has names to offer. */
+const PREVIEW_PARTNERS = [
+  { id: "p1", name: "Keppel Shipyard", type: "client", status: "ACTIVE",
+    contact: "", phone: "", email: "", date: "" },
+  { id: "p2", name: "Sembcorp Marine", type: "client", status: "ACTIVE",
+    contact: "", phone: "", email: "", date: "" },
+  { id: "p3", name: "Gulf Manpower Associates", type: "agent", status: "ACTIVE",
+    contact: "", phone: "", email: "", date: "" },
+  { id: "p4", name: "Retired Yard Co", type: "client", status: "INACTIVE",
+    contact: "", phone: "", email: "", date: "" },
+] satisfies SourcingClientRecord[];
 
 const PROFILE_CANDIDATE = {
   id: "preview-candidate",
@@ -297,6 +309,7 @@ export default function PreviewPage() {
                     countries={PREVIEW_COUNTRIES}
                     offices={PREVIEW_OFFICES}
                     staff={[]}
+                    partners={PREVIEW_PARTNERS}
                     onToast={noop}
                     onChanged={noop}
                   />

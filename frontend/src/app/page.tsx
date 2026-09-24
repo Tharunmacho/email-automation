@@ -65,6 +65,8 @@ import {
   type CountryRow,
   type Office,
   type StaffMember,
+  listSourcingClientsAPI,
+  type SourcingClientRecord,
 } from "@/lib/api";
 import type { Verdict } from "@/screens/CandidateProfileScreen";
 
@@ -451,6 +453,9 @@ export default function Home() {
   const [countries, setCountries] = useState<CountryRow[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [staffRoster, setStaffRoster] = useState<StaffMember[]>([]);
+  // The companies and associates a candidate can be submitted to, so the name
+  // is picked from the Sourcing Hub rather than typed twice differently.
+  const [partners, setPartners] = useState<SourcingClientRecord[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -462,6 +467,9 @@ export default function Home() {
       .catch(() => undefined);
     void fetchOffices()
       .then(({ items }) => active && setOffices(items))
+      .catch(() => undefined);
+    void listSourcingClientsAPI()
+      .then(({ items }) => active && setPartners(items ?? []))
       .catch(() => undefined);
     if (canReallocate) {
       void listStaff(false)
@@ -1235,6 +1243,7 @@ export default function Home() {
                     countries={countries}
                     offices={offices}
                     staff={staffRoster}
+                    partners={partners}
                     onToast={showToast}
                     onChanged={handleRecruitmentChanged}
                   />

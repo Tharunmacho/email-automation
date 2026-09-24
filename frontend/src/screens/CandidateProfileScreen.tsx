@@ -962,6 +962,7 @@ export default function CandidateProfileScreen({
           verdict at the bottom, directly after the evidence. */}
       <div className={reviewing ? "cprof-review" : "cprof-review is-plain"}>
         <div className="cprof-sections">
+        {recruitment}
         <section className="cprof-card" id={sectionId("details")}>
           <h3 className="cprof-card-title">Candidate details</h3>
           <div className="cprof-facts">
@@ -1445,8 +1446,6 @@ export default function CandidateProfileScreen({
             </div>
           </section>
         )}
-
-        {recruitment}
         </div>
 
         {evaluation && (

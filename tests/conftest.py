@@ -46,3 +46,19 @@ def no_real_database(monkeypatch, request):
     monkeypatch.setattr(mongo, "get_client", _refuse)
     yield
     real_get_client.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def no_real_whatsapp_bot(monkeypatch):
+    """Keep fixtures off real phones.
+
+    With `WA_BOT_URL` and `WA_BOT_API_KEY` in the environment, every SLA and
+    assignment test relayed its fixture to the live bot, which sent admins
+    "Candidate c1 / Assigned Staff: Sam" alerts on WhatsApp. Blank both so the
+    relay is disabled; tests of the relay itself configure a fake URL and patch
+    `urlopen` inside the test.
+    """
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "wa_bot_url", "")
+    monkeypatch.setattr(settings, "wa_bot_api_key", "")
