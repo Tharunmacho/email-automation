@@ -46,10 +46,18 @@ def run_one_cycle(query: str | None = None) -> dict | None:
         log.debug("Skipping the scheduled poll: a cycle is already in progress")
         return None
     try:
-        from app.ingestion.runner import IngestionRunner
-        from app.tasks.jobs import drain_mailbox
-
-        summary = drain_mailbox(IngestionRunner(), query=query)
+        from app.tasks.health import workers_online
+        
+        if workers_online():
+            from app.tasks.jobs import poll_gmail
+            log.info("Celery worker is online. Dispatching poll to Celery.")
+            poll_gmail.delay(query=query)
+            summary = {"dispatched": True, "processed": 0, "fetched": 0, "errors": 0}
+        else:
+            from app.ingestion.runner import IngestionRunner
+            from app.tasks.jobs import drain_mailbox
+            log.info("No Celery worker online. Running poll inline.")
+            summary = drain_mailbox(IngestionRunner(), query=query)
 
         # The two sweeps the Sync button used to run after its batch. Without
         # beat these are the only things that collect a passport extraction
