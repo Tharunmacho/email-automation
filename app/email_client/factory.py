@@ -92,3 +92,17 @@ def get_all_email_clients() -> List[Any]:
     for account in accounts:
         clients.append(get_email_client(config=account))
     return clients
+
+
+def get_client_for_address(address: str | None = None) -> Any:
+    """Find the email client corresponding to a specific recipient/account address."""
+    if not address:
+        return get_email_client()
+    address_clean = address.lower().strip()
+    all_clients = get_all_email_clients()
+    for client in all_clients:
+        user = (getattr(client, "imap_username", "") or getattr(client, "smtp_username", "") or "").lower().strip()
+        if user and (user in address_clean or address_clean in user):
+            return client
+    return get_email_client()
+

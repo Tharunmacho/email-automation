@@ -224,9 +224,9 @@ async def _startup() -> None:
     ws.set_publisher_loop(asyncio.get_running_loop())
     asyncio.create_task(ws.relay_redis_events())
 
-    # Nothing polled the mailboxes on a timer, so mail was only ever fetched
-    # when somebody pressed Sync. Beat now has a poll task for deployments with
-    # a worker; this covers the ones without.
+    # The 24/7 mail poll. There is no Sync button, so this is the only thing
+    # that reads the mailboxes; it runs here whether or not a worker is up, and
+    # beat does not poll mail at all (see `app/ingestion/autopoll.py`).
     if settings.mail_autopoll_enabled and not _under_test():
         from app.ingestion import autopoll
 
@@ -891,7 +891,7 @@ def _collect_pending_identity_jobs() -> None:
 def _start_inline_poll(query: str | None) -> dict:
     """Run one cycle on a background thread and return its task id at once."""
     from app.ingestion.runner import IngestionRunner
-    from app.tasks.jobs import summary_to_dict
+    from app.tasks.jobs import drain_mailbox
 
     task_id = f"inline-{uuid.uuid4().hex}"
 
@@ -920,15 +920,22 @@ def _start_inline_poll(query: str | None) -> dict:
 
     def _run() -> None:
         try:
-            summary = summary_to_dict(IngestionRunner().run_once(query=query))
-            # Before reporting the cycle done: with no worker there is no beat,
-            # so this is the only thing that will ever collect an identity job
-            # the batch had to leave running.
+            # One shared drain for every poll path — see
+            # `app.tasks.jobs.drain_mailbox`. This loop used to live here, and
+            # that is how the Celery path came to stop after a single batch
+            # while this one emptied the mailbox: the same idea written twice,
+            # and only one of the two kept right.
+            def _progress(running: dict) -> None:
+                _inline_task_set(task_id, {
+                    "task_id": task_id, "state": "PENDING", "ready": False,
+                    "mode": "inline", "result": running,
+                })
+
+            combined_summary = drain_mailbox(
+                IngestionRunner(), query=query, on_progress=_progress,
+            )
+
             _collect_pending_identity_jobs()
-            # And the same argument for auto-replies. The batch queues them
-            # rather than sending them, so on this path the only thing that
-            # notices a send which never happened — a restart mid-queue, SMTP
-            # down for the length of the batch — is this sweep.
             try:
                 from app.ingestion.pipeline import flush_pending_auto_replies
 
@@ -937,7 +944,7 @@ def _start_inline_poll(query: str | None) -> dict:
                 log.warning("Auto-reply sweep after the inline poll failed: %s", exc)
             _inline_task_set(task_id, {
                 "task_id": task_id, "state": "SUCCESS", "ready": True,
-                "mode": "inline", "result": summary,
+                "mode": "inline", "result": combined_summary,
             })
         except Exception as exc:  # noqa: BLE001 — reported, never raised into the thread
             log.exception("Inline poll cycle failed")
@@ -961,7 +968,7 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(require_admin))
     is running; this stays as the no-worker fallback.
     """
     from app.ingestion.runner import IngestionRunner
-    from app.tasks.jobs import summary_to_dict
+    from app.tasks.jobs import drain_mailbox
 
     from app.tasks.locks import claim_inline_poll
 
@@ -975,7 +982,12 @@ def trigger_poll(query: str | None = None, _user: dict = Depends(require_admin))
         }
 
     try:
-        return summary_to_dict(IngestionRunner().run_once(query=query))
+        # Drains, like every other poll path. This one holds the request open
+        # for the whole thing, which is why it is documented as the fallback
+        # for small inboxes — but doing a single batch here while the other
+        # two emptied the mailbox is precisely the inconsistency that let a
+        # backlog sit untouched behind a Sync that reported success.
+        return drain_mailbox(IngestionRunner(), query=query)
     finally:
         claim.release()
 

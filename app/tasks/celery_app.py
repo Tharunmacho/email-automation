@@ -20,21 +20,15 @@ from app.config import settings
 
 
 def _mail_poll_schedule() -> dict:
-    """The mailbox poll, when this deployment wants one.
+    """Always empty: beat never polls the mailboxes.
 
-    `poll_gmail` searches every configured account and fans out one task per
-    email, so the résumés are extracted concurrently and the next tick is not
-    blocked behind them. Absent unless `MAIL_AUTOPOLL_ENABLED` is set: the
-    default is that nothing reads a mailbox until a person asks for it.
+    The API process owns the 24/7 mail poll (`app/ingestion/autopoll.py`) and
+    runs it whether or not a worker is up. A beat entry as well would put two
+    schedulers over the same mail, and the pm2 deployment does not run beat at
+    all — which is how a worker being online used to mean nothing polled. Kept
+    as a function so the schedule below still documents where the poll went.
     """
-    if not settings.mail_autopoll_enabled:
-        return {}
-    return {
-        "poll-mailboxes": {
-            "task": "app.tasks.jobs.poll_gmail",
-            "schedule": float(settings.mail_poll_interval_seconds),
-        }
-    }
+    return {}
 
 
 celery_app = Celery(
@@ -61,11 +55,10 @@ celery_app.conf.update(
     # the answer. It is single-flighted on a Redis lock, so a tick landing on
     # top of a slow sweep is a no-op rather than a double submission.
     beat_schedule={
-        # Draining the mailboxes is *not* scheduled here by default — see
-        # `mail_autopoll_enabled`. Extraction runs when somebody presses Sync,
-        # so the schedule below is only the housekeeping that has to happen
-        # whether or not anyone is looking. Setting the flag adds the mail poll
-        # back (`_mail_poll_schedule`).
+        # Draining the mailboxes is *not* scheduled here — the API process
+        # owns that poll, 24/7 (`app/ingestion/autopoll.py`). The schedule
+        # below is only the housekeeping that has to happen whether or not
+        # anyone is looking.
         **_mail_poll_schedule(),
         "reconcile-ocr-jobs": {
             "task": "app.tasks.reconciler.reconcile_ocr_jobs",
