@@ -52,12 +52,40 @@ def _destination_country(profile: object) -> str:
     return str(value or "").strip().casefold()
 
 
-def is_staff_eligible(member: object, profile: object) -> bool:
-    """Whether ``member`` belongs to the desk responsible for this candidate."""
-    is_sg_my_candidate = _destination_country(profile) in SINGAPORE_MALAYSIA_COUNTRIES
+#: The two desks, as stable identifiers rather than a bare boolean, so a
+#: reassignment record can name where a candidate came from and went to.
+SINGAPORE_MALAYSIA_DESK = "singapore_malaysia"
+GENERAL_DESK = "general"
+
+
+def desk_for_staff(member: object) -> str:
+    """Which desk this staff account belongs to."""
     email = member.get("email", "") if isinstance(member, dict) else getattr(member, "email", "")
-    is_sg_my_staff = str(email).strip().casefold() in SINGAPORE_MALAYSIA_DESK_EMAILS
-    return is_sg_my_candidate == is_sg_my_staff
+    return (
+        SINGAPORE_MALAYSIA_DESK
+        if str(email).strip().casefold() in SINGAPORE_MALAYSIA_DESK_EMAILS
+        else GENERAL_DESK
+    )
+
+
+def desk_for_candidate(profile: object) -> str:
+    """Which desk is responsible for a candidate, by destination."""
+    return (
+        SINGAPORE_MALAYSIA_DESK
+        if _destination_country(profile) in SINGAPORE_MALAYSIA_COUNTRIES
+        else GENERAL_DESK
+    )
+
+
+def is_staff_eligible(member: object, profile: object) -> bool:
+    """Whether ``member`` belongs to the desk responsible for this candidate.
+
+    Enforced on ordinary allocation, so routine work stays on the right desk.
+    A deliberate cross-desk move is a different operation with its own audit
+    trail — see `POST /candidates/{id}/reassign` — and does not come through
+    here.
+    """
+    return desk_for_candidate(profile) == desk_for_staff(member)
 
 
 def _eligible_staff(staff: Sequence[User], profile: object) -> List[User]:

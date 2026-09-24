@@ -269,6 +269,71 @@ def _prepare_passport_keys(collection: Collection, passport_collection: Collecti
         )
 
 
+
+def _repair_recruitment_statuses(coll) -> None:
+    """Move outcome values out of the fields that never defined them.
+
+    Recording an interview outcome used to write "selected" or "offer_declined"
+    into `evaluation_status`, which defines neither, and into
+    `recruitment_status`, which defines the first but not the second. Those
+    values reached the database, matched no status the console can draw, and
+    left the profile showing a blank chip.
+
+    Each affected record is repaired to the model the rest of the system now
+    uses: the outcome moves to `last_outcome`, `evaluation_status` goes back to
+    a verdict it actually defines, and a candidate whose outcome released them
+    returns to the pool. Idempotent, so a restart mid-run costs nothing.
+
+    Safe by construction: the queries only match the invalid values, so a record
+    written since the fix is never touched.
+    """
+    from app.core.models import (
+        EVALUATION_STATUSES,
+        OUTCOME_TO_EVALUATION_STATUS,
+        OUTCOMES_RETURNING_TO_POOL,
+        RECRUITMENT_STATUSES,
+    )
+
+    stray_evaluations = [
+        value for value in ("selected", "offer_declined", "offer_accepted", "offer_issued")
+        if value not in EVALUATION_STATUSES
+    ]
+    for doc in coll.find(
+        {"evaluation_status": {"$in": stray_evaluations}},
+        {"_id": 1, "evaluation_status": 1, "recruitment_status": 1},
+    ):
+        outcome = doc["evaluation_status"]
+        updates = {
+            "last_outcome": outcome,
+            # An outcome is not a verdict on the profile. Where the two share a
+            # word the mapping keeps it; otherwise the review returns to the
+            # state it was actually in before the outcome overwrote it.
+            "evaluation_status": OUTCOME_TO_EVALUATION_STATUS.get(outcome, "interviewing"),
+        }
+        if outcome in OUTCOMES_RETURNING_TO_POOL:
+            updates["recruitment_status"] = "available"
+            updates["placement_locked"] = False
+        coll.update_one({"_id": doc["_id"]}, {"$set": updates})
+
+    # `offer_declined` and `offer_rejected` were written as recruitment statuses
+    # by the old offer route. Neither is one; both mean "available again".
+    coll.update_many(
+        {"recruitment_status": {"$in": ["offer_declined", "offer_rejected"]}},
+        {"$set": {
+            "recruitment_status": "available",
+            "last_outcome": "offer_declined",
+            "placement_locked": False,
+        }},
+    )
+
+    # Anything still outside the vocabulary is returned to the pool rather than
+    # left as a value nothing can render.
+    coll.update_many(
+        {"recruitment_status": {"$nin": list(RECRUITMENT_STATUSES), "$exists": True}},
+        {"$set": {"recruitment_status": "available"}},
+    )
+
+
 def ensure_indexes() -> None:
     """Create the indexes the pipeline relies on. Safe to call repeatedly."""
     db = get_db()
@@ -303,6 +368,7 @@ def ensure_indexes() -> None:
         parts = str(doc.get("idempotency_key", "")).split("/")
         if len(parts) > 1 and parts[1]:
             coll.update_one({"_id": doc["_id"]}, {"$set": {"source_bot_id": parts[1]}})
+    _repair_recruitment_statuses(coll)
     ensure_index(
         coll,
         [("candidate_code", ASCENDING)],

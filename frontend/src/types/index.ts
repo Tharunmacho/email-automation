@@ -355,6 +355,37 @@ export interface CandidateRecord {
   evaluated_at?: string | null;
 
   /**
+   * Where the candidate stands with the outside world.
+   *
+   * Deliberately four separate fields, mirroring the backend. `evaluation_status`
+   * above is our own reviewer's verdict on the profile; these are facts about an
+   * engagement with a company or associate. Merging them is what previously put
+   * "selected" — a value `EvaluationStatus` does not define — into the verdict.
+   */
+  recruitment_status?: RecruitmentStatus | null;
+  submission_target_type?: "company" | "associate" | null;
+  submission_target_name?: string | null;
+  submission_date?: string | null;
+  job_order_id?: string | null;
+  interview_status?: InterviewStatus | null;
+  interview_at?: string | null;
+  offer_status?: OfferStatus | null;
+  /**
+   * The last thing a company or associate said. Kept apart from
+   * `recruitment_status` because a rejected candidate returns to "available"
+   * immediately and the profile still has to show why.
+   */
+  last_outcome?: InterviewOutcome | null;
+  last_outcome_at?: string | null;
+  /** True only while an accepted offer stands. Blocks new job-order matching. */
+  placement_locked?: boolean;
+  recruitment_history?: RecruitmentEvent[];
+
+  /** Which of our own offices is handling this candidate. */
+  office_id?: string | null;
+  office_name?: string | null;
+
+  /**
    * The WhatsApp conversation's own two sections.
    *
    * `job` is what the agency decides on — what the candidate can do, where they
@@ -529,6 +560,50 @@ export interface CandidateUploadResponse {
 }
 
 /** Mirrors EVALUATION_STATUSES in app/core/models.py. */
+/**
+ * Where a candidate is in the external pipeline. Mirrors `RECRUITMENT_STATUSES`
+ * in `app/core/models.py`; the two must be changed together.
+ */
+export type RecruitmentStatus =
+  | "available"
+  | "submitted_to_company"
+  | "submitted_to_associate"
+  | "interviewing"
+  | "interview_completed"
+  | "selected"
+  | "on_hold"
+  | "offer_issued"
+  | "offer_accepted";
+
+export type InterviewStatus = "pending" | "scheduled" | "completed" | "unavailable";
+
+export type OfferStatus = "issued" | "accepted" | "declined";
+
+export type InterviewOutcome = "selected" | "on_hold" | "rejected" | "offer_declined";
+
+/** One movement in the pipeline, appended and never rewritten. */
+export interface RecruitmentEvent {
+  type: "submitted" | "interview" | "outcome" | "offer" | string;
+  at: string;
+  actor_id?: string | null;
+  actor_name?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  target_type?: "company" | "associate" | null;
+  target_name?: string | null;
+  job_order_id?: string | null;
+  interview_at?: string | null;
+  returned_to_pool?: boolean;
+}
+
+/** One of our own branches, as a managed row rather than a typed string. */
+export interface Office {
+  id: string;
+  name: string;
+  country?: string;
+  active: boolean;
+}
+
 export type EvaluationStatus =
   | "pending"
   | "shortlisted"

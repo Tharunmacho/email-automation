@@ -44,6 +44,7 @@ log = get_logger(__name__)
 JOBS_COLLECTION = "job_designations"
 COUNTRIES_COLLECTION = "countries"
 JOB_QUESTIONS_COLLECTION = "job_questions"
+OFFICES_COLLECTION = "offices"
 
 #: How many rows the bot may show for a list question.
 #:
@@ -85,6 +86,10 @@ def job_questions_collection():
     return get_db()[JOB_QUESTIONS_COLLECTION]
 
 
+def offices_collection():
+    return get_db()[OFFICES_COLLECTION]
+
+
 def ensure_taxonomy_indexes() -> None:
     """Called from `ensure_indexes`. Safe to run repeatedly."""
     jobs = jobs_collection()
@@ -100,6 +105,9 @@ def ensure_taxonomy_indexes() -> None:
     questions.create_index(
         [("job_id", ASCENDING), ("order", ASCENDING)], name="job_question_order_idx"
     )
+
+    offices = offices_collection()
+    offices.create_index([("active", ASCENDING), ("name", ASCENDING)], name="office_active_name_idx")
 
 
 def normalise_country(value: Optional[str]) -> str:
@@ -251,6 +259,77 @@ def upsert_country(doc: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+# --------------------------------------------------------------------------- #
+#  Offices
+#
+#  Which of our own branches is handling a candidate — Mount Road, and whatever
+#  else the agency opens. A managed row rather than a typed string, for the same
+#  reason countries are: a candidate is moved *to* an office by name, and two
+#  spellings of the same office are two places nobody can reconcile later.
+#
+#  Deliberately separate from `User.branch`, which is where an employee is
+#  payrolled. The two often agree and are not the same fact, and merging them
+#  would mean an office could not exist until somebody was payrolled there.
+# --------------------------------------------------------------------------- #
+def office_doc(
+    *,
+    name: str,
+    country: str = "",
+    active: bool = True,
+    created_by: str = "",
+) -> Dict[str, Any]:
+    office_id = slugify(name)
+    return {
+        "_id": office_id,
+        "id": office_id,
+        "name": name.strip(),
+        #: The destination this office recruits for, when it is dedicated to
+        #: one. Blank means it handles any.
+        "country": (country or "").strip(),
+        "active": active,
+        "created_by": created_by,
+        "created_at": utcnow(),
+        "updated_at": utcnow(),
+    }
+
+
+def list_offices(*, active_only: bool = False) -> List[Dict[str, Any]]:
+    query: Dict[str, Any] = {"active": True} if active_only else {}
+    rows = list(offices_collection().find(query).sort([("name", ASCENDING)]))
+    for row in rows:
+        row.pop("_id", None)
+    return rows
+
+
+def get_office(office_id: str) -> Optional[Dict[str, Any]]:
+    row = offices_collection().find_one({"_id": office_id})
+    if row:
+        row.pop("_id", None)
+    return row
+
+
+def upsert_office(doc: Dict[str, Any]) -> Dict[str, Any]:
+    stored = dict(doc)
+    office_id = stored.pop("id", None) or stored.get("_id")
+    stored["_id"] = office_id
+    stored["id"] = office_id
+    stored["updated_at"] = utcnow()
+    offices_collection().replace_one({"_id": office_id}, stored, upsert=True)
+    log.info("Saved office %s (%s)", office_id, stored.get("name"))
+    result = dict(stored)
+    result.pop("_id", None)
+    return result
+
+
+def delete_office(office_id: str) -> bool:
+    """Retire an office. Never hard-deleted: candidates still point at it."""
+    result = offices_collection().update_one(
+        {"_id": office_id},
+        {"$set": {"active": False, "updated_at": utcnow()}},
+    )
+    return result.matched_count > 0
+
+
 def delete_country(country_id: str) -> bool:
     result = countries_collection().update_one(
         {"_id": country_id},
@@ -366,6 +445,13 @@ SEED_JOBS: List[Dict[str, Any]] = [
 #: The destinations the bot already offered, as rows. `Singapore` and `Malaysia`
 #: are separate because a rule about one cannot be applied to a record that says
 #: "one of these two, we never asked".
+#: The offices the agency runs today. Seeded so a reassignment has somewhere to
+#: go on a fresh deployment; admins add the rest.
+SEED_OFFICES = [
+    ("Mount Road", ""),
+    ("Singapore Desk", "Singapore"),
+]
+
 SEED_COUNTRIES = [
     ("Singapore", 1),
     ("Malaysia", 2),
@@ -411,8 +497,19 @@ def seed_taxonomy() -> None:
         countries.insert_one(country_doc(name=name, bot_order=order, created_by="seed"))
         added_countries += 1
 
-    if added or added_countries:
-        log.info("Seeded %d job designation(s) and %d country/countries", added, added_countries)
+    offices = offices_collection()
+    added_offices = 0
+    for name, country in SEED_OFFICES:
+        if offices.find_one({"_id": slugify(name)}):
+            continue
+        offices.insert_one(office_doc(name=name, country=country, created_by="seed"))
+        added_offices += 1
+
+    if added or added_countries or added_offices:
+        log.info(
+            "Seeded %d job designation(s), %d country/countries and %d office(s)",
+            added, added_countries, added_offices,
+        )
 
 
 def taxonomy_version() -> str:

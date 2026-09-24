@@ -81,8 +81,11 @@ class FakeRepo:
     def __init__(self, rows):
         self._rows = rows
 
-    def find_sla_breaches(self, cutoff):
-        return [r for r in self._rows if r["assigned_at"] < cutoff]
+    def find_sla_breaches(self, cutoff, staff_id=None):
+        rows = [r for r in self._rows if r["assigned_at"] < cutoff]
+        # Mirrors the real repository: `staff_id` narrows the sweep to one
+        # person's queue, which is what the staff dashboard reads.
+        return [r for r in rows if staff_id is None or r["assigned_staff_id"] == staff_id]
 
 
 def breach_row(cid, hours_ago, staff="s1", viewed=None, status="pending"):

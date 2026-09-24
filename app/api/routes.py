@@ -17,7 +17,8 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
 from fastapi import (
     BackgroundTasks,
@@ -39,15 +40,27 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 from app.config import settings
 from app.core.models import (
     EVALUATION_STATUSES,
+    OUTCOME_TO_EVALUATION_STATUS,
+    OUTCOMES_RETURNING_TO_POOL,
     CandidateProfile,
     CandidateRecord,
     JobSection,
     RegistrationState,
+    utcnow,
 )
 from app.core.security import create_token, read_token, verify_service_key
+from app.whatsapp.groups import (
+    GroupIntakeDisabled,
+    GroupIntakeError,
+    GroupMessage,
+    GroupRegistry,
+    route_group_message,
+)
 from app.assignment.balancer import (
     allocate_unassigned,
     assign_candidate,
+    desk_for_candidate,
+    desk_for_staff,
     is_staff_eligible,
     rebalance_all,
     redistribute_from_staff,
@@ -2331,6 +2344,194 @@ def assign_candidate_route(
     }
 
 
+# --------------------------------------------------------------------------- #
+#  Cross-country / office reassignment
+#
+#  Ordinary allocation keeps a candidate on the desk their destination belongs
+#  to, and `POST /candidates/{id}/assign` refuses to break that. It should: a
+#  Singapore profile landing on a Gulf recruiter's queue by accident is the
+#  mistake the rule exists to catch.
+#
+#  But a candidate who cannot continue with Singapore and asks for Europe is not
+#  an accident, and the desk rule used to leave nowhere for that to go — the
+#  only way through was to edit the destination country on the profile until the
+#  eligibility check happened to pass, which changed the record with no statement
+#  of why and no trail.
+#
+#  So this is a separate, deliberate operation: it moves destination, office and
+#  owner together, demands a reason, and records both sides of every move.
+# --------------------------------------------------------------------------- #
+class ReassignmentRequest(BaseModel):
+    #: Where the candidate is going. Validated against the active country list.
+    destination_country: str = Field(min_length=1, max_length=100)
+    #: Which of our offices takes them on. Optional: not every agency splits
+    #: work by office, and an unset office is left unset rather than guessed.
+    office_id: str | None = None
+    #: The staff member who will own the review. Optional — an unowned
+    #: candidate can be moved and allocated later.
+    staff_id: str | None = None
+    #: Required. A reassignment without a reason is an unexplained change to
+    #: somebody's file.
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/candidates/{candidate_id}/reassign")
+def reassign_candidate(
+    candidate_id: str,
+    payload: ReassignmentRequest,
+    actor: dict = Depends(require_action("reallocate-candidates")),
+) -> dict:
+    """Move a candidate between countries, offices and desks, deliberately.
+
+    Authorised by the same action that governs reallocation, so nobody gains a
+    new power here — they gain a supported way to use the one they had.
+    """
+    from app.db.taxonomy import get_office, list_countries
+
+    repository = repo()
+    record = repository.get(candidate_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    requested = payload.destination_country.strip().casefold()
+    country = next(
+        (
+            row
+            for row in list_countries(active_only=True)
+            if requested in {
+                str(row.get("id") or "").casefold(),
+                str(row.get("name") or "").casefold(),
+            }
+        ),
+        None,
+    )
+    if not country:
+        raise HTTPException(status_code=422, detail="Select an active destination country.")
+
+    office = None
+    if payload.office_id:
+        office = get_office(payload.office_id)
+        if not office or not office.get("active", True):
+            raise HTTPException(status_code=422, detail="Select an active office.")
+
+    member = None
+    if payload.staff_id:
+        member = users.get(payload.staff_id)
+        if not member or member.role not in {STAFF_ROLE, MANAGER_ROLE} or not member.active:
+            raise HTTPException(status_code=400, detail="Target staff member is not active")
+
+    previous = {
+        "country": record.profile.destination_country,
+        "office_id": record.office_id,
+        "office_name": record.office_name,
+        "desk": desk_for_candidate(record.profile),
+        "staff_id": record.assigned_staff_id,
+        "staff_name": record.assigned_staff_name,
+    }
+    new_country_name = str(country.get("name") or "")
+    # The desk the candidate now belongs to follows their destination. Where a
+    # specific owner was named, theirs is the desk that actually holds them, and
+    # the two are allowed to differ — that is the whole point of an override.
+    new_desk = desk_for_staff(member) if member else desk_for_candidate(
+        {"destination_country": new_country_name}
+    )
+    now = utcnow()
+    event = {
+        "type": "reassignment",
+        "from_country": previous["country"],
+        "to_country": new_country_name,
+        "from_office_id": previous["office_id"],
+        "from_office_name": previous["office_name"],
+        "to_office_id": office.get("id") if office else None,
+        "to_office_name": office.get("name") if office else None,
+        "from_desk": previous["desk"],
+        "to_desk": new_desk,
+        "from_staff_id": previous["staff_id"],
+        "from_staff_name": previous["staff_name"],
+        "to_staff_id": member.id if member else previous["staff_id"],
+        "to_staff_name": member.name if member else previous["staff_name"],
+        # Two different facts, both worth keeping. `desk_changed` says the
+        # candidate moved between desks at all — the Singapore desk handed them
+        # to the general one. `desk_override` says the new owner is not on the
+        # desk their new destination belongs to, which is the rule ordinary
+        # allocation refuses to break and the reason this route exists. A move
+        # can change desks without overriding anything, which is the ordinary
+        # case: a Europe-bound candidate going to a Europe recruiter.
+        "desk_changed": previous["desk"] != new_desk,
+        "desk_override": bool(member) and not is_staff_eligible(
+            member, {"destination_country": new_country_name}
+        ),
+        "by_user_id": actor.get("id"),
+        "by_user_name": actor.get("name") or actor.get("email"),
+        "reason": payload.reason.strip(),
+        "at": now,
+    }
+
+    updates: dict = {
+        "profile.destination_country": new_country_name,
+        "office_id": office.get("id") if office else record.office_id,
+        "office_name": office.get("name") if office else record.office_name,
+        "updated_at": now,
+    }
+    if member:
+        # A new owner starts a fresh review, exactly as `assign` does: the
+        # previous reviewer's verdict was about a different placement.
+        updates.update(
+            assigned_staff_id=member.id,
+            assigned_staff_name=member.name,
+            assigned_at=now,
+            viewed_at=None,
+            evaluation_status="pending",
+            evaluation_score=None,
+            evaluated_at=None,
+            evaluated_by=None,
+            latest_assignment_remark=payload.reason.strip(),
+        )
+
+    updated = repository.record_reassignment(candidate_id, event, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return {
+        "status": "reassigned",
+        "candidate_id": candidate_id,
+        "reassignment": {**event, "at": now.isoformat()},
+        "candidate": updated.model_dump(mode="json"),
+    }
+
+
+@app.get("/offices")
+def list_office_rows(
+    active_only: bool = Query(default=True),
+    _user: dict = Depends(current_user),
+) -> dict:
+    """The offices a candidate can be assigned to."""
+    from app.db.taxonomy import list_offices
+
+    items = list_offices(active_only=active_only)
+    return {"items": items, "count": len(items)}
+
+
+@app.post("/offices", status_code=201)
+def create_office(payload: dict, _admin: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import office_doc, upsert_office
+
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="An office needs a name.")
+    return {"status": "saved", "office": upsert_office(
+        office_doc(name=name, country=str(payload.get("country") or ""), created_by=_admin.get("id", ""))
+    )}
+
+
+@app.delete("/offices/{office_id}")
+def retire_office(office_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    from app.db.taxonomy import delete_office
+
+    if not delete_office(office_id):
+        raise HTTPException(status_code=404, detail="Office not found")
+    return {"status": "retired", "id": office_id}
+
+
 @app.post("/candidates/{candidate_id}/auto-assign")
 def auto_assign_candidate(
     candidate_id: str,
@@ -2394,6 +2595,7 @@ class CandidateSubmissionRequest(BaseModel):
     target_type: Literal["company", "associate"]
     target_name: str = Field(min_length=1, max_length=200)
     job_order_id: str | None = None
+    notes: str = Field(default="", max_length=1000)
 
 
 class CandidateInterviewRequest(BaseModel):
@@ -2412,62 +2614,199 @@ class CandidateOfferRequest(BaseModel):
     notes: str = Field(min_length=1, max_length=1000)
 
 
-@app.post("/candidates/{candidate_id}/submit")
-def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+def _recruitment_or_404(candidate_id: str, user: dict):
+    """The record, under the same candidate-scope rules as every other read."""
     _owned_or_404(candidate_id, user)
-    now = utcnow()
-    label = "company" if payload.target_type == "company" else "associate"
-    record = repo().record_recruitment_event(
-        candidate_id,
-        {"type": "submitted", "target_type": payload.target_type, "target_name": payload.target_name,
-         "job_order_id": payload.job_order_id, "actor_id": user["id"]},
-        {"recruitment_status": f"submitted_to_{label}", "submission_target_type": payload.target_type,
-         "submission_target_name": payload.target_name, "submission_date": now,
-         "interview_status": "pending", "job_order_id": payload.job_order_id},
-    )
+    record = repo().get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return record.model_dump(mode="json")
+    return record
+
+
+def _reject_if_placed(record) -> None:
+    """A committed placement is not edited by the ordinary pipeline actions.
+
+    Somebody who has accepted an offer is spoken for. Recording a submission, an
+    interview or an outcome against them is either a mistake or a decision that
+    the placement has fallen through -- and the second has its own door,
+    ``POST /candidates/{id}/offer`` with ``declined``, which says so explicitly
+    and is the only thing allowed to release the lock.
+    """
+    if record.placement_locked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This candidate has accepted an offer and is locked to that "
+                "placement. Record the offer as declined first if the placement "
+                "has fallen through."
+            ),
+        )
+
+
+def _actor(user: dict) -> dict:
+    return {"actor_id": user["id"], "actor_name": user.get("name") or user.get("email")}
+
+
+#: Fields that point at the company a candidate is currently with. Cleared
+#: together when they are released, so a candidate back in the pool does not
+#: keep surfacing on the submission list of the company that passed on them.
+_ENGAGEMENT_FIELDS = {
+    "submission_target_type": None,
+    "submission_target_name": None,
+    "submission_date": None,
+    "job_order_id": None,
+    "interview_status": None,
+    "interview_at": None,
+}
+
+
+@app.post("/candidates/{candidate_id}/submit")
+def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    """Forward a reviewed candidate to a company or an associate."""
+    record = _recruitment_or_404(candidate_id, user)
+    _reject_if_placed(record)
+    # Submitting the same person to the same target again is a double-click or a
+    # second pair of hands, not a second submission.
+    already_submitted = (
+        record.recruitment_status in {"submitted_to_company", "submitted_to_associate"}
+        and record.submission_target_type == payload.target_type
+        and (record.submission_target_name or "").strip().casefold()
+        == payload.target_name.strip().casefold()
+    )
+    if already_submitted:
+        when = f" on {record.submission_date:%d %b %Y}" if record.submission_date else ""
+        raise HTTPException(
+            status_code=409,
+            detail=f"This candidate was already submitted to {payload.target_name}{when}.",
+        )
+
+    now = utcnow()
+    label = "company" if payload.target_type == "company" else "associate"
+    updated = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "submitted", "target_type": payload.target_type,
+         "target_name": payload.target_name, "job_order_id": payload.job_order_id,
+         "notes": payload.notes, **_actor(user)},
+        {"recruitment_status": f"submitted_to_{label}",
+         "submission_target_type": payload.target_type,
+         "submission_target_name": payload.target_name,
+         "submission_date": now,
+         "interview_status": "pending",
+         "job_order_id": payload.job_order_id},
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return updated.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/interview")
 def update_candidate_interview(candidate_id: str, payload: CandidateInterviewRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
-    _owned_or_404(candidate_id, user)
-    record = repo().record_recruitment_event(
+    """Track one interview: scheduled, completed, still pending or unavailable."""
+    record = _recruitment_or_404(candidate_id, user)
+    _reject_if_placed(record)
+    # Scheduled, pending and unavailable all mean the same thing for the
+    # pipeline: the candidate is with a company and not back in the pool until
+    # an outcome says so. Only a completed interview moves them on.
+    updated = repo().record_recruitment_event(
         candidate_id,
-        {"type": "interview", **payload.model_dump(), "actor_id": user["id"]},
-        {"interview_status": payload.status, "recruitment_status": "interview_completed" if payload.status == "completed" else "interviewing"},
+        {"type": "interview", **payload.model_dump(mode="json"), **_actor(user)},
+        {"interview_status": payload.status,
+         "interview_at": payload.interview_at,
+         "recruitment_status": (
+             "interview_completed" if payload.status == "completed" else "interviewing"
+         )},
     )
-    if not record:
+    if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return record.model_dump(mode="json")
+    return updated.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/outcome")
 def update_candidate_outcome(candidate_id: str, payload: CandidateOutcomeRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
-    _owned_or_404(candidate_id, user)
-    locked = False
-    record = repo().record_recruitment_event(
-        candidate_id, {"type": "outcome", **payload.model_dump(), "actor_id": user["id"]},
-        {"recruitment_status": payload.status, "placement_locked": locked, "evaluation_status": payload.status},
+    """What the company or associate decided after the interview.
+
+    Two rules matter here, and both were previously wrong.
+
+    An outcome never touches the placement lock. `may_change_placement_lock` is
+    not passed, so the repository strips the field and no outcome -- however
+    malformed the call -- can release somebody who has accepted an offer.
+
+    A rejected or declined candidate returns to the pool straight away, as
+    `available`, while the decision itself is kept in `last_outcome`. The status
+    says where they are; the outcome says what happened. Writing the outcome
+    into the status, as this used to, loses the first fact to record the second
+    -- and writing it into `evaluation_status`, which defines neither "selected"
+    nor "offer_declined", lost both.
+    """
+    record = _recruitment_or_404(candidate_id, user)
+    _reject_if_placed(record)
+    now = utcnow()
+    returns_to_pool = payload.status in OUTCOMES_RETURNING_TO_POOL
+
+    updates: dict = {
+        "recruitment_status": "available" if returns_to_pool else payload.status,
+        "last_outcome": payload.status,
+        "last_outcome_at": now,
+    }
+    if returns_to_pool:
+        updates.update(_ENGAGEMENT_FIELDS)
+        updates["offer_status"] = None
+    # Our reviewer's verdict is only updated where their vocabulary genuinely
+    # has the same word. "selected" and "offer_declined" have no equivalent and
+    # leave it alone.
+    evaluation = OUTCOME_TO_EVALUATION_STATUS.get(payload.status)
+    if evaluation:
+        updates["evaluation_status"] = evaluation
+
+    updated = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "outcome", **payload.model_dump(),
+         "returned_to_pool": returns_to_pool, **_actor(user)},
+        updates,
     )
-    if not record:
+    if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return record.model_dump(mode="json")
+    return updated.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/offer")
 def update_candidate_offer(candidate_id: str, payload: CandidateOfferRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
-    _owned_or_404(candidate_id, user)
+    """Issue an offer, or record the answer to one.
+
+    The only endpoint permitted to move `placement_locked`, in either direction.
+    Accepting locks the candidate out of new job-order matching; declining
+    releases them and returns them to the pool.
+    """
+    record = _recruitment_or_404(candidate_id, user)
+    if payload.status == "issued":
+        # A fresh offer to somebody already committed elsewhere is the mistake
+        # the lock exists to catch. Answering the standing offer is not.
+        _reject_if_placed(record)
     accepted = payload.status == "accepted"
-    record = repo().record_recruitment_event(
-        candidate_id, {"type": "offer", **payload.model_dump(), "actor_id": user["id"]},
-        {"offer_status": payload.status, "recruitment_status": "offer_accepted" if accepted else f"offer_{payload.status}",
-         "placement_locked": accepted, "evaluation_status": "hired" if accepted else ("rejected" if payload.status == "declined" else "selected")},
+    now = utcnow()
+
+    updates: dict = {"offer_status": payload.status, "placement_locked": accepted}
+    if accepted:
+        updates.update(recruitment_status="offer_accepted", evaluation_status="hired")
+    elif payload.status == "declined":
+        updates.update(
+            recruitment_status="available",
+            last_outcome="offer_declined",
+            last_outcome_at=now,
+            **_ENGAGEMENT_FIELDS,
+        )
+    else:
+        updates["recruitment_status"] = "offer_issued"
+
+    updated = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "offer", **payload.model_dump(), **_actor(user)},
+        updates,
+        may_change_placement_lock=True,
     )
-    if not record:
+    if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    return record.model_dump(mode="json")
+    return updated.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/view")
@@ -2562,6 +2901,20 @@ def current_sla_breaches(_admin: dict = Depends(require_page("staff"))) -> dict:
     return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
 
 
+@app.get("/sla/mine")
+def my_sla_breaches(user: dict = Depends(current_user)) -> dict:
+    """The signed-in person's own overdue profiles.
+
+    The same sweep the admin console runs, narrowed to one queue, so a staff
+    member and their manager are looking at the same list rather than at two
+    numbers computed by different code. Administrators and managers have no
+    personal queue by default and simply see their own, which is usually empty
+    — the roster-wide view is `/sla/breaches`.
+    """
+    items = sla_checker.find_breaches(staff_id=user["id"])
+    return {"count": len(items), "items": items, "threshold_hours": settings.sla_threshold_hours}
+
+
 @app.post("/sla/scan")
 def run_sla_scan(_admin: dict = Depends(require_page("staff"))) -> dict:
     return sla_checker.scan()
@@ -2650,6 +3003,87 @@ def require_service_key(x_service_key: str | None = Header(default=None)) -> Non
     """
     if not verify_service_key(x_service_key, settings.whatsapp_service_key):
         raise HTTPException(status_code=401, detail="Invalid or missing service key")
+
+
+# --------------------------------------------------------------------------- #
+#  WhatsApp group intake
+#
+#  The receiving half of group timesheets and agent-posted candidate profiles.
+#  See `app/whatsapp/groups.py` for what this is for and for the external
+#  blocker: the Cloud API the bot runs on does not deliver group messages, so
+#  the ingress stays disabled until the bot service can forward them.
+# --------------------------------------------------------------------------- #
+@app.post("/whatsapp/group-events", status_code=201)
+def whatsapp_group_event(
+    payload: GroupMessage, _service: None = Depends(require_service_key)
+) -> dict:
+    """One message the bot observed in a registered group."""
+    try:
+        result = route_group_message(payload)
+    except GroupIntakeDisabled as exc:
+        # 503, not 400: the request is well formed and the feature is simply
+        # not available yet, which is a different thing for the bot to log.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except GroupIntakeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": result.action, **result.to_public()}
+
+
+@app.get("/whatsapp/groups")
+def list_whatsapp_groups(_admin: dict = Depends(require_admin)) -> dict:
+    """Groups registered for intake, and what each one is for."""
+    items = GroupRegistry().list()
+    return {
+        "items": items,
+        "count": len(items),
+        "intake_enabled": settings.whatsapp_group_intake_enabled,
+        # Surfaced so the console can say why an enabled-looking feature is
+        # doing nothing, instead of leaving an administrator to guess.
+        "blocker": (
+            None
+            if settings.whatsapp_group_intake_enabled
+            else "The WhatsApp bot cannot forward group messages on the Cloud API."
+        ),
+    }
+
+
+class WhatsAppGroupIn(BaseModel):
+    group_id: str = Field(min_length=1, max_length=200)
+    purpose: Literal["timesheet", "agent_profiles"]
+    name: str = Field(default="", max_length=300)
+    #: For an agent group: who the agency deals with.
+    party_id: str = Field(default="", max_length=100)
+    party_name: str = Field(default="", max_length=200)
+
+
+@app.post("/whatsapp/groups", status_code=201)
+def register_whatsapp_group(
+    payload: WhatsAppGroupIn, admin: dict = Depends(require_admin)
+) -> dict:
+    """Trust one group for one purpose.
+
+    Nothing arriving from an unregistered group is processed: being added to a
+    group would otherwise be enough to punch somebody else's attendance or
+    inject candidates.
+    """
+    return {
+        "status": "registered",
+        "group": GroupRegistry().register(
+            group_id=payload.group_id,
+            purpose=payload.purpose,
+            name=payload.name,
+            party_id=payload.party_id,
+            party_name=payload.party_name,
+            registered_by=admin.get("id", ""),
+        ),
+    }
+
+
+@app.delete("/whatsapp/groups/{group_id}")
+def deactivate_whatsapp_group(group_id: str, _admin: dict = Depends(require_admin)) -> dict:
+    if not GroupRegistry().deactivate(group_id):
+        raise HTTPException(status_code=404, detail="Group not found")
+    return {"status": "deactivated", "group_id": group_id}
 
 
 class WhatsAppReplyPolicyIn(BaseModel):

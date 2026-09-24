@@ -155,13 +155,21 @@ export default function PayrollScreen({ user, onToast }: Props) {
             Pay period
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
-          {canManage && payroll?.branches.length ? <label>
-            Branch
-            <select value={branch} onChange={(event) => setBranch(event.target.value)}>
-              <option value="">All branches</option>
-              {payroll.branches.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label> : null}
+          {canManage && payroll ? (
+            payroll.branches.length ? (
+              <label>
+                Branch
+                <select value={branch} onChange={(event) => setBranch(event.target.value)}>
+                  <option value="">All branches</option>
+                  {payroll.branches.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            ) : (
+              <span className="payroll-branch-hint">
+                No branches assigned yet — set one on each employee in User Management.
+              </span>
+            )
+          ) : null}
           <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading || initialLoading}>
             <RefreshCw size={15} className={loading ? "icon-spin" : ""} /> Refresh
           </button>
@@ -249,7 +257,16 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
     <article className={`payroll-card ${paid ? "is-paid" : ""}`}>
       <header className="payroll-card-head">
         <span className="payroll-avatar">{initials || "ST"}</span>
-        <div><h3>{row.name}</h3><p>{row.staff_code || "Employee"}</p></div>
+        <div>
+          <h3>{row.name}</h3>
+          <p>
+            {row.staff_code || "Employee"}
+            {" · "}
+            <span className={row.branch ? "" : "payroll-branch-unset"}>
+              {row.branch || "Unassigned"}
+            </span>
+          </p>
+        </div>
         <span className={`payroll-state ${paid ? "is-paid" : "is-review"}`}>
           {paid ? <CheckCircle2 size={14} /> : <Clock3 size={14} />}
           {paid ? "Paid" : "Ready for review"}
@@ -265,6 +282,7 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
       </div>
 
       <div className="payroll-metrics">
+        <Metric label="Branch" value={row.branch || "Unassigned"} />
         <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
         <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
         <Metric label="Daily LOP" value={money.format(row.daily_lop_rate)} />

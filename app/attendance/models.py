@@ -97,8 +97,30 @@ class AdjustmentRequest(BaseModel):
 
 
 class ShiftAssignmentRequest(BaseModel):
+    """A rolling shift change: these hours from this date until the next change.
+
+    `kind` separates the two things this collection holds. A *recurring* row is
+    the employee's normal working pattern and applies to every later day. A
+    *planned_duty* row applies to exactly one date and additionally declares
+    that date a working day, overriding the weekly-off pattern.
+
+    The distinction is not cosmetic. Without it, rostering somebody for a single
+    Sunday made every later Sunday a scheduled working day too, and each one was
+    then marked absent and deducted from their salary.
+    """
+
     employee_id: str
     effective_from: date
+    shift: Shift = Field(default_factory=Shift)
+    reason: str = Field(min_length=1, max_length=1000)
+    kind: Literal["recurring", "planned_duty"] = "recurring"
+
+
+class DutyPlanRequest(BaseModel):
+    """One rostered working day, typically a weekly off being worked."""
+
+    employee_id: str
+    attendance_date: date
     shift: Shift = Field(default_factory=Shift)
     reason: str = Field(min_length=1, max_length=1000)
 

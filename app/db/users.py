@@ -147,6 +147,16 @@ class User:
         }
 
 
+def normalize_branch(value: str | None) -> str:
+    """Trim and collapse whitespace in a branch name.
+
+    Payroll groups employees by this string, so "Mount  Road " and "Mount Road"
+    must not become two branches in the filter. Case is left as typed — the
+    people reading a payslip wrote it — and readers match case-insensitively.
+    """
+    return " ".join((value or "").split())
+
+
 def _normalize(email: str) -> str:
     return (email or "").strip().lower()
 
@@ -256,7 +266,7 @@ class UserRepository:
                 action for action in (action_grants or []) if action in ACTION_PERMISSIONS
             ],
             "phone": (phone or "").strip(),
-            "branch": (branch or "").strip(),
+            "branch": normalize_branch(branch),
             # Stored explicitly: an account without the field would be filtered
             # out of every `active: True` query, and a staff member allocation
             # cannot see is a staff member who never receives work.
@@ -348,7 +358,7 @@ class UserRepository:
             "role": {"$in": [STAFF_ROLE, MANAGER_ROLE]},
             "keywords": keywords or [],
             "phone": (phone or "").strip(),
-            "branch": (branch or "").strip(),
+            "branch": normalize_branch(branch),
             "active": True,
             "password_hash": hash_password(password),
             "created_at": utcnow(),
@@ -426,7 +436,7 @@ class UserRepository:
         if phone is not None:
             updates["phone"] = phone.strip()
         if branch is not None:
-            updates["branch"] = branch.strip()
+            updates["branch"] = normalize_branch(branch)
         if page_grants is not None:
             # Unknown ids are dropped rather than stored: a grant for a page
             # that does not exist is a permission nobody can use and a puzzle

@@ -5,12 +5,31 @@ from datetime import date, datetime, timezone
 import calendar
 
 from app.attendance.engine import AttendancePolicy, calculate_day, local_day, shift_bounds
-from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
+from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
 from app.attendance.repository import AttendanceRepository
 
 
 class AttendanceError(ValueError):
     pass
+
+
+#: Calendar entries a duty plan may override. Rostering somebody for a date
+#: overrides a non-working marker on it, because that is what rostering means.
+#: Approved leave is not in this set: leave the employee was granted outranks a
+#: roster, and silently working through it would be a decision nobody made.
+_OVERRIDABLE_BY_DUTY_PLAN = frozenset({AttendanceStatus.WEEKLY_OFF, AttendanceStatus.HOLIDAY})
+
+
+def _non_working_status(
+    calendar_day: dict | None, *, planned_duty: bool, weekly_off: bool
+) -> AttendanceStatus | None:
+    """Whether the day carries no duty, and if so under which status."""
+    if calendar_day:
+        declared = AttendanceStatus(calendar_day["status"])
+        if planned_duty and declared in _OVERRIDABLE_BY_DUTY_PLAN:
+            return None
+        return declared
+    return AttendanceStatus.WEEKLY_OFF if weekly_off else None
 
 
 class AttendanceService:
@@ -75,9 +94,13 @@ class AttendanceService:
         # The choices are mutually exclusive: Sunday off, or alternating
         # Fridays off with Sunday as a normal office day. The legacy value is
         # read as the new alternate-Friday option for existing employees.
-        # An explicit shift assignment is a planned duty day, including Sunday.
-        # It must win over the employee's default weekly-off pattern.
-        planned_duty = assignment is not None
+        #
+        # A *duty plan* — one date, explicitly rostered — is what turns a weekly
+        # off into a working day. A rolling shift assignment is not: it says
+        # which hours apply from a date onwards and nothing about which days are
+        # worked, so treating it as a plan made every Sunday after the first
+        # rostered one a scheduled day the employee was then marked absent for.
+        planned_duty = bool(assignment and assignment.get("kind") == "planned_duty")
         is_sunday = day.weekday() == 6 and weekly_off_pattern == "sunday" and not planned_duty
         is_rotational_friday = (
             day.weekday() == 4
@@ -94,10 +117,9 @@ class AttendanceService:
             day, punches, shift=shift, now=now, policy=self.policy,
             approved_permissions=permissions,
             recovered_minutes=recovered,
-            non_working_status=(
-                AttendanceStatus(calendar_day["status"])
-                if calendar_day
-                else AttendanceStatus.WEEKLY_OFF if is_sunday or is_rotational_friday else None
+            non_working_status=_non_working_status(
+                calendar_day, planned_duty=planned_duty,
+                weekly_off=is_sunday or is_rotational_friday,
             ),
         )
         if status_override:
@@ -189,6 +211,33 @@ class AttendanceService:
             "effective_from": request.effective_from.isoformat(),
             "assigned_by": approver_id,
         })
+
+    def plan_duty(self, request: DutyPlanRequest, approver_id: str) -> dict:
+        """Roster one date as a working day, replacing any existing plan for it.
+
+        Stored as a shift assignment so a rostered day carries its own hours,
+        and so the day calculation has one place to look for "which shift does
+        this date run to". Re-planning the same date supersedes the previous
+        plan rather than stacking a second row behind it.
+        """
+        existing = self.repository.duty_plan_for_day(request.employee_id, request.attendance_date)
+        if existing:
+            self.repository.delete_duty_plan(existing["id"])
+        return self.repository.assign_shift({
+            "employee_id": request.employee_id,
+            "effective_from": request.attendance_date.isoformat(),
+            "shift": request.shift.model_dump(),
+            "reason": request.reason,
+            "kind": "planned_duty",
+            "assigned_by": approver_id,
+        })
+
+    def remove_duty_plan(self, plan_id: str) -> bool:
+        """Hand a rostered date back to the normal weekly-off pattern."""
+        return self.repository.delete_duty_plan(plan_id) is not None
+
+    def duty_plans(self, employee_ids, start: date, end: date) -> list[dict]:
+        return self.repository.duty_plans_for_period(employee_ids, start, end)
 
     def set_calendar_day(self, request: CalendarDayRequest, approver_id: str) -> dict:
         status = request.status

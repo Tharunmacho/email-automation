@@ -319,7 +319,7 @@ def test_private_whatsapp_attendance_matches_phone_and_first_name():
         sender_phone="919876543210",
         stated_name="One",
         action="check_in",
-        occurred_at=datetime(2026, 9, 8, 4, 45, tzinfo=timezone.utc),
+        occurred_at=datetime(2026, 10, 8, 4, 45, tzinfo=timezone.utc),
     )
 
     with patch("app.attendance.api.users", FakeUsers()), patch(

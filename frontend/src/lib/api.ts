@@ -40,6 +40,12 @@ import type {
   StaffMember,
   StaffWorkloadRow,
   StaffWorkloadResponse,
+  InterviewOutcome,
+  InterviewStatus,
+  Office,
+  OfferStatus,
+  RecruitmentEvent,
+  RecruitmentStatus,
   SlaAlert,
   RebalanceResult,
   RehomeResult,
@@ -77,6 +83,12 @@ export type {
   StaffWorkloadRow,
   StaffWorkloadResponse,
   SlaAlert,
+  RecruitmentStatus,
+  RecruitmentEvent,
+  InterviewStatus,
+  InterviewOutcome,
+  OfferStatus,
+  Office,
   RebalanceResult,
   RehomeResult,
   DeleteStaffResult,
@@ -294,6 +306,19 @@ export interface AttendanceDay {
   paid_permission_minutes?: number;
   unpaid_minutes: number;
   provisional: boolean;
+  /**
+   * The coverage equation, computed once on the server:
+   *
+   *   uncovered = max(0, required - covered - approved_permission - grace)
+   *
+   * The browser displays these and never recomputes them. A second
+   * implementation here is how the two would come to disagree.
+   */
+  required_shift_minutes?: number;
+  actual_covered_minutes?: number;
+  uncovered_minutes?: number;
+  grace_minutes_applied?: number;
+  approved_permission_minutes?: number;
   permission_minutes_used?: number;
   permission_minutes_remaining?: number;
   permission_occasions_used?: number;
@@ -314,7 +339,20 @@ export interface AttendancePermission {
   id: string;
   employee_id: string;
   attendance_date: string;
-  kind: "late" | "early_exit" | "official_duty" | "work_from_home" | "paid_leave" | "unpaid_leave";
+  /**
+   * `early_check_in` is required before an employee may punch in ahead of their
+   * shift — the backend refuses the punch without an approved one. It was
+   * missing from this union, so the request could not be made from the app at
+   * all and an early arrival simply failed.
+   */
+  kind:
+    | "late"
+    | "early_exit"
+    | "early_check_in"
+    | "official_duty"
+    | "work_from_home"
+    | "paid_leave"
+    | "unpaid_leave";
   requested_minutes: number;
   reason: string;
   status: "pending" | "approved" | "rejected";
@@ -396,6 +434,107 @@ export function decideAttendancePermission(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved, reason }),
   });
+}
+
+// --------------------------------------------------------------------------- //
+//  Extra OT
+//
+//  Staff -> manager -> approval, and a manager's own request goes to an
+//  administrator. Only approved minutes reach payroll.
+// --------------------------------------------------------------------------- //
+export interface ExtraOtRequest {
+  id: string;
+  employee_id: string;
+  attendance_date: string;
+  requested_minutes: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at?: string;
+  updated_at?: string;
+  decision_reason?: string;
+  decided_by?: string;
+  decided_at?: string;
+}
+
+export function requestExtraOt(payload: {
+  employee_id?: string;
+  attendance_date: string;
+  requested_minutes: number;
+  reason: string;
+}): Promise<{ status: string; request: ExtraOtRequest }> {
+  return request("/attendance/extra-ot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchExtraOtRequests(
+  year: number,
+  month: number,
+  employeeId?: string,
+): Promise<{ items: ExtraOtRequest[]; count: number }> {
+  const params = new URLSearchParams({ year: String(year), month: String(month) });
+  if (employeeId) params.set("employee_id", employeeId);
+  return request(`/attendance/extra-ot?${params.toString()}`, { cache: "no-store" });
+}
+
+export function decideExtraOt(
+  requestId: string,
+  approved: boolean,
+  reason: string,
+): Promise<{ status: string; request: ExtraOtRequest }> {
+  return request(`/attendance/extra-ot/${requestId}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved, reason }),
+  });
+}
+
+// --------------------------------------------------------------------------- //
+//  Duty planning
+//
+//  A duty plan rosters one date as a working day and is what makes a Sunday
+//  count. Distinct from a rolling shift change, which sets the hours from a date
+//  onwards and says nothing about which days are worked.
+// --------------------------------------------------------------------------- //
+export interface DutyPlan {
+  id: string;
+  employee_id: string;
+  /** Stored as the assignment's effective date; a plan covers exactly one day. */
+  effective_from: string;
+  shift: { start: string; end: string; break_minutes: number };
+  reason: string;
+  kind: "planned_duty";
+  assigned_by?: string;
+  created_at?: string;
+}
+
+export function createDutyPlan(payload: {
+  employee_id: string;
+  attendance_date: string;
+  shift: { start: string; end: string; break_minutes: number };
+  reason: string;
+}): Promise<{ status: string; duty_plan: DutyPlan }> {
+  return request("/attendance/duty-plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchDutyPlans(
+  year: number,
+  month: number,
+  employeeId?: string,
+): Promise<{ items: DutyPlan[]; count: number }> {
+  const params = new URLSearchParams({ year: String(year), month: String(month) });
+  if (employeeId) params.set("employee_id", employeeId);
+  return request(`/attendance/duty-plans?${params.toString()}`, { cache: "no-store" });
+}
+
+export function deleteDutyPlan(planId: string): Promise<{ status: string; id: string }> {
+  return request(`/attendance/duty-plans/${planId}`, { method: "DELETE" });
 }
 
 export interface PayrollRow {
@@ -920,6 +1059,130 @@ export function markNotificationsRead(
 // --------------------------------------------------------------------------- //
 //  SLA
 // --------------------------------------------------------------------------- //
+// --------------------------------------------------------------------------- //
+//  Recruitment pipeline
+//
+//    Job order match -> shortlisted -> review -> submit -> interview
+//      -> outcome -> offer -> placement
+//
+//  Four statuses describe a candidate and they stay apart: `evaluation_status`
+//  is our reviewer's verdict, `recruitment_status` is where they stand with the
+//  outside world, `interview_status` and `offer_status` are facts about one
+//  engagement.
+// --------------------------------------------------------------------------- //
+export function submitCandidate(
+  candidateId: string,
+  payload: {
+    target_type: "company" | "associate";
+    target_name: string;
+    job_order_id?: string | null;
+    notes?: string;
+  },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateCandidateInterview(
+  candidateId: string,
+  payload: { status: InterviewStatus; interview_at?: string | null; notes: string },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/interview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateCandidateOutcome(
+  candidateId: string,
+  payload: { status: InterviewOutcome; notes: string },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/outcome`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateCandidateOffer(
+  candidateId: string,
+  payload: { status: OfferStatus; notes: string },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/offer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+// --------------------------------------------------------------------------- //
+//  Cross-country / office reassignment
+// --------------------------------------------------------------------------- //
+export function fetchOffices(activeOnly = true): Promise<{ items: Office[]; count: number }> {
+  return request(`/offices?active_only=${activeOnly}`, { cache: "no-store" });
+}
+
+export interface ReassignmentResult {
+  status: string;
+  candidate_id: string;
+  reassignment: {
+    from_country?: string | null;
+    to_country: string;
+    from_office_name?: string | null;
+    to_office_name?: string | null;
+    from_desk: string;
+    to_desk: string;
+    from_staff_name?: string | null;
+    to_staff_name?: string | null;
+    desk_changed: boolean;
+    desk_override: boolean;
+    reason: string;
+    at: string;
+  };
+  candidate: CandidateRecord;
+}
+
+/**
+ * Move a candidate between countries, offices and desks deliberately.
+ *
+ * Ordinary allocation still refuses a cross-desk placement; this is the
+ * supported way through, and it demands a reason and records both sides.
+ */
+export function reassignCandidate(
+  candidateId: string,
+  payload: {
+    destination_country: string;
+    office_id?: string | null;
+    staff_id?: string | null;
+    reason: string;
+  },
+): Promise<ReassignmentResult> {
+  return request<ReassignmentResult>(`/candidates/${candidateId}/reassign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * The signed-in person's own overdue profiles, from the server's sweep.
+ *
+ * The same calculation the admin console runs, narrowed to one queue, so staff
+ * and their manager see the same list rather than two numbers produced by
+ * different code.
+ */
+export function fetchMySlaBreaches(): Promise<{
+  count: number;
+  items: SlaAlert[];
+  threshold_hours: number;
+}> {
+  return request("/sla/mine", { cache: "no-store" });
+}
+
 export function fetchSlaAlerts(
   status: "active" | "resolved" | "all" = "active",
 ): Promise<{ count: number; items: SlaAlert[]; threshold_hours: number }> {
@@ -1246,6 +1509,8 @@ export interface ManagedUser {
   keywords: string[];
   /** Mobile number, free text. Empty when nobody has recorded one. */
   phone?: string;
+  /** Payroll branch. Empty means unassigned, which is valid and displayed. */
+  branch?: string;
   created_at: string | null;
   /** The extra pages an admin ticked. */
   page_grants: string[];
@@ -1270,6 +1535,8 @@ export function createUserAPI(payload: {
   action_grants?: string[];
   keywords?: string[];
   phone?: string;
+  /** Which branch this employee is payrolled at. Drives the payroll filter. */
+  branch?: string;
 }): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>("/users", {
     method: "POST",
@@ -1290,6 +1557,7 @@ export function updateUserAPI(
     action_grants?: string[];
     keywords?: string[];
     phone?: string;
+    branch?: string;
   },
 ): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>(`/users/${userId}`, {

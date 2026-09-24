@@ -353,6 +353,20 @@ class Settings(BaseSettings):
     # endpoint to the internet.
     whatsapp_service_key: str = ""
 
+    # ---- WhatsApp group intake ----
+    # Off, and honestly so. The bot this deployment runs is built on the
+    # WhatsApp Cloud API, whose webhook delivers one-to-one conversations only:
+    # there is no group message event and no group identifier in any payload it
+    # sends. Group timesheets and agent-posted profiles therefore cannot be
+    # received until the bot service is moved to a provider that exposes group
+    # traffic — a change on that side, not this one.
+    #
+    # The receiving half is built and tested (`app/whatsapp/groups.py`). This
+    # flag is the only thing that has to change when the upstream can feed it,
+    # and while it is off `POST /whatsapp/group-events` answers 503 naming the
+    # blocker rather than accepting traffic that cannot arrive.
+    whatsapp_group_intake_enabled: bool = False
+
     # ---- Telling the bot about an allocation ----
     # Where the recruitment bot listens, and the credential it expects on its
     # `/api/*` routes.

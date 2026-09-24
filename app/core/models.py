@@ -481,6 +481,58 @@ EVALUATION_STATUSES = (
 )
 
 
+# Where a candidate stands with the outside world, which is a different question
+# from what our own reviewer thought of them.
+#
+# Four statuses describe a candidate and they are deliberately not interchangeable:
+#
+#   evaluation_status  our reviewer's verdict on the profile      (above)
+#   recruitment_status where they are in the external pipeline    (here)
+#   interview_status   whether one interview happened             (INTERVIEW_STATUSES)
+#   offer_status       whether an offer was made and answered     (OFFER_STATUSES)
+#
+# They used to be conflated: recording an outcome wrote "selected" or
+# "offer_declined" into `evaluation_status`, which accepts neither, so the value
+# reached the database, failed to match any status the console knew how to draw,
+# and left the profile showing a blank chip.
+RECRUITMENT_STATUSES = (
+    #: In the pool and matchable. The state every candidate starts in, and the
+    #: one a rejected or declined candidate returns to.
+    "available",
+    "submitted_to_company",
+    "submitted_to_associate",
+    "interviewing",
+    "interview_completed",
+    "selected",
+    "on_hold",
+    "offer_issued",
+    #: Terminal and locked: this person is committed to a placement.
+    "offer_accepted",
+)
+
+INTERVIEW_STATUSES = ("pending", "scheduled", "completed", "unavailable")
+
+OFFER_STATUSES = ("issued", "accepted", "declined")
+
+#: The outcomes a company or associate can report after an interview.
+INTERVIEW_OUTCOMES = ("selected", "on_hold", "rejected", "offer_declined")
+
+#: Outcomes that release a candidate: they are not committed to anybody, so they
+#: go back in the pool and can be matched against new job orders. Recorded in
+#: `last_outcome` so the profile still says what happened, which "available"
+#: alone would not.
+OUTCOMES_RETURNING_TO_POOL = ("rejected", "offer_declined")
+
+#: How an external outcome maps onto our own reviewer's verdict — only where the
+#: two genuinely mean the same thing. "selected" and "offer_declined" have no
+#: equivalent, so they leave `evaluation_status` alone rather than writing a
+#: value it does not define.
+OUTCOME_TO_EVALUATION_STATUS = {
+    "rejected": "rejected",
+    "on_hold": "on_hold",
+}
+
+
 # Where a candidate came from.
 #
 # "email" is everything this system did before: a résumé pulled out of a
@@ -692,6 +744,17 @@ class CandidateRecord(BaseModel):
     assignment_history: List[Dict[str, Any]] = Field(default_factory=list)
     latest_assignment_remark: Optional[str] = None
 
+    # ---- office ----------------------------------------------------------- #
+    # Which of our own branches is handling this candidate. A managed taxonomy
+    # row (see `app.db.taxonomy.list_offices`), not free text, so "Mount Road"
+    # is one place rather than one per spelling.
+    #
+    # Distinct from `profile.destination_country`, which is where the candidate
+    # wants to go: a candidate bound for Europe can be worked by the Mount Road
+    # office, and moving them between the two is exactly what a reassignment is.
+    office_id: Optional[str] = None
+    office_name: Optional[str] = None
+
     # ---- evaluation ------------------------------------------------------- #
     # `viewed_at` is stamped once, on the owner's first open; while it is null
     # the SLA clock is running. Reassignment clears both this and the verdict.
@@ -710,7 +773,15 @@ class CandidateRecord(BaseModel):
     submission_date: Optional[datetime] = None
     job_order_id: Optional[str] = None
     interview_status: Optional[str] = None
+    interview_at: Optional[datetime] = None
     offer_status: Optional[str] = None
+    #: The last thing a company or associate said about them — kept separately
+    #: from `recruitment_status` because a rejected candidate goes back to
+    #: "available" immediately, and the profile still has to be able to say why.
+    last_outcome: Optional[str] = None
+    last_outcome_at: Optional[datetime] = None
+    #: True only while an accepted offer stands. Nothing but an explicit offer
+    #: decision may change it — see `record_recruitment_event`.
     placement_locked: bool = False
     recruitment_history: List[Dict[str, Any]] = Field(default_factory=list)
 

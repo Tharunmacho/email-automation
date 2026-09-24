@@ -22,6 +22,7 @@ import AdminStaffManagement from "@/screens/AdminStaffManagement";
 import StaffDashboard from "@/screens/StaffDashboard";
 import AttendanceScreen from "@/screens/AttendanceScreen";
 import PayrollScreen from "@/screens/PayrollScreen";
+import RecruitmentPanel from "@/components/RecruitmentPanel";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
@@ -58,6 +59,12 @@ import {
   type CandidateProfile,
   type CandidateRecord,
   type SlaAlert,
+  fetchOffices,
+  listCountriesAPI,
+  listStaff,
+  type CountryRow,
+  type Office,
+  type StaffMember,
 } from "@/lib/api";
 import type { Verdict } from "@/screens/CandidateProfileScreen";
 
@@ -434,6 +441,37 @@ export default function Home() {
     return reachableTabs.has(routeTab) ? routeTab : defaultNavFor(user.role, user.pages);
   }, [user, reachableTabs, routeTab]);
   const canReallocate = user?.role === "admin" || Boolean(user?.actions?.includes("reallocate-candidates"));
+  // The recruitment transitions all sit behind `require_page("job-orders")`.
+  const canMovePipeline = Boolean(user?.pages?.includes("job-orders"));
+
+  // Reference data the recruitment panel needs to offer a destination, an
+  // office and a new owner. Loaded once for the session rather than per
+  // profile: it changes rarely, and re-fetching it every time a reviewer opens
+  // a candidate would be three requests for data that has not moved.
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [staffRoster, setStaffRoster] = useState<StaffMember[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    // Each is optional scenery: a reviewer without permission to reassign has
+    // no use for them, and a failure here must not break the profile screen.
+    void listCountriesAPI()
+      .then(({ items }) => active && setCountries(items.filter((row) => row.active)))
+      .catch(() => undefined);
+    void fetchOffices()
+      .then(({ items }) => active && setOffices(items))
+      .catch(() => undefined);
+    if (canReallocate) {
+      void listStaff(false)
+        .then(({ items }) => active && setStaffRoster(items.filter((person) => person.active)))
+        .catch(() => undefined);
+    }
+    return () => {
+      active = false;
+    };
+  }, [user, canReallocate]);
   const usesCandidateData = canReadCandidates && ["overview", "candidates", "assigned-candidates", "staff"].includes(currentTab);
   const candidateDataBlocked = usesCandidateData && !candidateDataLoaded;
 
@@ -965,6 +1003,20 @@ export default function Home() {
    * unmount between profiles. When there is nothing left to advance to it
    * closes, which is the honest end of the run.
    */
+  /**
+   * A pipeline transition succeeded, so re-read what the server now holds.
+   *
+   * Bumping the detail nonce is the established way this page refreshes an open
+   * profile (see `handleVerify`): the record returned by the transition is
+   * authoritative, but the list behind the screen has moved too — a candidate
+   * who accepted an offer has just left the matchable pool — so both are
+   * refreshed rather than patching one and letting the other drift.
+   */
+  const handleRecruitmentChanged = useCallback(() => {
+    setDetailNonce((n) => n + 1);
+    void refreshCandidates();
+  }, [refreshCandidates]);
+
   const handleSaveEvaluation = async (
     candidateId: string,
     verdict: Verdict,
@@ -1171,6 +1223,22 @@ export default function Home() {
                   onSave: (verdict, advance) =>
                     void handleSaveEvaluation(screenCandidate.id, verdict, advance),
                 }}
+                recruitment={
+                  <RecruitmentPanel
+                    candidate={screenCandidate}
+                    // The pipeline endpoints are gated on the `job-orders`
+                    // page, so an account without it is shown the state and
+                    // not the controls — rather than buttons whose only
+                    // possible outcome is a 404.
+                    canManage={canMovePipeline}
+                    canReassign={canReallocate}
+                    countries={countries}
+                    offices={offices}
+                    staff={staffRoster}
+                    onToast={showToast}
+                    onChanged={handleRecruitmentChanged}
+                  />
+                }
               />
             )}
 

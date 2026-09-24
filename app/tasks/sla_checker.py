@@ -102,14 +102,23 @@ def _row_to_alert(row: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     }
 
 
-def find_breaches(threshold_hours: float | None = None) -> List[Dict[str, Any]]:
-    """Every profile currently in breach, across the whole roster."""
+def find_breaches(
+    threshold_hours: float | None = None,
+    staff_id: str | None = None,
+) -> List[Dict[str, Any]]:
+    """Every profile currently in breach.
+
+    The single source of truth for "is this overdue?". The console, the staff
+    dashboard and the alert sweep all come through here, so the threshold, the
+    clock and the definition of "not yet dealt with" cannot drift apart between
+    screens. `staff_id` narrows it to one person's queue.
+    """
     hours = _threshold(threshold_hours)
     now = utcnow()
     cutoff = now - timedelta(hours=hours)
 
     repo = CandidateRepository()
-    return [_row_to_alert(row, now) for row in repo.find_sla_breaches(cutoff)]
+    return [_row_to_alert(row, now) for row in repo.find_sla_breaches(cutoff, staff_id=staff_id)]
 
 
 def list_alerts(status: str | None = None, limit: int = 100) -> List[Dict[str, Any]]:

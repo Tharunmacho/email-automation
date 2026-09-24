@@ -11,11 +11,11 @@ from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
 from app.attendance.engine import calculate_month, local_day, lop_amount
-from app.attendance.models import AdjustmentRequest, CalendarDayRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
+from app.attendance.models import AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
-from app.db.dedup import normalize_phone
+from app.whatsapp.groups import GroupIntakeError, resolve_employee
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
 from app.logging_config import get_logger
 
@@ -59,36 +59,17 @@ class WhatsAppAttendanceEvent(BaseModel):
     chat_type: Literal["private"] = "private"
 
 
-def _name_key(value: str) -> str:
-    return " ".join((value or "").casefold().split())
-
-
 def _whatsapp_employee(sender_phone: str, stated_name: str):
-    """Authenticate attendance by CRM phone and verify the written name."""
-    sender = normalize_phone(sender_phone)
-    matches = [
-        employee
-        for employee in users.list_employees(include_inactive=False)
-        if sender and normalize_phone(employee.phone) == sender
-    ]
-    if len(matches) != 1:
-        raise HTTPException(
-            status_code=422,
-            detail="The sender's WhatsApp number is not linked to one active CRM employee",
-        )
-    employee = matches[0]
-    full_name = _name_key(employee.name)
-    allowed_names = {
-        full_name,
-        full_name.split(" ", 1)[0],
-        _name_key(employee.staff_code),
-    }
-    if _name_key(stated_name) not in allowed_names:
-        raise HTTPException(
-            status_code=422,
-            detail="The written name does not match the sender's CRM employee account",
-        )
-    return employee
+    """Authenticate attendance by CRM phone and verify the written name.
+
+    The rule itself lives in `app.whatsapp.groups.resolve_employee`, shared with
+    group intake so a number and a name mean the same thing in both chats. This
+    only turns the refusal into the HTTP answer the bot expects.
+    """
+    try:
+        return resolve_employee(users, sender_phone, stated_name)
+    except GroupIntakeError as exc:
+        raise HTTPException(status_code=422, detail=exc.reason) from exc
 
 
 @router.post("/punch", status_code=201)
@@ -314,20 +295,20 @@ def decide_extra_ot(request_id: str, payload: ExtraOTDecision, approver: dict = 
     return {"status": "decided", "request": _conflict(lambda: service().decide_extra_ot(request_id, payload, approver["id"]))}
 
 
-@router.get("/permissions")
-def list_permissions(
-    year: int,
-    month: int,
-    employee_id: str | None = Query(default=None),
-    user: dict = Depends(current_user),
-) -> dict:
-    """Own history for employees; staff approvals for managers; all for admins."""
+def _period(year: int, month: int) -> tuple[date, date]:
     if month < 1 or month > 12:
         raise HTTPException(status_code=422, detail="month must be between 1 and 12")
-    start = date(year, month, 1)
-    end = date(year, month, calendar.monthrange(year, month)[1])
-    repository = AttendanceRepository()
+    return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
 
+
+def _visible_employee_ids(user: dict, employee_id: str | None) -> str | list[str]:
+    """Whose records this caller may list.
+
+    Own history for employees; the staff roster for managers; everyone for
+    administrators. Naming an employee narrows a manager or administrator to
+    that person, and is checked by `_employee_id` so staff cannot name somebody
+    else.
+    """
     if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE} and not employee_id:
         if user.get("role") == ADMIN_ROLE:
             members = (
@@ -341,12 +322,71 @@ def list_permissions(
                 if hasattr(users, "list_staff")
                 else users.list_assignable_staff()
             )
-        employee_ids = [member.id for member in members]
-        items = repository.permissions_for_period(employee_ids, start, end)
-    else:
-        employee = _employee_id(user, employee_id)
-        items = repository.permissions_for_period(employee, start, end)
+        return [member.id for member in members]
+    return _employee_id(user, employee_id)
+
+
+@router.get("/permissions")
+def list_permissions(
+    year: int,
+    month: int,
+    employee_id: str | None = Query(default=None),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Own history for employees; staff approvals for managers; all for admins."""
+    start, end = _period(year, month)
+    items = AttendanceRepository().permissions_for_period(
+        _visible_employee_ids(user, employee_id), start, end
+    )
     return {"items": items, "count": len(items), "year": year, "month": month}
+
+
+@router.get("/extra-ot")
+def list_extra_ot(
+    year: int,
+    month: int,
+    employee_id: str | None = Query(default=None),
+    user: dict = Depends(current_user),
+) -> dict:
+    """Extra OT requests for the month, scoped exactly like permissions."""
+    start, end = _period(year, month)
+    items = AttendanceRepository().extra_ot_for_period(
+        _visible_employee_ids(user, employee_id), start, end
+    )
+    return {"items": items, "count": len(items), "year": year, "month": month}
+
+
+# --------------------------------------------------------------------------- #
+#  Duty planning
+#
+#  A duty plan rosters one date as a working day. It is what makes a Sunday
+#  count, and it is deliberately separate from `POST /shifts`, which changes an
+#  employee's hours from a date onwards and says nothing about which days are
+#  worked.
+# --------------------------------------------------------------------------- #
+@router.post("/duty-plans", status_code=201)
+def create_duty_plan(payload: DutyPlanRequest, admin: dict = Depends(require_attendance_manager)) -> dict:
+    _employee_id(admin, payload.employee_id)
+    return {"status": "recorded", "duty_plan": service().plan_duty(payload, admin["id"])}
+
+
+@router.get("/duty-plans")
+def list_duty_plans(
+    year: int,
+    month: int,
+    employee_id: str | None = Query(default=None),
+    user: dict = Depends(current_user),
+) -> dict:
+    start, end = _period(year, month)
+    items = service().duty_plans(_visible_employee_ids(user, employee_id), start, end)
+    return {"items": items, "count": len(items), "year": year, "month": month}
+
+
+@router.delete("/duty-plans/{plan_id}")
+def delete_duty_plan(plan_id: str, admin: dict = Depends(require_attendance_manager)) -> dict:
+    if not service().remove_duty_plan(plan_id):
+        raise HTTPException(status_code=404, detail="Duty plan not found")
+    return {"status": "deleted", "id": plan_id}
 
 
 @router.post("/permissions/{permission_id}/decision")

@@ -292,6 +292,7 @@ export default function UserManagementScreen({
         password: draft.password,
         name: draft.name.trim(),
         phone: draft.phone.trim(),
+        branch: draft.branch.trim(),
         role: draft.role,
         page_grants: draft.grants,
         action_grants: draft.actionGrants,
@@ -537,6 +538,11 @@ interface CreateDraft {
   name: string;
   /** Free text. Optional, and no format is imposed — see the field's hint. */
   phone: string;
+  /**
+   * Which branch this employee is payrolled at. Optional: an employee without
+   * one is valid and shows as "Unassigned" in payroll rather than breaking it.
+   */
+  branch: string;
   role: string;
   grants: string[];
   actionGrants: string[];
@@ -556,6 +562,7 @@ function CreateUserForm({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [branch, setBranch] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [role, setRole] = useState("staff");
@@ -632,6 +639,26 @@ function CreateUserForm({
               Optional, and stored as typed — country code, extension or a second number all fit.
             </p>
           </div>
+
+          <div className="field-group">
+            <label className="modal-label" htmlFor="u-branch">
+              Branch
+            </label>
+            <input
+              id="u-branch"
+              className="modal-input"
+              type="text"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder="Mount Road"
+              maxLength={100}
+            />
+            <p className="modal-hint">
+              Optional. Payroll can be viewed one branch at a time, and this is what fills that
+              filter; employees without a branch appear under &ldquo;Unassigned&rdquo;.
+            </p>
+          </div>
+
           <div className="field-group">
             <label className="modal-label" htmlFor="u-password">
               Password
@@ -694,7 +721,7 @@ function CreateUserForm({
           type="button"
           className="db-btn is-primary"
           disabled={!ready}
-          onClick={() => onCreate({ email, password, name, phone, role, grants, actionGrants })}
+          onClick={() => onCreate({ email, password, name, phone, branch, role, grants, actionGrants })}
         >
           <Check size={14} /> Create
         </button>
@@ -724,6 +751,7 @@ function EditUserModal({
   const [email, setEmail] = useState(user.email);
   const [emailError, setEmailError] = useState("");
   const [phone, setPhone] = useState(user.phone ?? "");
+  const [branch, setBranch] = useState(user.branch ?? "");
   const [role, setRole] = useState(user.role);
   const [active, setActive] = useState(user.active);
   const [password, setPassword] = useState("");
@@ -757,6 +785,7 @@ function EditUserModal({
         email: email.trim(),
         name,
         phone,
+        branch: branch.trim(),
         role,
         active,
         page_grants: grants,
@@ -832,6 +861,25 @@ function EditUserModal({
                 placeholder="+91 98765 43210"
                 disabled={saving}
               />
+            </div>
+            <div className="field-group">
+              <label className="modal-label" htmlFor="e-branch">
+                Branch
+              </label>
+              <input
+                id="e-branch"
+                className="modal-input"
+                type="text"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                placeholder="Mount Road"
+                maxLength={100}
+                disabled={saving}
+              />
+              <p className="modal-hint">
+                Drives the branch filter in payroll. Leave empty for
+                &ldquo;Unassigned&rdquo;.
+              </p>
             </div>
           </div>
 

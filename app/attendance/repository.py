@@ -169,6 +169,22 @@ class AttendanceRepository:
                                    "attendance_date": {"$gte": start.isoformat(), "$lte": end.isoformat()}})
         return sum(int(row.get("requested_minutes", 0)) for row in rows)
 
+    def extra_ot_for_period(
+        self,
+        employee_ids: str | Sequence[str],
+        start: date,
+        end: date,
+    ) -> list[dict]:
+        """Extra OT requests for one employee or an approver-visible roster."""
+        employee_query: object = (
+            employee_ids if isinstance(employee_ids, str) else {"$in": list(employee_ids)}
+        )
+        rows = self.extra_ot_collection.find({
+            "employee_id": employee_query,
+            "attendance_date": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        }).sort([("attendance_date", DESCENDING), ("created_at", DESCENDING)])
+        return [_public(row) for row in rows]
+
     def permissions_for_period(
         self,
         employee_ids: str | Sequence[str],
@@ -201,9 +217,53 @@ class AttendanceRepository:
         self.shifts.insert_one(doc)
         return _public(doc)
 
+    def duty_plan_for_day(self, employee_id: str, day: date) -> dict | None:
+        """A single rostered day, if one was planned for exactly this date."""
+        return _public(self.shifts.find_one(
+            {"employee_id": employee_id, "effective_from": day.isoformat(), "kind": "planned_duty"},
+            sort=[("created_at", DESCENDING)],
+        ))
+
+    def duty_plans_for_period(
+        self,
+        employee_ids: str | Sequence[str],
+        start: date,
+        end: date,
+    ) -> list[dict]:
+        employee_query: object = (
+            employee_ids if isinstance(employee_ids, str) else {"$in": list(employee_ids)}
+        )
+        rows = self.shifts.find({
+            "employee_id": employee_query,
+            "kind": "planned_duty",
+            "effective_from": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        }).sort([("effective_from", ASCENDING), ("created_at", DESCENDING)])
+        return [_public(row) for row in rows]
+
+    def delete_duty_plan(self, plan_id: str) -> dict | None:
+        """Remove one rostered day. Recurring shift history is never deleted."""
+        return _public(self.shifts.find_one_and_delete({"_id": plan_id, "kind": "planned_duty"}))
+
     def shift_for_day(self, employee_id: str, day: date) -> dict | None:
+        """The hours this day is worked to, and whether it was explicitly rostered.
+
+        A duty plan is for one date and wins outright. Otherwise the answer is
+        the latest rolling assignment on or before the day — which supplies the
+        hours but says nothing about whether the day is a working day, because
+        "these are your hours from March" is not "you are working this Sunday".
+
+        Rows written before `kind` existed carry no such field and are read as
+        recurring, which is what they were.
+        """
+        planned = self.duty_plan_for_day(employee_id, day)
+        if planned:
+            return planned
         row = self.shifts.find_one(
-            {"employee_id": employee_id, "effective_from": {"$lte": day.isoformat()}},
+            {
+                "employee_id": employee_id,
+                "effective_from": {"$lte": day.isoformat()},
+                "kind": {"$ne": "planned_duty"},
+            },
             sort=[("effective_from", DESCENDING), ("created_at", DESCENDING)],
         )
         return _public(row)
@@ -258,6 +318,7 @@ def ensure_attendance_indexes() -> None:
     ensure_index(db[ADJUSTMENTS], [("employee_id", ASCENDING), ("attendance_date", ASCENDING)], "attendance_adjustment_day")
     ensure_index(db[PERMISSIONS], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("status", ASCENDING)], "attendance_permission_day")
     ensure_index(db[SHIFTS], [("employee_id", ASCENDING), ("effective_from", DESCENDING)], "attendance_shift_effective")
+    ensure_index(db[SHIFTS], [("employee_id", ASCENDING), ("kind", ASCENDING), ("effective_from", ASCENDING)], "attendance_shift_kind_date")
     ensure_index(db[CALENDAR], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("created_at", DESCENDING)], "attendance_calendar_day")
     ensure_index(db[POLICIES], [("employee_id", ASCENDING)], "attendance_policy_employee", unique=True)
     ensure_index(db[EXTRA_OT], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("status", ASCENDING)], "attendance_extra_ot_period")

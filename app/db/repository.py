@@ -153,6 +153,17 @@ LIST_PROJECTION = {
     "evaluation_status": 1,
     "evaluation_score": 1,
     "evaluated_at": 1,
+    # Where the candidate stands with the outside world. The list has to be able
+    # to show that somebody is out with a company, or locked to a placement,
+    # without opening every profile to find out.
+    "recruitment_status": 1,
+    "submission_target_type": 1,
+    "submission_target_name": 1,
+    "submission_date": 1,
+    "interview_status": 1,
+    "offer_status": 1,
+    "last_outcome": 1,
+    "placement_locked": 1,
     # When the résumé arrived, so a row that has never been allocated can still
     # show how long it has been waiting.
     "ingested_at": 1,
@@ -1320,19 +1331,56 @@ class CandidateRepository:
         )
         return self.get(candidate_id)
 
-    def record_recruitment_event(self, candidate_id: str, event: dict, updates: dict) -> Optional[CandidateRecord]:
-        """Append a lifecycle event and update its current projection atomically."""
+    def record_reassignment(self, candidate_id: str, event: dict, updates: dict) -> Optional[CandidateRecord]:
+        """Move a candidate between countries/offices/desks and log both sides.
+
+        Written into `assignment_history` rather than a parallel list, because
+        it is the same question a reader is asking — "how did this candidate end
+        up here?" — and two timelines answer it twice, differently. The entry
+        carries `type: "reassignment"`; entries written before this existed have
+        no `type` and are ownership changes, which is what they were.
+        """
+        result = self._coll.update_one(
+            _id_filter(candidate_id),
+            {"$set": dict(updates), "$push": {"assignment_history": event}},
+        )
+        return self.get(candidate_id) if result.matched_count else None
+
+    def record_recruitment_event(
+        self,
+        candidate_id: str,
+        event: dict,
+        updates: dict,
+        *,
+        may_change_placement_lock: bool = False,
+    ) -> Optional[CandidateRecord]:
+        """Append a lifecycle event and update its current projection atomically.
+
+        `may_change_placement_lock` is the guard requirement 13 asks for. A
+        placement lock says a person has accepted an offer and is committed;
+        only an explicit offer decision may set or clear it. Every other
+        transition — an outcome recorded late, a correction, a second interview
+        note — passes `False`, so `placement_locked` is stripped from the update
+        before it reaches the database and cannot be flipped as a side effect.
+
+        The write is a single atomic update: the projection and the history
+        entry move together, so a reader never sees a status whose history entry
+        has not been written yet.
+        """
         from app.core.models import utcnow
 
         now = utcnow()
         changes = {**updates, "updated_at": now}
-        changes.setdefault("recruitment_history", None)
+        if not may_change_placement_lock:
+            changes.pop("placement_locked", None)
+        # `recruitment_history` is appended to, never assigned: a caller passing
+        # it in $set would silently replace the audit trail with one entry.
+        changes.pop("recruitment_history", None)
         update = {"$set": changes, "$push": {"recruitment_history": {**event, "at": now}}}
-        update["$set"].pop("recruitment_history", None)
         result = self._coll.update_one(_id_filter(candidate_id), update)
         return self.get(candidate_id) if result.matched_count else None
 
-    def find_sla_breaches(self, cutoff: datetime) -> List[dict]:
+    def find_sla_breaches(self, cutoff: datetime, staff_id: Optional[str] = None) -> List[dict]:
         """Assigned profiles, waiting since before `cutoff`, unopened or unjudged.
 
         "Waiting since" is `SLA_CLOCK_EXPR`, not `assigned_at` alone. A record
@@ -1344,10 +1392,15 @@ class CandidateRepository:
         Still restricted to profiles somebody owns: an SLA is a promise a named
         person has not kept, and an alert against nobody names nobody to chase.
         Unallocated profiles are counted separately, on the admin console.
+
+        `staff_id` narrows the sweep to one person's own queue, so a staff
+        member can be shown the same overdue list the console shows about them
+        — computed here, once, rather than approximated again in the browser.
         """
+        owner: dict = {"$ne": None} if staff_id is None else staff_id
         return list(self._coll.find(
             {
-                "assigned_staff_id": {"$ne": None},
+                "assigned_staff_id": owner,
                 "$expr": {"$lte": [SLA_CLOCK_EXPR, cutoff]},
                 "$or": [
                     {"viewed_at": None},

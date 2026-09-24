@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -237,6 +237,14 @@ interface CandidateProfileScreenProps {
   onUnverify?: (candidateId: string) => void;
   /** Supplied to users who may add candidate remarks and record a verdict. */
   evaluation?: EvaluationSuite;
+  /**
+   * The recruitment pipeline panel, when this account can see it.
+   *
+   * Passed in already constructed rather than assembled here: the countries,
+   * offices and staff roster it needs are page-level data, and this screen has
+   * no business fetching them.
+   */
+  recruitment?: ReactNode;
 }
 
 const STATUS_CHOICES: { value: EvaluationStatus; label: string }[] = [
@@ -475,6 +483,7 @@ export default function CandidateProfileScreen({
   onVerify,
   onUnverify,
   evaluation,
+  recruitment,
 }: CandidateProfileScreenProps) {
 
   /**
@@ -1436,6 +1445,8 @@ export default function CandidateProfileScreen({
             </div>
           </section>
         )}
+
+        {recruitment}
         </div>
 
         {evaluation && (

@@ -37,7 +37,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { fetchUiConfig, resumeDownloadUrl, type CandidateRecord } from "@/lib/api";
+import {
+  fetchMySlaBreaches,
+  fetchUiConfig,
+  resumeDownloadUrl,
+  type CandidateRecord,
+} from "@/lib/api";
 import Select from "@/components/ui/Select";
 import { formatInt, initialsOf, timeAgo } from "@/lib/format";
 
@@ -156,6 +161,17 @@ export default function StaffDashboard({
   const [sort, setSort] = useState<QueueSort>("sla");
   const [query, setQuery] = useState("");
   const [slaHours, setSlaHours] = useState(DEFAULT_SLA_HOURS);
+  /**
+   * The ids the server considers overdue, from the same sweep the admin console
+   * reads (`GET /sla/mine`).
+   *
+   * The countdown below is still computed here — it ticks every minute and a
+   * request per minute would be absurd — but whether a profile is *overdue* is
+   * the server's answer, so a staff member and their manager cannot be looking
+   * at two different numbers. Until the first response arrives the set is null
+   * and the local clock stands in, so the page is never blank.
+   */
+  const [overdueIds, setOverdueIds] = useState<Set<string> | null>(null);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -177,17 +193,52 @@ export default function StaffDashboard({
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      void fetchMySlaBreaches()
+        .then((result) => {
+          if (cancelled) return;
+          setOverdueIds(new Set(result.items.map((alert) => alert.candidate_id)));
+          if (result.threshold_hours > 0) setSlaHours(result.threshold_hours);
+        })
+        // A failure leaves `overdueIds` as it was; the local countdown covers
+        // the gap rather than the queue losing its overdue markers entirely.
+        .catch(() => undefined);
+    load();
+    // Re-read when the queue changes underneath, and on the same cadence the
+    // rest of the screen refreshes on.
+    const timer = setInterval(load, 120000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [candidates.length]);
+
+  /**
+   * Whether this profile is overdue.
+   *
+   * Prefers the server's sweep and falls back to the local clock only before
+   * the first response. One definition, one threshold, one answer.
+   */
+  const isOverdue = useCallback(
+    (candidate: CandidateRecord) => {
+      if (overdueIds) return overdueIds.has(candidate.id);
+      const left = hoursRemaining(candidate, slaHours, now);
+      return left !== null && left <= 0;
+    },
+    [overdueIds, slaHours, now],
+  );
+
   const counts = useMemo(() => {
     const atRisk = candidates.filter((candidate) => {
       const left = hoursRemaining(candidate, slaHours, now);
       return left !== null && left <= slaHours * AT_RISK_FRACTION;
     }).length;
     // Already past the window rather than merely close to it — the subset of
-    // `at_risk` that is no longer a warning.
-    const overdue = candidates.filter((candidate) => {
-      const left = hoursRemaining(candidate, slaHours, now);
-      return left !== null && left <= 0;
-    }).length;
+    // `at_risk` that is no longer a warning. Taken from the server's sweep so
+    // this agrees with what a manager sees on the staff console.
+    const overdue = candidates.filter(isOverdue).length;
     return {
       all: candidates.length,
       unviewed: candidates.filter((c) => !c.viewed_at).length,
@@ -196,7 +247,7 @@ export default function StaffDashboard({
       at_risk: atRisk,
       overdue,
     };
-  }, [candidates, slaHours, now]);
+  }, [candidates, slaHours, now, isOverdue]);
 
   const performance = useMemo(() => {
     const evaluated = candidates.filter(isEvaluated);
@@ -256,6 +307,12 @@ export default function StaffDashboard({
           if (!isEvaluated(candidate)) return false;
           break;
         case "at_risk": {
+          // Anything the server has already called overdue belongs here
+          // whatever the local countdown thinks. It can disagree: the server's
+          // clock falls back to `ingested_at` when a profile carries no
+          // `assigned_at`, where `hoursRemaining` gives up and returns null —
+          // so the profiles waiting longest were the ones this filter dropped.
+          if (isOverdue(candidate)) break;
           const left = hoursRemaining(candidate, slaHours, now);
           if (left === null || left > slaHours * AT_RISK_FRACTION) return false;
           break;
@@ -298,7 +355,7 @@ export default function StaffDashboard({
       );
     });
     return sorted;
-  }, [candidates, filter, query, sort, slaHours, now]);
+  }, [candidates, filter, query, sort, slaHours, now, isOverdue]);
 
   const nextUp = useMemo(() => {
     const waiting = candidates

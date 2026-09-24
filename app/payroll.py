@@ -13,7 +13,7 @@ from app.attendance.engine import calculate_month, lop_amount
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.mongo import ensure_index, get_db
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
+from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, normalize_branch
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 RUNS = "payroll_runs"
@@ -44,6 +44,21 @@ def _visible_employees(user: dict):
     raise HTTPException(status_code=403, detail="Payroll access required")
 
 
+def _branch_names(employees) -> list[str]:
+    """Every branch in use, one entry per name however it was capitalised.
+
+    Records written before branch normalisation may hold "chennai" alongside
+    "Chennai"; both belong to one branch, so the filter offers it once, under
+    the first spelling seen.
+    """
+    seen: dict[str, str] = {}
+    for employee in employees:
+        name = normalize_branch(employee.branch)
+        if name:
+            seen.setdefault(name.casefold(), name)
+    return sorted(seen.values())
+
+
 def _period_days(year: int, month: int) -> list[date]:
     if month < 1 or month > 12:
         raise HTTPException(status_code=422, detail="month must be between 1 and 12")
@@ -60,8 +75,9 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
     attendance = AttendanceService(attendance_repo)
     runs = get_db()[RUNS]
     rows = []
+    wanted = normalize_branch(branch).casefold() if branch else None
     for employee in _visible_employees(user):
-        if branch and employee.branch != branch:
+        if wanted is not None and normalize_branch(employee.branch).casefold() != wanted:
             continue
         policy = attendance_repo.employee_policy(employee.id)
         tracking_start = attendance_repo.attendance_start_date(employee.id)
@@ -85,7 +101,7 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
         rows.append({
             "employee_id": employee.id,
             "name": employee.name,
-            "branch": employee.branch,
+            "branch": normalize_branch(employee.branch),
             "staff_code": employee.staff_code,
             "monthly_salary": monthly_salary,
             "deduction": deduction,
@@ -115,7 +131,7 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
         "paid_leave_allowance_days": 1,
         "items": rows,
         "branch": branch,
-        "branches": sorted({employee.branch for employee in _visible_employees(user) if employee.branch}),
+        "branches": _branch_names(_visible_employees(user)),
     }
 
 
