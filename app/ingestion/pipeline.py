@@ -532,13 +532,13 @@ class IngestionPipeline:
 
             resume_hash = sha256_hex(data)
 
-            # (0) The user deleted a candidate that came from this exact file.
-            #     Never bring it back, however many times the mail is re-fetched.
-            if self.ledger.is_suppressed(resume_hash):
-                return AttachmentResult(
-                    att.filename, "suppressed",
-                    detail="previously deleted by a user — not re-ingested",
-                )
+            # No hash-level "deleted" gate here, on purpose. A deleted
+            # candidate's *emails* are tombstoned by message id, and
+            # `message_seen` above has already refused those. This message is
+            # new, and a file re-sent on a new email after a deletion ingests as
+            # a new candidate. `is_suppressed(hash)` only ever matches rows left
+            # by the old `suppress_hash`, which blocked the file for ever — the
+            # 24 Sep "detected, skipped in two seconds, no OCR" resume.
 
             # (1) Exact-duplicate short-circuit before any expensive work.
             dup = self.repo.find_by_resume_hash(resume_hash)
@@ -546,9 +546,11 @@ class IngestionPipeline:
                 self.ledger.record(email.message_id, resume_hash, dup.id, "duplicate")
                 return AttachmentResult(att.filename, "duplicate", dup.id, "identical file already ingested")
 
-            # Same file already seen under a different message id.
+            # Same file already seen under a different message id — but only a
+            # duplicate if that candidate still exists. A ledger row pointing at
+            # a deleted candidate is a stale pointer, not a reason to drop mail.
             seen = self.ledger.find_by_hash(resume_hash)
-            if seen and seen.candidate_id:
+            if seen and seen.candidate_id and self.repo.get(seen.candidate_id):
                 return AttachmentResult(
                     att.filename, "duplicate", seen.candidate_id,
                     "identical file already ingested (ledger)",

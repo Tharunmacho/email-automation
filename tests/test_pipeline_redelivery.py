@@ -21,6 +21,9 @@ class FakeRepo:
         self.deleted_emails = set()
         self.deleted_phones = set()
 
+    def get(self, candidate_id):
+        return self.records.get(candidate_id)
+
     def find_by_message_id(self, message_id):
         return next((r for r in self.records.values()
                      if r.source_email and r.source_email.message_id == message_id), None)
@@ -163,6 +166,35 @@ def test_same_file_ingests_as_new_after_the_candidate_is_deleted(parts):
 
     assert again.status == "processed", "re-sent resume must ingest as a new candidate"
     assert again.ingested_ids and again.ingested_ids[0] != candidate_id
+    assert len(repo.records) == 1
+
+
+def test_a_legacy_hash_suppression_does_not_block_a_new_email(parts):
+    """Rows left by the old `suppress_hash` blocked the file for ever.
+
+    Production, 24 Sep: a CV re-sent after its candidate was deleted was
+    detected, then "skipped" in two seconds with no OCR. A new email carrying
+    the file must ingest whatever such a row says.
+    """
+    pipeline, repo, ledger = parts
+    ledger.rows.append({"message_id": "msg-old", "resume_hash": RESUME_HASH,
+                        "candidate_id": "gone", "status": "deleted",
+                        "suppressed": True})
+
+    again = pipeline.process_email(_email("msg-new"))
+
+    assert again.status == "processed"
+    assert len(repo.records) == 1
+
+
+def test_a_ledger_row_pointing_at_a_deleted_candidate_is_not_a_duplicate(parts):
+    """A stale ledger pointer must not drop the mail as "already ingested"."""
+    pipeline, repo, ledger = parts
+    ledger.record("msg-old", RESUME_HASH, "no-longer-exists", "ingested")
+
+    again = pipeline.process_email(_email("msg-new"))
+
+    assert again.attachments[0].status == "ingested"
     assert len(repo.records) == 1
 
 
