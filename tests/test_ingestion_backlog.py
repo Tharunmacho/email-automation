@@ -16,7 +16,7 @@ import pytest
 
 from app.core.models import Attachment, EmailMessage
 from app.ingestion.pipeline import ProcessResult
-from app.ingestion.runner import IngestionRunner
+from app.ingestion.runner import BatchSummary, IngestionRunner
 
 
 class FakeLedger:
@@ -191,3 +191,114 @@ def test_the_whole_inbox_is_filtered_in_one_query(monkeypatch):
     runner.run_once()
 
     assert ledger.bulk_calls == 1, "the inbox must be filtered in a single query"
+
+
+# --------------------------------------------------------------------------- #
+#  The backlog has to survive being reported, not just be counted
+# --------------------------------------------------------------------------- #
+def test_the_backlog_survives_serialisation(monkeypatch):
+    """`summary.backlog` is useless if the dict the callers read drops it.
+
+    This is the bug this test exists for, and it was invisible from the runner's
+    side: `run_once` counted the backlog correctly and
+    `test_a_batch_is_bounded_and_the_rest_is_backlog` proved it. But every
+    consumer reads the batch through `summary_to_dict`, which did not carry the
+    field — so the inline poll's drain loop read `backlog=0`, broke after one
+    batch, and left the rest of the mailbox sitting there until somebody pressed
+    Sync again. One batch per click, for a queue that exists so that nobody has
+    to click.
+    """
+    from app.tasks.jobs import summary_to_dict
+
+    ledger = FakeLedger()
+    runner, _ = _runner([str(n) for n in range(1, 101)], ledger, monkeypatch, limit=25)
+
+    as_dict = summary_to_dict(runner.run_once())
+
+    assert as_dict["backlog"] == 75, (
+        "the backlog did not survive summary_to_dict; anything draining a "
+        "mailbox by looping until it reaches zero will stop after one batch"
+    )
+
+
+class _ScriptedRunner:
+    """A runner that returns a prepared batch each time it is asked."""
+
+    def __init__(self, batches):
+        self.batches = list(batches)
+        self.calls = 0
+
+    def run_once(self, query=None):
+        self.calls += 1
+        spec = self.batches[min(self.calls - 1, len(self.batches) - 1)]
+        summary = BatchSummary()
+        for key, value in spec.items():
+            setattr(summary, key, value)
+        return summary
+
+
+def test_one_sync_drains_the_whole_mailbox():
+    """A backlog is emptied by one Sync, not by one press per batch."""
+    from app.tasks.jobs import drain_mailbox
+
+    runner = _ScriptedRunner([
+        {"fetched": 25, "processed": 25, "backlog": 50, "ingested_candidates": 25},
+        {"fetched": 25, "processed": 25, "backlog": 25, "ingested_candidates": 25},
+        {"fetched": 25, "processed": 25, "backlog": 0, "ingested_candidates": 25},
+    ])
+
+    combined = drain_mailbox(runner)
+
+    assert runner.calls == 3, f"the drain stopped after {runner.calls} batch(es)"
+    assert combined["processed"] == 75
+    assert combined["ingested_candidates"] == 75
+    assert combined["backlog"] == 0
+
+
+def test_a_batch_that_decides_nothing_stops_the_drain():
+    """The guard that keeps a retryable failure from becoming an infinite loop.
+
+    A message that fails is left UNSEEN and unrecorded so it can be tried again
+    — which means the next cycle is handed exactly the same ids and reports
+    exactly the same backlog. Without this stop the drain re-runs the same
+    failing batch for ever, paying for OCR on every pass.
+    """
+    from app.tasks.jobs import drain_mailbox
+
+    runner = _ScriptedRunner([{"fetched": 25, "processed": 0, "errors": 25, "backlog": 50}])
+
+    combined = drain_mailbox(runner)
+
+    assert runner.calls == 1, (
+        f"the drain ran {runner.calls} identical failing batches instead of stopping"
+    )
+    assert combined["backlog"] == 50, "what it gave up on must still be reported as queued"
+
+
+def test_the_drain_is_capped_even_when_it_keeps_making_progress(monkeypatch):
+    """A backstop, so no mailbox can hold one sync open indefinitely."""
+    from app.config import settings
+    from app.tasks.jobs import drain_mailbox
+
+    monkeypatch.setattr(settings, "inline_poll_max_cycles", 5)
+    # Always more to do, and always some progress: without the cap, for ever.
+    runner = _ScriptedRunner([{"fetched": 25, "processed": 25, "backlog": 999}])
+
+    drain_mailbox(runner)
+
+    assert runner.calls == 5, f"the cap did not hold; ran {runner.calls} cycles"
+
+
+def test_progress_is_reported_after_every_batch():
+    """The UI has to move during a long drain, not jump at the end."""
+    from app.tasks.jobs import drain_mailbox
+
+    seen: list[int] = []
+    runner = _ScriptedRunner([
+        {"fetched": 25, "processed": 25, "backlog": 25},
+        {"fetched": 25, "processed": 25, "backlog": 0},
+    ])
+
+    drain_mailbox(runner, on_progress=lambda running: seen.append(running["processed"]))
+
+    assert seen == [25, 50], f"progress was reported as {seen}"

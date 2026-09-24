@@ -46,6 +46,14 @@ def summary_to_dict(summary: BatchSummary) -> dict:
         "suppressed": summary.suppressed,
         "errors": summary.errors,
         "ingested_candidates": summary.ingested_candidates,
+        # Carried, not dropped. The inline poll drains a mailbox by running
+        # `run_once` until this reaches zero, and it reads the batch through
+        # *this* function — so leaving it out did not merely lose a number for
+        # the UI, it ended the drain loop after a single batch. Everything past
+        # `gmail_max_results` then sat in the inbox until somebody pressed Sync
+        # again, once per batch, which is exactly what a queue is supposed to
+        # stop anyone having to do.
+        "backlog": summary.backlog,
         "results": [
             {
                 "message_id": r.message_id,
@@ -66,13 +74,91 @@ def summary_to_dict(summary: BatchSummary) -> dict:
     }
 
 
+def drain_mailbox(runner, query: str | None = None, on_progress=None) -> dict:
+    """Run batches until the mailboxes are drained, and report the lot as one.
+
+    One Sync is meant to empty the inbox. A batch is capped at
+    `gmail_max_results` so that a thousand-message mailbox does not become one
+    unbounded run, but the cap is on the *batch*, never on the sync — what does
+    not fit is queued behind it and picked up by the next cycle here, not left
+    for somebody to press the button again.
+
+    Shared by both poll paths on purpose. The inline path grew this loop first,
+    and `run_poll_cycle` — the path taken as soon as a Celery worker exists —
+    kept doing a single batch, so starting a worker silently changed how much
+    one Sync drained. Two implementations of "keep going until it is empty" is
+    one more than can be kept honest, so there is now one.
+
+    `on_progress` is handed the running total after each batch, which is how the
+    inline path keeps the UI moving through a long drain.
+
+    Stops on three conditions, and each is a different failure:
+
+    * nothing left — the ordinary end;
+    * no forward progress — the batch decided none of its messages, so the next
+      cycle would be handed the identical ids. A failed message is deliberately
+      left UNSEEN and unrecorded so it can be retried, which is exactly what
+      makes an unguarded loop here spin for ever;
+    * the cycle cap — a backstop for anything that makes just enough progress
+      to keep going indefinitely.
+
+    Whatever is left over is still UNSEEN in the mailbox and still in the
+    ledger's "undecided" set, so no message is lost by stopping early; the next
+    sync continues from the same place.
+    """
+    combined: dict = {
+        "fetched": 0, "processed": 0, "skipped": 0, "suppressed": 0,
+        "errors": 0, "ingested_candidates": 0, "results": [], "backlog": 0,
+    }
+    cycles = 0
+    while True:
+        cycles += 1
+        cycle = summary_to_dict(runner.run_once(query=query))
+        for key in ("fetched", "processed", "skipped", "suppressed",
+                    "errors", "ingested_candidates"):
+            combined[key] += cycle.get(key, 0)
+        combined["results"].extend(cycle.get("results", []))
+        combined["backlog"] = cycle.get("backlog", 0)
+
+        if on_progress is not None:
+            on_progress(combined)
+
+        if cycle.get("backlog", 0) <= 0 or cycle.get("fetched", 0) == 0:
+            break
+        if not (cycle.get("processed", 0) or cycle.get("suppressed", 0)):
+            log.warning(
+                "Poll stopping with %d message(s) still queued: the last batch "
+                "decided none of them", cycle.get("backlog", 0),
+            )
+            break
+        if cycles >= settings.inline_poll_max_cycles:
+            log.info(
+                "Poll reached its %d-cycle cap with %d message(s) still queued; "
+                "the next sync continues from here", cycles, cycle.get("backlog", 0),
+            )
+            break
+
+    if cycles > 1:
+        log.info(
+            "Drained %d batch(es) in one sync: processed=%d candidates=%d backlog=%d",
+            cycles, combined["processed"], combined["ingested_candidates"],
+            combined["backlog"],
+        )
+    return combined
+
+
 @celery_app.task(name="app.tasks.jobs.run_poll_cycle")
 def run_poll_cycle(query: str | None = None) -> dict:
-    """One complete Gmail poll, start to finish, under the poll lock."""
+    """One complete Gmail poll, start to finish, under the poll lock.
+
+    Drains rather than doing a single batch — see `drain_mailbox`. This is the
+    path a manual sync takes whenever a Celery worker is up, so it has to empty
+    the mailbox to the same extent the inline path does; otherwise starting a
+    worker would quietly reduce how much one press of Sync got through.
+    """
     try:
         with redis_lock(POLL_LOCK, settings.poll_lock_ttl_seconds):
-            summary = IngestionRunner().run_once(query=query)
-            return summary_to_dict(summary)
+            return drain_mailbox(IngestionRunner(), query=query)
     except LockNotAcquired:
         # A beat tick landing on top of a manual sync is routine, not a failure.
         # Reported rather than raised so the UI can say so plainly.

@@ -317,3 +317,92 @@ def test_the_sweep_honours_the_cross_worker_grace_period(monkeypatch):
         "recently it was touched — a reply in flight on another worker will "
         "be sent twice"
     )
+
+
+# --------------------------------------------------------------------------- #
+#  Account to account
+# --------------------------------------------------------------------------- #
+# Four mailboxes are polled into one database. A reply must leave from the one
+# the application arrived at: somebody who wrote to hr@findurjob.com and is
+# answered from cv@adiragroups.com has been replied to by a stranger, and on a
+# domain they never contacted it is a good way to land in spam.
+#
+# The ingestion path gets this right for free — the client that fetched the
+# message is the client handed to the sender. The sweep cannot: it starts from a
+# database row, so it has to recover the account from what was stored.
+def _source(message_id="hr@findurjob.com:611", to_addr=None):
+    return SourceEmail(
+        message_id=message_id, thread_id="t-1", from_addr="candidate@example.com",
+        from_name="Rajesh", subject="Application", to_addr=to_addr,
+    )
+
+
+def test_the_reply_leaves_from_the_mailbox_that_received_the_application(monkeypatch):
+    """The account is read off the qualified message id, which is authoritative."""
+    asked: list[str] = []
+    import app.email_client.factory as factory
+
+    def spy(addr):
+        asked.append(addr)
+        return FakeMail()
+
+    monkeypatch.setattr(factory, "get_client_for_address", spy)
+
+    pl._reply_client_for(_source("hr@findurjob.com:611"))
+
+    assert asked == ["hr@findurjob.com"], (
+        f"the sweep asked for {asked} — a candidate who applied to "
+        "hr@findurjob.com would be answered from the wrong mailbox"
+    )
+
+
+def test_a_legacy_unqualified_id_falls_back_to_the_to_address(monkeypatch):
+    """Rows written before ids carried an account still have to route somewhere."""
+    asked: list[str] = []
+    import app.email_client.factory as factory
+    monkeypatch.setattr(
+        factory, "get_client_for_address", lambda a: (asked.append(a), FakeMail())[1]
+    )
+
+    pl._reply_client_for(_source("611", to_addr="cv@adiragroups.com"))
+
+    assert asked == ["cv@adiragroups.com"]
+
+
+def test_two_candidates_on_two_mailboxes_are_answered_from_their_own(monkeypatch):
+    """The end of the sweep, with the mailboxes actually kept apart."""
+    used: list[tuple[str, str]] = []
+
+    class PerAccount(FakeMail):
+        def __init__(self, account):
+            super().__init__()
+            self.account = account
+
+        def send_reply(self, message_id, thread_id, to_addr, subject, body_text):
+            used.append((self.account, to_addr))
+            return {}
+
+    import app.email_client.factory as factory
+    monkeypatch.setattr(factory, "get_client_for_address", lambda a: PerAccount(a))
+
+    class Rec(FakeRecord):
+        def __init__(self, cid, message_id):
+            super().__init__(cid)
+            self.source_email = _source(message_id)
+
+    repo = FakeRepo(owed=[
+        Rec("cand-1", "hr@findurjob.com:611"),
+        Rec("cand-2", "cv@adiragroups.com:42"),
+    ])
+
+    import app.email_client as ec
+    original = ec.get_email_client
+    ec.get_email_client = lambda: FakeMail()
+    try:
+        pl.flush_pending_auto_replies(repo=repo)
+    finally:
+        ec.get_email_client = original
+
+    assert sorted(a for a, _ in used) == ["cv@adiragroups.com", "hr@findurjob.com"], (
+        f"replies went out from {used} — both were sent from one mailbox"
+    )

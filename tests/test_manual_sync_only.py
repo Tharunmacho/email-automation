@@ -1,16 +1,17 @@
-"""Extraction runs when somebody asks for it, and at no other moment.
+"""The mailboxes are drained 24/7 by one timer, in the API process.
 
-A timer that reads mailboxes and runs OCR without anyone asking spends money on
-the extraction service every cycle, all day, over an inbox that is usually
-empty. It also puts a second poll cycle alongside a manual one, which is how two
-runs came to submit the same résumé to Veris at the same instant — the second
-was refused as a duplicate idempotency key and the candidate was stored from the
-far weaker local parser.
+The Sync button is gone, so the timer is the only way mail gets read. It is on
+by default and it is the *only* scheduler: beat does not poll mail. Two
+schedulers over the same mailboxes is how two runs once submitted the same
+résumé to Veris at the same instant, and deferring to beat whenever a worker
+was online left the pm2 deployment — a worker and no beat — polling nothing.
 
-So nothing polls by default. `mail_autopoll_enabled` puts the timer back for a
-deployment that wants one, and these tests pin both directions.
+The manual endpoints still exist (and share the timer's claim), so the tests
+for what they return are kept below.
 """
 from __future__ import annotations
+
+import asyncio
 
 from app.config import settings
 from app.tasks.celery_app import _mail_poll_schedule, celery_app
@@ -22,60 +23,105 @@ def _beat_schedule() -> dict:
     return dict(celery_app.conf.beat_schedule)
 
 
-def test_nothing_drains_the_mailboxes_on_a_timer_by_default():
-    assert settings.mail_autopoll_enabled is False
+def test_the_mailboxes_are_polled_automatically_by_default():
+    assert settings.mail_autopoll_enabled is True
+
+
+def test_beat_never_polls_the_mailboxes(monkeypatch):
+    """The API timer owns the poll; a beat entry would be a second scheduler."""
     assert "poll-mailboxes" not in _beat_schedule()
+    monkeypatch.setattr(settings, "mail_autopoll_enabled", True)
+    assert _mail_poll_schedule() == {}
 
 
 def test_the_housekeeping_sweeps_still_run():
-    """Turning the mail poll off must not take the rest of beat with it.
-
-    A stuck OCR job still has to be collected and an SLA breach still has to be
-    found; neither waits on anybody pressing a button.
-    """
+    """A stuck OCR job still has to be collected and an SLA breach found."""
     schedule = _beat_schedule()
 
     assert "reconcile-ocr-jobs" in schedule
     assert "scan-sla-breaches" in schedule
 
 
-def test_the_timer_can_be_switched_back_on(monkeypatch):
-    """One flag, and the entry beat needs comes back."""
-    monkeypatch.setattr(settings, "mail_autopoll_enabled", True)
-
-    entry = _mail_poll_schedule()["poll-mailboxes"]
-
-    assert entry["task"] == "app.tasks.jobs.poll_gmail"
-    assert entry["schedule"] == float(settings.mail_poll_interval_seconds)
-
-
-def test_with_the_flag_off_the_builder_contributes_nothing(monkeypatch):
-    monkeypatch.setattr(settings, "mail_autopoll_enabled", False)
-
-    assert _mail_poll_schedule() == {}
-
-
-def test_the_manual_sync_still_runs_a_full_cycle():
-    """The Sync button is now the only way in, so it has to do the whole job."""
-    from app.ingestion import autopoll
-
-    assert callable(autopoll.run_one_cycle)
-
-
-def test_the_in_process_poller_is_gated_on_the_same_flag():
-    """The API runs its own poller when no Celery worker is up, so it has to
-    honour the same switch — otherwise turning the timer off in beat would
-    silently leave a second one running inside the web process.
-
-    Read as text rather than imported: importing the API opens a database
-    connection, and this is a question about the source, not about a running
-    app.
-    """
+def test_the_in_process_poller_is_gated_on_the_flag():
+    """Read as text: importing the API opens a database connection."""
     from pathlib import Path
 
     source = Path("app/api/routes.py").read_text(encoding="utf-8")
 
     assert "if settings.mail_autopoll_enabled and not _under_test():" in source
+
+
+# --------------------------------------------------------------------------- #
+#  What one timed cycle does
+# --------------------------------------------------------------------------- #
+def _install_cycle(monkeypatch, batches, order):
+    class Runner:
+        calls = 0
+
+        def run_once(self, query=None):
+            spec = batches[min(Runner.calls, len(batches) - 1)]
+            Runner.calls += 1
+            order.append("batch")
+            return spec
+
+    monkeypatch.setattr("app.ingestion.runner.IngestionRunner", Runner)
+    monkeypatch.setattr("app.tasks.jobs.summary_to_dict", lambda s: dict(s))
+    monkeypatch.setattr("app.api.routes._collect_pending_identity_jobs",
+                        lambda: order.append("identity"))
+    monkeypatch.setattr("app.ingestion.pipeline.flush_pending_auto_replies",
+                        lambda: order.append("replies"))
+    return Runner
+
+
+def test_a_timed_cycle_drains_the_mailbox_then_runs_both_sweeps(monkeypatch):
+    """Exactly what one press of Sync used to do — nothing less."""
+    from app.ingestion import autopoll
+
+    order: list[str] = []
+    _install_cycle(monkeypatch, [
+        {"fetched": 25, "processed": 25, "backlog": 25},
+        {"fetched": 25, "processed": 25, "backlog": 0},
+    ], order)
+
+    summary = autopoll.run_one_cycle()
+
+    assert order == ["batch", "batch", "identity", "replies"], order
+    assert summary["processed"] == 50
+
+
+def test_a_timed_cycle_is_declined_while_another_is_running(monkeypatch):
+    """Shares the manual endpoints' claim, so two cycles never overlap."""
+    from app.ingestion import autopoll
+
+    monkeypatch.setattr("app.tasks.locks.claim_inline_poll", lambda *a, **k: None)
+    order: list[str] = []
+    _install_cycle(monkeypatch, [{"fetched": 1, "processed": 1, "backlog": 0}], order)
+
+    assert autopoll.run_one_cycle() is None
+    assert order == []
+
+
+def test_the_timer_polls_even_when_a_worker_is_online(monkeypatch):
+    """pm2 runs a worker and no beat: standing down for the worker meant
+    nothing polled at all."""
+    from app.ingestion import autopoll
+
+    monkeypatch.setattr("app.tasks.health.workers_online", lambda: True)
+    monkeypatch.setattr(autopoll, "FIRST_TICK_DELAY_SECONDS", 0)
+    ran = []
+
+    def fake_cycle():
+        ran.append(1)
+        raise asyncio.CancelledError  # one tick is enough
+
+    monkeypatch.setattr(autopoll, "run_one_cycle", fake_cycle)
+
+    try:
+        asyncio.run(autopoll.run_forever())
+    except asyncio.CancelledError:
+        pass
+
+    assert ran == [1], "the timer skipped its tick because a worker was online"
 
 
 # --------------------------------------------------------------------------- #

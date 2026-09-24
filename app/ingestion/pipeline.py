@@ -18,7 +18,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from app.ai.resume_parser import ResumeParser
 from app.core.exceptions import (
@@ -43,6 +43,7 @@ from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
 from app.db.ledger import NOT_A_RESUME_SENTINEL, IngestLedger
 from app.db.repository import CandidateRepository
+from app.extraction import page_classifier as pc
 from app.extraction.jobs import JobContext, use_job_context
 from app.ingestion.detector import detect
 from app.ingestion.job_recorder import IngestionStateRecorder
@@ -78,6 +79,16 @@ class AttachmentResult:
     # "aadhaar p54=succeeded; passport p55=pending". Never affects `status`:
     # an unreadable passport does not make an ingested resume a failure.
     identity: str = ""
+    # The content read of an attachment that was *not* a résumé, held only until
+    # `process_email` has finished with the message. An Aadhaar or passport sent
+    # as its own file next to the CV is judged "not a résumé" on its own — which
+    # it is — and used to be dropped there. Keeping the read lets it be routed to
+    # its own endpoint once a sibling attachment has produced the candidate,
+    # without OCRing it a second time. Never serialised.
+    source: Optional[Attachment] = field(default=None, repr=False, compare=False)
+    extracted: Any = field(default=None, repr=False, compare=False)
+    data: Optional[bytes] = field(default=None, repr=False, compare=False)
+    sha256: str = field(default="", repr=False, compare=False)
 
 
 # The policy itself lives with the detector that decides it, so the parser can
@@ -195,6 +206,35 @@ def _reply_email(source, fallback_subject: str = "") -> EmailMessage:
         subject=source.subject or fallback_subject,
         date=source.received_date,
     )
+
+
+def _reply_client_for(source) -> Any:
+    """The mailbox that received this application, so the reply comes from it.
+
+    "Account to account": somebody who applied to hr@findurjob.com must be
+    answered from hr@findurjob.com, not from whichever mailbox happens to be
+    first in the config. On the ingestion path this is free — the client that
+    fetched the message is handed straight to the sender. The sweep has no such
+    client: it starts from a database row, hours later and possibly in another
+    process, so it has to work the account back out of what was stored.
+
+    The qualified message id is the reliable way to do that. Ids are written as
+    ``cv@adiragroups.com:611`` precisely so a UID cannot be mistaken for one
+    from another mailbox, which makes the account an authoritative part of the
+    record rather than something inferred.
+
+    `to_addr` is the fallback, not the first choice: it is the raw ``To``
+    header, so it can be a display name, several recipients, or empty on a
+    message that arrived by BCC or a forwarding rule. Legacy rows written
+    before ids carried an account have nothing else, so it is still tried —
+    and `get_client_for_address` ends at the default client, which is the old
+    behaviour rather than a failure.
+    """
+    from app.core import message_ids
+    from app.email_client.factory import get_client_for_address
+
+    account = message_ids.account_of(getattr(source, "message_id", "") or "")
+    return get_client_for_address(account or (getattr(source, "to_addr", "") or ""))
 
 
 def _send_auto_reply(
@@ -332,6 +372,10 @@ def flush_pending_auto_replies(
     if not owed:
         return {"sent": 0, "failed": 0, "pending": 0}
 
+    # Kept apart from the per-record client below. A caller that named a client
+    # meant that one — the tests, and anything driving a single mailbox by hand;
+    # everything else gets the account the mail actually arrived at.
+    explicit = gmail
     try:
         gmail = gmail or get_email_client()
     except Exception as exc:  # noqa: BLE001
@@ -345,12 +389,15 @@ def flush_pending_auto_replies(
     log.info("Auto-reply sweep: %d ingested candidate(s) still owed a reply", len(owed))
     sent = 0
     failed = 0
+
     for record in owed:
         source = record.source_email
         if not (source and source.from_addr):
             continue  # the query asked for one; a record without it is not ours
+
+        client = explicit or _reply_client_for(source)
         if _send_auto_reply(
-            repo, gmail, record.id, record.profile,
+            repo, client, record.id, record.profile,
             _reply_email(source), source.from_addr,
         ):
             sent += 1
@@ -449,6 +496,10 @@ class IngestionPipeline:
         for att in detection.resume_attachments:
             results.append(self._process_attachment(email, att, gmail))
 
+        # After every attachment has been judged, not during: the ID photo can
+        # come before the CV in the email, and only the CV decides whose it is.
+        self._attach_sibling_identity_documents(email, results)
+
         if any(r.status == "ingested" for r in results):
             overall = "processed"
         elif any(r.status == "error" for r in results):
@@ -467,6 +518,11 @@ class IngestionPipeline:
         # can run for minutes and the SLA clock is measuring how long a
         # candidate has been waiting, not how long the parser took.
         arrived_at = utcnow()
+        # Bound before the try so the not-a-résumé handler can hand the read on
+        # to `_attach_sibling_identity_documents`.
+        data: Optional[bytes] = None
+        resume_hash = ""
+        extracted = None
         try:
             data = att.data
             if data is None:
@@ -707,7 +763,14 @@ class IngestionPipeline:
             )
         except (NotAResumeError,) as exc:
             log.info("Skipping attachment: %s", exc)
-            return AttachmentResult(att.filename, "not_resume", detail=str(exc))
+            has_pages = bool(getattr(extracted, "pages", None))
+            return AttachmentResult(
+                att.filename, "not_resume", detail=str(exc),
+                source=att if has_pages else None,
+                extracted=extracted if has_pages else None,
+                data=data if has_pages else None,
+                sha256=resume_hash,
+            )
         except UnsupportedFileTypeError as exc:
             # Permanent, not retryable, and the distinction decides whether the
             # mail ever gets labelled done. A file type we have no reader for
@@ -776,6 +839,98 @@ class IngestionPipeline:
                 candidate_id, att.filename, exc,
             )
             return f"identity extraction failed: {exc}"
+
+    def _attach_sibling_identity_documents(
+        self, email: EmailMessage, results: List[AttachmentResult],
+    ) -> None:
+        """Route an Aadhaar / passport sent as its own file to its own endpoint.
+
+        `_extract_identity_documents` only ever looks inside the résumé's file,
+        so the common case of three attachments — `cv.pdf`, `aadhaar.jpg`,
+        `passport.pdf` — lost both ID documents: each was read, correctly judged
+        "not a résumé", and thrown away.
+
+        The rule is still "no résumé, no extraction". Only a message that
+        produced a *new* candidate from one attachment gets its other
+        attachments' ID pages extracted, and they are recorded against that
+        candidate. An ID document on its own, or beside a CV that was a
+        duplicate, is not extracted — the duplicate case because one
+        application delivered to two of the polled mailboxes would otherwise
+        pay for the same passport twice.
+
+        The content decides which endpoint, never the filename: the pages are
+        classified from the read already taken, and `MultipassExtractor` sends
+        Aadhaar pages to ``mode=aadhaar`` and passport pages to
+        ``mode=passport`` (Indian passports only), exactly as it does for pages
+        inside a bundle. Certificates and anything else are never uploaded.
+        """
+        try:
+            owner = next(
+                (r.candidate_id for r in results if r.status == "ingested" and r.candidate_id),
+                None,
+            )
+            candidates = [r for r in results if r.status == "not_resume" and r.extracted is not None]
+            if not owner or not candidates:
+                return
+            if not settings.multipass_extraction_enabled or not settings.veris_ocr_api_key:
+                return
+
+            from app.ingestion.multipass import MultipassExtractor
+
+            for r in candidates:
+                att = r.source
+                page_texts = [p.text for p in r.extracted.pages]
+                try:
+                    classification = pc.classify_multipass(page_texts)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Could not classify sibling attachment %s: %s", r.filename, exc)
+                    continue
+                if not (classification.aadhaar_pages or classification.passport_pages
+                        or classification.document_pages
+                        or classification.foreign_passport_pages):
+                    log.info(
+                        "Sibling attachment '%s' holds no Aadhaar or passport pages; "
+                        "not extracted", r.filename,
+                    )
+                    continue
+
+                # Kept with the candidate like the CV is, so a recruiter can open
+                # the scan the extracted record came from. Best-effort: the
+                # record is still worth having without the file.
+                storage_key = self._storage_key(owner, r.filename)
+                try:
+                    self.storage.save(storage_key, r.data, content_type=att.mime_type)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Could not store sibling attachment %s: %s", r.filename, exc)
+                    storage_key = ""
+
+                result = MultipassExtractor().run(
+                    page_texts, r.data,
+                    message_id=email.message_id,
+                    attachment_id=att.attachment_id,
+                    filename=att.filename,
+                    sha256=r.sha256,
+                    storage_key=storage_key,
+                    candidate_id=owner,
+                    classification=classification,
+                )
+                if result.passes:
+                    r.status = "identity_document"
+                    r.candidate_id = owner
+                    r.identity = result.summary()
+                    r.detail = f"routed to identity extraction: {r.identity}"
+                    log.info(
+                        "Sibling attachment '%s' of %s attached to candidate %s: %s",
+                        r.filename, email.message_id, owner, r.identity,
+                    )
+        except Exception as exc:  # noqa: BLE001 — supporting documents never fail a message
+            log.warning("Sibling identity extraction failed for %s: %s", email.message_id, exc)
+        finally:
+            # The bytes and the read are only for this pass.
+            for r in results:
+                r.data = None
+                r.extracted = None
+                r.source = None
 
     def _allocate(self, candidate_id: str, profile: CandidateProfile) -> bool:
         """Assign the new candidate. Returns whether anyone was told about it."""

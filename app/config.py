@@ -759,6 +759,16 @@ class Settings(BaseSettings):
     # runs on a background thread nobody is waiting on, and the alternative is a
     # passport that was successfully extracted and never stored.
     inline_reconcile_budget_seconds: float = 300.0
+    #: How many batches one inline sync will drain before leaving the rest for
+    #: the next one.
+    #:
+    #: A sync is meant to empty the mailbox rather than take one batch off the
+    #: top, so this is deliberately high enough that an ordinary backlog — at
+    #: `gmail_max_results` a batch, 40 cycles is a thousand messages — finishes
+    #: in one press. It is a backstop against a loop that never ends, not a
+    #: budget: whatever is left keeps its place in the queue, still UNSEEN, and
+    #: the next sync carries on from there.
+    inline_poll_max_cycles: int = 40
     # Gap between sweeps, widening as it goes. The job is already running at
     # the service; asking more often does not make it finish sooner.
     inline_reconcile_interval_seconds: float = 5.0
@@ -799,23 +809,19 @@ class Settings(BaseSettings):
     # strictly limit simultaneous connections per IP address.
     ingestion_max_workers: int = 8
     # ---- Automatic polling ----
-    # Whether the mailboxes are drained on a timer.
+    # Whether the mailboxes are drained on a timer — 24/7, with no Sync button.
     #
-    # Off: extraction runs when somebody presses Sync, and at no other moment.
-    # That is a deliberate choice rather than a missing feature — a timer that
-    # reads mailboxes and runs OCR without anyone asking spends money on the
-    # extraction service, and it also puts a second poll cycle alongside a
-    # manual one, which is how two runs came to submit the same résumé at once.
+    # On by default: the Sync button is gone, so this timer is the only thing
+    # that reads the mailboxes. It runs inside the API process
+    # (`app/ingestion/autopoll.py`) whether or not a Celery worker is up, and it
+    # is the *only* scheduler — beat does not poll mail — so two poll cycles
+    # can never run side by side over the same messages. Set False only to
+    # stop all ingestion.
     #
-    # The screen still updates by itself: the live push is driven by what the
-    # ingestion *does*, not by what triggered it, so a manual sync fills the
-    # candidate list without a page reload exactly as a timed poll would.
-    #
-    # Turning it on is one flag, and two places honour it: Celery beat runs
-    # `poll_gmail` when a worker is up, and the API runs the same cycle
-    # in-process when one is not.
-    mail_autopoll_enabled: bool = False
-    # Only consulted when the poll above is enabled.
+    # The screen updates by itself: the live push is driven by what the
+    # ingestion does, so candidates appear without a page reload.
+    mail_autopoll_enabled: bool = True
+    # Seconds between the end of one cycle and the start of the next.
     mail_poll_interval_seconds: int = 60
     # Simultaneous IMAP connections held open *per account*. Connections are
     # pooled and reused rather than opened per operation, so this is the cap on
