@@ -114,6 +114,10 @@ def calculate_day(
             regularisation_deadline=deadline,
         )
 
+    if check_in < start and "early_check_in" not in kinds:
+        # The API rejects this punch in normal operation; retain the guard for
+        # direct engine callers so an unapproved early arrival is not credited.
+        check_in = start
     late = _minutes(check_in - start)
     early = _minutes(end - check_out)
     scheduled = _minutes(end - start) - shift.break_minutes

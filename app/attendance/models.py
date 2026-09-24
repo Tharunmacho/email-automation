@@ -56,20 +56,32 @@ class PunchRequest(BaseModel):
 class PermissionRequest(BaseModel):
     employee_id: str | None = None
     attendance_date: date
-    kind: Literal["late", "early_exit", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
+    kind: Literal["late", "early_exit", "early_check_in", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
     requested_minutes: int = Field(default=0, ge=0, le=1440)
     reason: str = Field(min_length=1, max_length=1000)
 
     @field_validator("requested_minutes")
     @classmethod
     def minutes_only_apply_to_hour_permissions(cls, value: int, info):
-        return value if info.data.get("kind") in {"late", "early_exit"} else 0
+        return value if info.data.get("kind") in {"late", "early_exit", "early_check_in"} else 0
 
 
 class PermissionDecision(BaseModel):
     approved: bool
     reason: str = Field(min_length=1, max_length=1000)
     emergency_override: bool = False
+
+
+class ExtraOTRequest(BaseModel):
+    employee_id: str | None = None
+    attendance_date: date
+    requested_minutes: int = Field(ge=1, le=1440)
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ExtraOTDecision(BaseModel):
+    approved: bool
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class AdjustmentRequest(BaseModel):

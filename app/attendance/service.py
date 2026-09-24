@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 import calendar
 
 from app.attendance.engine import AttendancePolicy, calculate_day, local_day, shift_bounds
-from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
+from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
 from app.attendance.repository import AttendanceRepository
 
 
@@ -29,6 +29,13 @@ class AttendanceService:
             raise AttendanceError("occurred_at must include a timezone")
         occurred = occurred.astimezone(timezone.utc)
         day = local_day(occurred, self.policy.timezone_name)
+        assignment = self.repository.shift_for_day(employee_id, day)
+        shift = Shift.model_validate(assignment["shift"]) if assignment else Shift()
+        start, _ = shift_bounds(day, shift, self.policy.timezone_name)
+        if request.action == "check_in" and occurred < start:
+            approved = self.repository.approved_permissions(employee_id, day)
+            if not any(row.get("kind") == "early_check_in" for row in approved):
+                raise AttendanceError("early check-in requires approved permission")
         existing = self.repository.events_for_day(employee_id, day)
         if request.action == "check_in" and any(row["action"] == "check_in" for row in existing):
             # A genuinely duplicated delivery is resolved by append_event below;
@@ -68,11 +75,15 @@ class AttendanceService:
         # The choices are mutually exclusive: Sunday off, or alternating
         # Fridays off with Sunday as a normal office day. The legacy value is
         # read as the new alternate-Friday option for existing employees.
-        is_sunday = day.weekday() == 6 and weekly_off_pattern == "sunday"
+        # An explicit shift assignment is a planned duty day, including Sunday.
+        # It must win over the employee's default weekly-off pattern.
+        planned_duty = assignment is not None
+        is_sunday = day.weekday() == 6 and weekly_off_pattern == "sunday" and not planned_duty
         is_rotational_friday = (
             day.weekday() == 4
             and weekly_off_pattern in {"alternate_friday", "sunday_alternate_friday"}
             and day.isocalendar().week % 2 == int(employee_policy.get("alternate_friday_parity", 0))
+            and not planned_duty
         )
         punches = self.repository.effective_punches_for_day(employee_id, day)
         permissions = self.repository.approved_permissions(employee_id, day)
@@ -102,7 +113,7 @@ class AttendanceService:
         assignment = self.repository.shift_for_day(employee_id, request.attendance_date)
         shift = Shift.model_validate(assignment["shift"]) if assignment else Shift()
         start, end = shift_bounds(request.attendance_date, shift, self.policy.timezone_name)
-        if request.kind in {"late", "work_from_home"} and now >= start:
+        if request.kind in {"late", "early_check_in", "work_from_home"} and now >= start:
             raise AttendanceError(f"{request.kind} permission must be requested before shift start")
         if request.kind == "early_exit":
             punches = self.repository.events_for_day(employee_id, request.attendance_date)
@@ -140,6 +151,19 @@ class AttendanceService:
             )
             result["calendar_status"] = calendar_day["status"]
             result["converted_from_paid_leave"] = calendar_day.get("converted_from_paid_leave", False)
+        return result
+
+    def request_extra_ot(self, employee_id: str, request: ExtraOTRequest) -> dict:
+        return self.repository.create_extra_ot({**request.model_dump(exclude={"employee_id"}),
+                                                "attendance_date": request.attendance_date.isoformat(),
+                                                "employee_id": employee_id})
+
+    def decide_extra_ot(self, request_id: str, decision: ExtraOTDecision, approver_id: str) -> dict:
+        result = self.repository.decide_extra_ot(request_id, {**decision.model_dump(),
+                                                               "decided_by": approver_id,
+                                                               "decided_at": datetime.now(timezone.utc)})
+        if not result:
+            raise AttendanceError("pending Extra OT request not found")
         return result
 
     def adjust(self, request: AdjustmentRequest, approver_id: str) -> dict:

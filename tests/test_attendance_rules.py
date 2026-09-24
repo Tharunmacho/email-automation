@@ -3,8 +3,7 @@ from datetime import date, datetime, time, timezone
 import pytest
 
 from app.attendance.engine import AttendancePolicy, calculate_day, calculate_month, lop_amount
-from app.attendance.models import AttendanceStatus, Shift
-from app.attendance.models import PermissionRequest
+from app.attendance.models import AttendanceStatus, PermissionDecision, PermissionRequest, PunchRequest, Shift
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 
@@ -93,6 +92,41 @@ def test_alternate_friday_replaces_sunday_as_the_weekly_off():
     assert attendance.day("staff-1", date(2026, 9, 4))["status"] == "WO"
     assert attendance.day("staff-1", date(2026, 9, 6))["status"] != "WO"
     assert attendance.day("staff-1", date(2026, 9, 11))["status"] != "WO"
+
+
+def test_planned_sunday_shift_overrides_weekly_off():
+    repository = AttendanceRepository(mongomock.MongoClient()["planned-sunday"])
+    repository.set_employee_policy("staff-1", {"weekly_off_pattern": "sunday"})
+    repository.assign_shift({
+        "employee_id": "staff-1",
+        "effective_from": "2026-09-06",
+        "shift": Shift().model_dump(),
+    })
+    repository.append_event({
+        "employee_id": "staff-1", "action": "check_in", "local_date": "2026-09-06",
+        "occurred_at": datetime(2026, 9, 6, 4, 30, tzinfo=timezone.utc), "idempotency_key": "sun-in",
+    })
+    repository.append_event({
+        "employee_id": "staff-1", "action": "check_out", "local_date": "2026-09-06",
+        "occurred_at": datetime(2026, 9, 6, 13, 30, tzinfo=timezone.utc), "idempotency_key": "sun-out",
+    })
+    assert AttendanceService(repository).day("staff-1", date(2026, 9, 6))["status"] == "P"
+
+
+def test_early_check_in_requires_approved_permission():
+    repository = AttendanceRepository(mongomock.MongoClient()["early-check-in"])
+    attendance = AttendanceService(repository)
+    request = PunchRequest(action="check_in", idempotency_key="early", occurred_at=datetime(2026, 10, 4, 4, 0, tzinfo=timezone.utc))
+    with pytest.raises(ValueError, match="early check-in"):
+        attendance.punch("staff-1", request, allow_recorded_time=True)
+
+    permission = attendance.request_permission("staff-1", PermissionRequest(
+        attendance_date=date(2026, 10, 4), kind="early_check_in", reason="Interview",
+    ))
+    attendance.decide_permission(permission["id"], PermissionDecision(approved=True, reason="Approved"), "manager-1")
+    event, created = attendance.punch("staff-1", request, allow_recorded_time=True)
+    assert created is True
+    assert event["action"] == "check_in"
 
 
 def test_full_day_permission_never_carries_minutes():

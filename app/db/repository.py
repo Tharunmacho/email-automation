@@ -1320,6 +1320,18 @@ class CandidateRepository:
         )
         return self.get(candidate_id)
 
+    def record_recruitment_event(self, candidate_id: str, event: dict, updates: dict) -> Optional[CandidateRecord]:
+        """Append a lifecycle event and update its current projection atomically."""
+        from app.core.models import utcnow
+
+        now = utcnow()
+        changes = {**updates, "updated_at": now}
+        changes.setdefault("recruitment_history", None)
+        update = {"$set": changes, "$push": {"recruitment_history": {**event, "at": now}}}
+        update["$set"].pop("recruitment_history", None)
+        result = self._coll.update_one(_id_filter(candidate_id), update)
+        return self.get(candidate_id) if result.matched_count else None
+
     def find_sla_breaches(self, cutoff: datetime) -> List[dict]:
         """Assigned profiles, waiting since before `cutoff`, unopened or unjudged.
 

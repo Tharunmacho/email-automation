@@ -401,10 +401,14 @@ export function decideAttendancePermission(
 export interface PayrollRow {
   employee_id: string;
   name: string;
+  branch: string;
   staff_code?: string;
   monthly_salary: number;
   deduction: number;
   net_salary: number;
+  approved_ot_minutes: number;
+  extra_ot_amount: number;
+  total_payable: number;
   unpaid_minutes: number;
   grace_minutes: number;
   paid_leave_days: number;
@@ -423,10 +427,13 @@ export interface PayrollMonth {
   grace_allowance_minutes: number;
   paid_leave_allowance_days: number;
   items: PayrollRow[];
+  branch?: string | null;
+  branches: string[];
 }
 
-export function fetchPayrollMonth(year: number, month: number): Promise<PayrollMonth> {
-  return request(`/payroll/${year}/${month}`, { cache: "no-store" });
+export function fetchPayrollMonth(year: number, month: number, branch?: string): Promise<PayrollMonth> {
+  const query = branch ? `?branch=${encodeURIComponent(branch)}` : "";
+  return request(`/payroll/${year}/${month}${query}`, { cache: "no-store" });
 }
 
 export function updatePayrollPolicy(employeeId: string, payload: {

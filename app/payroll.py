@@ -4,7 +4,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from pymongo import ASCENDING
 
@@ -55,12 +55,14 @@ def _period_days(year: int, month: int) -> list[date]:
 
 
 @router.get("/{year}/{month}")
-def payroll_month(year: int, month: int, user: dict = Depends(current_user)) -> dict:
+def payroll_month(year: int, month: int, branch: str | None = Query(default=None), user: dict = Depends(current_user)) -> dict:
     attendance_repo = AttendanceRepository()
     attendance = AttendanceService(attendance_repo)
     runs = get_db()[RUNS]
     rows = []
     for employee in _visible_employees(user):
+        if branch and employee.branch != branch:
+            continue
         policy = attendance_repo.employee_policy(employee.id)
         tracking_start = attendance_repo.attendance_start_date(employee.id)
         period_days = [
@@ -75,14 +77,22 @@ def payroll_month(year: int, month: int, user: dict = Depends(current_user)) -> 
         monthly_salary = float(policy.get("monthly_salary", 0) or 0)
         scheduled_minutes = max(1, required_working_days * DEFAULT_SHIFT_MINUTES)
         deduction = lop_amount(unpaid_minutes, monthly_salary, scheduled_minutes)
+        approved_ot_minutes = attendance_repo.approved_extra_ot_minutes(
+            employee.id, date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
+        )
+        extra_ot_amount = round(approved_ot_minutes * monthly_salary / scheduled_minutes, 2)
         run = runs.find_one({"employee_id": employee.id, "year": year, "month": month}) or {}
         rows.append({
             "employee_id": employee.id,
             "name": employee.name,
+            "branch": employee.branch,
             "staff_code": employee.staff_code,
             "monthly_salary": monthly_salary,
             "deduction": deduction,
             "net_salary": round(max(0, monthly_salary - deduction), 2),
+            "approved_ot_minutes": approved_ot_minutes,
+            "extra_ot_amount": extra_ot_amount,
+            "total_payable": round(max(0, monthly_salary - deduction) + extra_ot_amount, 2),
             "unpaid_minutes": unpaid_minutes,
             "grace_minutes": grace_minutes,
             "paid_leave_days": paid_leave_days,
@@ -104,6 +114,8 @@ def payroll_month(year: int, month: int, user: dict = Depends(current_user)) -> 
         "grace_allowance_minutes": 60,
         "paid_leave_allowance_days": 1,
         "items": rows,
+        "branch": branch,
+        "branches": sorted({employee.branch for employee in _visible_employees(user) if employee.branch}),
     }
 
 

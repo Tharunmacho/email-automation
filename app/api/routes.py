@@ -1786,7 +1786,10 @@ def list_job_order_candidate_pool(
     different staff member currently owns that candidate's review.
     """
     repository = repo()
-    items = repository.list_summaries(limit=limit, skip=skip, staff_id=None)
+    items = repository.list_summaries(
+        limit=limit, skip=skip, staff_id=None,
+        query={"placement_locked": {"$ne": True}},
+    )
     total = len(items) if skip == 0 and len(items) < limit else repository.count()
     return {"total": total, "count": len(items), "items": items}
 
@@ -2385,6 +2388,86 @@ class EvaluationRequest(BaseModel):
     status: str = Field(description="One of " + ", ".join(EVALUATION_STATUSES))
     score: int | None = Field(default=None, ge=1, le=5, description="Star rating, 1-5.")
     notes: str | None = None
+
+
+class CandidateSubmissionRequest(BaseModel):
+    target_type: Literal["company", "associate"]
+    target_name: str = Field(min_length=1, max_length=200)
+    job_order_id: str | None = None
+
+
+class CandidateInterviewRequest(BaseModel):
+    status: Literal["scheduled", "completed", "pending", "unavailable"]
+    interview_at: datetime | None = None
+    notes: str = Field(min_length=1, max_length=1000)
+
+
+class CandidateOutcomeRequest(BaseModel):
+    status: Literal["selected", "on_hold", "rejected", "offer_declined"]
+    notes: str = Field(min_length=1, max_length=1000)
+
+
+class CandidateOfferRequest(BaseModel):
+    status: Literal["issued", "accepted", "declined"]
+    notes: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/candidates/{candidate_id}/submit")
+def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    _owned_or_404(candidate_id, user)
+    now = utcnow()
+    label = "company" if payload.target_type == "company" else "associate"
+    record = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "submitted", "target_type": payload.target_type, "target_name": payload.target_name,
+         "job_order_id": payload.job_order_id, "actor_id": user["id"]},
+        {"recruitment_status": f"submitted_to_{label}", "submission_target_type": payload.target_type,
+         "submission_target_name": payload.target_name, "submission_date": now,
+         "interview_status": "pending", "job_order_id": payload.job_order_id},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record.model_dump(mode="json")
+
+
+@app.post("/candidates/{candidate_id}/interview")
+def update_candidate_interview(candidate_id: str, payload: CandidateInterviewRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    _owned_or_404(candidate_id, user)
+    record = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "interview", **payload.model_dump(), "actor_id": user["id"]},
+        {"interview_status": payload.status, "recruitment_status": "interview_completed" if payload.status == "completed" else "interviewing"},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record.model_dump(mode="json")
+
+
+@app.post("/candidates/{candidate_id}/outcome")
+def update_candidate_outcome(candidate_id: str, payload: CandidateOutcomeRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    _owned_or_404(candidate_id, user)
+    locked = False
+    record = repo().record_recruitment_event(
+        candidate_id, {"type": "outcome", **payload.model_dump(), "actor_id": user["id"]},
+        {"recruitment_status": payload.status, "placement_locked": locked, "evaluation_status": payload.status},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record.model_dump(mode="json")
+
+
+@app.post("/candidates/{candidate_id}/offer")
+def update_candidate_offer(candidate_id: str, payload: CandidateOfferRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    _owned_or_404(candidate_id, user)
+    accepted = payload.status == "accepted"
+    record = repo().record_recruitment_event(
+        candidate_id, {"type": "offer", **payload.model_dump(), "actor_id": user["id"]},
+        {"offer_status": payload.status, "recruitment_status": "offer_accepted" if accepted else f"offer_{payload.status}",
+         "placement_locked": accepted, "evaluation_status": "hired" if accepted else ("rejected" if payload.status == "declined" else "selected")},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/view")
@@ -3935,6 +4018,7 @@ class UserIn(BaseModel):
     action_grants: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     phone: str = Field(default="", max_length=40)
+    branch: str = Field(default="", max_length=100)
 
 
 class UserPatch(BaseModel):
@@ -3949,6 +4033,7 @@ class UserPatch(BaseModel):
     action_grants: list[str] | None = None
     keywords: list[str] | None = None
     phone: str | None = Field(default=None, max_length=40)
+    branch: str | None = Field(default=None, max_length=100)
 
     @field_validator("email")
     @classmethod
@@ -3986,6 +4071,7 @@ def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -
             page_grants=payload.page_grants,
             action_grants=payload.action_grants,
             phone=payload.phone,
+            branch=payload.branch,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -4034,6 +4120,7 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
             action_grants=payload.action_grants,
             keywords=payload.keywords,
             phone=payload.phone,
+            branch=payload.branch,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

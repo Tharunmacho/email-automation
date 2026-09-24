@@ -702,6 +702,18 @@ class CandidateRecord(BaseModel):
     evaluated_at: Optional[datetime] = None
     evaluated_by: Optional[str] = None          # staff id that recorded it
 
+    # Recruitment activity after internal review. Each transition is appended
+    # to history so submissions and outcomes remain auditable.
+    recruitment_status: str = "available"
+    submission_target_type: Optional[str] = None
+    submission_target_name: Optional[str] = None
+    submission_date: Optional[datetime] = None
+    job_order_id: Optional[str] = None
+    interview_status: Optional[str] = None
+    offer_status: Optional[str] = None
+    placement_locked: bool = False
+    recruitment_history: List[Dict[str, Any]] = Field(default_factory=list)
+
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

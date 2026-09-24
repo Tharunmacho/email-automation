@@ -16,6 +16,7 @@ PERMISSIONS = "attendance_permissions"
 SHIFTS = "attendance_shift_assignments"
 CALENDAR = "attendance_calendar"
 POLICIES = "attendance_employee_policies"
+EXTRA_OT = "attendance_extra_ot"
 
 
 def _utcnow() -> datetime:
@@ -45,6 +46,7 @@ class AttendanceRepository:
         self.shifts = db[SHIFTS]
         self.calendar = db[CALENDAR]
         self.policies = db[POLICIES]
+        self.extra_ot_collection = db[EXTRA_OT]
 
     def append_event(self, event: dict) -> tuple[dict, bool]:
         """Insert once. A repeated webhook returns the original event."""
@@ -143,6 +145,30 @@ class AttendanceRepository:
         ).sort("updated_at", ASCENDING)
         return [_public(row) for row in rows]
 
+    def create_extra_ot(self, request: dict) -> dict:
+        doc = dict(request)
+        doc.setdefault("_id", uuid.uuid4().hex)
+        doc.update(status="pending", created_at=_utcnow(), updated_at=_utcnow())
+        self.extra_ot_collection.insert_one(doc)
+        return _public(doc)
+
+    def extra_ot(self, request_id: str) -> dict | None:
+        return _public(self.extra_ot_collection.find_one({"_id": request_id}))
+
+    def decide_extra_ot(self, request_id: str, decision: dict) -> dict | None:
+        updates = {"status": "approved" if decision["approved"] else "rejected",
+                   "decision_reason": decision["reason"], "decided_by": decision["decided_by"],
+                   "decided_at": decision["decided_at"], "updated_at": _utcnow()}
+        return _public(self.extra_ot_collection.find_one_and_update(
+            {"_id": request_id, "status": "pending"}, {"$set": updates},
+            return_document=ReturnDocument.AFTER,
+        ))
+
+    def approved_extra_ot_minutes(self, employee_id: str, start: date, end: date) -> int:
+        rows = self.extra_ot_collection.find({"employee_id": employee_id, "status": "approved",
+                                   "attendance_date": {"$gte": start.isoformat(), "$lte": end.isoformat()}})
+        return sum(int(row.get("requested_minutes", 0)) for row in rows)
+
     def permissions_for_period(
         self,
         employee_ids: str | Sequence[str],
@@ -165,6 +191,11 @@ class AttendanceRepository:
 
     def assign_shift(self, assignment: dict) -> dict:
         doc = dict(assignment)
+        shift = dict(doc.get("shift") or {})
+        for key in ("start", "end"):
+            if hasattr(shift.get(key), "isoformat"):
+                shift[key] = shift[key].isoformat()
+        doc["shift"] = shift
         doc.setdefault("_id", uuid.uuid4().hex)
         doc.setdefault("created_at", _utcnow())
         self.shifts.insert_one(doc)
@@ -229,3 +260,4 @@ def ensure_attendance_indexes() -> None:
     ensure_index(db[SHIFTS], [("employee_id", ASCENDING), ("effective_from", DESCENDING)], "attendance_shift_effective")
     ensure_index(db[CALENDAR], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("created_at", DESCENDING)], "attendance_calendar_day")
     ensure_index(db[POLICIES], [("employee_id", ASCENDING)], "attendance_policy_employee", unique=True)
+    ensure_index(db[EXTRA_OT], [("employee_id", ASCENDING), ("attendance_date", ASCENDING), ("status", ASCENDING)], "attendance_extra_ot_period")

@@ -54,6 +54,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
+  const [branch, setBranch] = useState("");
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
   const personalView = !canManage || viewMode === "mine";
@@ -68,7 +69,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await fetchPayrollMonth(year, month);
+      const data = await fetchPayrollMonth(year, month, branch || undefined);
       if (run !== loadRun.current) return;
       setLoadedPayroll({ period, data });
     } catch (failure) {
@@ -79,7 +80,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
     } finally {
       if (run === loadRun.current) setLoading(false);
     }
-  }, [month, onToast, period, year]);
+  }, [branch, month, onToast, period, year]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -100,7 +101,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
         (sum, row) => ({
           gross: sum.gross + row.monthly_salary,
           deduction: sum.deduction + row.deduction,
-          net: sum.net + row.net_salary,
+          net: sum.net + row.total_payable,
           paid: sum.paid + Number(row.status === "paid"),
         }),
         { gross: 0, deduction: 0, net: 0, paid: 0 },
@@ -154,6 +155,13 @@ export default function PayrollScreen({ user, onToast }: Props) {
             Pay period
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
+          {canManage && payroll?.branches.length ? <label>
+            Branch
+            <select value={branch} onChange={(event) => setBranch(event.target.value)}>
+              <option value="">All branches</option>
+              {payroll.branches.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label> : null}
           <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading || initialLoading}>
             <RefreshCw size={15} className={loading ? "icon-spin" : ""} /> Refresh
           </button>
@@ -253,11 +261,12 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
         <span className="payroll-flow-sign">−</span>
         <div className="is-deduction"><span>Deductions</span><strong>{money.format(row.deduction)}</strong></div>
         <span className="payroll-flow-sign">=</span>
-        <div className="is-net"><span>Net payable</span><strong>{money.format(row.net_salary)}</strong></div>
+        <div className="is-net"><span>Net payable</span><strong>{money.format(row.total_payable)}</strong></div>
       </div>
 
       <div className="payroll-metrics">
         <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
+        <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
         <Metric label="Daily LOP" value={money.format(row.daily_lop_rate)} />
         <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
         <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />

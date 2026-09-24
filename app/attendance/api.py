@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
 from app.attendance.engine import calculate_month, local_day, lop_amount
-from app.attendance.models import AdjustmentRequest, CalendarDayRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
+from app.attendance.models import AdjustmentRequest, CalendarDayRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
@@ -297,6 +297,21 @@ def request_permission(payload: PermissionRequest, user: dict = Depends(current_
     except Exception as exc:  # The request is durable even if its alert cannot be written.
         log.warning("Attendance request %s could not notify %s: %s", permission.get("id"), recipient_label, exc)
     return {"status": "pending", "permission": permission}
+
+
+@router.post("/extra-ot", status_code=201)
+def request_extra_ot(payload: ExtraOTRequest, user: dict = Depends(current_user)) -> dict:
+    employee = _employee_id(user, payload.employee_id)
+    request = _conflict(lambda: service().request_extra_ot(employee, payload))
+    return {"status": "pending", "request": request}
+
+
+@router.post("/extra-ot/{request_id}/decision")
+def decide_extra_ot(request_id: str, payload: ExtraOTDecision, approver: dict = Depends(require_attendance_manager)) -> dict:
+    employee = users.get(AttendanceRepository().extra_ot(request_id).get("employee_id")) if AttendanceRepository().extra_ot(request_id) else None
+    if employee and employee.role == MANAGER_ROLE and approver.get("role") != ADMIN_ROLE:
+        raise HTTPException(status_code=403, detail="Manager Extra OT requires administrator approval")
+    return {"status": "decided", "request": _conflict(lambda: service().decide_extra_ot(request_id, payload, approver["id"]))}
 
 
 @router.get("/permissions")
