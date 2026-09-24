@@ -182,6 +182,41 @@ def assign_candidate(
     )
 
 
+def pick_owner_for_destination(
+    destination_country: str,
+    *,
+    repo: Optional[CandidateRepository] = None,
+    users: Optional[UserRepository] = None,
+    exclude_staff_id: Optional[str] = None,
+) -> Optional[User]:
+    """Who should hold a candidate bound for this country.
+
+    The same two-step choice `assign_candidate` makes — the desk responsible for
+    the destination, then the least-loaded person inside it — but it answers
+    rather than acts, so a caller that is already writing the record (a
+    reassignment, say) can fold the new owner into its own update and keep one
+    audit entry instead of two.
+
+    `exclude_staff_id` leaves out the person handing the candidate over, so a
+    move never lands back on the desk it came from when someone else could take
+    it. If they are the only eligible person, they keep it.
+
+    Returns None when no active staff member covers that destination — the
+    caller decides whether that is an error or simply "leave the owner alone".
+    """
+    repo = repo or CandidateRepository()
+    users = users or UserRepository()
+
+    profile = {"destination_country": destination_country}
+    staff = _eligible_staff(users.list_assignable_staff(), profile)
+    if not staff:
+        return None
+    without_current = [member for member in staff if member.id != exclude_staff_id]
+    candidates_for_ownership = without_current or staff
+    workloads = _current_workloads(candidates_for_ownership, repo)
+    return _least_loaded(candidates_for_ownership, workloads)
+
+
 # --------------------------------------------------------------------------- #
 #  Rebalancing
 # --------------------------------------------------------------------------- #

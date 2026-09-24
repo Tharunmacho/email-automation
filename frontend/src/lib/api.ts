@@ -1140,6 +1140,8 @@ export interface ReassignmentResult {
     to_staff_name?: string | null;
     desk_changed: boolean;
     desk_override: boolean;
+    /** True when the destination picked the new owner rather than the actor. */
+    auto_routed: boolean;
     reason: string;
     at: string;
   };
@@ -1157,7 +1159,13 @@ export function reassignCandidate(
   payload: {
     destination_country: string;
     office_id?: string | null;
+    /**
+     * Leave unset to route the candidate to the desk that handles the new
+     * destination, giving them to whoever there is holding the fewest.
+     */
     staff_id?: string | null;
+    /** Move the destination but leave ownership exactly as it is. */
+    keep_current_owner?: boolean;
     reason: string;
   },
 ): Promise<ReassignmentResult> {

@@ -26,7 +26,11 @@ import {
   Lock,
   MapPinned,
   Send,
+  Workflow,
+  X,
 } from "lucide-react";
+
+import { useModalFocus } from "@/components/ui/useModalFocus";
 
 import {
   reassignCandidate,
@@ -121,7 +125,18 @@ export default function RecruitmentPanel({
   const history = candidate.recruitment_history ?? [];
 
   const [busy, setBusy] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [open, setOpen] = useState<null | "submit" | "interview" | "outcome" | "offer" | "reassign">(null);
+
+  const closeDialog = () => {
+    setDialogOpen(false);
+    // Drop whichever sub-form was showing, so reopening starts from the
+    // pipeline rather than halfway through the last thing somebody abandoned.
+    setOpen(null);
+  };
+  // Focus containment, Escape, and restoring focus to the trigger on close.
+  // The same hook every other dialog in this app uses.
+  const dialogRef = useModalFocus<HTMLDivElement>(dialogOpen, closeDialog);
 
   // Submission
   const [targetType, setTargetType] = useState<"company" | "associate">("company");
@@ -143,6 +158,15 @@ export default function RecruitmentPanel({
   const [officeId, setOfficeId] = useState(candidate.office_id ?? "");
   const [staffId, setStaffId] = useState("");
   const [reassignReason, setReassignReason] = useState("");
+  /**
+   * How the new owner is decided.
+   *
+   * `auto` is the default and the usual intent: changing a candidate's country
+   * moves them to the desk that handles it. `keep` is for a correction to the
+   * destination that should not disturb a review already under way, and
+   * `named` hands them to a specific person.
+   */
+  const [ownerMode, setOwnerMode] = useState<"auto" | "keep" | "named">("auto");
 
   /** Run one transition, reporting the backend's own message on refusal. */
   const run = async (
@@ -220,13 +244,18 @@ export default function RecruitmentPanel({
       const result = await reassignCandidate(candidate.id, {
         destination_country: country,
         office_id: officeId || null,
-        staff_id: staffId || null,
+        staff_id: ownerMode === "named" ? staffId || null : null,
+        keep_current_owner: ownerMode === "keep",
         reason: reassignReason.trim(),
       });
       onChanged(result.candidate);
+      const moved = result.reassignment;
       onToast(
-        `Reassigned to ${result.reassignment.to_country}` +
-          (result.reassignment.to_office_name ? ` · ${result.reassignment.to_office_name}` : ""),
+        `Reassigned to ${moved.to_country}` +
+          (moved.to_office_name ? ` · ${moved.to_office_name}` : "") +
+          // Say who picked up the candidate when the destination decided it —
+          // the person who pressed the button did not choose them.
+          (moved.auto_routed && moved.to_staff_name ? ` — now with ${moved.to_staff_name}` : ""),
         "success",
       );
       setReassignReason("");
@@ -246,14 +275,73 @@ export default function RecruitmentPanel({
   const canIssueOffer = canManage && !locked && (status === "selected" || status === "on_hold");
   const canAnswerOffer = canManage && (status === "offer_issued" || locked);
 
-  return (
-    <section className="cprof-card recruit-panel" id="cprof-recruitment">
-      <div className="recruit-head">
-        <div>
+  // The trigger stays on the profile and carries the answer to "where is this
+  // candidate?" — status, who they are with, and whether they are locked — so
+  // the common case is answered without opening anything. Everything that
+  // *changes* the pipeline lives in the dialog.
+  const trigger = (
+    <section className="cprof-card recruit-trigger" id="cprof-recruitment">
+      <div className="recruit-trigger-main">
+        <div className="recruit-trigger-text">
           <h3 className="cprof-card-title">Recruitment pipeline</h3>
           <p className="recruit-sub">
-            Where this candidate stands with a company or associate. Separate from your own
-            verdict on the profile.
+            {candidate.submission_target_name
+              ? `With ${candidate.submission_target_name} since ${when(candidate.submission_date)}.`
+              : "Not yet submitted to a company or associate."}
+          </p>
+        </div>
+        <span className={`ds-status ${tone(status)}`}><i />{STATUS_LABEL[status] ?? status}</span>
+      </div>
+      <button
+        type="button"
+        className="ds-primary-btn recruit-open-btn"
+        onClick={() => setDialogOpen(true)}
+        aria-haspopup="dialog"
+      >
+        <Workflow size={15} />
+        {canManage || canReassign ? "Manage pipeline" : "View pipeline"}
+      </button>
+      {locked && (
+        <p className="recruit-trigger-lock">
+          <Lock size={13} /> Locked to a placement — excluded from new job-order matching.
+        </p>
+      )}
+    </section>
+  );
+
+  if (!dialogOpen) return trigger;
+
+  return (
+    <>
+      {trigger}
+      <div className="cm-overlay active" onClick={closeDialog}>
+        <div
+          ref={dialogRef}
+          className="cm-dialog sh-modal recruit-dialog"
+          onClick={(event) => event.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="recruit-dialog-title"
+          tabIndex={-1}
+        >
+          <div className="sh-modal-head">
+            <div>
+              <h2 id="recruit-dialog-title" className="sh-modal-title">Recruitment pipeline</h2>
+              <p className="sh-modal-sub">
+                {candidate.profile?.full_name ?? "This candidate"} — where they stand with a
+                company or associate. Separate from your own verdict on the profile.
+              </p>
+            </div>
+            <button type="button" className="sh-modal-close" onClick={closeDialog} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="modal-body sh-modal-body recruit-panel">
+      <div className="recruit-head">
+        <div>
+          <p className="recruit-sub">
+            Current stage
           </p>
         </div>
         <span className={`ds-status ${tone(status)}`}><i />{STATUS_LABEL[status] ?? status}</span>
@@ -469,21 +557,33 @@ export default function RecruitmentPanel({
           </label>
           <label>
             New owner
-            <select value={staffId} onChange={(e) => setStaffId(e.target.value)}>
-              <option value="">Leave with {candidate.assigned_staff_name || "the current owner"}</option>
-              {staff.map((person) => (
-                <option key={person.id} value={person.id}>{person.name}</option>
-              ))}
+            <select value={ownerMode} onChange={(e) => setOwnerMode(e.target.value as typeof ownerMode)}>
+              <option value="auto">Route to the desk for that country</option>
+              <option value="keep">Keep {candidate.assigned_staff_name || "the current owner"}</option>
+              <option value="named">Choose someone</option>
             </select>
           </label>
+          {ownerMode === "named" && (
+            <label>
+              Staff member
+              <select value={staffId} onChange={(e) => setStaffId(e.target.value)}>
+                <option value="">Select a staff member</option>
+                {staff.map((person) => (
+                  <option key={person.id} value={person.id}>{person.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="is-wide">
             Reason <span aria-hidden="true">*</span>
             <textarea rows={2} value={reassignReason} onChange={(e) => setReassignReason(e.target.value)} placeholder="Candidate withdrew from Singapore and asked for Europe" />
           </label>
           <p className="recruit-note">
-            A deliberate move across countries, offices and desks. Both sides of the change are
-            recorded below, with your name and the reason. Choosing a new owner restarts their
-            review.
+            {ownerMode === "auto"
+              ? "The candidate moves to the desk that handles the new country and goes to whoever there is holding the fewest. Their review restarts with the new owner."
+              : ownerMode === "keep"
+                ? "The destination moves and ownership stays put — for a correction that should not disturb a review already under way."
+                : "Handing the candidate to a specific person. If they are not on the desk for that country, the move is recorded as a deliberate override."}
           </p>
           <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void doReassign()}>
             <MapPinned size={15} /> Reassign candidate
@@ -529,6 +629,9 @@ export default function RecruitmentPanel({
           <Ban size={14} /> You can see this candidate&rsquo;s pipeline but not change it.
         </p>
       )}
-    </section>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

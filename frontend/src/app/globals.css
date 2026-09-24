@@ -20656,3 +20656,33 @@ a.um-phone:hover {
 .recruit-event-body small { color: var(--text-muted); font-size: .69rem; line-height: 1.45; }
 .recruit-event-meta { font-weight: 600; }
 .recruit-empty { display: flex; align-items: center; gap: .45rem; margin: 0; color: var(--text-muted); font-size: .76rem; }
+
+
+/* --------------------------------------------------------------------------
+   Recruitment pipeline — the trigger on the profile
+
+   The card answers "where is this candidate?" without opening anything; the
+   dialog behind the button is where the pipeline is actually moved.
+   -------------------------------------------------------------------------- */
+.recruit-trigger { display: grid; gap: .75rem; }
+.recruit-trigger-main { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.recruit-trigger-text { min-width: 0; }
+.recruit-open-btn { justify-self: start; }
+.recruit-trigger-lock { display: flex; align-items: center; gap: .4rem; margin: 0; color: var(--text-muted); font-size: .72rem; font-weight: 600; }
+
+/* The dialog is a working surface, not a confirmation: it holds the facts, the
+   forms and the full history, so it is given room and its own scroll.
+   `.cm-dialog` caps every dialog at 620px for the short confirm-style ones this
+   app mostly uses; this content needs more, hence the wider cap here. */
+.recruit-dialog.cm-dialog { max-width: min(56rem, 100%); }
+/* One column, stated rather than inherited: the shared modal body supplies a
+   two-column template for side-by-side form fields, and the pipeline reads as a
+   sequence — stage, then facts, then actions, then history. */
+.recruit-dialog .recruit-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 1rem;
+  max-height: min(72vh, 46rem);
+  overflow-y: auto;
+}

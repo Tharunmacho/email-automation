@@ -13,6 +13,7 @@ from app.attendance.engine import calculate_month, lop_amount
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.mongo import ensure_index, get_db
+from app.assignment.balancer import GENERAL_DESK, SINGAPORE_MALAYSIA_DESK, desk_for_staff
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, normalize_branch
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -44,6 +45,31 @@ def _visible_employees(user: dict):
     raise HTTPException(status_code=403, detail="Payroll access required")
 
 
+#: What the two desks are called on a payslip.
+#:
+#: The agency is already split this way for allocation: Singapore and Malaysia
+#: candidates go to a dedicated desk and every other destination goes to the
+#: rest of the roster (see `app.assignment.balancer`). Payroll groups by the
+#: same line rather than a second one nobody maintains, so an employee's branch
+#: cannot drift out of step with the desk they actually work.
+DESK_BRANCH_NAMES = {
+    SINGAPORE_MALAYSIA_DESK: "Singapore and Malaysia",
+    GENERAL_DESK: "Other Destinations",
+}
+
+
+def branch_of(employee) -> str:
+    """Which payroll branch this employee belongs to.
+
+    An explicitly assigned branch wins — an administrator who typed one into
+    User Management meant it, and a third office is a real thing this agency
+    may open. Everyone else falls to their desk, so every employee lands in a
+    branch and "Unassigned" stops being the answer for most of the roster.
+    """
+    explicit = normalize_branch(employee.branch)
+    return explicit or DESK_BRANCH_NAMES[desk_for_staff(employee)]
+
+
 def _branch_names(employees) -> list[str]:
     """Every branch in use, one entry per name however it was capitalised.
 
@@ -53,7 +79,7 @@ def _branch_names(employees) -> list[str]:
     """
     seen: dict[str, str] = {}
     for employee in employees:
-        name = normalize_branch(employee.branch)
+        name = branch_of(employee)
         if name:
             seen.setdefault(name.casefold(), name)
     return sorted(seen.values())
@@ -77,7 +103,7 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
     rows = []
     wanted = normalize_branch(branch).casefold() if branch else None
     for employee in _visible_employees(user):
-        if wanted is not None and normalize_branch(employee.branch).casefold() != wanted:
+        if wanted is not None and branch_of(employee).casefold() != wanted:
             continue
         policy = attendance_repo.employee_policy(employee.id)
         tracking_start = attendance_repo.attendance_start_date(employee.id)
@@ -101,7 +127,7 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
         rows.append({
             "employee_id": employee.id,
             "name": employee.name,
-            "branch": normalize_branch(employee.branch),
+            "branch": branch_of(employee),
             "staff_code": employee.staff_code,
             "monthly_salary": monthly_salary,
             "deduction": deduction,

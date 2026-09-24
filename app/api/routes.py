@@ -62,6 +62,7 @@ from app.assignment.balancer import (
     desk_for_candidate,
     desk_for_staff,
     is_staff_eligible,
+    pick_owner_for_destination,
     rebalance_all,
     redistribute_from_staff,
     rehome_orphans,
@@ -2367,9 +2368,15 @@ class ReassignmentRequest(BaseModel):
     #: Which of our offices takes them on. Optional: not every agency splits
     #: work by office, and an unset office is left unset rather than guessed.
     office_id: str | None = None
-    #: The staff member who will own the review. Optional — an unowned
-    #: candidate can be moved and allocated later.
+    #: The staff member who will own the review. Optional: left unset, the
+    #: candidate is routed to the desk that handles the new destination and
+    #: given to whoever there is holding the fewest — which is what "move this
+    #: candidate to Europe" normally means.
     staff_id: str | None = None
+    #: Set true to move the destination and leave ownership exactly as it is.
+    #: For a correction to the country that should not disturb a review already
+    #: under way.
+    keep_current_owner: bool = False
     #: Required. A reassignment without a reason is an unexplained change to
     #: somebody's file.
     reason: str = Field(min_length=1, max_length=1000)
@@ -2379,18 +2386,40 @@ class ReassignmentRequest(BaseModel):
 def reassign_candidate(
     candidate_id: str,
     payload: ReassignmentRequest,
-    actor: dict = Depends(require_action("reallocate-candidates")),
+    actor: dict = Depends(current_user),
 ) -> dict:
     """Move a candidate between countries, offices and desks, deliberately.
 
-    Authorised by the same action that governs reallocation, so nobody gains a
-    new power here — they gain a supported way to use the one they had.
+    Who may do this
+    ---------------
+    A staff member may change the destination of a candidate **they own**. They
+    are the one on the phone when somebody says they can no longer go to
+    Singapore and would like Europe, and making them find an administrator to
+    record it is how a CRM ends up out of date. `_owned_or_404` scopes them to
+    their own queue exactly as every other candidate route does.
+
+    Moving somebody *else's* candidate is reallocation, and still needs the
+    `reallocate-candidates` action — that boundary is unchanged.
+
+    Where the candidate lands
+    -------------------------
+    Changing the destination changes the desk responsible for it, so unless a
+    specific owner is named the candidate is routed to the desk that handles the
+    new country and given to whoever there is holding the fewest. A staff member
+    who moves a candidate to a country their desk does not cover is therefore
+    handing them over, which is the point: the candidate follows the work.
     """
     from app.db.taxonomy import get_office, list_countries
 
     repository = repo()
     record = repository.get(candidate_id)
     if not record:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    owns_it = record.assigned_staff_id == actor.get("id")
+    if not owns_it and not _has_action(actor, "reallocate-candidates"):
+        # 404 rather than 403, matching `_owned_or_404`: a staff member must not
+        # be able to tell another person's candidate from one that never existed.
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     requested = payload.destination_country.strip().casefold()
@@ -2415,10 +2444,26 @@ def reassign_candidate(
             raise HTTPException(status_code=422, detail="Select an active office.")
 
     member = None
+    auto_routed = False
     if payload.staff_id:
         member = users.get(payload.staff_id)
         if not member or member.role not in {STAFF_ROLE, MANAGER_ROLE} or not member.active:
             raise HTTPException(status_code=400, detail="Target staff member is not active")
+    elif not payload.keep_current_owner:
+        # Nobody named, so the destination decides. Excluding the current owner
+        # means a handover actually hands over when somebody else can take it.
+        member = pick_owner_for_destination(
+            str(country.get("name") or ""),
+            repo=repository,
+            users=users,
+            exclude_staff_id=record.assigned_staff_id,
+        )
+        auto_routed = member is not None
+        if member and member.id == record.assigned_staff_id:
+            # The desk's only recruiter is the one who already holds them: the
+            # destination moved, ownership did not, and saying so is clearer
+            # than reporting a reassignment to the same person.
+            member, auto_routed = None, False
 
     previous = {
         "country": record.profile.destination_country,
@@ -2458,6 +2503,9 @@ def reassign_candidate(
         # can change desks without overriding anything, which is the ordinary
         # case: a Europe-bound candidate going to a Europe recruiter.
         "desk_changed": previous["desk"] != new_desk,
+        # How the new owner was chosen: named by the actor, or picked by the
+        # destination. A reader six months later should not have to guess which.
+        "auto_routed": auto_routed,
         "desk_override": bool(member) and not is_staff_eligible(
             member, {"destination_country": new_country_name}
         ),

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timezone
+from urllib.parse import quote
 from unittest.mock import patch
 
 import mongomock
@@ -30,21 +31,27 @@ STAFF = {"id": "staff-1", "email": "ravi@adira.test", "name": "Ravi", "role": "s
 
 
 class FakeEmployee:
-    def __init__(self, user_id, name, branch, role="staff", active=True):
+    def __init__(self, user_id, name, branch, role="staff", active=True, email=""):
         self.id, self.name, self.branch = user_id, name, branch
         self.role, self.active = role, active
         self.staff_code = f"ADR-{user_id[-1]}"
         self.phone = ""
+        # Desk membership is by email (see `app.assignment.balancer`), and
+        # payroll falls back to the desk when no branch is set explicitly.
+        self.email = email or f"{name.lower()}@adira.test"
 
 
 ROSTER = [
     FakeEmployee("staff-1", "Ravi", "Mount Road"),
     FakeEmployee("staff-2", "Priya", "Mount Road"),
     FakeEmployee("staff-3", "Anand", "Singapore Desk"),
-    # Deliberately unassigned: must stay in payroll, never break it.
+    # No explicit branch, and not on the Singapore/Malaysia desk: falls to the
+    # other desk rather than to nothing.
     FakeEmployee("staff-4", "Meera", ""),
     # Deliberately a different spelling of an existing branch.
     FakeEmployee("staff-5", "Karthik", "mount  road"),
+    # No explicit branch, and on the Singapore/Malaysia desk by email.
+    FakeEmployee("staff-6", "Sreya", "", email="sreya.adira@gmail.com"),
 ]
 
 
@@ -81,7 +88,8 @@ def api():
 
 
 def payroll(client, branch=None):
-    query = f"?branch={branch}" if branch else ""
+    # Encoded, because a branch name is free text an administrator typed.
+    query = f"?branch={quote(branch)}" if branch else ""
     response = client.get(f"/payroll/{YEAR}/{MONTH}{query}")
     assert response.status_code == 200, response.text
     return response.json()
@@ -94,17 +102,44 @@ def rows_by_name(body):
 # --------------------------------------------------------------------------- #
 #  Branch
 # --------------------------------------------------------------------------- #
-def test_the_branch_filter_is_built_from_real_assignments(api):
+def test_the_branch_filter_offers_every_branch_in_use(api):
     body = payroll(api)
-    assert body["branches"] == ["Mount Road", "Singapore Desk"]
+    assert body["branches"] == [
+        "Mount Road", "Other Destinations", "Singapore Desk", "Singapore and Malaysia",
+    ]
 
 
-def test_an_employee_without_a_branch_is_still_paid(api):
-    """An unassigned branch is a valid record, not a broken one."""
-    body = payroll(api)
-    meera = rows_by_name(body)["Meera"]
-    assert meera["branch"] == ""
-    assert meera["monthly_salary"] == 30000
+def test_an_employee_without_a_branch_falls_to_their_desk(api):
+    """Nobody is "Unassigned": the desk they already work is the answer.
+
+    The agency is split this way for allocation already — Singapore and Malaysia
+    have a dedicated desk, everything else goes to the rest of the roster — so
+    payroll groups on the same line rather than a second one.
+    """
+    rows = rows_by_name(payroll(api))
+    assert rows["Sreya"]["branch"] == "Singapore and Malaysia"
+    assert rows["Meera"]["branch"] == "Other Destinations"
+    # And they are still paid, which is the part that must never regress.
+    assert rows["Meera"]["monthly_salary"] == 30000
+
+
+def test_an_explicit_branch_overrides_the_desk(api):
+    """An administrator who typed a branch meant it."""
+    rows = rows_by_name(payroll(api))
+    # Ravi is on no special desk but was given a branch by hand.
+    assert rows["Ravi"]["branch"] == "Mount Road"
+    # Anand likewise, rather than being forced to his desk's default.
+    assert rows["Anand"]["branch"] == "Singapore Desk"
+
+
+def test_the_two_desks_can_be_filtered_apart(api):
+    """The split the payroll screen is for: one desk at a time."""
+    sg = rows_by_name(payroll(api, "Singapore and Malaysia"))
+    other = rows_by_name(payroll(api, "Other Destinations"))
+    assert list(sg) == ["Sreya"]
+    assert list(other) == ["Meera"]
+    # Nobody appears in both.
+    assert not set(sg) & set(other)
 
 
 def test_filtering_by_branch_returns_only_that_branch(api):

@@ -18,6 +18,7 @@ import Sidebar from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import OverviewScreen from "@/screens/OverviewScreen";
 import CandidatesView from "@/screens/CandidatesView";
+import RecruitmentPanel from "@/components/RecruitmentPanel";
 import JobOrders from "@/screens/JobOrders";
 import SourcingHub from "@/screens/SourcingHub";
 import DataManagementScreen from "@/screens/DataManagementScreen";
@@ -95,8 +96,35 @@ function buildCandidates(count: number): CandidateRecord[] {
 }
 
 /** One fully-populated record — every section the profile screen can draw. */
+/** Enough taxonomy for the reassignment form to have something to offer. */
+const PREVIEW_COUNTRIES = [
+  { id: "singapore", name: "Singapore" },
+  { id: "germany", name: "Germany" },
+];
+const PREVIEW_OFFICES = [
+  { id: "mount_road", name: "Mount Road", active: true },
+];
+
 const PROFILE_CANDIDATE = {
   id: "preview-candidate",
+  // Mid-pipeline, so the harness shows the panel with something in it rather
+  // than in its empty state.
+  recruitment_status: "submitted_to_company",
+  submission_target_type: "company",
+  submission_target_name: "Keppel Shipyard",
+  submission_date: "2026-09-01T09:00:00.000Z",
+  interview_status: "scheduled",
+  interview_at: "2026-09-12T04:30:00.000Z",
+  recruitment_history: [
+    {
+      type: "submitted", at: "2026-09-01T09:00:00.000Z", actor_name: "Sreya",
+      target_type: "company", target_name: "Keppel Shipyard", notes: "Strong fit for the yard role",
+    },
+    {
+      type: "interview", at: "2026-09-08T11:15:00.000Z", actor_name: "Sreya",
+      status: "scheduled", notes: "Technical round on the 12th",
+    },
+  ],
   source: "whatsapp",
   status: "parsed",
   cv_required: false,
@@ -257,7 +285,23 @@ export default function PreviewPage() {
             )}
 
             {screenParam === "profile" && (
-              <CandidateProfileScreen candidate={PROFILE_CANDIDATE} onBack={noop} onVerify={noop} />
+              <CandidateProfileScreen
+                candidate={PROFILE_CANDIDATE}
+                onBack={noop}
+                onVerify={noop}
+                recruitment={
+                  <RecruitmentPanel
+                    candidate={PROFILE_CANDIDATE}
+                    canManage
+                    canReassign
+                    countries={PREVIEW_COUNTRIES}
+                    offices={PREVIEW_OFFICES}
+                    staff={[]}
+                    onToast={noop}
+                    onChanged={noop}
+                  />
+                }
+              />
             )}
 
             {screen === "job-orders" && <JobOrders candidates={candidates} />}

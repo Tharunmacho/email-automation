@@ -68,6 +68,21 @@ def make_record() -> CandidateRecord:
     )
 
 
+class FakeUsers:
+    """Enough of `UserRepository` for reassignment, including auto-routing.
+
+    `list_assignable_staff` matters as much as `get` here: leaving a
+    reassignment's owner unset routes the candidate to the desk that handles
+    the new destination, and that choice is made from this roster.
+    """
+
+    def get(self, user_id):
+        return STAFF.get(user_id)
+
+    def list_assignable_staff(self):
+        return [member for member in STAFF.values() if member.active]
+
+
 @pytest.fixture()
 def api():
     collection = mongomock.MongoClient()["reassign"]["candidates"]
@@ -78,8 +93,7 @@ def api():
     with patch("app.api.routes.repo", return_value=repository), \
          patch("app.db.taxonomy.list_countries", return_value=COUNTRIES), \
          patch("app.db.taxonomy.get_office", side_effect=OFFICES.get), \
-         patch.object(type(__import__("app.api.routes", fromlist=["users"]).users), "get",
-                      lambda _self, uid: STAFF.get(uid)):
+         patch("app.api.routes.users", FakeUsers()):
         client = TestClient(app)
         client.repository = repository
         yield client
@@ -177,9 +191,51 @@ def test_an_inactive_target_staff_member_is_refused(api):
     assert current(api).assigned_staff_id == "sg-1"
 
 
-def test_the_country_can_move_without_naming_a_new_owner(api):
-    """Moving the destination and leaving allocation for later is allowed."""
+def test_changing_the_country_hands_the_candidate_to_that_countrys_desk(api):
+    """The behaviour the agency asked for: the candidate follows the work.
+
+    Nobody is named, so the destination decides. A Germany-bound candidate
+    belongs to the general desk, and the Singapore recruiter who was holding
+    them hands over automatically rather than keeping a candidate they no
+    longer cover.
+    """
     assert reassign(api, staff_id=None).status_code == 200
+
+    record = current(api)
+    assert record.profile.destination_country == "Germany"
+    assert record.assigned_staff_id == "eu-1"
+
+    entry = next(e for e in record.assignment_history if e.get("type") == "reassignment")
+    assert entry["auto_routed"] is True
+    assert entry["from_staff_id"] == "sg-1"
+    assert entry["to_staff_id"] == "eu-1"
+
+
+def test_auto_routing_sends_a_singapore_candidate_to_the_singapore_desk(api):
+    """The same rule in the other direction."""
+    # Hand them to the general desk first, then move the destination back.
+    reassign(api, staff_id="eu-1")
+    assert reassign(api, destination_country="Singapore", staff_id=None).status_code == 200
+
+    record = current(api)
+    assert record.profile.destination_country == "Singapore"
+    assert record.assigned_staff_id == "sg-1"
+
+
+def test_a_named_owner_is_never_overridden_by_routing(api):
+    """Naming somebody is a decision; the router does not second-guess it."""
+    assert reassign(api, destination_country="Singapore", staff_id="eu-1").status_code == 200
+    record = current(api)
+    assert record.assigned_staff_id == "eu-1"
+    entry = next(e for e in record.assignment_history if e.get("type") == "reassignment")
+    assert entry["auto_routed"] is False
+    # And it is still flagged as crossing the desk rule deliberately.
+    assert entry["desk_override"] is True
+
+
+def test_the_owner_can_be_kept_while_the_country_moves(api):
+    """A correction to the destination that must not disturb a live review."""
+    assert reassign(api, staff_id=None, keep_current_owner=True).status_code == 200
     record = current(api)
     assert record.profile.destination_country == "Germany"
     # Ownership and the existing review are untouched.
@@ -187,12 +243,36 @@ def test_the_country_can_move_without_naming_a_new_owner(api):
     assert record.evaluation_status == "shortlisted"
 
 
-def test_reassignment_requires_the_reallocation_permission(api):
+def test_the_country_still_moves_when_no_desk_covers_it(api):
+    """No eligible recruiter is not a reason to refuse the move."""
+    with patch("app.api.routes.pick_owner_for_destination", return_value=None):
+        assert reassign(api, staff_id=None).status_code == 200
+    record = current(api)
+    assert record.profile.destination_country == "Germany"
+    assert record.assigned_staff_id == "sg-1"
+
+
+def test_a_staff_member_may_move_a_candidate_they_own(api):
+    """The recruiter on the phone records it, rather than finding an admin."""
+    app.dependency_overrides[current_user] = lambda: {
+        "id": "sg-1", "email": "sreya.adira@gmail.com", "name": "Sreya", "role": "staff",
+    }
+    try:
+        assert reassign(api, staff_id=None).status_code == 200
+        assert current(api).profile.destination_country == "Germany"
+    finally:
+        app.dependency_overrides[current_user] = lambda: ADMIN
+
+
+def test_a_staff_member_cannot_move_somebody_elses_candidate(api):
+    """Moving another person's candidate is reallocation, and still gated."""
     app.dependency_overrides[current_user] = lambda: {
         "id": "staff-9", "email": "s@x.test", "name": "Staff", "role": "staff",
     }
     try:
-        assert reassign(api).status_code in (403, 404)
+        # 404, not 403: another queue's candidate is indistinguishable from one
+        # that does not exist.
+        assert reassign(api).status_code == 404
         assert current(api).profile.destination_country == "Singapore"
     finally:
         app.dependency_overrides[current_user] = lambda: ADMIN
