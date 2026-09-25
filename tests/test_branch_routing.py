@@ -147,3 +147,42 @@ def test_each_manager_lists_only_their_own_branch(repository):
         extra_ot = list_extra_ot(2026, 9, employee_id=None, user=as_user(manager))["items"]
         assert {row["employee_id"] for row in permissions} == {own}
         assert {row["employee_id"] for row in extra_ot} == {own}
+
+
+# --------------------------------------------------------------------------- #
+#  Visibility: each manager sees only their own branch
+# --------------------------------------------------------------------------- #
+from app.attendance.api import attendance_day, attendance_employees  # noqa: E402
+from app.payroll import _visible_employees, update_employee_payroll, EmployeePayrollPolicy  # noqa: E402
+
+
+def test_each_manager_sees_only_their_branch_in_payroll():
+    with patch("app.payroll.users", Users()):
+        assert {e.id for e in _visible_employees(as_user(NOORUL))} == {"noorul", "sreya"}
+        assert {e.id for e in _visible_employees(as_user(RAFI))} == {"rafi", "ravi"}
+        assert {e.id for e in _visible_employees(as_user(ADMIN))} == {"noorul", "rafi", "sreya", "ravi"}
+
+
+def test_a_manager_cannot_change_the_other_branchs_salary(repository):
+    with patch("app.payroll.users", Users()), \
+         patch("app.payroll.AttendanceRepository", return_value=repository):
+        with pytest.raises(HTTPException):
+            update_employee_payroll("sreya", EmployeePayrollPolicy(monthly_salary=1), _user=as_user(RAFI))
+        update_employee_payroll("sreya", EmployeePayrollPolicy(monthly_salary=25000), _user=as_user(NOORUL))
+    assert repository.employee_policy("sreya")["monthly_salary"] == 25000
+
+
+def test_each_manager_sees_only_their_branch_in_attendance(repository):
+    assert [e["id"] for e in attendance_employees(user=as_user(NOORUL))["items"]] == ["sreya"]
+    assert [e["id"] for e in attendance_employees(user=as_user(RAFI))["items"]] == ["ravi"]
+
+
+def test_a_manager_cannot_open_the_other_branchs_attendance(repository):
+    day = date(2026, 9, 1)
+    assert attendance_day(day, employee_id="sreya", user=as_user(NOORUL))["employee_id"] == "sreya"
+    with pytest.raises(HTTPException) as refused:
+        attendance_day(day, employee_id="sreya", user=as_user(RAFI))
+    assert refused.value.status_code == 404
+    # Nor another manager's.
+    with pytest.raises(HTTPException):
+        attendance_day(day, employee_id="noorul", user=as_user(RAFI))

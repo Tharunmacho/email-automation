@@ -13,7 +13,7 @@ from app.attendance.engine import calculate_month, lop_amount
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.mongo import ensure_index, get_db
-from app.branches import branch_of
+from app.branches import branch_of, can_see, manages
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, normalize_branch
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -36,13 +36,28 @@ def _manager(user: dict = Depends(current_user)) -> dict:
 
 
 def _visible_employees(user: dict):
-    """Staff see exactly one payroll row—their own; managers see the roster."""
+    """Staff see their own row; managers their own branch; admins everyone.
+
+    Noorul sees Royapettah and Rafi sees Mount Road (see `app.branches`).
+    """
     if user.get("role") == STAFF_ROLE:
         employee = users.get(user["id"])
         return [employee] if employee and employee.active else []
-    if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}:
+    if user.get("role") == ADMIN_ROLE:
         return users.list_employees(include_inactive=False)
+    if user.get("role") == MANAGER_ROLE:
+        manager = users.get(user["id"])
+        return [
+            employee for employee in users.list_employees(include_inactive=False)
+            if can_see(manager, employee, users)
+        ]
     raise HTTPException(status_code=403, detail="Payroll access required")
+
+
+def _require_payroll_authority(user: dict, employee) -> None:
+    """A manager changes payroll only for the staff of their own branch."""
+    if user.get("role") == MANAGER_ROLE and not manages(users.get(user["id"]), employee, users):
+        raise HTTPException(status_code=404, detail="Active employee not found")
 
 
 def _branch_names(employees) -> list[str]:
@@ -153,6 +168,7 @@ def update_employee_payroll(employee_id: str, payload: EmployeePayrollPolicy, _u
     employee = users.get(employee_id)
     if not employee or not employee.active or employee.role not in {"staff", "manager"}:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    _require_payroll_authority(_user, employee)
     # Payroll owns salary only. Weekly-off choice belongs to the employee's
     # Attendance settings and must never be overwritten by a salary update.
     policy = AttendanceRepository().set_employee_policy(
@@ -164,8 +180,10 @@ def update_employee_payroll(employee_id: str, payload: EmployeePayrollPolicy, _u
 
 @router.put("/{year}/{month}/employees/{employee_id}/status")
 def update_payment_status(year: int, month: int, employee_id: str, payload: PaymentStatus, actor: dict = Depends(_manager)) -> dict:
-    if month < 1 or month > 12 or not users.get(employee_id):
+    employee = users.get(employee_id)
+    if month < 1 or month > 12 or not employee:
         raise HTTPException(status_code=404, detail="Employee or payroll period not found")
+    _require_payroll_authority(actor, employee)
     get_db()[RUNS].update_one(
         {"employee_id": employee_id, "year": year, "month": month},
         {"$set": {"paid": payload.paid, "updated_at": datetime.now(timezone.utc), "updated_by": actor["id"]}},

@@ -14,7 +14,7 @@ from app.attendance.engine import calculate_month, local_day, lop_amount
 from app.attendance.models import AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
-from app.branches import branch_managers, branch_of, manages
+from app.branches import branch_managers, branch_of, can_see, manages
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
@@ -38,6 +38,10 @@ def _employee_id(user: dict, requested: str | None = None) -> str:
     employee_id = requested if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE} and requested else user["id"]
     employee = users.get(employee_id)
     if not employee or not employee.active or employee.role not in {STAFF_ROLE, MANAGER_ROLE}:
+        raise HTTPException(status_code=404, detail="Active employee not found")
+    if user.get("role") == MANAGER_ROLE and not can_see(users.get(user["id"]), employee, users):
+        # Noorul works Royapettah and Rafi works Mount Road; neither reads nor
+        # changes the other branch's attendance.
         raise HTTPException(status_code=404, detail="Active employee not found")
     return employee_id
 

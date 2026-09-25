@@ -65,3 +65,16 @@ def manages(manager, employee, users) -> bool:
     responsible = branch_managers(employee, users)
     # Nobody on record at all: any manager may act rather than nobody.
     return not responsible or any(candidate.id == manager.id for candidate in responsible)
+
+
+def can_see(manager, employee, users) -> bool:
+    """Whether a manager may view this employee's attendance and payroll.
+
+    Themselves, and the staff of their own branch. Not the other branch, and
+    not another manager — a manager's records are an administrator's concern.
+    """
+    if manager is None:
+        return False
+    if employee.id == manager.id:
+        return True
+    return employee.role != MANAGER_ROLE and manages(manager, employee, users)

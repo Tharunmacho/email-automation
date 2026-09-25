@@ -214,7 +214,7 @@ def test_staff_selects_only_their_own_weekly_off_from_attendance():
 def test_saving_salary_does_not_overwrite_staff_weekly_off():
     repository = AttendanceRepository(mongomock.MongoClient()["salary-keeps-weekly-off"])
     repository.set_employee_policy("staff-1", {"weekly_off_pattern": "alternate_friday"})
-    with patch("app.payroll.users", FakeUsers()), patch(
+    with patch("app.payroll.users", ApprovalUsers()), patch(
         "app.payroll.AttendanceRepository", return_value=repository
     ):
         update_employee_payroll(
