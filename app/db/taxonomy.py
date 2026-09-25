@@ -461,6 +461,14 @@ SEED_COUNTRIES = [
     ("Kuwait", 6),
     ("Oman", 7),
     ("Bahrain", 8),
+    ("Europe", 9),
+    ("Russia", 10),
+    ("Bulgaria", 11),
+    ("Armenia", 12),
+    ("Albania", 13),
+    ("Slovenia", 14),
+    ("Slovakia", 15),
+    ("Greece", 16),
 ]
 
 

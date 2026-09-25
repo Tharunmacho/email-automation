@@ -201,6 +201,10 @@ REBALANCE_PROJECTION = {
     "assigned_staff_name": 1,
     "viewed_at": 1,
     "evaluation_status": 1,
+    "manually_assigned": 1,
+    # The latest ownership entry only: it identifies manual moves recorded
+    # before `manually_assigned` existed.
+    "assignment_history": {"$slice": -1},
     "created_at": 1,
     # Country selects the responsible allocation desk before workload is
     # compared inside that desk.
@@ -1101,9 +1105,13 @@ class CandidateRepository:
     # ---- allocation -------------------------------------------------------- #
     def assign(
         self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None,
-        *, assignment_event: Optional[dict] = None,
+        *, assignment_event: Optional[dict] = None, manual: bool = False,
     ) -> bool:
         """Hand one profile to a staff member, clearing any prior review state.
+
+        `manual` records that a person chose this owner. The balancer never
+        moves such a profile on its own (see `balancer._is_pinned`); an
+        automatic placement clears the flag.
 
         The clear is deliberate and is what makes a profile "locked" to its
         current owner once someone has opened or judged it: moving it would
@@ -1124,6 +1132,7 @@ class CandidateRepository:
             "evaluation_notes": None,
             "evaluated_at": None,
             "evaluated_by": None,
+            "manually_assigned": manual,
             "updated_at": now,
         }}
         if assignment_event:

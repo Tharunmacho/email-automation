@@ -1577,6 +1577,7 @@ def create_candidate_from_uploads(
                 result.candidate.id,
                 assigned_staff_id,
                 assigned_staff_name,
+                manual=True,
             )
         else:
             assignment = assign_candidate(
@@ -2347,7 +2348,9 @@ def assign_candidate_route(
         "remarks": remarks,
         "reason": "manual_reassignment",
     }
-    repository.assign(candidate_id, member.id, member.name, assignment_event=event)
+    repository.assign(
+        candidate_id, member.id, member.name, assignment_event=event, manual=True
+    )
     notify_candidate_assigned(
         member.id,
         {
@@ -2557,6 +2560,9 @@ def reassign_candidate(
             evaluated_at=None,
             evaluated_by=None,
             latest_assignment_remark=payload.reason.strip(),
+            # A chosen owner — named or routed by this deliberate move — is not
+            # for the balancer to undo.
+            manually_assigned=True,
         )
 
     updated = repository.record_reassignment(candidate_id, event, updates)

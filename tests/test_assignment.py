@@ -237,6 +237,38 @@ def test_rebalance_does_not_move_work_already_done():
     assert result["staff_counts"]["b"]["assigned"] == 2
 
 
+def test_rebalance_leaves_manual_assignments_with_their_chosen_owner():
+    """A person moved these by hand. Levelling workload must not undo that,
+    even though nobody has opened them yet."""
+    users = FakeUsers([staff("a", "A"), staff("b", "B")])
+    flagged = row("manual-1", "a")
+    flagged["manually_assigned"] = True
+    legacy = row("manual-2", "a")  # moved before the flag existed
+    legacy["assignment_history"] = [{"reason": "manual_reassignment", "to_staff_id": "a"}]
+    routed = row("manual-3", "a")
+    routed["assignment_history"] = [{"type": "reassignment", "to_staff_id": "a"}]
+    repo = FakeRepo(rows=[flagged, legacy, routed, row("auto-1", "a"), row("auto-2", "a")])
+
+    result = rebalance_all(repo=repo, users=users)
+
+    moved_ids = {cid for cid, _ in repo.assignments}
+    assert moved_ids.isdisjoint({"manual-1", "manual-2", "manual-3"})
+    assert result["locked"] == 3
+    assert result["staff_counts"]["b"]["assigned"] == 2
+
+
+def test_an_automatic_history_entry_does_not_pin_a_profile():
+    users = FakeUsers([staff("a", "A"), staff("b", "B")])
+    auto = row("auto-1", "a")
+    auto["assignment_history"] = [{"reason": "workload_rebalance", "to_staff_id": "a"}]
+    repo = FakeRepo(rows=[auto, row("auto-2", "a")])
+
+    result = rebalance_all(repo=repo, users=users)
+
+    assert result["locked"] == 0
+    assert len(repo.assignments) == 1
+
+
 def test_rebalance_writes_nothing_when_already_level():
     """A no-op rebalance must not restart every SLA clock in the collection."""
     users = FakeUsers([staff("a", "A"), staff("b", "B")])

@@ -555,3 +555,30 @@ def test_each_staff_member_lists_only_their_own(db, users, repo):
     assert [r["id"] for r in repo.list_summaries(staff_id=alice.id)] == ["a1"]
     assert repo.count(staff_id=alice.id) == 1
     assert repo.count() == 2
+
+
+def test_manual_assignment_survives_rebalance_and_background_allocation(db, users, repo):
+    """The reported bug: a candidate staff moved by hand came back to its old
+    owner on the next automatic pass. Neither pass may touch it now."""
+    a = make_staff(users, "Alice")
+    b = make_staff(users, "Bob")
+    for i in range(4):
+        insert_candidate(db, f"auto-{i}", a.id, a.name, created_offset=i)
+    insert_candidate(db, "moved", created_offset=10)
+    repo.assign("moved", a.id, a.name, manual=True)
+    # A reassignment recorded before the flag existed.
+    insert_candidate(db, "legacy", a.id, a.name, created_offset=11)
+    db["candidates"].update_one(
+        {"_id": "legacy"},
+        {"$push": {"assignment_history": {"reason": "manual_reassignment", "to_staff_id": a.id}}},
+    )
+    insert_candidate(db, "fresh", created_offset=12)
+
+    allocate_unassigned(repo=repo, users=users)
+    rebalance_all(repo=repo, users=users)
+
+    assert db["candidates"].find_one({"_id": "moved"})["assigned_staff_id"] == a.id
+    assert db["candidates"].find_one({"_id": "legacy"})["assigned_staff_id"] == a.id
+    assert db["candidates"].find_one({"_id": "fresh"})["assigned_staff_id"] is not None
+    owners = [doc["assigned_staff_id"] for doc in db["candidates"].find({"_id": {"$regex": "^auto-"}})]
+    assert b.id in owners  # automatic placements still level out

@@ -237,6 +237,24 @@ def _is_locked(row: dict) -> bool:
     return bool(row.get("viewed_at")) or status != "pending"
 
 
+def _is_pinned(row: dict) -> bool:
+    """True when a rebalance must leave this profile with its current owner.
+
+    Locked work (see `_is_locked`), plus anything a person placed by hand. A
+    manual assignment or reassignment is a decision, and levelling workload is
+    not a reason to overturn it — only another deliberate move should.
+    """
+    if not row.get("assigned_staff_id"):
+        return False
+    if _is_locked(row) or row.get("manually_assigned"):
+        return True
+    # Records moved by hand before the flag existed: the latest history entry
+    # says how the current owner got it.
+    history = row.get("assignment_history") or []
+    latest = history[-1] if history and isinstance(history[-1], dict) else {}
+    return latest.get("reason") == "manual_reassignment" or latest.get("type") == "reassignment"
+
+
 def rebalance_all(
     *,
     repo: Optional[CandidateRepository] = None,
@@ -252,9 +270,9 @@ def rebalance_all(
     now a deliberate act: this function runs from the Rebalance control and from
     nowhere else.
 
-    Only *unviewed* profiles move. Anything opened or judged is pinned to its
-    current owner by `_is_locked`, still counted against their load so the
-    levelling works around it.
+    Only *unviewed*, automatically placed profiles move. Anything opened,
+    judged, or assigned by hand is pinned to its current owner by `_is_pinned`,
+    still counted against their load so the levelling works around it.
 
     The movable ones are dealt out one at a time, oldest first, each to whoever
     is holding the fewest at that moment. That is the same minimum-workload rule
@@ -280,7 +298,7 @@ def rebalance_all(
     movable: List[dict] = []
     locked_count = 0
     for row in rows:
-        if _is_locked(row):
+        if _is_pinned(row):
             locked_count += 1
             owner = row.get("assigned_staff_id")
             # Work owned by a deactivated or deleted account keeps its

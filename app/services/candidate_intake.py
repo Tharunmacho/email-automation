@@ -582,7 +582,9 @@ def _refresh_existing(
             "CV_REQUIRED",
         )
 
-    if complete and not was_complete:
+    # Only a candidate nobody owns yet. One a recruiter already holds —
+    # possibly by a manual assignment — keeps that owner.
+    if complete and not was_complete and not existing.assigned_staff_id:
         _allocate(existing.id, profile, repo)
 
     log.info(

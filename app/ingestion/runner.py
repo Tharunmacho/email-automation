@@ -342,12 +342,15 @@ class IngestionRunner:
             ) or res.reason
             log.info("  %s -> %s | %s", res.message_id, res.status, detail)
 
-        # Auto-assign any unallocated candidates remaining in MongoDB Atlas
+        # Give an owner to any candidate still without one. Deliberately
+        # `allocate_unassigned` and not `rebalance_all`: this runs after every
+        # poll, and a rebalance would also move profiles that already have an
+        # owner — including ones staff had just reassigned by hand.
         try:
             if self.pipeline.repo.unassigned_count() > 0:
-                from app.assignment import rebalance_all
-                rebalance_res = rebalance_all(repo=self.pipeline.repo)
-                log.info("Post-poll auto-assignment: %s candidate(s) allocated", rebalance_res.get("moved", 0))
+                from app.assignment import allocate_unassigned
+                allocation = allocate_unassigned(repo=self.pipeline.repo)
+                log.info("Post-poll auto-assignment: %s candidate(s) allocated", allocation.get("allocated", 0))
         except Exception as exc:  # noqa: BLE001
             log.warning("Post-poll auto-assignment step failed: %s", exc)
 
