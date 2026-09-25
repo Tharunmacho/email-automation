@@ -653,8 +653,17 @@ interface PollTaskStatus {
   error?: string;
 }
 
-/** How long to wait for a queued cycle before giving up on it. */
-const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+/**
+ * How long to wait for a queued cycle before giving up on it.
+ *
+ * Generous because a sync now drains the mailbox rather than taking one batch
+ * off the top: a backlog that used to need eight presses of Sync is one press
+ * that runs eight times as long. Ten minutes was comfortable for a single
+ * batch and is not for a drain, and timing out here does not stop the run —
+ * it only stops this page watching it, which reads to the user as a failure
+ * that did not happen.
+ */
+const POLL_TIMEOUT_MS = 45 * 60 * 1000;
 /**
  * Status checks back off as the run goes on. A cycle with two emails in it
  * finishes in seconds, so the first checks are quick; one grinding through a

@@ -330,7 +330,9 @@ class IngestionRunner:
             summary.fetched, summary.processed, summary.skipped,
             summary.suppressed, summary.errors, summary.ingested_candidates,
         )
-        # Per-message detail, so a poll that ingests nothing says why.
+        # Per-message detail, so a poll that ingests nothing says why. At INFO:
+        # production logs at INFO, and a skip with no reason in the log is
+        # indistinguishable from an extraction failure.
         for res in summary.results:
             if res.status == "processed":
                 continue
@@ -338,7 +340,7 @@ class IngestionRunner:
                 f"{a.filename}: {a.status}" + (f" ({a.detail})" if a.detail else "")
                 for a in res.attachments
             ) or res.reason
-            log.debug("  %s -> %s | %s", res.message_id, res.status, detail)
+            log.info("  %s -> %s | %s", res.message_id, res.status, detail)
 
         # Auto-assign any unallocated candidates remaining in MongoDB Atlas
         try:
