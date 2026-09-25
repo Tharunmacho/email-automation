@@ -240,40 +240,91 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * or editing a full profile — saving a summary back would write away every
  * field it does not carry.
  */
-export function listCandidates(limit = 200, skip = 0): Promise<CandidateListResponse> {
-  return request<CandidateListResponse>(`/candidates?limit=${limit}&skip=${skip}`, {
+export function listCandidates(limit = 200, skip = 0, withTotal = true): Promise<CandidateListResponse> {
+  const total = withTotal ? "" : "&with_total=false";
+  return request<CandidateListResponse>(`/candidates?limit=${limit}&skip=${skip}${total}`, {
     cache: "no-store",
   });
 }
+
+const CANDIDATE_PAGE_SIZE = 200;
+/** Pages requested at once after the first. Enough to hide the round trips. */
+const CANDIDATE_PAGE_CONCURRENCY = 4;
 
 /**
  * The complete candidate directory, assembled from the API's bounded pages.
  *
  * The API intentionally caps one response at 200 rows. The CRM's overview,
- * filters, and client-side pagination all describe the whole pool, so stopping
- * after that first response makes the directory say "200" while the API's
- * total says (for example) "225". Follow the server total until every row has
- * been loaded, while keeping each individual response small.
+ * filters, and client-side pagination all describe the whole pool, so every
+ * row has to be loaded. The first page carries the total; the rest are then
+ * fetched a few at a time in parallel rather than one after another, which
+ * turned a directory of a few thousand into a long chain of round trips.
  */
-export async function listAllCandidates(): Promise<CandidateListResponse> {
-  const pageSize = 200;
-  const items: CandidateRecord[] = [];
-  let skip = 0;
-  let expected = Number.POSITIVE_INFINITY;
-
-  while (skip < expected) {
-    const page = await listCandidates(pageSize, skip);
-    const rows = page.items ?? [];
-    items.push(...rows);
-    skip += rows.length;
-    expected = page.total ?? skip;
-
-    // A short or empty page is the server's definitive end of the collection.
-    // This also terminates safely if records are deleted between page requests.
-    if (rows.length < pageSize) break;
+async function loadAllCandidates(): Promise<CandidateListResponse> {
+  const first = await listCandidates(CANDIDATE_PAGE_SIZE, 0);
+  const items: CandidateRecord[] = [...(first.items ?? [])];
+  if (items.length < CANDIDATE_PAGE_SIZE) {
+    return { total: items.length, count: items.length, items };
   }
 
+  const skips: number[] = [];
+  for (let skip = CANDIDATE_PAGE_SIZE; skip < (first.total ?? 0); skip += CANDIDATE_PAGE_SIZE) {
+    skips.push(skip);
+  }
+  const pages: CandidateRecord[][] = new Array(skips.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < skips.length) {
+      const index = next++;
+      const page = await listCandidates(CANDIDATE_PAGE_SIZE, skips[index], false);
+      pages[index] = page.items ?? [];
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CANDIDATE_PAGE_CONCURRENCY, skips.length) }, worker),
+  );
+
+  // Records added while the pages were in flight shift later pages by a row or
+  // two, so the same candidate can appear twice. Keep the first sighting.
+  const seen = new Set(items.map((row) => row.id));
+  for (const rows of pages) {
+    for (const row of rows) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      items.push(row);
+    }
+  }
   return { total: items.length, count: items.length, items };
+}
+
+let candidateLoad: Promise<CandidateListResponse> | null = null;
+let candidateReload: Promise<CandidateListResponse> | null = null;
+
+/**
+ * Load the whole directory, sharing work between callers.
+ *
+ * An assignment, an ingestion, a first view and the background timer can all
+ * ask for a reload within the same second, and each used to start its own full
+ * download. Now a request made while a load is running waits for exactly one
+ * follow-up load, shared by everyone who asked, so nothing that changed during
+ * the first load is missed and the directory is never fetched more than twice.
+ */
+export function listAllCandidates(): Promise<CandidateListResponse> {
+  if (!candidateLoad) {
+    candidateLoad = loadAllCandidates().finally(() => {
+      candidateLoad = null;
+    });
+    return candidateLoad;
+  }
+  if (!candidateReload) {
+    candidateReload = candidateLoad
+      .catch(() => undefined)
+      .then(() => {
+        candidateReload = null;
+        return listAllCandidates();
+      });
+  }
+  return candidateReload;
 }
 
 /** The complete record for one candidate — every field, OCR payload included. */

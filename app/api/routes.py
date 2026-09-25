@@ -33,6 +33,7 @@ from fastapi import (
 )
 from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -125,6 +126,10 @@ app.add_middleware(
     # passport cut out of a bundle arrives as "resume.pdf".
     expose_headers=["Content-Disposition"],
 )
+# The candidate directory is the largest thing the CRM reads, and it is
+# repetitive JSON: compressed, it crosses the network several times smaller.
+# Small responses are left alone, where compressing costs more than it saves.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(websocket_router)
 
@@ -472,6 +477,11 @@ def list_candidates(
         description="'list' for the directory row; 'minimal' for id/name/email/"
                     "phone/status/confidence/created_at only.",
     ),
+    with_total: bool = Query(
+        True,
+        description="False skips counting the collection. A client fetching "
+                    "pages in parallel already has the total from its first page.",
+    ),
     user: dict = Depends(require_page("candidates")),
 ) -> dict:
     """A page of candidates, projected in the database and scoped to the caller.
@@ -494,11 +504,12 @@ def list_candidates(
     # again is a second round trip to Atlas for an answer already in hand — and
     # against a remote cluster the round trip, not the work, is the response
     # time. Any other page still has to ask.
-    total = (
-        len(items)
-        if skip == 0 and len(items) < limit
-        else repository.count(staff_id=staff_id)
-    )
+    if skip == 0 and len(items) < limit:
+        total = len(items)
+    elif with_total:
+        total = repository.count(staff_id=staff_id)
+    else:
+        total = None
 
     return {
         "total": total,
