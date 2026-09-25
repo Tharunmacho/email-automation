@@ -287,6 +287,10 @@ def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None
         row["paid_permission_minutes"] = paid + automatic_grace
         row["uncovered_minutes"] = uncovered
         row["unpaid_minutes"] = fixed_unpaid + uncovered - automatic_grace + excess
+        # The part-day share of that charge: arriving late, leaving early, or a
+        # permission beyond the monthly allowance. Payroll lets approved
+        # overtime cancel this share, never a whole missing day.
+        row["late_unpaid_minutes"] = uncovered - automatic_grace + excess
         row["permission_occasions_used"] = occasions
         row["permission_minutes_used"] = policy.monthly_paid_minutes - remaining
         row["permission_minutes_remaining"] = remaining

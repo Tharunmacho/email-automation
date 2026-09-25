@@ -12,7 +12,7 @@ and a rejected one is not a debt, so neither may move a salary.
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 from unittest.mock import patch
 
@@ -21,6 +21,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import app, current_user
+from app.attendance.engine import IST
 from app.attendance.repository import AttendanceRepository
 
 YEAR, MONTH = 2026, 8
@@ -45,8 +46,8 @@ ROSTER = [
     FakeEmployee("staff-1", "Ravi", "Mount Road"),
     FakeEmployee("staff-2", "Priya", "Mount Road"),
     FakeEmployee("staff-3", "Anand", "Singapore Desk"),
-    # No explicit branch, and not on the Singapore/Malaysia desk: falls to the
-    # other desk rather than to nothing.
+    # No explicit branch, and not on the Singapore/Malaysia desk: falls to
+    # Mount Road rather than to nothing.
     FakeEmployee("staff-4", "Meera", ""),
     # Deliberately a different spelling of an existing branch.
     FakeEmployee("staff-5", "Karthik", "mount  road"),
@@ -104,21 +105,18 @@ def rows_by_name(body):
 # --------------------------------------------------------------------------- #
 def test_the_branch_filter_offers_every_branch_in_use(api):
     body = payroll(api)
-    assert body["branches"] == [
-        "Mount Road", "Other Destinations", "Singapore Desk", "Singapore and Malaysia",
-    ]
+    assert body["branches"] == ["Mount Road", "Royapettah", "Singapore Desk"]
 
 
 def test_an_employee_without_a_branch_falls_to_their_desk(api):
     """Nobody is "Unassigned": the desk they already work is the answer.
 
-    The agency is split this way for allocation already — Singapore and Malaysia
-    have a dedicated desk, everything else goes to the rest of the roster — so
-    payroll groups on the same line rather than a second one.
+    The Singapore and Malaysia desk works from Royapettah and every other
+    destination from Mount Road, so payroll groups on the same line.
     """
     rows = rows_by_name(payroll(api))
-    assert rows["Sreya"]["branch"] == "Singapore and Malaysia"
-    assert rows["Meera"]["branch"] == "Other Destinations"
+    assert rows["Sreya"]["branch"] == "Royapettah"
+    assert rows["Meera"]["branch"] == "Mount Road"
     # And they are still paid, which is the part that must never regress.
     assert rows["Meera"]["monthly_salary"] == 30000
 
@@ -134,10 +132,10 @@ def test_an_explicit_branch_overrides_the_desk(api):
 
 def test_the_two_desks_can_be_filtered_apart(api):
     """The split the payroll screen is for: one desk at a time."""
-    sg = rows_by_name(payroll(api, "Singapore and Malaysia"))
-    other = rows_by_name(payroll(api, "Other Destinations"))
+    sg = rows_by_name(payroll(api, "Royapettah"))
+    other = rows_by_name(payroll(api, "Mount Road"))
     assert list(sg) == ["Sreya"]
-    assert list(other) == ["Meera"]
+    assert "Meera" in other
     # Nobody appears in both.
     assert not set(sg) & set(other)
 
@@ -145,7 +143,7 @@ def test_the_two_desks_can_be_filtered_apart(api):
 def test_filtering_by_branch_returns_only_that_branch(api):
     body = payroll(api, "Mount Road")
     assert body["branch"] == "Mount Road"
-    assert sorted(rows_by_name(body)) == ["Karthik", "Priya", "Ravi"]
+    assert sorted(rows_by_name(body)) == ["Karthik", "Meera", "Priya", "Ravi"]
 
 
 def test_spelling_variants_are_one_branch(api):
@@ -157,7 +155,7 @@ def test_spelling_variants_are_one_branch(api):
 
 
 def test_the_branch_filter_is_case_insensitive(api):
-    assert sorted(rows_by_name(payroll(api, "mount road"))) == ["Karthik", "Priya", "Ravi"]
+    assert sorted(rows_by_name(payroll(api, "mount road"))) == ["Karthik", "Meera", "Priya", "Ravi"]
 
 
 def test_every_row_reports_its_branch(api):
@@ -253,6 +251,65 @@ def test_extra_ot_follows_the_employee_it_belongs_to(api):
     rows = rows_by_name(payroll(api))
     assert rows["Ravi"]["approved_ot_minutes"] == 90
     assert rows["Priya"]["approved_ot_minutes"] == 0
+
+
+def punch_late(client, day, late_minutes):
+    """A day worked from 10:00 + `late_minutes` to 19:00 IST: late, not absent."""
+    shift_start = datetime(YEAR, MONTH, day, 10, 0, tzinfo=IST)
+    for action, occurred in (
+        ("check_in", shift_start + timedelta(minutes=late_minutes)),
+        ("check_out", datetime(YEAR, MONTH, day, 19, 0, tzinfo=IST)),
+    ):
+        occurred = occurred.astimezone(timezone.utc)
+        client.attendance.append_event({
+            "employee_id": "staff-1",
+            "action": action,
+            "occurred_at": occurred,
+            "local_date": date(YEAR, MONTH, day).isoformat(),
+            "source": "web",
+            "idempotency_key": f"{action}-{day}",
+            "evidence": {},
+        })
+
+
+def test_approved_ot_first_cancels_late_time(api):
+    """OT above normal hours is taken off the late hours before it is paid."""
+    # Two days 3h late: each is 2h short of the 8h duty (the break covers the
+    # rest), so 240 short, of which the monthly 60-minute grace absorbs 60.
+    punch_late(api, 3, 180)
+    punch_late(api, 4, 180)
+    before = rows_by_name(payroll(api))["Ravi"]
+    assert before["late_unpaid_minutes"] == 180
+
+    add_ot(api, "approved", minutes=200)
+    after = rows_by_name(payroll(api))["Ravi"]
+
+    assert after["ot_offset_minutes"] == 180
+    assert after["late_unpaid_minutes"] == 0
+    assert after["unpaid_minutes"] == before["unpaid_minutes"] - 180
+    # Only the 20 minutes left over are paid as Extra OT.
+    assert after["paid_ot_minutes"] == 20
+    assert after["deduction"] < before["deduction"]
+
+
+def test_ot_smaller_than_the_late_time_only_reduces_it(api):
+    punch_late(api, 3, 180)
+    punch_late(api, 4, 180)
+    add_ot(api, "approved", minutes=45)
+    row = rows_by_name(payroll(api))["Ravi"]
+
+    assert row["ot_offset_minutes"] == 45
+    assert row["late_unpaid_minutes"] == 135
+    assert row["paid_ot_minutes"] == 0
+    assert row["extra_ot_amount"] == 0
+
+
+def test_ot_never_cancels_an_absent_day(api):
+    """Absence is a missing day, not lateness; OT is paid instead."""
+    add_ot(api, "approved", minutes=120)
+    row = rows_by_name(payroll(api))["Ravi"]
+    assert row["ot_offset_minutes"] == 0
+    assert row["paid_ot_minutes"] == 120
 
 
 # --------------------------------------------------------------------------- #

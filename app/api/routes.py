@@ -155,7 +155,7 @@ def _seed_admin() -> None:
 
     try:
         if ensure_rafi_manager():
-            log.info("Promoted Rafi to manager")
+            log.info("Promoted branch managers (Rafi, Noorul)")
     except Exception:  # noqa: BLE001
         pass
 

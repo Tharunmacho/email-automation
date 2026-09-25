@@ -675,14 +675,26 @@ def ensure_user_indexes() -> None:
     ensure_index(coll, [("role", ASCENDING), ("active", ASCENDING)], "user_role_active_idx")
 
 
+#: The branch managers: Rafi runs Mount Road, Noorul runs Royapettah (the
+#: Singapore and Malaysia desk). Which staff each one approves is decided by
+#: branch in `app.branches`, not here.
+BRANCH_MANAGER_ACCOUNTS = (
+    {"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}},
+    {"email": "noorul.adira@gmail.com"},
+)
+
+
 def ensure_rafi_manager() -> bool:
-    """Keep the named operational account at its requested manager role."""
+    """Keep the named branch-manager accounts at their manager role."""
     coll = get_users_collection()
-    result = coll.update_one(
-        {"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}},
-        {
-            "$set": {"role": MANAGER_ROLE, "updated_at": utcnow()},
-            "$pull": {"page_grants": "users"},
-        },
-    )
-    return bool(result.modified_count)
+    modified = 0
+    for account in BRANCH_MANAGER_ACCOUNTS:
+        result = coll.update_one(
+            {**account, "role": {"$ne": ADMIN_ROLE}},
+            {
+                "$set": {"role": MANAGER_ROLE, "updated_at": utcnow()},
+                "$pull": {"page_grants": "users"},
+            },
+        )
+        modified += result.modified_count
+    return bool(modified)

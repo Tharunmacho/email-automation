@@ -285,6 +285,8 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
         <Metric label="Branch" value={row.branch || "Unassigned"} />
         <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
         <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
+        <Metric label="OT set against late time" value={`${row.ot_offset_minutes} min`} />
+        <Metric label="OT paid" value={`${row.paid_ot_minutes} min`} />
         <Metric label="Daily LOP" value={money.format(row.daily_lop_rate)} />
         <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
         <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />

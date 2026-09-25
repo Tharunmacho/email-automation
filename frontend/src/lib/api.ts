@@ -546,9 +546,15 @@ export interface PayrollRow {
   deduction: number;
   net_salary: number;
   approved_ot_minutes: number;
+  /** Approved OT spent cancelling late / short time before anything is paid. */
+  ot_offset_minutes: number;
+  /** Approved OT left after the offset, paid as Extra OT. */
+  paid_ot_minutes: number;
   extra_ot_amount: number;
   total_payable: number;
   unpaid_minutes: number;
+  unpaid_minutes_before_ot: number;
+  late_unpaid_minutes: number;
   grace_minutes: number;
   paid_leave_days: number;
   calendar_days: number;

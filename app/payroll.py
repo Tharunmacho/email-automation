@@ -13,7 +13,7 @@ from app.attendance.engine import calculate_month, lop_amount
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.mongo import ensure_index, get_db
-from app.assignment.balancer import GENERAL_DESK, SINGAPORE_MALAYSIA_DESK, desk_for_staff
+from app.branches import branch_of
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, normalize_branch
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -43,31 +43,6 @@ def _visible_employees(user: dict):
     if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}:
         return users.list_employees(include_inactive=False)
     raise HTTPException(status_code=403, detail="Payroll access required")
-
-
-#: What the two desks are called on a payslip.
-#:
-#: The agency is already split this way for allocation: Singapore and Malaysia
-#: candidates go to a dedicated desk and every other destination goes to the
-#: rest of the roster (see `app.assignment.balancer`). Payroll groups by the
-#: same line rather than a second one nobody maintains, so an employee's branch
-#: cannot drift out of step with the desk they actually work.
-DESK_BRANCH_NAMES = {
-    SINGAPORE_MALAYSIA_DESK: "Singapore and Malaysia",
-    GENERAL_DESK: "Other Destinations",
-}
-
-
-def branch_of(employee) -> str:
-    """Which payroll branch this employee belongs to.
-
-    An explicitly assigned branch wins — an administrator who typed one into
-    User Management meant it, and a third office is a real thing this agency
-    may open. Everyone else falls to their desk, so every employee lands in a
-    branch and "Unassigned" stops being the answer for most of the roster.
-    """
-    explicit = normalize_branch(employee.branch)
-    return explicit or DESK_BRANCH_NAMES[desk_for_staff(employee)]
 
 
 def _branch_names(employees) -> list[str]:
@@ -113,16 +88,24 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
         ]
         days = calculate_month(attendance.day(employee.id, day) for day in period_days)
         required_working_days = sum(day.get("status") not in {"WO", "H"} for day in days)
-        unpaid_minutes = sum(int(day.get("unpaid_minutes", 0)) for day in days)
+        unpaid_before_ot = sum(int(day.get("unpaid_minutes", 0)) for day in days)
+        late_unpaid_minutes = sum(int(day.get("late_unpaid_minutes", 0)) for day in days)
         grace_minutes = sum(int(day.get("grace_minutes_applied", 0)) for day in days)
         paid_leave_days = sum(day.get("status") == "PL" for day in days)
         monthly_salary = float(policy.get("monthly_salary", 0) or 0)
         scheduled_minutes = max(1, required_working_days * DEFAULT_SHIFT_MINUTES)
-        deduction = lop_amount(unpaid_minutes, monthly_salary, scheduled_minutes)
         approved_ot_minutes = attendance_repo.approved_extra_ot_minutes(
             employee.id, date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
         )
-        extra_ot_amount = round(approved_ot_minutes * monthly_salary / scheduled_minutes, 2)
+        # Approved OT is time worked beyond the normal hours, and it first
+        # cancels the month's late / short time. Only late time: an absent day
+        # or unpaid leave is a whole missing day, not lateness, and stays
+        # deducted. Whatever OT is left after that is paid as Extra OT.
+        ot_offset_minutes = min(approved_ot_minutes, late_unpaid_minutes)
+        unpaid_minutes = unpaid_before_ot - ot_offset_minutes
+        paid_ot_minutes = approved_ot_minutes - ot_offset_minutes
+        deduction = lop_amount(unpaid_minutes, monthly_salary, scheduled_minutes)
+        extra_ot_amount = round(paid_ot_minutes * monthly_salary / scheduled_minutes, 2)
         run = runs.find_one({"employee_id": employee.id, "year": year, "month": month}) or {}
         rows.append({
             "employee_id": employee.id,
@@ -133,9 +116,13 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
             "deduction": deduction,
             "net_salary": round(max(0, monthly_salary - deduction), 2),
             "approved_ot_minutes": approved_ot_minutes,
+            "ot_offset_minutes": ot_offset_minutes,
+            "paid_ot_minutes": paid_ot_minutes,
             "extra_ot_amount": extra_ot_amount,
             "total_payable": round(max(0, monthly_salary - deduction) + extra_ot_amount, 2),
             "unpaid_minutes": unpaid_minutes,
+            "unpaid_minutes_before_ot": unpaid_before_ot,
+            "late_unpaid_minutes": late_unpaid_minutes - ot_offset_minutes,
             "grace_minutes": grace_minutes,
             "paid_leave_days": paid_leave_days,
             "calendar_days": len(days),
