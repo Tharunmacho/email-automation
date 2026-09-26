@@ -118,6 +118,7 @@ def test_a_brand_new_account_reports_zero_rather_than_being_absent(db, users, re
 
     assert bob.id not in repo.workload_counts()
 
+    insert_candidate(db, "new-1")
     result = assign_candidate("new-1", None, repo=repo, users=users)
     assert result.staff_id == bob.id
 

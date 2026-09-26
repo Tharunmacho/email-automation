@@ -50,10 +50,13 @@ class MockRepository:
         return self.candidates.pop(candidate_id, None) is not None
 
     def assign(
-        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None
+        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None,
+        manual=False, guard=None,
     ) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:
+            return False
+        if guard and "assigned_staff_id" in guard and record.assigned_staff_id != guard["assigned_staff_id"]:
             return False
         record.assigned_staff_id = staff_id
         record.assigned_staff_name = staff_name

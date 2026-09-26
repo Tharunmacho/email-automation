@@ -942,7 +942,9 @@ class IngestionPipeline:
             import app.assignment
             from app.notifications import notify_candidate_assigned
 
-            result = app.assignment.assign_candidate(candidate_id, profile, repo=self.repo)
+            result = app.assignment.assign_candidate(
+                candidate_id, profile, repo=self.repo, only_if_unassigned=True
+            )
             if getattr(result, "assigned", False):
                 notify_candidate_assigned(
                     getattr(result, "staff_id", ""),

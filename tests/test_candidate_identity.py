@@ -161,7 +161,8 @@ class IdentityRepo:
         return True
 
     def assign(
-        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None
+        self, candidate_id: str, staff_id: str, staff_name=None, *, assignment_event=None,
+        manual=False, guard=None,
     ) -> bool:
         record = self.candidates.get(candidate_id)
         if not record:

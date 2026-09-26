@@ -278,7 +278,7 @@ def intake_whatsapp_candidate(
     # and swallowed for the same reason.
     if created and complete:
         try:
-            result = assign_candidate(candidate_id, profile, repo=repo)
+            result = assign_candidate(candidate_id, profile, repo=repo, only_if_unassigned=True)
         except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
             log.error("Allocation failed for candidate %s: %s", candidate_id, exc)
         else:
@@ -319,7 +319,7 @@ def _allocate(candidate_id: str, profile: CandidateProfile, repo: CandidateRepos
     reason.
     """
     try:
-        result = assign_candidate(candidate_id, profile, repo=repo)
+        result = assign_candidate(candidate_id, profile, repo=repo, only_if_unassigned=True)
     except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
         log.error("Allocation failed for candidate %s: %s", candidate_id, exc)
     else:

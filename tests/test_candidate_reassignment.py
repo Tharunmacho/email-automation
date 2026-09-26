@@ -299,3 +299,48 @@ def test_an_owner_who_is_wrong_for_the_new_destination_is_flagged_as_an_override
     assert entry["to_country"] == "Singapore"
     assert entry["desk_changed"] is True
     assert entry["desk_override"] is True
+
+
+# --------------------------------------------------------------------------- #
+#  Manual moves stay put: no automatic pass may undo them
+# --------------------------------------------------------------------------- #
+def _rebalance_and_allocate(client):
+    from app.assignment import allocate_unassigned, rebalance_all
+
+    allocate_unassigned(repo=client.repository, users=FakeUsers())
+    rebalance_all(repo=client.repository, users=FakeUsers())
+
+
+def test_a_reassignment_is_flagged_manual_and_survives_automatic_passes(api):
+    assert reassign(api).status_code == 200
+    assert current(api).manually_assigned is True
+
+    _rebalance_and_allocate(api)
+
+    assert current(api).assigned_staff_id == "eu-1"
+
+
+def test_an_auto_routed_reassignment_is_flagged_manual_too(api):
+    """No owner named: the desk picked one, but the move itself was deliberate."""
+    assert reassign(api, staff_id=None).status_code == 200
+    record = current(api)
+    assert record.assigned_staff_id == "eu-1"
+    assert record.manually_assigned is True
+
+    _rebalance_and_allocate(api)
+
+    assert current(api).assigned_staff_id == "eu-1"
+
+
+def test_a_manual_assign_is_flagged_and_survives_automatic_passes(api):
+    second = FakeUser("sg-2", "Bakkiam", "bakkimamal.adira@gmail.com")
+    with patch.dict(STAFF, {"sg-2": second}):
+        response = api.post(
+            "/candidates/cand-1/assign", json={"staff_id": "sg-2", "remarks": "cover"},
+        )
+        assert response.status_code == 200, response.text
+        assert current(api).manually_assigned is True
+
+        _rebalance_and_allocate(api)
+
+        assert current(api).assigned_staff_id == "sg-2"

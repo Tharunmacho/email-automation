@@ -144,8 +144,14 @@ def assign_candidate(
     *,
     repo: Optional[CandidateRepository] = None,
     users: Optional[UserRepository] = None,
+    only_if_unassigned: bool = False,
 ) -> AssignmentResult:
     """Place one candidate with the least-loaded staff member.
+
+    `only_if_unassigned` is for the automatic callers (ingestion, intake): the
+    write only lands while the candidate still has no owner, so it can never
+    replace one a person chose in the meantime. The explicit admin
+    "auto-assign" control leaves it off — overriding the owner is its job.
 
     Called once per ingested résumé. The destination selects a desk and the
     workload comparison selects one person inside that desk.
@@ -169,7 +175,10 @@ def assign_candidate(
     workloads = _current_workloads(staff, repo)
     chosen = _least_loaded(staff, workloads)
 
-    repo.assign(candidate_id, chosen.id, chosen.name)
+    guard = {"assigned_staff_id": None} if only_if_unassigned else None
+    if not repo.assign(candidate_id, chosen.id, chosen.name, guard=guard):
+        log.info("Candidate %s already has an owner; automatic assignment skipped", candidate_id)
+        return AssignmentResult(candidate_id=candidate_id, reason="already_assigned")
     log.info(
         "Assigned candidate %s to %s (%s), who was holding %d",
         candidate_id, chosen.name, chosen.id, workloads.get(chosen.id, 0),
@@ -248,11 +257,34 @@ def _is_pinned(row: dict) -> bool:
         return False
     if _is_locked(row) or row.get("manually_assigned"):
         return True
+    if "manually_assigned" in row:
+        # Written by a build that knows the flag, so False is a real answer.
+        return False
     # Records moved by hand before the flag existed: the latest history entry
-    # says how the current owner got it.
+    # says how the current owner got it — provided it still names that owner.
+    # An automatic move made without an audit entry leaves a stale manual entry
+    # behind, and that must not pin the automatic owner in place.
     history = row.get("assignment_history") or []
     latest = history[-1] if history and isinstance(history[-1], dict) else {}
-    return latest.get("reason") == "manual_reassignment" or latest.get("type") == "reassignment"
+    manual = latest.get("reason") == "manual_reassignment" or latest.get("type") == "reassignment"
+    target = latest.get("to_staff_id")
+    return manual and (target is None or target == row.get("assigned_staff_id"))
+
+
+#: The state an automatically movable profile must still be in when the write
+#: lands. Balancer decisions are made from a snapshot; without this a staff
+#: member who opened, judged or hand-assigned the profile a moment later would
+#: have that overwritten (and `assign` would wipe their verdict).
+_UNTOUCHED = {
+    "manually_assigned": {"$ne": True},
+    "viewed_at": None,
+    "evaluation_status": {"$in": [None, "pending"]},
+}
+
+
+def _movable_guard(row: dict) -> dict:
+    """Compare-and-set filter: same owner, still untouched and not hand-placed."""
+    return {"assigned_staff_id": row.get("assigned_staff_id"), **_UNTOUCHED}
 
 
 def rebalance_all(
@@ -322,18 +354,19 @@ def rebalance_all(
         if row.get("assigned_staff_id") == chosen.id:
             unchanged += 1
             continue
-        if actor:
-            repo.assign(
-                row["_id"],
-                chosen.id,
-                chosen.name,
-                assignment_event=_assignment_event(
-                    actor, row, chosen, "Workload rebalance", "workload_rebalance"
-                ),
-            )
+        event = (
+            _assignment_event(actor, row, chosen, "Workload rebalance", "workload_rebalance")
+            if actor else None
+        )
+        if repo.assign(
+            row["_id"], chosen.id, chosen.name,
+            assignment_event=event, guard=_movable_guard(row),
+        ):
+            moved += 1
         else:
-            repo.assign(row["_id"], chosen.id, chosen.name)
-        moved += 1
+            # Somebody touched it since the snapshot: it stays where they put it.
+            workloads[chosen.id] -= 1
+            unchanged += 1
 
     log.info(
         "Rebalance across %d active staff: [%d profiles moved, %d locked/reviewed left in place] "
@@ -365,13 +398,15 @@ def _deal(
     actor: Optional[dict] = None,
     reason: str = "",
     remarks: str = "",
+    guard=None,
 ) -> int:
     """Deal `rows` out one at a time to whoever is holding the fewest.
 
     `place(candidate_id, staff_id, staff_name)` does the write, which is the
     only thing that differs between the callers: fresh work is placed with
     `assign` (verdict cleared), already-started work with `reassign` (verdict
-    kept). Returns how many were actually written.
+    kept). `guard(row)` gives the compare-and-set filter for each write.
+    Returns how many were actually written.
     """
     placed = 0
     for row in rows:
@@ -382,16 +417,15 @@ def _deal(
         workloads[chosen.id] += 1
         if row.get("assigned_staff_id") == chosen.id:
             continue
-        if actor:
-            place(
-                row["_id"],
-                chosen.id,
-                chosen.name,
-                assignment_event=_assignment_event(actor, row, chosen, remarks, reason),
-            )
+        event = _assignment_event(actor, row, chosen, remarks, reason) if actor else None
+        written = place(
+            row["_id"], chosen.id, chosen.name,
+            assignment_event=event, guard=guard(row) if guard else None,
+        )
+        if written:
+            placed += 1
         else:
-            place(row["_id"], chosen.id, chosen.name)
-        placed += 1
+            workloads[chosen.id] -= 1
     return placed
 
 
@@ -436,7 +470,12 @@ def allocate_unassigned(
         return {"status": "ok", "allocated": 0}
 
     workloads = _current_workloads(staff, repo)
-    allocated = _deal(rows, staff, workloads, repo.assign)
+    # Only while still unowned: a manual assignment that lands after the
+    # snapshot wins.
+    allocated = _deal(
+        rows, staff, workloads, repo.assign,
+        guard=lambda _row: {"assigned_staff_id": None},
+    )
 
     log.info("Allocated %d previously unowned profile(s) across %d staff", allocated, len(staff))
     return {"status": "ok", "allocated": allocated}
@@ -495,6 +534,13 @@ def redistribute_from_staff(
         actor=actor,
         reason="staff_account_deleted",
         remarks="Previous staff account removed",
+        # Still on the deleted account and still unread. Hand-placed profiles
+        # move too: their chosen owner no longer exists.
+        guard=lambda row: {
+            "assigned_staff_id": staff_id,
+            "viewed_at": None,
+            "evaluation_status": {"$in": [None, "pending"]},
+        },
     )
     # A country desk may temporarily have no active member. Those profiles are
     # still orphaned; reporting them as reallocated would hide work from the
@@ -550,6 +596,7 @@ def rehome_orphans(
         actor=actor,
         reason="orphan_rehomed",
         remarks="Re-homed from a deleted staff account",
+        guard=lambda row: {"assigned_staff_id": row.get("assigned_staff_id")},
     )
     remaining = len(rows) - rehomed
 

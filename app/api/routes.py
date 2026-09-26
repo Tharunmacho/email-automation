@@ -1581,7 +1581,8 @@ def create_candidate_from_uploads(
             )
         else:
             assignment = assign_candidate(
-                result.candidate.id, result.candidate.profile, repo=repository
+                result.candidate.id, result.candidate.profile, repo=repository,
+                only_if_unassigned=True,
             )
             if assignment.assigned:
                 assigned_staff_id = assignment.staff_id or ""

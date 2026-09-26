@@ -1106,12 +1106,18 @@ class CandidateRepository:
     def assign(
         self, candidate_id: str, staff_id: str, staff_name: Optional[str] = None,
         *, assignment_event: Optional[dict] = None, manual: bool = False,
+        guard: Optional[dict] = None,
     ) -> bool:
         """Hand one profile to a staff member, clearing any prior review state.
 
         `manual` records that a person chose this owner. The balancer never
         moves such a profile on its own (see `balancer._is_pinned`); an
         automatic placement clears the flag.
+
+        `guard` is extra filter the document must still match at write time.
+        Automatic callers decide from a snapshot read moments earlier; the guard
+        makes the write compare-and-set, so a manual assignment that lands in
+        between is not overwritten. Returns False when the guard no longer holds.
 
         The clear is deliberate and is what makes a profile "locked" to its
         current owner once someone has opened or judged it: moving it would
@@ -1139,7 +1145,7 @@ class CandidateRepository:
             update["$set"]["latest_assignment_remark"] = assignment_event["remarks"]
             update["$push"] = {"assignment_history": {**assignment_event, "at": now}}
         res = self._coll.update_one(
-            _id_filter(candidate_id),
+            {**_id_filter(candidate_id), **(guard or {})},
             update,
         )
         return res.matched_count > 0
@@ -1151,6 +1157,7 @@ class CandidateRepository:
         staff_name: Optional[str] = None,
         *,
         assignment_event: Optional[dict] = None,
+        guard: Optional[dict] = None,
     ) -> bool:
         """Change who owns a profile, keeping everything already done to it.
 
@@ -1178,7 +1185,7 @@ class CandidateRepository:
             if assignment_event.get("remarks"):
                 update["$set"]["latest_assignment_remark"] = assignment_event["remarks"]
             update["$push"] = {"assignment_history": {**assignment_event, "at": now}}
-        res = self._coll.update_one(_id_filter(candidate_id), update)
+        res = self._coll.update_one({**_id_filter(candidate_id), **(guard or {})}, update)
         return res.matched_count > 0
 
     def list_owned_by(self, staff_id: str) -> List[dict]:

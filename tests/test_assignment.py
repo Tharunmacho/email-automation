@@ -24,6 +24,20 @@ class FakeUsers:
         return [m for m in self._staff if m.active]
 
 
+def _matches(row, guard):
+    """The subset of Mongo filter semantics the balancer's guards use."""
+    for field, cond in guard.items():
+        value = row.get(field)
+        if isinstance(cond, dict):
+            if "$ne" in cond and value == cond["$ne"]:
+                return False
+            if "$in" in cond and value not in cond["$in"]:
+                return False
+        elif value != cond:
+            return False
+    return True
+
+
 class FakeRepo:
     """Just enough of CandidateRepository for the balancer to run.
 
@@ -42,7 +56,10 @@ class FakeRepo:
     def list_for_rebalance(self):
         return self._rows
 
-    def assign(self, candidate_id, staff_id, staff_name):
+    def assign(self, candidate_id, staff_id, staff_name, *, guard=None, **_kwargs):
+        target = next((r for r in self._rows if r["_id"] == candidate_id), None)
+        if guard and target is not None and not _matches(target, guard):
+            return False
         self.assignments.append((candidate_id, staff_id))
         self._workloads[staff_id] = self._workloads.get(staff_id, 0) + 1
         for row in self._rows:
