@@ -266,6 +266,15 @@ def test_email_reingestion_returns_before_allocation():
     )
 
 
+def test_repository_accepts_a_real_pymongo_collection():
+    """mongomock collections are truthy; real pymongo ones refuse `bool()`.
+    Passing one in used to raise before any query ran."""
+    from pymongo import MongoClient
+
+    coll = MongoClient("mongodb://localhost:1", connect=False)["x"]["candidates"]
+    assert CandidateRepository(collection=coll)._coll is coll
+
+
 # --------------------------------------------------------------------------- #
 #  Staff deletion and orphans still move work
 # --------------------------------------------------------------------------- #

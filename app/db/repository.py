@@ -268,7 +268,8 @@ def _scoped(query: Optional[dict], staff_id: Optional[str]) -> dict:
 
 class CandidateRepository:
     def __init__(self, collection=None):
-        self._coll = collection or get_candidates_collection()
+        # `is not None`, not `or`: a real pymongo Collection refuses truth-testing.
+        self._coll = collection if collection is not None else get_candidates_collection()
 
     # ---- lookups ---------------------------------------------------------- #
     def find_by_message_id(self, message_id: str) -> Optional[CandidateRecord]:
