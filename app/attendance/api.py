@@ -11,10 +11,10 @@ from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
 from app.attendance.engine import calculate_month, local_day, lop_amount
-from app.attendance.models import AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
+from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNomination, CoverResponse, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
-from app.attendance.service import AttendanceError, AttendanceService
-from app.branches import branch_managers, branch_of, can_see, manages
+from app.attendance.service import LEAVE_KINDS, AttendanceError, AttendanceService
+from app.branches import branch_managers, branch_of, can_see, manages, same_branch
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
@@ -315,13 +315,145 @@ def _branch_staff(user: dict) -> list:
     return [member for member in staff if manages(manager, member, users)]
 
 
+# --------------------------------------------------------------------------- #
+#  Leave cover (see `app.attendance.cover`)
+# --------------------------------------------------------------------------- #
+def _cover_colleagues(employee_id: str) -> list:
+    """Who may be asked to cover: active colleagues of the same branch.
+
+    Same branch because candidates are allocated by desk, and the other
+    branch's desk does not work these destinations. Anyone active is offered
+    if the branch has nobody else.
+    """
+    me = users.get(employee_id)
+    colleagues = [
+        member for member in (
+            users.list_employees(include_inactive=False)
+            if hasattr(users, "list_employees") else users.list_assignable_staff()
+        )
+        if member.id != employee_id and getattr(member, "active", True)
+    ]
+    if me is None:
+        return colleagues
+    own = [member for member in colleagues if same_branch(member, me)]
+    return own or colleagues
+
+
+def _checked_cover(employee_id: str, cover_id: str) -> dict:
+    """The stored cover fields, after checking the colleague may be asked."""
+    if cover_id == employee_id:
+        raise HTTPException(status_code=422, detail="You cannot cover your own leave")
+    cover = next((member for member in _cover_colleagues(employee_id) if member.id == cover_id), None)
+    if cover is None:
+        raise HTTPException(status_code=422, detail="Choose an active colleague from your branch as cover")
+    return {"cover_employee_id": cover.id, "cover_employee_name": cover.name or cover.email}
+
+
+def _ask_cover(permission: dict) -> None:
+    requester = users.get(permission["employee_id"])
+    name = getattr(requester, "name", None) or permission["employee_id"]
+    try:
+        NotificationRepository().record(
+            permission["cover_employee_id"], type=ATTENDANCE_REQUEST,
+            title="Leave cover request",
+            message=(
+                f"{name} is on leave on {permission['attendance_date']} and asked you to "
+                "handle their work that day. Accept or decline in Attendance."
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Cover request %s could not notify the cover: %s", permission.get("id"), exc)
+
+
+def _try_start_covers() -> None:
+    """Start a handover now if the leave is today and everything is in place."""
+    try:
+        from app.attendance.cover import start_due_covers
+
+        start_due_covers(AttendanceRepository(), users=users)
+    except Exception as exc:  # noqa: BLE001 - the beat sweep will retry
+        log.warning("Immediate leave-cover handover failed: %s", exc)
+
+
+@router.get("/cover-colleagues")
+def cover_colleagues(user: dict = Depends(current_user)) -> dict:
+    """The colleagues this user may ask to cover a leave day."""
+    items = [
+        {"id": member.id, "name": member.name or member.email, "branch": branch_of(member)}
+        for member in _cover_colleagues(user["id"])
+    ]
+    return {"items": items}
+
+
+@router.get("/cover-requests")
+def my_cover_requests(user: dict = Depends(current_user)) -> dict:
+    """Leave days colleagues have asked this user to cover, recent and upcoming."""
+    from datetime import timedelta
+
+    since = date.today() - timedelta(days=7)
+    items = AttendanceRepository().cover_requests_for(user["id"], since)
+    for item in items:
+        requester = users.get(item["employee_id"])
+        item["employee_name"] = getattr(requester, "name", None) or item["employee_id"]
+    return {"items": items, "count": len(items)}
+
+
+@router.post("/permissions/{permission_id}/cover-response")
+def respond_to_cover(permission_id: str, payload: CoverResponse, user: dict = Depends(current_user)) -> dict:
+    """The named colleague accepts or declines covering the leave day."""
+    repository = AttendanceRepository()
+    result = repository.respond_to_cover(permission_id, user["id"], payload.accepted, payload.note)
+    if not result:
+        raise HTTPException(status_code=409, detail="No open cover request for you on this leave")
+    who = users.get(user["id"])
+    try:
+        NotificationRepository().record(
+            result["employee_id"], type=ATTENDANCE_REQUEST,
+            title="Leave cover accepted" if payload.accepted else "Leave cover declined",
+            message=(
+                f"{getattr(who, 'name', None) or 'Your colleague'} "
+                f"{'will' if payload.accepted else 'cannot'} cover your work on {result['attendance_date']}."
+                + ("" if payload.accepted else " You can ask someone else.")
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Cover response %s could not notify the requester: %s", permission_id, exc)
+    if payload.accepted:
+        _try_start_covers()
+    return {"status": result["cover_status"], "permission": result}
+
+
+@router.post("/permissions/{permission_id}/cover")
+def nominate_cover(permission_id: str, payload: CoverNomination, user: dict = Depends(current_user)) -> dict:
+    """Ask a colleague to cover an existing leave request (e.g. after a decline)."""
+    repository = AttendanceRepository()
+    existing = repository.permission(permission_id)
+    if not existing or existing.get("employee_id") != user["id"]:
+        raise HTTPException(status_code=404, detail="Leave request not found")
+    if existing.get("kind") not in LEAVE_KINDS:
+        raise HTTPException(status_code=422, detail="Only a leave day can have a cover")
+    cover = _checked_cover(user["id"], payload.cover_employee_id)
+    result = repository.nominate_cover(permission_id, user["id"], cover)
+    if not result:
+        raise HTTPException(status_code=409, detail="This leave already has an accepted cover")
+    _ask_cover(result)
+    return {"status": "requested", "permission": result}
+
+
 @router.post("/permissions", status_code=201)
 def request_permission(payload: PermissionRequest, user: dict = Depends(current_user)) -> dict:
     employee = _employee_id(user, payload.employee_id)
+    cover = None
+    if payload.cover_employee_id and payload.kind in LEAVE_KINDS:
+        cover = _checked_cover(employee, payload.cover_employee_id)
     permission = _conflict(lambda: service().request_permission(employee, payload))
+    if cover:
+        permission = AttendanceRepository().nominate_cover(permission["id"], employee, cover) or permission
+        _ask_cover(permission)
     _notify_approvers(
         employee, permission.get("id"), "Attendance request",
-        f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}",
+        f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}"
+        + (f" (cover: {cover['cover_employee_name']})" if cover else ""),
     )
     return {"status": "pending", "permission": permission}
 
@@ -442,6 +574,8 @@ def decide_permission(permission_id: str, payload: PermissionDecision, admin: di
         raise HTTPException(status_code=409, detail="Pending permission not found")
     _require_approver(admin, pending["employee_id"])
     permission = _conflict(lambda: attendance.decide_permission(permission_id, payload, admin["id"]))
+    if permission.get("status") == "approved" and permission.get("cover_status") == "accepted":
+        _try_start_covers()
     return {"status": permission["status"], "permission": permission}
 
 

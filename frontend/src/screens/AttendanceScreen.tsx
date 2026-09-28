@@ -41,6 +41,11 @@ import {
   type ExtraOtRequest,
   type StaffMember,
   type WeeklyOffPattern,
+  fetchCoverColleagues,
+  fetchCoverRequests,
+  nominateLeaveCover,
+  respondToCoverRequest,
+  type CoverColleague,
 } from "@/lib/api";
 
 interface Props {
@@ -90,6 +95,24 @@ const PERMISSION_KIND: Record<AttendancePermission["kind"], string> = {
  * shift start.
  */
 const TIMED_KINDS: AttendancePermission["kind"][] = ["late", "early_exit", "early_check_in"];
+/** Whole-day leave, which may name a colleague to cover the day's work. */
+const LEAVE_KINDS: AttendancePermission["kind"][] = ["paid_leave", "unpaid_leave"];
+
+const COVER_STATUS: Record<string, string> = {
+  requested: "Waiting for reply",
+  accepted: "Accepted",
+  declined: "Declined",
+};
+
+function coverOutcome(permission: AttendancePermission): string | null {
+  const handover = permission.cover_handover;
+  if (!handover) return null;
+  if (handover.status === "active") return `${handover.handed_over ?? 0} candidate(s) with the cover today`;
+  if (handover.status === "settled") {
+    return `${handover.completed ?? 0} completed by the cover · ${handover.returned ?? 0} returned`;
+  }
+  return handover.reason || "Handover skipped";
+}
 
 /** Kinds the backend requires to be filed before the shift begins. */
 const BEFORE_SHIFT_KINDS: AttendancePermission["kind"][] = [
@@ -186,6 +209,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [minutes, setMinutes] = useState("15");
   const [reason, setReason] = useState("");
   const [permissionDate, setPermissionDate] = useState(today);
+  const [coverColleagues, setCoverColleagues] = useState<CoverColleague[]>([]);
+  const [coverId, setCoverId] = useState("");
+  const [coverRequests, setCoverRequests] = useState<AttendancePermission[]>([]);
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
   const [weeklyOff, setWeeklyOff] = useState<WeeklyOffPattern>("sunday");
   const [savedWeeklyOff, setSavedWeeklyOff] = useState<WeeklyOffPattern>("sunday");
@@ -285,6 +311,63 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
   useEffect(() => {
     if (user.role === "admin") return;
+    let active = true;
+    fetchCoverColleagues()
+      .then(({ items }) => { if (active) setCoverColleagues(items ?? []); })
+      .catch(() => { if (active) setCoverColleagues([]); });
+    return () => {
+      active = false;
+    };
+  }, [user.role]);
+
+  const loadCoverRequests = useCallback(async () => {
+    if (user.role === "admin") return;
+    try {
+      const { items } = await fetchCoverRequests();
+      setCoverRequests(items ?? []);
+    } catch {
+      // Not fatal: the rest of attendance still works without this panel.
+    }
+  }, [user.role]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadCoverRequests(), 0);
+    const interval = window.setInterval(() => void loadCoverRequests(), 60_000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
+  }, [loadCoverRequests]);
+
+  const answerCover = async (permission: AttendancePermission, accepted: boolean) => {
+    setBusy(true);
+    try {
+      await respondToCoverRequest(permission.id, accepted);
+      onToast(accepted ? `You will cover ${permission.employee_name || "your colleague"}'s work` : "Cover request declined", accepted ? "success" : "info");
+      await loadCoverRequests();
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Could not answer the cover request", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const askAnotherCover = async (permission: AttendancePermission, colleagueId: string) => {
+    if (!colleagueId) return;
+    setBusy(true);
+    try {
+      await nominateLeaveCover(permission.id, colleagueId);
+      onToast("Cover request sent", "success");
+      await load(false);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Could not send the cover request", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user.role === "admin") return;
     fetchAttendanceWeeklyOff()
       .then((policy) => {
         setWeeklyOff(policy.weekly_off_pattern);
@@ -330,8 +413,10 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         kind,
         requested_minutes: TIMED_KINDS.includes(kind) ? Number(minutes) || 0 : 0,
         reason: reason.trim(),
+        cover_employee_id: LEAVE_KINDS.includes(kind) && coverId ? coverId : undefined,
       });
       setReason("");
+      setCoverId("");
       onToast(user.role === "manager" ? "Permission sent to the super admin" : "Permission sent to your manager", "success");
       await load();
     } catch (error) {
@@ -579,6 +664,23 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                     : "This must be requested before your shift starts."}
                 </p>
               )}
+              {LEAVE_KINDS.includes(kind) && (
+                <>
+                  <label className="is-wide">
+                    Who will handle your work that day?
+                    <select value={coverId} onChange={(event) => setCoverId(event.target.value)}>
+                      <option value="">No cover — keep my queue with me</option>
+                      {coverColleagues.map((colleague) => (
+                        <option key={colleague.id} value={colleague.id}>{colleague.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="attendance-form-note">
+                    Your colleague is asked first and must accept. On your leave day your unfinished candidates move to them;
+                    whatever they complete stays done, and anything still pending comes back to you the next day.
+                  </p>
+                </>
+              )}
               <label className="is-wide">Reason<textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this permission needed?" /></label>
               <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitPermission()}>Send for approval</button>
             </div>
@@ -609,6 +711,10 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         </div>
       )}
 
+      {!isTeamView && coverRequests.length > 0 && (
+        <CoverRequestsSection requests={coverRequests} busy={busy} onAnswer={answerCover} />
+      )}
+
       <PermissionTable
         permissions={selectedPermissions}
         staff={staff}
@@ -616,6 +722,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         busy={busy}
         onDecision={decidePermission}
         months={adminMonths}
+        colleagues={coverColleagues}
+        onAskCover={askAnotherCover}
       />
 
       <ExtraOtSection
@@ -656,13 +764,94 @@ function Stat({ label, value, note, icon }: { label: string; value: string; note
   return <div className="ds-stat is-static"><span className="ds-stat-top"><span className="ds-stat-label">{label}</span>{icon}</span><span className="ds-stat-value">{value}</span><span className="ds-stat-foot">{note}</span></div>;
 }
 
-function PermissionTable({ permissions, staff, admin, busy, onDecision, months }: {
+/** Leave days colleagues have asked this user to cover. */
+function CoverRequestsSection({ requests, busy, onAnswer }: {
+  requests: AttendancePermission[];
+  busy: boolean;
+  onAnswer: (permission: AttendancePermission, accepted: boolean) => Promise<void>;
+}) {
+  return (
+    <section className="ds-panel attendance-permissions">
+      <div className="ds-panel-head">
+        <div>
+          <h2 className="ds-panel-title">Leave cover requests</h2>
+          <p className="ds-panel-sub">
+            Colleagues asking you to handle their work on their leave day. What you complete stays with you;
+            anything left pending goes back to them the next day.
+          </p>
+        </div>
+      </div>
+      <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Colleague</th><th>Leave</th><th>Status</th><th className="is-actions">Action</th></tr></thead><tbody>
+        {requests.map((request) => (
+          <tr key={request.id}>
+            <td>{request.attendance_date}</td>
+            <td>{request.employee_name || request.employee_id}</td>
+            <td>{PERMISSION_KIND[request.kind]} · <small>{request.status}</small></td>
+            <td>
+              <span className={`ds-status ${request.cover_status === "accepted" ? "is-ok" : request.cover_status === "declined" ? "is-bad" : "is-warn"}`}>
+                <i />{COVER_STATUS[request.cover_status || "requested"]}
+              </span>
+              {coverOutcome(request) && <small className="attendance-decision-reason">{coverOutcome(request)}</small>}
+            </td>
+            <td className="is-actions">
+              {request.cover_status === "requested" && request.status !== "rejected" ? (
+                <div className="attendance-decision-actions">
+                  <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onAnswer(request, true)}><CheckCircle2 size={15} /> I will cover</button>
+                  <button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onAnswer(request, false)}><XCircle size={15} /> Decline</button>
+                </div>
+              ) : <span>—</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody></table></div>
+    </section>
+  );
+}
+
+function CoverCell({ permission, colleagues, busy, onAskCover }: {
+  permission: AttendancePermission;
+  colleagues: CoverColleague[];
+  busy: boolean;
+  onAskCover?: (permission: AttendancePermission, colleagueId: string) => Promise<void>;
+}) {
+  if (!LEAVE_KINDS.includes(permission.kind)) return <span>—</span>;
+  const outcome = coverOutcome(permission);
+  const canAsk = onAskCover && permission.status !== "rejected" && permission.cover_status !== "accepted" && !permission.cover_handover;
+  return (
+    <span className="attendance-cover-cell">
+      {permission.cover_employee_name ? (
+        <span>
+          {permission.cover_employee_name}{" "}
+          <small>({COVER_STATUS[permission.cover_status || "requested"]})</small>
+        </span>
+      ) : <span>No cover</span>}
+      {outcome && <small className="attendance-decision-reason">{outcome}</small>}
+      {canAsk && (permission.cover_status === "declined" || !permission.cover_employee_id) && (
+        <select
+          aria-label="Ask a colleague to cover"
+          value=""
+          disabled={busy}
+          onChange={(event) => void onAskCover(permission, event.target.value)}
+        >
+          <option value="">{permission.cover_employee_id ? "Ask someone else…" : "Ask a colleague…"}</option>
+          {colleagues.filter((c) => c.id !== permission.cover_employee_id).map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+      )}
+    </span>
+  );
+}
+
+function PermissionTable({ permissions, staff, admin, busy, onDecision, months, colleagues = [], onAskCover }: {
   permissions: AttendancePermission[];
   staff: StaffMember[];
   admin: boolean;
   busy: boolean;
   onDecision: (permission: AttendancePermission, approved: boolean) => Promise<void>;
   months: Record<string, AttendanceMonth>;
+  colleagues?: CoverColleague[];
+  onAskCover?: (permission: AttendancePermission, colleagueId: string) => Promise<void>;
 }) {
   const nameOf = (employeeId: string) => staff.find((person) => person.id === employeeId)?.name || employeeId;
   const ordered = [...permissions].sort((left, right) => {
@@ -703,6 +892,14 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
                     <div><span>Leave this month</span><strong>{leaveDays} day(s)</strong></div>
                     <div><span>Hours approved</span><strong>{permissionMinutes} min</strong></div>
                   </div>
+                  {LEAVE_KINDS.includes(permission.kind) && (
+                    <p className="attendance-decision-reason">
+                      Cover: {permission.cover_employee_name
+                        ? `${permission.cover_employee_name} (${COVER_STATUS[permission.cover_status || "requested"]})`
+                        : "none named"}
+                      {coverOutcome(permission) ? ` · ${coverOutcome(permission)}` : ""}
+                    </p>
+                  )}
                   {permission.decision_reason && <p className="attendance-decision-reason">Decision note: {permission.decision_reason}</p>}
                   <footer>{permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={15} /> Approve request</button><button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={15} /> Reject</button></div> : <span>Reviewed request</span>}</footer>
                 </article>
@@ -718,10 +915,11 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months }
     <section className="ds-panel attendance-permissions">
       <div className="ds-panel-head"><div><h2 className="ds-panel-title">My permissions</h2><p className="ds-panel-sub">Request date, approval status and the recorded reason.</p></div></div>
       {permissions.length === 0 ? <div className="ds-empty-state"><ShieldCheck size={28} /><h3>No permission requests this month</h3></div> : (
-        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Type</th><th>Minutes</th><th>Reason</th><th>Status</th></tr></thead><tbody>
+        <div className="ds-table-wrap is-ruled"><table className="ds-table is-ruled"><thead><tr><th>Date</th><th>Type</th><th>Minutes</th><th>Reason</th><th>Cover</th><th>Status</th></tr></thead><tbody>
           {permissions.map((permission) => <tr key={permission.id}>
             <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td>
             <td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
+            <td><CoverCell permission={permission} colleagues={colleagues} busy={busy} onAskCover={onAskCover} /></td>
             <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span></td>
           </tr>)}
         </tbody></table></div>

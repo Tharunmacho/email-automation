@@ -8,6 +8,9 @@ from app.attendance.engine import AttendancePolicy, calculate_day, local_day, sh
 from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
 from app.attendance.repository import AttendanceRepository
 
+#: Permission kinds that take the whole day off, and so may name a cover.
+LEAVE_KINDS = frozenset({"paid_leave", "unpaid_leave"})
+
 
 class AttendanceError(ValueError):
     pass
@@ -141,11 +144,14 @@ class AttendanceService:
             punches = self.repository.events_for_day(employee_id, request.attendance_date)
             if now >= end or any(row["action"] == "check_out" for row in punches):
                 raise AttendanceError("early-exit permission must be requested before leaving")
-        return self.repository.create_permission({
-            **request.model_dump(exclude={"employee_id"}),
+        record = {
+            **request.model_dump(exclude={"employee_id", "cover_employee_id"}),
             "attendance_date": request.attendance_date.isoformat(),
             "employee_id": employee_id,
-        })
+        }
+        if request.cover_employee_id and request.kind in LEAVE_KINDS:
+            record.update(cover_employee_id=request.cover_employee_id, cover_status="requested")
+        return self.repository.create_permission(record)
 
     def decide_permission(self, permission_id: str, decision: PermissionDecision, approver_id: str) -> dict:
         pending = self.repository.permission(permission_id)

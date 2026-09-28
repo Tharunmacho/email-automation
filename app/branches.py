@@ -16,10 +16,13 @@ second manager to a branch — is a User Management change, not a code change.
 from __future__ import annotations
 
 from app.assignment.balancer import GENERAL_DESK, SINGAPORE_MALAYSIA_DESK, desk_for_staff
-from app.db.users import MANAGER_ROLE, normalize_branch
+from app.db.users import ADMIN_ROLE, MANAGER_ROLE, normalize_branch
 
 ROYAPETTAH = "Royapettah"
 MOUNT_ROAD = "Mount Road"
+
+#: The branches the console switches between, in display order.
+BRANCHES = (ROYAPETTAH, MOUNT_ROAD)
 
 #: The branch each allocation desk works from.
 DESK_BRANCH_NAMES = {
@@ -37,6 +40,24 @@ def branch_of(employee) -> str:
     """
     explicit = normalize_branch(getattr(employee, "branch", ""))
     return explicit or DESK_BRANCH_NAMES[desk_for_staff(employee)]
+
+
+def display_branch(employee) -> str:
+    """The branch a screen should file this account under.
+
+    Staff and managers always belong to one (`branch_of`). An administrator is
+    not on either desk, so they appear under a branch only when one was typed in
+    for them; otherwise they are shown under every branch's "All" view only.
+    """
+    if getattr(employee, "role", None) == ADMIN_ROLE:
+        return normalize_branch(getattr(employee, "branch", ""))
+    return branch_of(employee)
+
+
+def with_branch(employee, row: dict) -> dict:
+    """``row`` (a public user dict) with the account's effective branch added."""
+    row["effective_branch"] = display_branch(employee)
+    return row
 
 
 def same_branch(first, second) -> bool:

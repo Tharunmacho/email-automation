@@ -32,6 +32,7 @@ import {
   Sparkles,
   Share2,
   Info,
+  Send,
 } from "lucide-react";
 
 import DatePicker from "@/components/ui/DatePicker";
@@ -48,6 +49,7 @@ import {
   deleteJobOrderAPI,
   listSourcingClientsAPI,
   listCountriesAPI,
+  submitCandidate,
   type CandidateRecord,
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
@@ -188,6 +190,8 @@ export interface MatchResult {
   summary: string;
   isSelected: boolean;
   isRejected: boolean;
+  /** Submitted to the order's client, on the order or on the candidate record. */
+  isSubmitted: boolean;
 }
 
 /** Related terms recruiters commonly use for the same capability. Matching is
@@ -369,6 +373,9 @@ export function calculateCandidateMatch(
     summary,
     isSelected: shortlistedIds.includes(candidate.id),
     isRejected: rejectedIds.includes(candidate.id),
+    isSubmitted:
+      (order.submittedCandidateIds || []).includes(candidate.id) ||
+      (!!candidate.job_order_id && candidate.job_order_id === order.id),
   };
 }
 
@@ -490,6 +497,9 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const candidatesLoading = fetchingCandidates && initialCandidates.length === 0;
 
   const [clientOptions, setClientOptions] = useState<string[]>([]);
+  // Client name -> sourcing type, so a submission is recorded against an
+  // associate or a company correctly.
+  const [clientTypes, setClientTypes] = useState<Record<string, string>>({});
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
 
   // Modals state
@@ -501,7 +511,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const [copiedSummary, setCopiedSummary] = useState(false);
 
   // Candidate matching filter + sort state
-  const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SHORTLISTED" | "REJECTED" | "ROLE">("ALL");
+  const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SHORTLISTED" | "SUBMITTED" | "REJECTED" | "ROLE">("ALL");
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [matchSort, setMatchSort] = useState<"SCORE" | "EXP" | "NAME">("SCORE");
   const [showWeakMatches, setShowWeakMatches] = useState(false);
 
@@ -605,7 +616,10 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
         // Agents introduce candidates; they are not the hiring party on a job
         // order. Associations and clients are both valid requisition owners.
         const eligible = (res.items ?? []).filter((record) => record.type !== "agent");
-        if (active) setClientOptions(namesOf(eligible));
+        if (active) {
+          setClientOptions(namesOf(eligible));
+          setClientTypes(Object.fromEntries(eligible.map((record) => [record.name, record.type])));
+        }
       })
       .catch(() => {
         const cached = readCache<{ name?: string; type?: string }>(CACHE_KEYS.sourcingClients);
@@ -828,6 +842,54 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     }
   };
 
+  /**
+   * Send a shortlisted candidate to the order's client. The candidate record is
+   * stamped with this order's id (`POST /candidates/{id}/submit`), which is what
+   * maps them to the requisition; the order keeps its own list for the screen.
+   */
+  const handleSubmitToClient = async (orderId: string, candidateId: string) => {
+    const currentOrder = orders.find((o) => o.id === orderId);
+    if (!currentOrder || submittingId) return;
+    const who = candidateLabel(candidateId);
+    setSubmittingId(candidateId);
+    try {
+      let updatedCandidate: CandidateRecord | null = null;
+      try {
+        updatedCandidate = await submitCandidate(candidateId, {
+          target_type: clientTypes[currentOrder.client] === "association" ? "associate" : "company",
+          target_name: currentOrder.client,
+          job_order_id: currentOrder.id,
+          notes: `Submitted for ${currentOrder.title} (${currentOrder.id}).`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        // Already with this client: record it on the order rather than fail.
+        if (!/already submitted/i.test(message)) throw err;
+      }
+
+      const submitted = currentOrder.submittedCandidateIds || [];
+      const updatedOrder: JobOrderRecord = {
+        ...currentOrder,
+        submittedCandidateIds: submitted.includes(candidateId) ? submitted : [...submitted, candidateId],
+      };
+      updateJobOrderAPI(orderId, updatedOrder).catch(() => {});
+      saveOrdersToStorage(orders.map((ord) => (ord.id === orderId ? updatedOrder : ord)));
+      if (selectedOrder?.id === orderId) setSelectedOrder(updatedOrder);
+      if (updatedCandidate) {
+        const fresh = updatedCandidate;
+        setFetchedCandidates((list) => list.map((c) => (c.id === candidateId ? { ...c, ...fresh } : c)));
+      }
+      activity(`Submitted ${who} to ${currentOrder.client} for ${currentOrder.title}.`, "success");
+    } catch (err) {
+      activity(
+        `Could not submit ${who} to ${currentOrder.client}: ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
+      );
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!designationRole.trim() || !selectedClient || !destinationCountry) return;
@@ -973,6 +1035,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
         results = results.filter((r) => r.matchScore >= 65);
       } else if (matchFilter === "SHORTLISTED") {
         results = results.filter((r) => r.isSelected);
+      } else if (matchFilter === "SUBMITTED") {
+        results = results.filter((r) => r.isSubmitted);
       } else if (matchFilter === "ROLE") {
         results = results.filter((r) => r.roleMatched);
       }
@@ -1328,10 +1392,16 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   {name}
                 </h4>
                 <span className={`mc-badge band-${band.key}`}>{band.label}</span>
-                {res.isSelected && (
+                {res.isSelected && !res.isSubmitted && (
                   <span className="mc-badge mc-badge-on">
                     <CheckCircle size={12} />
                     Shortlisted
+                  </span>
+                )}
+                {res.isSubmitted && (
+                  <span className="mc-badge mc-badge-submitted" title={`Submitted to ${order.client} for this order`}>
+                    <Send size={12} />
+                    Submitted to {order.client}
                   </span>
                 )}
                 {res.isRejected && (
@@ -1378,18 +1448,41 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               <button
                 className={`mc-btn mc-btn-reject ${res.isRejected ? "is-on" : ""}`}
                 onClick={() => handleToggleRejectCandidate(order.id, res.candidate.id)}
+                disabled={res.isSubmitted}
+                title={res.isSubmitted ? "Already submitted to the client. Record the outcome on the candidate profile." : undefined}
               >
                 {res.isRejected ? <RotateCcw size={15} /> : <XCircle size={15} />}
                 <span>{res.isRejected ? "Restore" : "Reject"}</span>
               </button>
 
-              <button
-                className={`mc-btn mc-btn-primary ${res.isSelected ? "is-on" : ""}`}
-                onClick={() => handleToggleShortlistCandidate(order.id, res.candidate.id)}
-              >
-                {res.isSelected ? <CheckCircle size={15} /> : <Plus size={15} />}
-                <span>{res.isSelected ? "Shortlisted" : "Shortlist"}</span>
-              </button>
+              {!res.isSubmitted && (
+                <button
+                  className={`mc-btn mc-btn-primary ${res.isSelected ? "is-on" : ""}`}
+                  onClick={() => handleToggleShortlistCandidate(order.id, res.candidate.id)}
+                >
+                  {res.isSelected ? <CheckCircle size={15} /> : <Plus size={15} />}
+                  <span>{res.isSelected ? "Shortlisted" : "Shortlist"}</span>
+                </button>
+              )}
+
+              {res.isSelected && !res.isSubmitted && (
+                <button
+                  className="mc-btn mc-btn-submit"
+                  onClick={() => void handleSubmitToClient(order.id, res.candidate.id)}
+                  disabled={submittingId !== null}
+                  title={`Submit to ${order.client} and link to ${order.id}`}
+                >
+                  {submittingId === res.candidate.id ? <Loader2 size={15} className="icon-spin" /> : <Send size={15} />}
+                  <span>{submittingId === res.candidate.id ? "Submitting…" : "Submit to client"}</span>
+                </button>
+              )}
+
+              {res.isSubmitted && (
+                <span className="mc-btn mc-btn-submit is-on" aria-disabled="true">
+                  <CheckCircle size={15} />
+                  <span>Submitted</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -1498,6 +1591,10 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     const detailStatus = deriveStatus(selectedOrder);
     const dueMeta = getDueMeta(selectedOrder.dueDate);
     const strongMatches = matchedCandidateResults.filter((r) => r.matchScore >= 65).length;
+    const submittedCount = new Set([
+      ...(selectedOrder.submittedCandidateIds || []),
+      ...dbCandidates.filter((c) => c.job_order_id === selectedOrder.id).map((c) => c.id),
+    ]).size;
 
     return (
       <div className="jod-root">
@@ -1720,6 +1817,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 { id: "ALL", label: "All matches", count: matchedCandidateResults.length },
                 { id: "TOP", label: "Strong fits", count: dbCandidates.length > 0 ? strongMatches : 0 },
                 { id: "SHORTLISTED", label: "Shortlisted", count: shortlistedIds.length },
+                { id: "SUBMITTED", label: "Submitted", count: submittedCount },
                 { id: "REJECTED", label: "Rejected", count: rejectedIds.length },
                 { id: "ROLE", label: "Role aligned", count: null },
               ] as const).map((tab) => (

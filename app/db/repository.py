@@ -160,6 +160,9 @@ LIST_PROJECTION = {
     "submission_target_type": 1,
     "submission_target_name": 1,
     "submission_date": 1,
+    # Which requisition the submission was made against, so Job Orders can
+    # show who has already gone to the client on each order.
+    "job_order_id": 1,
     "interview_status": 1,
     "offer_status": 1,
     "last_outcome": 1,
@@ -1188,6 +1191,129 @@ class CandidateRepository:
             update["$push"] = {"assignment_history": {**assignment_event, "at": now}}
         res = self._coll.update_one({**_id_filter(candidate_id), **(guard or {})}, update)
         return res.matched_count > 0
+
+    # ---- leave cover ------------------------------------------------------- #
+    def hand_over_for_cover(
+        self,
+        *,
+        from_staff_id: str,
+        to_staff_id: str,
+        to_staff_name: Optional[str],
+        permission_id: str,
+        remarks: str,
+    ) -> List[Any]:
+        """Lend a staff member's unfinished queue to their leave cover.
+
+        Only work nobody has judged yet moves, and it moves with `reassign`
+        semantics: whatever was already read stays read. Each profile carries a
+        `leave_cover` stamp naming the leave and its real owner, so the day's
+        settlement (`settle_leave_cover`) can find exactly these profiles and
+        nothing else. `manually_assigned` is set for the day so the balancer does
+        not re-level the lent work away from the cover; the previous value is
+        kept in the stamp and restored afterwards.
+
+        Returns the `_id`s that moved.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        moved: List[Any] = []
+        rows = self._coll.find(
+            {
+                "assigned_staff_id": from_staff_id,
+                "evaluation_status": {"$in": [None, "pending"]},
+                "placement_locked": {"$ne": True},
+                "leave_cover": None,
+            },
+            {"_id": 1, "assigned_staff_name": 1, "manually_assigned": 1},
+        )
+        for row in rows:
+            res = self._coll.update_one(
+                # Compare-and-set: a profile judged or moved since the read stays put.
+                {"_id": row["_id"], "assigned_staff_id": from_staff_id,
+                 "evaluation_status": {"$in": [None, "pending"]}, "leave_cover": None},
+                {
+                    "$set": {
+                        "assigned_staff_id": to_staff_id,
+                        "assigned_staff_name": to_staff_name,
+                        "reassigned_at": now,
+                        "manually_assigned": True,
+                        "latest_assignment_remark": remarks,
+                        "leave_cover": {
+                            "permission_id": permission_id,
+                            "owner_staff_id": from_staff_id,
+                            "owner_staff_name": row.get("assigned_staff_name"),
+                            "cover_staff_id": to_staff_id,
+                            "previous_manual": bool(row.get("manually_assigned")),
+                            "handed_at": now,
+                        },
+                        "updated_at": now,
+                    },
+                    "$push": {"assignment_history": {
+                        "type": "leave_cover", "from_staff_id": from_staff_id,
+                        "to_staff_id": to_staff_id, "to_staff_name": to_staff_name,
+                        "remarks": remarks, "at": now,
+                    }},
+                },
+            )
+            if res.modified_count:
+                moved.append(row["_id"])
+        return moved
+
+    def settle_leave_cover(self, permission_id: str) -> Dict[str, int]:
+        """End one leave cover: finished work stays done, the rest goes home.
+
+        A profile the cover judged during the day is complete and stays with
+        them — it is their work now. Anything still pending goes back to the
+        staff member who was on leave. Profiles someone moved by hand during
+        the day are no longer the cover's to return and are only unstamped.
+        """
+        from app.core.models import utcnow
+
+        now = utcnow()
+        completed = returned = released = 0
+        rows = self._coll.find(
+            {"leave_cover.permission_id": permission_id},
+            {"_id": 1, "assigned_staff_id": 1, "evaluation_status": 1, "leave_cover": 1},
+        )
+        for row in rows:
+            stamp = row.get("leave_cover") or {}
+            pending = (row.get("evaluation_status") or "pending") == "pending"
+            still_with_cover = row.get("assigned_staff_id") == stamp.get("cover_staff_id")
+            if pending and still_with_cover:
+                self._coll.update_one(
+                    {"_id": row["_id"], "leave_cover.permission_id": permission_id},
+                    {
+                        "$set": {
+                            "assigned_staff_id": stamp.get("owner_staff_id"),
+                            "assigned_staff_name": stamp.get("owner_staff_name"),
+                            "reassigned_at": now,
+                            "manually_assigned": bool(stamp.get("previous_manual")),
+                            "latest_assignment_remark": "Returned after leave cover: not completed by the cover.",
+                            "updated_at": now,
+                        },
+                        "$unset": {"leave_cover": ""},
+                        "$push": {"assignment_history": {
+                            "type": "leave_cover_return",
+                            "from_staff_id": stamp.get("cover_staff_id"),
+                            "to_staff_id": stamp.get("owner_staff_id"),
+                            "to_staff_name": stamp.get("owner_staff_name"),
+                            "remarks": "Pending work returned to its owner after the leave day.",
+                            "at": now,
+                        }},
+                    },
+                )
+                returned += 1
+            else:
+                unset: Dict[str, Any] = {"$unset": {"leave_cover": ""}}
+                if still_with_cover:
+                    unset["$set"] = {"manually_assigned": bool(stamp.get("previous_manual")), "updated_at": now}
+                self._coll.update_one({"_id": row["_id"]}, unset)
+                if still_with_cover:
+                    completed += 1
+                else:
+                    released += 1
+        return {"completed": completed, "returned": returned, "released": released}
 
     def list_owned_by(self, staff_id: str) -> List[dict]:
         """One staff member's profiles, oldest first, projected for allocation."""

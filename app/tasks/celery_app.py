@@ -82,6 +82,12 @@ celery_app.conf.update(
             "task": "app.tasks.jobs.flush_auto_replies",
             "schedule": float(settings.auto_reply_sweep_interval_seconds),
         },
+        # Leave cover: lend today's leave-takers' pending work to their cover,
+        # and hand back whatever is still pending once the day is over.
+        "leave-cover-sweep": {
+            "task": "app.tasks.jobs.leave_cover_sweep",
+            "schedule": 900.0,
+        },
         "scan-sla-breaches": {
             "task": "app.tasks.sla_checker.scan_sla_breaches",
             "schedule": float(settings.sla_scan_interval_seconds),

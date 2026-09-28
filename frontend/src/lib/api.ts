@@ -412,6 +412,59 @@ export interface AttendancePermission {
   decision_reason?: string;
   decided_by?: string;
   decided_at?: string;
+  /** Leave only: the colleague asked to do this person's work that day. */
+  cover_employee_id?: string | null;
+  cover_employee_name?: string | null;
+  cover_status?: "requested" | "accepted" | "declined" | null;
+  cover_note?: string | null;
+  /** Set once the leave day's work has been handed to the cover. */
+  cover_handover?: {
+    status: "active" | "settled" | "skipped";
+    handed_over?: number;
+    completed?: number;
+    returned?: number;
+    reason?: string;
+  } | null;
+  /** Present on `/attendance/cover-requests`: who asked. */
+  employee_name?: string;
+}
+
+export interface CoverColleague {
+  id: string;
+  name: string;
+  branch: string;
+}
+
+/** Colleagues the signed-in user may ask to cover a leave day. */
+export function fetchCoverColleagues(): Promise<{ items: CoverColleague[] }> {
+  return request("/attendance/cover-colleagues", { cache: "no-store" });
+}
+
+/** Leave days colleagues have asked the signed-in user to cover. */
+export function fetchCoverRequests(): Promise<{ items: AttendancePermission[]; count: number }> {
+  return request("/attendance/cover-requests", { cache: "no-store" });
+}
+
+export function respondToCoverRequest(permissionId: string, accepted: boolean, note = "") {
+  return request<{ status: string; permission: AttendancePermission }>(
+    `/attendance/permissions/${permissionId}/cover-response`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accepted, note }),
+    },
+  );
+}
+
+export function nominateLeaveCover(permissionId: string, coverEmployeeId: string) {
+  return request<{ status: string; permission: AttendancePermission }>(
+    `/attendance/permissions/${permissionId}/cover`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cover_employee_id: coverEmployeeId }),
+    },
+  );
 }
 
 const employeeQuery = (employeeId?: string) => employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
@@ -457,6 +510,7 @@ export function requestAttendancePermission(payload: {
   kind: AttendancePermission["kind"];
   requested_minutes: number;
   reason: string;
+  cover_employee_id?: string;
 }) {
   return request<{ status: string }>("/attendance/permissions", {
     method: "POST",
@@ -1585,6 +1639,12 @@ export interface ManagedUser {
   phone?: string;
   /** Payroll branch. Empty means unassigned, which is valid and displayed. */
   branch?: string;
+  /**
+   * The branch the account actually works from: the typed branch, else the
+   * desk's (Royapettah for Singapore/Malaysia, Mount Road otherwise). Empty
+   * only for an administrator with no branch typed in.
+   */
+  effective_branch?: string;
   created_at: string | null;
   /** The extra pages an admin ticked. */
   page_grants: string[];

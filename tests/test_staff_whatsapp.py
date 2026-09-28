@@ -75,6 +75,12 @@ class _NoAdmins:
     def list_admins(self, include_inactive=False):
         return []
 
+    def list_managers(self, include_inactive=False):
+        return []
+
+    def get(self, user_id):
+        return None
+
 
 def test_an_unconfigured_deployment_sends_nothing_at_all():
     """The default, and the one every existing deployment is in today.

@@ -23,7 +23,7 @@ the admin is watching the sync they just started actually produce something.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List, Tuple
 
 from app.config import settings
 from app.db import notifications as store
@@ -39,10 +39,26 @@ def _admin_ids(users: UserRepository) -> List[str]:
     return [user.id for user in users.list_admins()]
 
 
-def _sla_recipient_ids(users: UserRepository, recipient_stage: str) -> List[str]:
-    """Return managers for the first warning and only Yoosuf for escalation."""
+def _sla_recipient_ids(
+    users: UserRepository,
+    recipient_stage: str,
+    alert: dict | None = None,
+) -> List[str]:
+    """The owner's branch manager for the first warning, only Yoosuf for escalation.
+
+    A Royapettah profile warns Royapettah's manager and a Mount Road profile
+    warns Mount Road's, using the same `branch_managers` rule that routes leave
+    requests. When the owner's account cannot be found there is no branch to go
+    by, so every manager is warned rather than none.
+    """
     if recipient_stage == "manager":
-        return [user.id for user in users.list_managers()]
+        from app.branches import branch_managers  # imported here: branches pulls in the balancer
+
+        staff_id = (alert or {}).get("assigned_staff_id")
+        owner = users.get(staff_id) if staff_id else None
+        if owner is None:
+            return [user.id for user in users.list_managers()]
+        return [user.id for user in branch_managers(owner, users)]
     if recipient_stage == "super_admin":
         target = settings.sla_super_admin_name.strip().casefold()
         return [
@@ -226,17 +242,37 @@ def notify_sla_breaches(
 
     Only *newly* breaching profiles reach here (see app.tasks.sla_checker), so
     the feed does not re-report the same overdue profile every few minutes.
-    """
-    from app.api import websocket as ws
 
-    notified = 0
-    recipient_ids: List[str] = []
+    The manager warning goes to the owner's branch manager, so one sweep can
+    have a different audience per profile. Alerts are grouped by who hears
+    about them, and each group is recorded, pushed and relayed on its own.
+    """
+    groups: Dict[Tuple[str, ...], List[dict]] = {}
     try:
         users = users or UserRepository()
-        recipient_ids = _sla_recipient_ids(users, recipient_stage)
+        for alert in alerts:
+            recipients = tuple(_sla_recipient_ids(users, recipient_stage, alert))
+            groups.setdefault(recipients, []).append(alert)
     except Exception as exc:  # noqa: BLE001
         log.warning("Could not resolve SLA notification recipients: %s", exc)
 
+    return sum(
+        _notify_sla_group(group, threshold_hours, recipient_stage, list(recipient_ids), repo)
+        for recipient_ids, group in groups.items()
+    )
+
+
+def _notify_sla_group(
+    alerts: List[dict],
+    threshold_hours: float,
+    recipient_stage: str,
+    recipient_ids: List[str],
+    repo: NotificationRepository | None,
+) -> int:
+    """Record, push and relay alerts that all go to the same people."""
+    from app.api import websocket as ws
+
+    notified = 0
     if alerts:
         try:
             repo = repo or NotificationRepository()

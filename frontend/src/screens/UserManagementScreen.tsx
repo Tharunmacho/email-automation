@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 
+import BranchSwitch, { BRANCHES, sameBranch } from "@/components/ui/BranchSwitch";
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
@@ -225,6 +226,7 @@ export default function UserManagementScreen({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ManagedUser | null>(null);
+  const [branchFilter, setBranchFilter] = useState("");
 
   const say = useCallback(
     (message: string, type: "info" | "success" | "error" = "info") => onActivity?.(message, type),
@@ -279,6 +281,19 @@ export default function UserManagementScreen({
     window.addEventListener("adira-profile-photo-updated", onPhotoUpdated);
     return () => window.removeEventListener("adira-profile-photo-updated", onPhotoUpdated);
   }, []);
+
+  const branchCounts = useMemo(() => {
+    const counts: Record<string, number> = { "": users.length };
+    for (const name of BRANCHES) {
+      counts[name] = users.filter((u) => sameBranch(u.effective_branch, name)).length;
+    }
+    return counts;
+  }, [users]);
+
+  const visibleUsers = useMemo(
+    () => branchFilter ? users.filter((u) => sameBranch(u.effective_branch, branchFilter)) : users,
+    [branchFilter, users],
+  );
 
   const activeAdmins = useMemo(
     () => users.filter((u) => u.role === "admin" && u.active).length,
@@ -389,15 +404,19 @@ export default function UserManagementScreen({
           <div>
             <h3 className="db-card-title">Accounts matrix</h3>
             <p className="db-card-sub">
-              {users.length} total accounts. A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
+              {branchFilter
+                ? `${visibleUsers.length} of ${users.length} accounts at ${branchFilter}.`
+                : `${users.length} total accounts.`}{" "}
+              A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
             </p>
           </div>
+          <BranchSwitch value={branchFilter} onChange={setBranchFilter} counts={branchCounts} ariaLabel="Filter accounts by branch" />
         </header>
 
-        {users.length === 0 ? (
+        {visibleUsers.length === 0 ? (
           <div className="db-empty">
             <Users size={22} />
-            <p className="db-empty-title">No accounts found</p>
+            <p className="db-empty-title">{branchFilter ? `No accounts at ${branchFilter}` : "No accounts found"}</p>
           </div>
         ) : (
           <div className="ds-table-wrap is-ruled">
@@ -407,13 +426,14 @@ export default function UserManagementScreen({
                   <th>Account</th>
                   <th>Mobile</th>
                   <th>Role</th>
+                  <th>Branch</th>
                   <th>Added</th>
                   <th>Pages</th>
                   <th className="is-actions" aria-label="Actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {visibleUsers.map((user) => (
                   <tr key={user.id} className={user.active ? "" : "is-inactive"}>
                     <td>
                       <span className="ds-who">
@@ -454,6 +474,7 @@ export default function UserManagementScreen({
                         {user.role === "admin" ? "Super Admin" : user.role === "manager" ? "Manager" : "Staff"}
                       </span>
                     </td>
+                    <td>{user.effective_branch || user.branch || "—"}</td>
                     <td>{user.created_at ? timeAgo(user.created_at) : "—"}</td>
                     {/* The one column that can run long, so it is the one
                         allowed to wrap rather than widen the table. */}

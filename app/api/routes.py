@@ -94,6 +94,7 @@ from app.db.users import (
     ensure_rafi_manager,
     remove_legacy_demo_staff,
 )
+from app.branches import BRANCHES, with_branch
 from app.notifications import notify_candidate_assigned
 from app.staff_whatsapp import WhatsAppChatError, fetch_candidate_chat, relay_assignment
 from app.storage.factory import get_storage_backend
@@ -2147,7 +2148,11 @@ def list_staff(
     _admin: dict = Depends(require_page("staff")),
 ) -> dict:
     staff_items = users.list_staff(include_inactive=include_inactive)
-    return {"count": len(staff_items), "items": [u.to_public() for u in staff_items]}
+    return {
+        "count": len(staff_items),
+        "items": [with_branch(u, u.to_public()) for u in staff_items],
+        "branches": list(BRANCHES),
+    }
 
 
 @app.get("/staff/workload")
@@ -2183,10 +2188,12 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
         except Exception as exc:  # noqa: BLE001
             log.warning("Auto-allocation on staff workload fetch failed: %s", exc)
 
-    items = repository.staff_workload(everyone)
+    by_id = {member.id: member for member in everyone}
+    items = [with_branch(by_id[row["id"]], row) for row in repository.staff_workload(everyone)]
     roster_ids = [member.id for member in everyone]
     return {
         "items": items,
+        "branches": list(BRANCHES),
         # The whole employee roster, deactivated accounts included. Orphan
         # detection must recognise retained ownership by staff and managers.
         "roster_ids": roster_ids,
@@ -4561,7 +4568,8 @@ def list_users(_user: dict = Depends(require_page("users"))) -> dict:
     from app.db.users import PAGES
 
     return {
-        "items": [u.to_public() for u in users.list_all()],
+        "items": [with_branch(u, u.to_public()) for u in users.list_all()],
+        "branches": list(BRANCHES),
         # The vocabulary the permission screen renders its checkboxes from, so a
         # page added to the system appears there without a frontend release.
         "pages": list(PAGES),

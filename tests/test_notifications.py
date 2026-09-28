@@ -174,6 +174,71 @@ def test_sla_stages_target_managers_then_only_yoosuf():
     assert _sla_recipient_ids(users, "super_admin") == ["admin-1"]
 
 
+class _Member:
+    def __init__(self, user_id, name, role="staff", branch=""):
+        self.id = user_id
+        self.name = name
+        self.role = role
+        self.branch = branch
+        self.email = f"{user_id}@example.com"
+        self.active = True
+
+
+def _branch_users():
+    rafi = _Member("rafi", "Rafi", role="manager", branch="Mount Road")
+    noorul = _Member("noorul", "Noorul", role="manager", branch="Royapettah")
+    members = {
+        "mount-staff": _Member("mount-staff", "Priya", branch="Mount Road"),
+        "roya-staff": _Member("roya-staff", "Arun", branch="Royapettah"),
+    }
+    return type(
+        "BranchUsers",
+        (),
+        {
+            "get": lambda self, user_id: members.get(user_id),
+            "list_managers": lambda self: [rafi, noorul],
+            "list_admins": lambda self: [_Admin("yoosuf", "Yoosuf")],
+        },
+    )()
+
+
+def test_an_overdue_profile_warns_only_its_owners_branch_manager():
+    from app.notifications import _sla_recipient_ids
+
+    users = _branch_users()
+
+    assert _sla_recipient_ids(users, "manager", {"assigned_staff_id": "mount-staff"}) == ["rafi"]
+    assert _sla_recipient_ids(users, "manager", {"assigned_staff_id": "roya-staff"}) == ["noorul"]
+    # No owner on record: no branch to route by, so no manager is left out.
+    assert _sla_recipient_ids(users, "manager", {"assigned_staff_id": "gone"}) == [
+        "rafi", "noorul",
+    ]
+    assert _sla_recipient_ids(users, "super_admin", {"assigned_staff_id": "roya-staff"}) == [
+        "yoosuf",
+    ]
+
+
+def test_one_sweep_relays_each_branch_to_its_own_manager():
+    from app.notifications import notify_sla_breaches
+
+    mount = {"candidate_id": "c1", "full_name": "One", "assigned_staff_id": "mount-staff"}
+    roya = {"candidate_id": "c2", "full_name": "Two", "assigned_staff_id": "roya-staff"}
+
+    with patch("app.api.websocket.publish_event", return_value=True), patch(
+        "app.notifications.relay_sla_breach", return_value=True
+    ) as relay:
+        notified = notify_sla_breaches(
+            [mount, roya],
+            48,
+            repo=NotificationRepository(collection=FakeNotifications()),
+            users=_branch_users(),
+        )
+
+    assert notified == 2
+    sent = {call.kwargs["recipient_ids"][0]: call.args[0] for call in relay.call_args_list}
+    assert sent == {"rafi": [mount], "noorul": [roya]}
+
+
 def test_sla_whatsapp_relay_gets_only_the_resolved_active_recipients():
     from app.notifications import notify_sla_breaches
 

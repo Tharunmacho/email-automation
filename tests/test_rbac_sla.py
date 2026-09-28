@@ -121,6 +121,7 @@ def sla_env(monkeypatch):
         "Users",
         (),
         {
+            "get": lambda self, user_id: None,
             "list_managers": lambda self: [manager],
             "list_admins": lambda self: [yoosuf],
         },

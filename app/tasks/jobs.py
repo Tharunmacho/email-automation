@@ -323,3 +323,11 @@ def flush_auto_replies(limit: int | None = None) -> dict:
     except LockNotAcquired:
         log.debug("Auto-reply sweep skipped: one is already running")
         return {"sent": 0, "failed": 0, "pending": 0, "skipped": 1}
+
+
+@celery_app.task(name="app.tasks.jobs.leave_cover_sweep")
+def leave_cover_sweep() -> dict:
+    """Start today's leave covers and settle the ones whose day is over."""
+    from app.attendance.cover import run_cover_sweep
+
+    return run_cover_sweep()

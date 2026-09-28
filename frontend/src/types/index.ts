@@ -642,6 +642,10 @@ export interface StaffMember {
   /** Free text, and optional — an account created before the field existed
       has none, and no format is imposed on the ones that do. */
   phone?: string;
+  /** Payroll branch as typed in User Management; empty when none was. */
+  branch?: string;
+  /** The branch the account works from: typed branch, else its desk's. */
+  effective_branch?: string;
   active: boolean;
 }
 
@@ -949,6 +953,8 @@ export interface JobOrderRecord {
   fulfilledCount?: number;
   shortlistedCandidateIds?: string[];
   rejectedCandidateIds?: string[];
+  /** Shortlisted candidates already submitted to this order's client. */
+  submittedCandidateIds?: string[];
 }
 
 export type JobOrderStatus = JobOrderRecord["status"];

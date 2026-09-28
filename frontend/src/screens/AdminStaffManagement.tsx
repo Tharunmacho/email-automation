@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import BranchSwitch, { BRANCHES, sameBranch } from "@/components/ui/BranchSwitch";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -133,6 +134,7 @@ export default function AdminStaffManagement({
   const [reassignmentRemarks, setReassignmentRemarks] = useState("");
 
   const [query, setQuery] = useState("");
+  const [rosterBranch, setRosterBranch] = useState("");
   const [filter, setFilter] = useState<AllocFilter>("all");
   const [visible, setVisible] = useState(PAGE_SIZE);
   /** Whose queue is open: a staff id, or one of the two bucket sentinels. */
@@ -196,6 +198,19 @@ export default function AdminStaffManagement({
     [staff],
   );
   const totals = workload?.totals;
+  // The branch switch narrows only what the roster shows; allocation and
+  // rebalancing still work across the whole team.
+  const rosterRows = useMemo(
+    () => rosterBranch ? staff.filter((member) => sameBranch(member.effective_branch, rosterBranch)) : staff,
+    [rosterBranch, staff],
+  );
+  const rosterBranchCounts = useMemo(() => {
+    const counts: Record<string, number> = { "": staff.length };
+    for (const name of BRANCHES) {
+      counts[name] = staff.filter((member) => sameBranch(member.effective_branch, name)).length;
+    }
+    return counts;
+  }, [staff]);
 
   const pool = (totals?.assigned ?? 0) + (totals?.unassigned ?? 0);
   const evaluatedPct =
@@ -831,9 +846,17 @@ export default function AdminStaffManagement({
                   } · new profiles go to whoever is holding the fewest. Open a row to see and move what it holds.`}
             </p>
           </div>
-          {/* No buttons here. Rebalance and Create both used to sit on this
-              header AND on the action band above it, so every action on the
-              screen appeared twice. They live in the toolbar now, once. */}
+          {/* No action buttons here. Rebalance and Create both used to sit on
+              this header AND on the action band above it, so every action on
+              the screen appeared twice. They live in the toolbar now, once. */}
+          {staff.length > 0 && (
+            <BranchSwitch
+              value={rosterBranch}
+              onChange={setRosterBranch}
+              counts={rosterBranchCounts}
+              ariaLabel="Filter roster by branch"
+            />
+          )}
         </header>
 
         {staff.length === 0 ? (
@@ -865,7 +888,12 @@ export default function AdminStaffManagement({
                 </tr>
               </thead>
               <tbody>
-                {staff.map((member) => {
+                {rosterRows.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="ds-quiet">No team members at {rosterBranch}.</td>
+                  </tr>
+                )}
+                {rosterRows.map((member) => {
                   const overdue = breachesByStaff[member.id] ?? 0;
                   const openMemberQueue = () => openQueue(member.id);
                   return (
@@ -885,8 +913,12 @@ export default function AdminStaffManagement({
                           </span>
                           <span className="ds-who-text">
                             <strong>{member.name || member.email}</strong>
-                            {member.role === "manager" && (
-                              <small className="ds-quiet">Manager</small>
+                            {(member.role === "manager" || member.effective_branch) && (
+                              <small className="ds-quiet">
+                                {[member.role === "manager" ? "Manager" : "", member.effective_branch]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </small>
                             )}
                             <small className="crm-record-id">
                               Staff ID · {member.staff_code || `STF-${member.id.slice(-12).toUpperCase()}`}

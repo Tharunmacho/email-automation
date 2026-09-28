@@ -59,11 +59,25 @@ class PermissionRequest(BaseModel):
     kind: Literal["late", "early_exit", "early_check_in", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
     requested_minutes: int = Field(default=0, ge=0, le=1440)
     reason: str = Field(min_length=1, max_length=1000)
+    #: A colleague asked to take over the requester's work for a leave day.
+    #: Only meaningful for paid and unpaid leave; ignored for other kinds.
+    cover_employee_id: str | None = None
 
     @field_validator("requested_minutes")
     @classmethod
     def minutes_only_apply_to_hour_permissions(cls, value: int, info):
         return value if info.data.get("kind") in {"late", "early_exit", "early_check_in"} else 0
+
+
+class CoverResponse(BaseModel):
+    """The colleague's answer to "will you do my work on my leave day?"."""
+    accepted: bool
+    note: str = Field(default="", max_length=500)
+
+
+class CoverNomination(BaseModel):
+    """Ask a (different) colleague to cover, e.g. after the first declined."""
+    cover_employee_id: str = Field(min_length=1)
 
 
 class PermissionDecision(BaseModel):

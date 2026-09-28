@@ -23,6 +23,7 @@ import {
   type PayrollMonth,
   type PayrollRow,
 } from "@/lib/api";
+import BranchSwitch, { branchOptions } from "@/components/ui/BranchSwitch";
 
 interface Props {
   user: AuthUser;
@@ -155,20 +156,15 @@ export default function PayrollScreen({ user, onToast }: Props) {
             Pay period
             <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
           </label>
-          {canManage && payroll ? (
-            payroll.branches.length ? (
-              <label>
-                Branch
-                <select value={branch} onChange={(event) => setBranch(event.target.value)}>
-                  <option value="">All branches</option>
-                  {payroll.branches.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
-              </label>
-            ) : (
-              <span className="payroll-branch-hint">
-                No branches assigned yet — set one on each employee in User Management.
-              </span>
-            )
+          {canManage && !personalView && payroll ? (
+            <BranchSwitch
+              value={branch}
+              onChange={setBranch}
+              // Admins always see both branches; a manager only what they run.
+              branches={branchOptions(payroll.branches, user.role === "admin")}
+              allowAll={user.role === "admin" || payroll.branches.length > 1}
+              ariaLabel="Payroll branch"
+            />
           ) : null}
           <button type="button" className="ds-ghost-btn" onClick={() => void load()} disabled={loading || initialLoading}>
             <RefreshCw size={15} className={loading ? "icon-spin" : ""} /> Refresh

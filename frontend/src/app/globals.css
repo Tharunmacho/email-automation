@@ -20686,3 +20686,23 @@ a.um-phone:hover {
   max-height: min(72vh, 46rem);
   overflow-y: auto;
 }
+
+/* Branch switch: the scope switch with an optional head-count per branch. */
+.branch-switch { align-self: center; flex-wrap: wrap; }
+.branch-switch button { display: inline-flex; align-items: center; gap: .4rem; }
+.branch-switch-count { min-width: 1.35rem; padding: .05rem .4rem; border-radius: 999px; background: var(--tint-2); color: var(--text-muted); font-size: .66rem; font-weight: 700; text-align: center; }
+.branch-switch button.is-active .branch-switch-count { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+@media (max-width: 600px) { .branch-switch { align-self: stretch; } .branch-switch button { flex: 1; justify-content: center; } }
+
+/* Job order: a shortlisted candidate sent on to the client. */
+.mc-badge-submitted { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.mc-btn-submit { background: var(--bg-card); border-color: var(--primary); color: var(--primary); }
+.mc-btn-submit:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 10%, var(--bg-card)); }
+.mc-btn-submit:disabled { opacity: .6; cursor: progress; }
+.mc-btn-submit.is-on { border-color: var(--success-ink); color: var(--success-ink); background: rgba(16, 185, 129, 0.1); cursor: default; }
+.mc-btn:disabled { cursor: not-allowed; }
+
+/* Leave cover: who is covering a leave day, and how the handover went. */
+.attendance-cover-cell { display: flex; flex-direction: column; gap: .3rem; min-width: 10rem; }
+.attendance-cover-cell small { color: var(--text-muted); }
+.attendance-cover-cell select { padding: .35rem .5rem; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-card); color: var(--text-main); font: inherit; font-size: .75rem; }

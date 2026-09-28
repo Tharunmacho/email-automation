@@ -132,6 +132,65 @@ class AttendanceRepository:
         )
         return _public(result)
 
+    # ---- leave cover ------------------------------------------------------ #
+    def nominate_cover(self, permission_id: str, employee_id: str, cover: dict) -> dict | None:
+        """Ask a colleague to cover. Refused once a cover has accepted."""
+        result = self.permissions.find_one_and_update(
+            {"_id": permission_id, "employee_id": employee_id,
+             "status": {"$in": ["pending", "approved"]},
+             "cover_status": {"$ne": "accepted"}},
+            {"$set": {**cover, "cover_status": "requested", "cover_note": "",
+                      "cover_responded_at": None, "updated_at": _utcnow()}},
+            return_document=ReturnDocument.AFTER,
+        )
+        return _public(result)
+
+    def respond_to_cover(self, permission_id: str, cover_employee_id: str, accepted: bool, note: str) -> dict | None:
+        result = self.permissions.find_one_and_update(
+            {"_id": permission_id, "cover_employee_id": cover_employee_id,
+             "cover_status": "requested", "status": {"$in": ["pending", "approved"]}},
+            {"$set": {"cover_status": "accepted" if accepted else "declined",
+                      "cover_note": note, "cover_responded_at": _utcnow(), "updated_at": _utcnow()}},
+            return_document=ReturnDocument.AFTER,
+        )
+        return _public(result)
+
+    def cover_requests_for(self, cover_employee_id: str, since: date) -> list[dict]:
+        rows = self.permissions.find(
+            {"cover_employee_id": cover_employee_id, "attendance_date": {"$gte": since.isoformat()}}
+        ).sort("attendance_date", ASCENDING)
+        return [_public(row) for row in rows]
+
+    def covers_due(self, today: date) -> list[dict]:
+        """Approved, accepted covers for today whose handover has not happened."""
+        rows = self.permissions.find({
+            "status": "approved", "cover_status": "accepted",
+            "attendance_date": today.isoformat(), "cover_handover": None,
+        })
+        return [_public(row) for row in rows]
+
+    def covers_to_settle(self, today: date) -> list[dict]:
+        """Handovers whose leave day is over."""
+        rows = self.permissions.find({
+            "cover_handover.status": "active", "attendance_date": {"$lt": today.isoformat()},
+        })
+        return [_public(row) for row in rows]
+
+    def claim_cover_handover(self, permission_id: str, handover: dict) -> bool:
+        """Mark a handover started, once. False when another sweep got there first."""
+        res = self.permissions.update_one(
+            {"_id": permission_id, "cover_handover": None},
+            {"$set": {"cover_handover": handover, "updated_at": _utcnow()}},
+        )
+        return res.modified_count == 1
+
+    def update_cover_handover(self, permission_id: str, fields: dict) -> None:
+        self.permissions.update_one(
+            {"_id": permission_id},
+            {"$set": {**{f"cover_handover.{key}": value for key, value in fields.items()},
+                      "updated_at": _utcnow()}},
+        )
+
     def approved_permission(self, employee_id: str, day: date) -> dict | None:
         row = self.permissions.find_one(
             {"employee_id": employee_id, "attendance_date": day.isoformat(), "status": "approved"},
