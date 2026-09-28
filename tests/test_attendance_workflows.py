@@ -89,14 +89,15 @@ def env():
 # --------------------------------------------------------------------------- #
 #  Workflow A — early check-in
 # --------------------------------------------------------------------------- #
-def test_an_early_punch_is_refused_without_an_approved_request(env):
-    """The rule the UI could not previously satisfy."""
+def test_an_early_punch_is_recorded_without_an_approved_request(env):
+    """Hours are flexible, so a 09:00 arrival needs no permission at all."""
     early = PunchRequest(
         action="check_in", idempotency_key="early-1",
         occurred_at=datetime(2026, 10, 5, 3, 30, tzinfo=timezone.utc),  # 09:00 IST
     )
-    with pytest.raises(AttendanceError, match="early check-in requires approved permission"):
-        env.punch("staff-1", early, allow_recorded_time=True)
+    event, created = env.punch("staff-1", early, allow_recorded_time=True)
+    assert created is True
+    assert event["action"] == "check_in"
 
 
 def test_the_full_early_check_in_workflow(env):
@@ -131,8 +132,8 @@ def test_the_full_early_check_in_workflow(env):
     )
 
     day = env.day("staff-1", date(2026, 10, 5))
-    # 09:00 to 18:00 IST, all of it credited because the early hour was approved.
-    assert day["actual_covered_minutes"] == 540
+    # 09:00 to 18:00 IST: eight hours of work after the break.
+    assert day["actual_covered_minutes"] == 480
     assert day["uncovered_minutes"] == 0
 
 
@@ -281,7 +282,7 @@ def test_a_planned_sunday_is_punchable_and_fully_calculated(env):
     day = env.day("staff-1", date(2026, 9, 6))
     assert day["status"] == "P"
     assert day["required_shift_minutes"] == 480
-    assert day["actual_covered_minutes"] == 540
+    assert day["actual_covered_minutes"] == 480
     assert day["uncovered_minutes"] == 0
 
 

@@ -15,17 +15,17 @@ def utc(hour: int, minute: int = 0, day: int = 2) -> datetime:
 
 
 def test_default_shift_is_calculated_in_kolkata_without_grace():
-    # The 10:20 IST start is compensated by the 18:35 IST checkout.
+    # Flexible hours: the 10:20 IST start is compensated by the 19:20 checkout.
     result = calculate_day(
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": utc(4, 50)},
-            {"action": "check_out", "occurred_at": utc(13, 5)},
+            {"action": "check_out", "occurred_at": utc(13, 50)},
         ],
         now=utc(15),
     )
     assert result["late_minutes"] == 20
-    assert result["early_minutes"] == 25
+    assert result["early_minutes"] == 0
     assert result["uncovered_minutes"] == 0
     assert result["status"] == "P"
 
@@ -35,11 +35,12 @@ def test_late_check_in_and_late_checkout_have_no_uncovered_time():
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 4, 54, tzinfo=timezone.utc)},
-            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 13, 51, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 13, 54, tzinfo=timezone.utc)},
         ],
         now=utc(15),
     )
-    assert result["actual_covered_minutes"] == 537
+    # 10:24 to 19:24 IST: nine hours present, eight worked after the break.
+    assert result["actual_covered_minutes"] == 480
     assert result["uncovered_minutes"] == 0
 
 
@@ -48,7 +49,7 @@ def test_exact_required_duration_has_no_uncovered_time():
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 4, 30, tzinfo=timezone.utc)},
-            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 12, 30, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 13, 30, tzinfo=timezone.utc)},
         ],
         now=utc(15),
     )
@@ -62,10 +63,11 @@ def test_shorter_work_session_reports_only_the_shortage():
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 4, 30, tzinfo=timezone.utc)},
-            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 11, 30, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 12, 30, tzinfo=timezone.utc)},
         ],
         now=utc(15),
     )
+    # 10:00 to 18:00 IST is seven hours of work after the break.
     assert result["uncovered_minutes"] == 60
 
 
@@ -86,7 +88,7 @@ def test_approved_permission_reduces_uncovered_time():
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 5, 0, tzinfo=timezone.utc)},
-            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 12, 30, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 13, 30, tzinfo=timezone.utc)},
         ],
         approved_permissions=[{"kind": "late", "requested_minutes": 30}],
         now=utc(15),
@@ -100,10 +102,11 @@ def test_extra_overtime_does_not_create_uncovered_time():
         date(2026, 9, 2),
         [
             {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 4, 30, tzinfo=timezone.utc)},
-            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 13, 30, tzinfo=timezone.utc)},
+            {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 14, 30, tzinfo=timezone.utc)},
         ],
         now=utc(15),
     )
+    # 10:00 to 20:00 IST: nine hours worked, one more than required, no charge.
     assert result["actual_covered_minutes"] == 540
     assert result["uncovered_minutes"] == 0
 
@@ -155,7 +158,7 @@ def test_five_minute_work_session_uses_grace_then_deducts_uncovered_shift():
     assert calculated["status"] == "EE"
     assert calculated["early_minutes"] == 535
     assert calculated["grace_minutes_applied"] == 60
-    assert calculated["unpaid_minutes"] == 415
+    assert calculated["unpaid_minutes"] == 420
 
 
 def test_a_chosen_friday_replaces_that_weeks_sunday():
@@ -193,20 +196,22 @@ def test_planned_sunday_duty_overrides_weekly_off():
     assert sunday["uncovered_minutes"] == 0
 
 
-def test_early_check_in_requires_approved_permission():
+def test_an_early_check_in_is_recorded_without_permission():
+    """Hours are flexible: 08:37 IST is recorded, and counts from 09:00."""
     repository = AttendanceRepository(mongomock.MongoClient()["early-check-in"])
     attendance = AttendanceService(repository)
-    request = PunchRequest(action="check_in", idempotency_key="early", occurred_at=datetime(2026, 10, 4, 4, 0, tzinfo=timezone.utc))
-    with pytest.raises(ValueError, match="early check-in"):
-        attendance.punch("staff-1", request, allow_recorded_time=True)
-
-    permission = attendance.request_permission("staff-1", PermissionRequest(
-        attendance_date=date(2026, 10, 4), kind="early_check_in", reason="Interview",
-    ))
-    attendance.decide_permission(permission["id"], PermissionDecision(approved=True, reason="Approved"), "manager-1")
-    event, created = attendance.punch("staff-1", request, allow_recorded_time=True)
+    early = PunchRequest(action="check_in", idempotency_key="early", occurred_at=datetime(2026, 10, 5, 3, 7, tzinfo=timezone.utc))
+    event, created = attendance.punch("staff-1", early, allow_recorded_time=True)
     assert created is True
     assert event["action"] == "check_in"
+
+    attendance.punch("staff-1", PunchRequest(
+        action="check_out", idempotency_key="out", occurred_at=datetime(2026, 10, 5, 12, 46, tzinfo=timezone.utc),
+    ), allow_recorded_time=True)
+    day = attendance.day("staff-1", date(2026, 10, 5))
+    # 09:00 to 18:16 IST: 556 minutes present, 496 worked.
+    assert day["actual_covered_minutes"] == 496
+    assert day["uncovered_minutes"] == 0
 
 
 def test_full_day_permission_never_carries_minutes():
@@ -287,7 +292,7 @@ def test_monthly_grace_automatically_covers_first_sixty_late_or_early_minutes():
 #  `test_late_check_in_and_late_checkout_have_no_uncovered_time` above.
 # --------------------------------------------------------------------------- #
 def test_the_reported_case_credits_a_full_day_and_deducts_nothing():
-    """10:24 IST in, 19:21 IST out, 8h duty. The bug reported 25 uncovered min."""
+    """10:24 IST in, 19:21 IST out: three minutes short, absorbed by the grace."""
     day = calculate_day(
         date(2026, 9, 2),
         [
@@ -297,22 +302,20 @@ def test_the_reported_case_credits_a_full_day_and_deducts_nothing():
         now=utc(15),
     )
     assert day["required_shift_minutes"] == 480
-    assert day["actual_covered_minutes"] == 537
-    assert day["uncovered_minutes"] == 0
-    assert day["status"] == "P"
-    # Arriving late is still recorded even though it costs nothing.
+    assert day["actual_covered_minutes"] == 477
+    assert day["uncovered_minutes"] == 3
     assert day["late_minutes"] == 24
-    # And it must survive the month roll-up without a deduction appearing.
+    # The monthly grace absorbs it, so no deduction appears.
     rolled = calculate_month([day])[0]
     assert rolled["unpaid_minutes"] == 0
-    assert rolled["grace_minutes_applied"] == 0
+    assert rolled["grace_minutes_applied"] == 3
 
 
 def test_a_time_recovery_adjustment_still_cancels_uncovered_time():
     """Recovered minutes are a term in the equation, not a forgotten field."""
     punches = [
         {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 4, 30, tzinfo=timezone.utc)},
-        {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 11, 30, tzinfo=timezone.utc)},
+        {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 12, 30, tzinfo=timezone.utc)},
     ]
     without = calculate_day(date(2026, 9, 2), punches, now=utc(15))
     with_recovery = calculate_day(date(2026, 9, 2), punches, recovered_minutes=60, now=utc(15))
@@ -336,7 +339,7 @@ def test_coverage_spans_the_first_check_in_to_the_last_check_out():
         ],
         now=utc(15),
     )
-    assert day["actual_covered_minutes"] == 540
+    assert day["actual_covered_minutes"] == 480
     assert day["uncovered_minutes"] == 0
 
 
@@ -352,16 +355,17 @@ def test_the_requirement_follows_the_shift_break_length():
     no_break = calculate_day(
         date(2026, 9, 2), punches, shift=Shift(break_minutes=0), now=utc(15),
     )
+    # 450 minutes present; the same break comes off presence as off the duty.
     assert half_hour_break["required_shift_minutes"] == 510
-    assert half_hour_break["uncovered_minutes"] == 60
+    assert half_hour_break["uncovered_minutes"] == 90
     assert no_break["required_shift_minutes"] == 540
     assert no_break["uncovered_minutes"] == 90
 
 
 def test_approved_early_arrival_is_credited_as_coverage():
-    """An approved early check-in earns the time; an unapproved one does not."""
+    """Before 09:00 only an approved early check-in earns the time."""
     punches = [
-        {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 3, 30, tzinfo=timezone.utc)},
+        {"action": "check_in", "occurred_at": datetime(2026, 9, 2, 2, 30, tzinfo=timezone.utc)},
         {"action": "check_out", "occurred_at": datetime(2026, 9, 2, 11, 30, tzinfo=timezone.utc)},
     ]
     approved = calculate_day(
@@ -373,8 +377,8 @@ def test_approved_early_arrival_is_credited_as_coverage():
 
     assert approved["actual_covered_minutes"] == 480
     assert approved["uncovered_minutes"] == 0
-    # Without the permission the clock only starts at the shift start, so the
-    # hour before it earns nothing.
+    # Without the permission the clock only starts when the flexible window
+    # opens at 09:00, so the hour before it earns nothing.
     assert unapproved["actual_covered_minutes"] == 420
     assert unapproved["uncovered_minutes"] == 60
 
@@ -477,7 +481,7 @@ def test_a_planned_sunday_is_worked_paid_and_then_removable():
     worked = service.day("staff-1", date(2026, 9, 6))
     assert worked["status"] == "P"
     assert worked["required_shift_minutes"] == 480
-    assert worked["actual_covered_minutes"] == 540
+    assert worked["actual_covered_minutes"] == 480
     assert worked["uncovered_minutes"] == 0
     assert calculate_month([worked])[0]["unpaid_minutes"] == 0
 

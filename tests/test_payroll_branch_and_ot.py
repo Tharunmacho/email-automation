@@ -274,10 +274,10 @@ def punch_late(client, day, late_minutes):
 
 def test_approved_ot_first_cancels_late_time(api):
     """OT above normal hours is taken off the late hours before it is paid."""
-    # Two days 3h late: each is 2h short of the 8h duty (the break covers the
-    # rest), so 240 short, of which the monthly 60-minute grace absorbs 60.
-    punch_late(api, 3, 180)
-    punch_late(api, 4, 180)
+    # Two days 2h late, 12:00 to 19:00: each is 2h short of the 8h duty, so
+    # 240 short, of which the monthly 60-minute grace absorbs 60.
+    punch_late(api, 3, 120)
+    punch_late(api, 4, 120)
     before = rows_by_name(payroll(api))["Ravi"]
     assert before["late_unpaid_minutes"] == 180
 
@@ -293,8 +293,8 @@ def test_approved_ot_first_cancels_late_time(api):
 
 
 def test_ot_smaller_than_the_late_time_only_reduces_it(api):
-    punch_late(api, 3, 180)
-    punch_late(api, 4, 180)
+    punch_late(api, 3, 120)
+    punch_late(api, 4, 120)
     add_ot(api, "approved", minutes=45)
     row = rows_by_name(payroll(api))["Ravi"]
 

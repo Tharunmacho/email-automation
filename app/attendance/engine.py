@@ -23,6 +23,9 @@ class AttendancePolicy:
     warning_minutes: int = 45
     missing_punch_deadline_days: int = 2
     timezone_name: str = "Asia/Kolkata"
+    # Flexible hours: presence counts from this long before the shift start
+    # until this long after its end — 09:00 to 20:00 on the default shift.
+    flex_minutes: int = 60
 
 
 def as_utc(value: datetime) -> datetime:
@@ -91,19 +94,19 @@ def calculate_day(
 
         uncovered = max(0, required - covered - approved_permission - recovered)
 
-    `required` is the shift span minus its break — 480 minutes on the default
-    10:00–19:00 shift. `covered` is the employee's actual presence: first
-    check-in to last check-out, and *not* reduced by the break again. The break
-    has already been taken out of `required`; subtracting it from presence too
-    charges the employee for it twice, which is precisely the bug that made a
-    10:24→19:21 day (8h57m present against an 8h duty) report 25 uncovered
-    minutes.
+    `required` is the shift span minus its break — 480 minutes of work on the
+    default 10:00–19:00 shift. `covered` is the work actually done: first
+    check-in to last check-out, less the same break. Nine hours in the office
+    is therefore a full eight-hour day wherever it falls.
 
-    Measuring coverage as elapsed presence is also what makes a late start
-    self-correcting: somebody who arrives 24 minutes late and stays 21 minutes
-    past the end has still given the day the hours it asked for, and owes
-    nothing. `late_minutes` and `early_minutes` still record what happened, so
-    punctuality remains visible even when no salary is affected.
+    Hours are flexible. Presence counts anywhere inside the flexible window —
+    `policy.flex_minutes` either side of the shift, 09:00 to 20:00 by default —
+    so 09:30→18:30 and 10:30→19:30 are both full days. Time outside the window
+    earns nothing, and time beyond the requirement is absorbed by the max(0, …)
+    and never becomes overtime; that is a separate approved request (see
+    `approved_extra_ot_minutes`). `late_minutes` and `early_minutes` still
+    record the clock against the nominal shift, so punctuality stays visible
+    even when no salary is affected.
     """
     policy = policy or AttendancePolicy()
     shift = shift or Shift()
@@ -177,26 +180,20 @@ def calculate_day(
             regularisation_deadline=deadline,
         )
 
-    if check_in < start and "early_check_in" not in kinds:
-        # The API rejects this punch in normal operation; retain the guard for
-        # direct engine callers so an unapproved early arrival is not credited.
-        check_in = start
-
     # Punctuality, recorded whether or not it costs anything. These are facts
     # about the clock, not terms in the coverage equation.
     late = _minutes(check_in - start)
     early = _minutes(end - check_out)
 
-    # Coverage: elapsed presence, first in to last out. Approved early arrival
-    # counts from the moment they actually arrived; an unapproved one has
-    # already been clamped to the shift start above. The end is deliberately
-    # uncapped so staying late genuinely compensates for arriving late — extra
-    # minutes beyond the requirement are absorbed by the max(0, ...) below and
-    # never become overtime by accident, because overtime is a separate
-    # approved request (see `approved_extra_ot_minutes`).
-    presence_start = check_in if "early_check_in" in kinds else max(check_in, start)
-    presence_end = check_out
-    covered = _minutes(presence_end - presence_start) if presence_end > presence_start else 0
+    # Coverage: presence inside the flexible window, less the break. An early
+    # check-in is always recorded; only an approved one earns the time before
+    # the window opens.
+    flex = timedelta(minutes=policy.flex_minutes)
+    window_start, window_end = start - flex, end + flex
+    presence_start = check_in if "early_check_in" in kinds else max(check_in, window_start)
+    presence_end = min(check_out, window_end)
+    present = _minutes(presence_end - presence_start) if presence_end > presence_start else 0
+    covered = max(0, present - shift.break_minutes)
 
     shortfall = max(0, required - covered)
 

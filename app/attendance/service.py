@@ -51,13 +51,8 @@ class AttendanceService:
             raise AttendanceError("occurred_at must include a timezone")
         occurred = occurred.astimezone(timezone.utc)
         day = local_day(occurred, self.policy.timezone_name)
-        assignment = self.repository.shift_for_day(employee_id, day)
-        shift = Shift.model_validate(assignment["shift"]) if assignment else Shift()
-        start, _ = shift_bounds(day, shift, self.policy.timezone_name)
-        if request.action == "check_in" and occurred < start:
-            approved = self.repository.approved_permissions(employee_id, day)
-            if not any(row.get("kind") == "early_check_in" for row in approved):
-                raise AttendanceError("early check-in requires approved permission")
+        # Hours are flexible, so a punch is never refused for its time of day.
+        # The day calculation decides what the time is worth.
         existing = self.repository.events_for_day(employee_id, day)
         if request.action == "check_in" and any(row["action"] == "check_in" for row in existing):
             # A genuinely duplicated delivery is resolved by append_event below;
