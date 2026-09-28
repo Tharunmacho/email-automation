@@ -202,13 +202,12 @@ def test_nobody_can_punch_for_somebody_else_from_a_group(registry, attendance):
 
 
 def test_group_attendance_obeys_the_same_rules_as_private_attendance(registry, attendance):
-    """An unapproved early arrival is refused in a group exactly as in a chat."""
+    """An early arrival is recorded in a group exactly as in a chat."""
     early = message(
         message_id="wamid.early",
         sent_at=datetime(2026, 9, 7, 3, 0, tzinfo=timezone.utc),  # 08:30 IST
     )
-    with pytest.raises(ValueError, match="early check-in"):
-        route(early, registry, attendance)
+    assert route(early, registry, attendance).action == "recorded"
 
 
 def test_a_planned_sunday_duty_is_punchable_from_a_group(registry, attendance):
