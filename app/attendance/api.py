@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -181,27 +181,67 @@ def attendance_day(attendance_date: date, employee_id: str | None = Query(defaul
     return service().day(_employee_id(user, employee_id), attendance_date)
 
 
+#: How many weeks ahead the weekly-off picker offers, this week included.
+WEEKLY_OFF_WEEKS_AHEAD = 4
+
+
+def _weekly_off_deadline(week_start: date, timezone_name: str) -> datetime:
+    """Thursday 11:59:59 PM (office time) of the week: the last moment to choose."""
+    thursday = week_start + timedelta(days=3)
+    return datetime.combine(thursday, time(23, 59, 59), tzinfo=ZoneInfo(timezone_name))
+
+
+def _weekly_off_week(week_start: date, day: str, now: datetime, timezone_name: str) -> dict:
+    deadline = _weekly_off_deadline(week_start, timezone_name)
+    return {
+        "week_start": week_start.isoformat(),
+        "friday": (week_start + timedelta(days=4)).isoformat(),
+        "sunday": (week_start + timedelta(days=6)).isoformat(),
+        "day": day,
+        "deadline": deadline.isoformat(),
+        "locked": now > deadline,
+    }
+
+
 @router.get("/weekly-off")
 def get_weekly_off(user: dict = Depends(current_user)) -> dict:
+    """This week and the next few: which day is off, and whether it can still change."""
     employee_id = _employee_id(user)
-    policy = AttendanceRepository().employee_policy(employee_id)
-    pattern = policy.get("weekly_off_pattern", "sunday")
-    if pattern == "sunday_alternate_friday":
-        pattern = "alternate_friday"
-    return {"employee_id": employee_id, "weekly_off_pattern": pattern}
+    timezone_name = service().policy.timezone_name
+    now = datetime.now(timezone.utc)
+    today = local_day(now, timezone_name)
+    first = today - timedelta(days=today.weekday())
+    weeks = [first + timedelta(weeks=offset) for offset in range(WEEKLY_OFF_WEEKS_AHEAD)]
+    chosen = AttendanceRepository().weekly_off_choices(employee_id, weeks)
+    return {
+        "employee_id": employee_id,
+        "default": "sunday",
+        "weeks": [
+            _weekly_off_week(week, chosen.get(week.isoformat(), "sunday"), now, timezone_name)
+            for week in weeks
+        ],
+    }
 
 
 @router.put("/weekly-off")
 def update_weekly_off(payload: WeeklyOffRequest, user: dict = Depends(current_user)) -> dict:
+    """Choose Friday (or go back to Sunday) for one week, before Thursday 11:59 PM."""
+    if user.get("role") == ADMIN_ROLE:
+        raise HTTPException(status_code=403, detail="Weekly off is chosen by staff and managers")
     employee_id = _employee_id(user)
-    policy = AttendanceRepository().set_employee_policy(
-        employee_id,
-        {"weekly_off_pattern": payload.weekly_off_pattern},
-    )
+    week_start = payload.week_start - timedelta(days=payload.week_start.weekday())
+    timezone_name = service().policy.timezone_name
+    now = datetime.now(timezone.utc)
+    if now > _weekly_off_deadline(week_start, timezone_name):
+        raise HTTPException(
+            status_code=409,
+            detail="The weekly off for this week was due by Thursday 11:59 PM and can no longer be changed",
+        )
+    saved = AttendanceRepository().set_weekly_off_choice(employee_id, week_start, payload.day)
     return {
         "status": "saved",
         "employee_id": employee_id,
-        "weekly_off_pattern": policy["weekly_off_pattern"],
+        "week": _weekly_off_week(week_start, saved["day"], now, timezone_name),
     }
 
 
@@ -323,7 +363,8 @@ def _cover_colleagues(employee_id: str) -> list:
 
     Same branch because candidates are allocated by desk, and the other
     branch's desk does not work these destinations. Anyone active is offered
-    if the branch has nobody else.
+    if the branch has nobody else. A manager's cover is one of their staff:
+    the person who will actually work the queue.
     """
     me = users.get(employee_id)
     colleagues = [
@@ -333,6 +374,8 @@ def _cover_colleagues(employee_id: str) -> list:
         )
         if member.id != employee_id and getattr(member, "active", True)
     ]
+    if me is not None and me.role == MANAGER_ROLE:
+        colleagues = [member for member in colleagues if member.role == STAFF_ROLE]
     if me is None:
         return colleagues
     own = [member for member in colleagues if same_branch(member, me)]
@@ -419,7 +462,13 @@ def respond_to_cover(permission_id: str, payload: CoverResponse, user: dict = De
     except Exception as exc:  # noqa: BLE001
         log.warning("Cover response %s could not notify the requester: %s", permission_id, exc)
     if payload.accepted:
-        _try_start_covers()
+        # Only now does the leave reach the manager (or, for a manager's own
+        # leave, the super admins).
+        _notify_approvers(
+            result["employee_id"], result["id"], "Attendance request",
+            f"{result['kind'].replace('_', ' ')} for {result['attendance_date']}"
+            f" (cover accepted by {result.get('cover_employee_name') or 'a colleague'})",
+        )
     return {"status": result["cover_status"], "permission": result}
 
 
@@ -435,25 +484,38 @@ def nominate_cover(permission_id: str, payload: CoverNomination, user: dict = De
     cover = _checked_cover(user["id"], payload.cover_employee_id)
     result = repository.nominate_cover(permission_id, user["id"], cover)
     if not result:
-        raise HTTPException(status_code=409, detail="This leave already has an accepted cover")
+        raise HTTPException(status_code=409, detail="This leave is no longer waiting for a cover")
     _ask_cover(result)
     return {"status": "requested", "permission": result}
 
 
 @router.post("/permissions", status_code=201)
 def request_permission(payload: PermissionRequest, user: dict = Depends(current_user)) -> dict:
+    """Ask for a permission or a leave day.
+
+    Leave goes to the cover first: the colleague named to do the requester's
+    work must accept before the manager (or, for a manager's own leave, the
+    super admins) hears about it. A cover is required whenever the requester
+    has anyone who could be asked.
+    """
     employee = _employee_id(user, payload.employee_id)
     cover = None
-    if payload.cover_employee_id and payload.kind in LEAVE_KINDS:
-        cover = _checked_cover(employee, payload.cover_employee_id)
+    if payload.kind in LEAVE_KINDS:
+        if payload.cover_employee_id:
+            cover = _checked_cover(employee, payload.cover_employee_id)
+        elif _cover_colleagues(employee):
+            raise HTTPException(
+                status_code=422,
+                detail="Choose a colleague to handle your work on your leave day",
+            )
     permission = _conflict(lambda: service().request_permission(employee, payload))
     if cover:
         permission = AttendanceRepository().nominate_cover(permission["id"], employee, cover) or permission
         _ask_cover(permission)
+        return {"status": "awaiting_cover", "permission": permission}
     _notify_approvers(
         employee, permission.get("id"), "Attendance request",
-        f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}"
-        + (f" (cover: {cover['cover_employee_name']})" if cover else ""),
+        f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}",
     )
     return {"status": "pending", "permission": permission}
 

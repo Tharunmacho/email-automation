@@ -141,14 +141,34 @@ def test_everything_completed_means_nothing_comes_back(env):
     assert settled["completed"] == 4 and settled["returned"] == 0
 
 
-def test_no_handover_without_acceptance_or_approval(env):
+def test_the_manager_cannot_decide_before_the_cover_accepts(env):
     leave = _request_leave()
-    decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=MANAGER)
-    assert _sweep(env, DURING)["started"] == []  # cover never answered
+    assert leave["status"] == "awaiting_cover"
+    with pytest.raises(HTTPException) as early:
+        decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=MANAGER)
+    assert early.value.status_code == 409
 
     respond_to_cover(leave["id"], CoverResponse(accepted=False, note="Busy"), user=BALA)
-    assert env["attendance"].permission(leave["id"])["cover_status"] == "declined"
+    declined = env["attendance"].permission(leave["id"])
+    assert declined["cover_status"] == "declined"
+    assert declined["status"] == "awaiting_cover"  # still not with the manager
     assert _sweep(env, DURING)["started"] == []
+
+
+def test_acceptance_moves_the_leave_to_the_manager(env):
+    leave = _request_leave()
+    respond_to_cover(leave["id"], CoverResponse(accepted=True), user=BALA)
+    assert env["attendance"].permission(leave["id"])["status"] == "pending"
+    assert _sweep(env, DURING)["started"] == []  # accepted but not yet approved
+
+
+def test_leave_without_a_cover_is_refused(env):
+    with pytest.raises(HTTPException) as missing:
+        request_permission(
+            PermissionRequest(attendance_date=LEAVE_DAY, kind="unpaid_leave", reason="Trip"),
+            user=ASHA,
+        )
+    assert missing.value.status_code == 422
 
 
 def test_a_declined_cover_can_be_replaced(env):

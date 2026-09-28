@@ -21,8 +21,9 @@ from app.attendance.api import (
     list_permissions,
     request_extra_ot,
     request_permission,
+    respond_to_cover,
 )
-from app.attendance.models import ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest
+from app.attendance.models import CoverResponse, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.branches import MOUNT_ROAD, ROYAPETTAH, branch_of
@@ -75,11 +76,29 @@ def repository():
         yield repo
 
 
+#: Who covers whose leave day in these tests.
+COVERS = {"sreya": "noorul", "ravi": "rafi"}  # the only same-branch colleague
+
+
 def leave(user):
-    return request_permission(
-        PermissionRequest(attendance_date=date(2026, 10, 10), kind="paid_leave", reason="Family"),
+    """A leave day, accepted by the cover, so it has reached the approver."""
+    permission = request_permission(
+        PermissionRequest(attendance_date=date(2026, 10, 10), kind="paid_leave", reason="Family",
+                          cover_employee_id=COVERS[user.id]),
         user=as_user(user),
     )["permission"]
+    Notifications.sent = []
+    respond_to_cover(permission["id"], CoverResponse(accepted=True),
+                     user={"id": COVERS[user.id], "role": MANAGER_ROLE})
+    # Drop the "your cover accepted" note to the requester; keep the approvers.
+    Notifications.sent = [sent for sent in Notifications.sent if sent != user.id]
+    return repository_permission(permission["id"])
+
+
+def repository_permission(permission_id):
+    from app.attendance.api import AttendanceRepository as Repo
+
+    return Repo().permission(permission_id)
 
 
 def overtime(user):

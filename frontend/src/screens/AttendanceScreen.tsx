@@ -40,7 +40,8 @@ import {
   type DutyPlan,
   type ExtraOtRequest,
   type StaffMember,
-  type WeeklyOffPattern,
+  type WeeklyOffDay,
+  type WeeklyOffWeek,
   fetchCoverColleagues,
   fetchCoverRequests,
   nominateLeaveCover,
@@ -194,6 +195,20 @@ function statusTone(status: string): string {
   return "is-warn";
 }
 
+function shortDate(isoDate: string): string {
+  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" }).format(new Date(`${isoDate}T00:00:00`));
+}
+
+function deadlineLabel(iso: string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata",
+  }).format(new Date(iso));
+}
+
+function requestStatusLabel(status: string): string {
+  return status === "awaiting_cover" ? "waiting for cover" : status;
+}
+
 export default function AttendanceScreen({ user, onToast }: Props) {
   const today = useMemo(() => kolkataDate(), []);
   const [yearMonth, setYearMonth] = useState(today.slice(0, 7));
@@ -213,8 +228,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [coverId, setCoverId] = useState("");
   const [coverRequests, setCoverRequests] = useState<AttendancePermission[]>([]);
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
-  const [weeklyOff, setWeeklyOff] = useState<WeeklyOffPattern>("sunday");
-  const [savedWeeklyOff, setSavedWeeklyOff] = useState<WeeklyOffPattern>("sunday");
+  const [weeklyOffWeeks, setWeeklyOffWeeks] = useState<WeeklyOffWeek[]>([]);
   const [weeklyOffBusy, setWeeklyOffBusy] = useState(false);
   const [extraOt, setExtraOt] = useState<ExtraOtRequest[]>([]);
   const [dutyPlans, setDutyPlans] = useState<DutyPlan[]>([]);
@@ -369,19 +383,22 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   useEffect(() => {
     if (user.role === "admin") return;
     fetchAttendanceWeeklyOff()
-      .then((policy) => {
-        setWeeklyOff(policy.weekly_off_pattern);
-        setSavedWeeklyOff(policy.weekly_off_pattern);
-      })
-      .catch(() => onToast("Could not load weekly-off preference", "error"));
+      .then((result) => setWeeklyOffWeeks(result.weeks ?? []))
+      .catch(() => onToast("Could not load weekly off", "error"));
   }, [onToast, user.role]);
 
-  const saveWeeklyOff = async () => {
+  const saveWeeklyOff = async (week: WeeklyOffWeek, choice: WeeklyOffDay) => {
+    if (week.locked || week.day === choice) return;
     setWeeklyOffBusy(true);
     try {
-      const result = await updateAttendanceWeeklyOff(weeklyOff);
-      setSavedWeeklyOff(result.weekly_off_pattern);
-      onToast("Weekly off saved", "success");
+      const result = await updateAttendanceWeeklyOff(week.week_start, choice);
+      setWeeklyOffWeeks((weeks) => weeks.map((row) => (row.week_start === week.week_start ? result.week : row)));
+      onToast(
+        choice === "friday"
+          ? `Friday ${shortDate(week.friday)} is your weekly off; Sunday ${shortDate(week.sunday)} is a working day`
+          : `Sunday ${shortDate(week.sunday)} is your weekly off`,
+        "success",
+      );
       await load(false);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Weekly off could not be saved", "error");
@@ -406,6 +423,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
   const submitPermission = async () => {
     if (!reason.trim()) return onToast("Enter a reason for the permission", "info");
+    const needsCover = LEAVE_KINDS.includes(kind) && coverColleagues.length > 0;
+    if (needsCover && !coverId) return onToast("Choose a colleague to handle your work that day", "info");
+    const coverName = coverColleagues.find((colleague) => colleague.id === coverId)?.name;
     setBusy(true);
     try {
       await requestAttendancePermission({
@@ -417,7 +437,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       });
       setReason("");
       setCoverId("");
-      onToast(user.role === "manager" ? "Permission sent to the super admin" : "Permission sent to your manager", "success");
+      const approver = user.role === "manager" ? "the super admin" : "your manager";
+      onToast(
+        needsCover
+          ? `Sent to ${coverName || "your colleague"} first. It goes to ${approver} once they accept.`
+          : `Permission sent to ${approver}`,
+        "success",
+      );
       await load();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Permission could not be submitted", "error");
@@ -530,7 +556,11 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const summary = monthSummary(visibleMonth);
   // Managers see the whole request inbox; the selected employee only controls
   // the detailed calendar below it.
-  const selectedPermissions = permissions;
+  // A leave still waiting on its cover has not reached the approver yet.
+  const selectedPermissions = useMemo(
+    () => isTeamView ? permissions.filter((permission) => permission.status !== "awaiting_cover") : permissions,
+    [isTeamView, permissions],
+  );
   const pendingCount = permissions.filter((permission) => permission.status === "pending").length;
   const pendingOt = extraOt.filter((row) => row.status === "pending").length;
   const approvedOtMinutes = extraOt
@@ -585,14 +615,34 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       <div className="attendance-policy-strip" aria-label="Attendance policy summary">
         <span><Clock3 size={15} /><strong>8 hours</strong> payable work + 1-hour break</span>
         <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
-        <span><ShieldCheck size={15} />Sunday or alternate-Friday weekly off</span>
+        <span><ShieldCheck size={15} />Sunday weekly off, or Friday if chosen by Thursday</span>
         <span><WalletCards size={15} />Extra time deducted by minute</span>
       </div>
 
-      {!isTeamView && user.role !== "admin" && <section className="attendance-weekly-off">
-        <div><CalendarDays size={18} /><span><strong>Choose your weekly off</strong><small>This choice is used automatically in attendance and payroll.</small></span></div>
-        <label>Weekly off<select value={weeklyOff} disabled={weeklyOffBusy} onChange={(event) => setWeeklyOff(event.target.value as WeeklyOffPattern)}><option value="sunday">Sunday</option><option value="alternate_friday">Alternate Friday (Sunday is working)</option></select></label>
-        <button type="button" className="attendance-save-off" disabled={weeklyOffBusy || weeklyOff === savedWeeklyOff} onClick={() => void saveWeeklyOff()}>{weeklyOffBusy ? <RefreshCw size={14} className="icon-spin" /> : <CheckCircle2 size={14} />} Save weekly off</button>
+      {!isTeamView && user.role !== "admin" && <section className="attendance-weekly-off is-weekly">
+        <div><CalendarDays size={18} /><span><strong>Choose your weekly off</strong><small>Sunday by default. To take Friday off instead, choose it by Thursday 11:59 PM; that week&rsquo;s Sunday then becomes a working day.</small></span></div>
+        <div className="weekly-off-weeks">
+          {weeklyOffWeeks.map((week) => (
+            <div key={week.week_start} className={`weekly-off-week ${week.locked ? "is-locked" : ""}`}>
+              <span className="weekly-off-week-label">Week of {shortDate(week.week_start)}</span>
+              <div className="scope-switch" role="group" aria-label={`Weekly off for the week of ${shortDate(week.week_start)}`}>
+                {(["sunday", "friday"] as const).map((choice) => (
+                  <button
+                    key={choice}
+                    type="button"
+                    className={week.day === choice ? "is-active" : ""}
+                    aria-pressed={week.day === choice}
+                    disabled={weeklyOffBusy || week.locked}
+                    onClick={() => void saveWeeklyOff(week, choice)}
+                  >
+                    {choice === "sunday" ? `Sun ${shortDate(week.sunday)}` : `Fri ${shortDate(week.friday)}`}
+                  </button>
+                ))}
+              </div>
+              <small>{week.locked ? "Locked" : `Change by ${deadlineLabel(week.deadline)}`}</small>
+            </div>
+          ))}
+        </div>
       </section>}
 
       {isTeamView ? (
@@ -668,16 +718,18 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <>
                   <label className="is-wide">
                     Who will handle your work that day?
-                    <select value={coverId} onChange={(event) => setCoverId(event.target.value)}>
-                      <option value="">No cover — keep my queue with me</option>
+                    <select value={coverId} onChange={(event) => setCoverId(event.target.value)} required>
+                      <option value="">{coverColleagues.length ? "Select a colleague" : "No colleague available"}</option>
                       {coverColleagues.map((colleague) => (
                         <option key={colleague.id} value={colleague.id}>{colleague.name}</option>
                       ))}
                     </select>
                   </label>
                   <p className="attendance-form-note">
-                    Your colleague is asked first and must accept. On your leave day your unfinished candidates move to them;
-                    whatever they complete stays done, and anything still pending comes back to you the next day.
+                    Your colleague is asked first. Only after they accept does the request go to{" "}
+                    {user.role === "manager" ? "the super admin" : "your manager"} for approval. On your leave day your
+                    unfinished candidates move to them; whatever they complete stays done, and anything still pending
+                    comes back to you the next day.
                   </p>
                 </>
               )}
@@ -786,7 +838,7 @@ function CoverRequestsSection({ requests, busy, onAnswer }: {
           <tr key={request.id}>
             <td>{request.attendance_date}</td>
             <td>{request.employee_name || request.employee_id}</td>
-            <td>{PERMISSION_KIND[request.kind]} · <small>{request.status}</small></td>
+            <td>{PERMISSION_KIND[request.kind]} · <small>{requestStatusLabel(request.status)}</small></td>
             <td>
               <span className={`ds-status ${request.cover_status === "accepted" ? "is-ok" : request.cover_status === "declined" ? "is-bad" : "is-warn"}`}>
                 <i />{COVER_STATUS[request.cover_status || "requested"]}
@@ -794,7 +846,7 @@ function CoverRequestsSection({ requests, busy, onAnswer }: {
               {coverOutcome(request) && <small className="attendance-decision-reason">{coverOutcome(request)}</small>}
             </td>
             <td className="is-actions">
-              {request.cover_status === "requested" && request.status !== "rejected" ? (
+              {request.cover_status === "requested" && request.status === "awaiting_cover" ? (
                 <div className="attendance-decision-actions">
                   <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onAnswer(request, true)}><CheckCircle2 size={15} /> I will cover</button>
                   <button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onAnswer(request, false)}><XCircle size={15} /> Decline</button>
@@ -816,7 +868,7 @@ function CoverCell({ permission, colleagues, busy, onAskCover }: {
 }) {
   if (!LEAVE_KINDS.includes(permission.kind)) return <span>—</span>;
   const outcome = coverOutcome(permission);
-  const canAsk = onAskCover && permission.status !== "rejected" && permission.cover_status !== "accepted" && !permission.cover_handover;
+  const canAsk = onAskCover && permission.status === "awaiting_cover" && permission.cover_status !== "accepted";
   return (
     <span className="attendance-cover-cell">
       {permission.cover_employee_name ? (
@@ -884,7 +936,7 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
                       <span className="attendance-avatar">{nameOf(permission.employee_id).slice(0, 1).toUpperCase()}</span>
                       <div><strong>{nameOf(permission.employee_id)}</strong><small>{permission.attendance_date} · {PERMISSION_KIND[permission.kind]}</small></div>
                     </div>
-                    <span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span>
+                    <span className={`ds-status ${statusTone(permission.status)}`}><i />{requestStatusLabel(permission.status)}</span>
                   </header>
                   <p className="attendance-request-reason">{permission.reason}</p>
                   <div className="attendance-request-usage">
@@ -920,7 +972,7 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
             <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td>
             <td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
             <td><CoverCell permission={permission} colleagues={colleagues} busy={busy} onAskCover={onAskCover} /></td>
-            <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{permission.status}</span></td>
+            <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{requestStatusLabel(permission.status)}</span></td>
           </tr>)}
         </tbody></table></div>
       )}

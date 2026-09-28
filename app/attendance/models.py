@@ -147,4 +147,10 @@ class CalendarDayRequest(BaseModel):
 
 
 class WeeklyOffRequest(BaseModel):
-    weekly_off_pattern: Literal["sunday", "alternate_friday"]
+    """This week's weekly off: Sunday (the default) or Friday.
+
+    `week_start` is the Monday of the week. Friday may be chosen, or changed
+    back to Sunday, until Thursday 11:59 PM (office time) of that week.
+    """
+    week_start: date
+    day: Literal["sunday", "friday"]

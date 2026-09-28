@@ -2750,6 +2750,17 @@ def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, use
     """Forward a reviewed candidate to a company or an associate."""
     record = _recruitment_or_404(candidate_id, user)
     _reject_if_placed(record)
+    # A candidate submitted against a job order is mapped to it. They cannot go
+    # to a second order until they are unsubmitted or the first client passes.
+    if _mapped_job_order(record) and record.job_order_id != payload.job_order_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This candidate is already submitted to job order {record.job_order_id}"
+                f"{f' ({record.submission_target_name})' if record.submission_target_name else ''}. "
+                "Unsubmit them there first."
+            ),
+        )
     # Submitting the same person to the same target again is a double-click or a
     # second pair of hands, not a second submission.
     already_submitted = (
@@ -2778,6 +2789,50 @@ def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, use
          "submission_date": now,
          "interview_status": "pending",
          "job_order_id": payload.job_order_id},
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return updated.model_dump(mode="json")
+
+
+class CandidateUnsubmitRequest(BaseModel):
+    job_order_id: str = Field(min_length=1)
+    notes: str = Field(default="", max_length=1000)
+
+
+#: Statuses that mean "sent to the client, nothing further has happened yet".
+_SUBMITTED_STATUSES = {"submitted_to_company", "submitted_to_associate"}
+
+
+def _mapped_job_order(record) -> str | None:
+    """The job order this candidate is currently committed to, if any."""
+    if record.job_order_id and (record.recruitment_status or "available") != "available":
+        return record.job_order_id
+    return None
+
+
+@app.post("/candidates/{candidate_id}/unsubmit")
+def unsubmit_candidate(candidate_id: str, payload: CandidateUnsubmitRequest, user: dict = Depends(require_page("job-orders"))) -> dict:
+    """Take back a submission made against a job order.
+
+    Only while it is still just a submission: once an interview, outcome or
+    offer has been recorded, the client has acted on it and that history is
+    changed through those actions instead.
+    """
+    record = _recruitment_or_404(candidate_id, user)
+    _reject_if_placed(record)
+    if _mapped_job_order(record) != payload.job_order_id:
+        raise HTTPException(status_code=409, detail="This candidate is not submitted to this job order.")
+    if record.recruitment_status not in _SUBMITTED_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="The client has already moved this candidate on (interview or outcome recorded); it can no longer be unsubmitted.",
+        )
+    updated = repo().record_recruitment_event(
+        candidate_id,
+        {"type": "unsubmitted", "job_order_id": payload.job_order_id,
+         "target_name": record.submission_target_name, "notes": payload.notes, **_actor(user)},
+        {"recruitment_status": "available", **_ENGAGEMENT_FIELDS},
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")

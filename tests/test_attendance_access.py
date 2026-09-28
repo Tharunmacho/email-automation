@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import mongomock
+import pytest
 
 # Attendance routes import authentication dependencies from the main API, and
 # the main API registers the attendance router at the end of its import. Load
@@ -117,20 +118,35 @@ def test_manager_attendance_roster_contains_staff_only():
     assert [employee["id"] for employee in result["items"]] == ["staff-1", "staff-2"]
 
 
-def test_manager_leave_request_notifies_only_super_admin():
+def test_manager_leave_goes_to_the_staff_cover_then_only_the_super_admin():
+    from app.attendance.api import respond_to_cover
+    from app.attendance.models import CoverResponse
+
     repository = AttendanceRepository(mongomock.MongoClient()["manager-request"])
     CapturedNotifications.recipients = []
     payload = PermissionRequest(
         attendance_date=date(2026, 9, 10),
         kind="paid_leave",
         reason="Personal leave",
+        cover_employee_id="staff-1",
     )
     with patch("app.attendance.api.users", ApprovalUsers()), patch(
         "app.attendance.api.service", return_value=AttendanceService(repository)
-    ), patch("app.attendance.api.NotificationRepository", return_value=CapturedNotifications()):
-        request_permission_route(payload, user={"id": "manager-1", "role": MANAGER_ROLE})
+    ), patch("app.attendance.api.AttendanceRepository", return_value=repository), patch(
+        "app.attendance.api.NotificationRepository", return_value=CapturedNotifications()
+    ):
+        created = request_permission_route(payload, user={"id": "manager-1", "role": MANAGER_ROLE})
+        # First the staff member asked to cover; nobody else yet.
+        assert created["status"] == "awaiting_cover"
+        assert CapturedNotifications.recipients == ["staff-1"]
 
-    assert CapturedNotifications.recipients == ["admin-1"]
+        CapturedNotifications.recipients = []
+        respond_to_cover(created["permission"]["id"], CoverResponse(accepted=True),
+                         user={"id": "staff-1", "role": STAFF_ROLE})
+
+    # The manager hears the answer; the request goes to the super admin only.
+    assert CapturedNotifications.recipients == ["manager-1", "admin-1"]
+    assert repository.permission(created["permission"]["id"])["status"] == "pending"
 
 
 def test_manager_cannot_approve_another_manager_request():
@@ -196,19 +212,69 @@ def test_staff_payroll_is_scoped_to_the_signed_in_employee():
     assert [employee.id for employee in visible] == ["staff-2"]
 
 
+def _at(moment):
+    """Freeze `datetime.now` inside the attendance API."""
+    clock = patch("app.attendance.api.datetime")
+    fake = clock.start()
+    fake.now.return_value = moment
+    fake.combine.side_effect = datetime.combine
+    return clock
+
+
 def test_staff_selects_only_their_own_weekly_off_from_attendance():
     repository = AttendanceRepository(mongomock.MongoClient()["self-weekly-off"])
-    with patch("app.attendance.api.users", FakeUsers()), patch(
-        "app.attendance.api.AttendanceRepository", return_value=repository
-    ):
-        result = update_weekly_off_route(
-            WeeklyOffRequest(weekly_off_pattern="alternate_friday"),
-            user={"id": "staff-2", "role": STAFF_ROLE},
-        )
+    # Wednesday 7 Oct 2026, 10:00 IST: Friday 9 Oct may still be chosen.
+    clock = _at(datetime(2026, 10, 7, 4, 30, tzinfo=timezone.utc))
+    try:
+        with patch("app.attendance.api.users", FakeUsers()), patch(
+            "app.attendance.api.AttendanceRepository", return_value=repository
+        ):
+            result = update_weekly_off_route(
+                WeeklyOffRequest(week_start=date(2026, 10, 5), day="friday"),
+                user={"id": "staff-2", "role": STAFF_ROLE},
+            )
+    finally:
+        clock.stop()
 
     assert result["employee_id"] == "staff-2"
-    assert repository.employee_policy("staff-2")["weekly_off_pattern"] == "alternate_friday"
-    assert repository.employee_policy("staff-1")["weekly_off_pattern"] == "sunday"
+    assert result["week"]["friday"] == "2026-10-09"
+    assert repository.weekly_off_choice("staff-2", date(2026, 10, 5)) == "friday"
+    assert repository.weekly_off_choice("staff-1", date(2026, 10, 5)) is None
+
+
+def test_friday_must_be_chosen_by_thursday_midnight():
+    repository = AttendanceRepository(mongomock.MongoClient()["weekly-off-deadline"])
+    # Friday 9 Oct 2026, 00:30 IST: Thursday 11:59 PM has passed.
+    clock = _at(datetime(2026, 10, 8, 19, 0, tzinfo=timezone.utc))
+    try:
+        with patch("app.attendance.api.users", FakeUsers()), patch(
+            "app.attendance.api.AttendanceRepository", return_value=repository
+        ), pytest.raises(HTTPException) as late:
+            update_weekly_off_route(
+                WeeklyOffRequest(week_start=date(2026, 10, 5), day="friday"),
+                user={"id": "staff-1", "role": STAFF_ROLE},
+            )
+    finally:
+        clock.stop()
+    assert late.value.status_code == 409
+    assert repository.weekly_off_choice("staff-1", date(2026, 10, 5)) is None
+
+
+def test_thursday_evening_is_still_in_time():
+    repository = AttendanceRepository(mongomock.MongoClient()["weekly-off-thursday"])
+    # Thursday 8 Oct 2026, 11:58 PM IST.
+    clock = _at(datetime(2026, 10, 8, 18, 28, tzinfo=timezone.utc))
+    try:
+        with patch("app.attendance.api.users", FakeUsers()), patch(
+            "app.attendance.api.AttendanceRepository", return_value=repository
+        ):
+            update_weekly_off_route(
+                WeeklyOffRequest(week_start=date(2026, 10, 5), day="friday"),
+                user={"id": "staff-1", "role": STAFF_ROLE},
+            )
+    finally:
+        clock.stop()
+    assert repository.weekly_off_choice("staff-1", date(2026, 10, 5)) == "friday"
 
 
 def test_saving_salary_does_not_overwrite_staff_weekly_off():

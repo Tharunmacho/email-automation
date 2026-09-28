@@ -20706,3 +20706,18 @@ a.um-phone:hover {
 .attendance-cover-cell { display: flex; flex-direction: column; gap: .3rem; min-width: 10rem; }
 .attendance-cover-cell small { color: var(--text-muted); }
 .attendance-cover-cell select { padding: .35rem .5rem; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-card); color: var(--text-main); font: inherit; font-size: .75rem; }
+
+/* Job order submit / unsubmit confirmation. */
+.jo-confirm-dialog { max-width: 30rem; }
+.jo-confirm-body { margin: 0 0 1.1rem; color: var(--text-main); font-size: .88rem; line-height: 1.55; }
+.mc-badge-elsewhere { background: var(--tint-2); color: var(--text-muted); }
+
+/* Weekly off: one Sunday/Friday choice per week. */
+.attendance-weekly-off.is-weekly { flex-direction: column; align-items: stretch; }
+.weekly-off-weeks { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .6rem; }
+.weekly-off-week { display: flex; flex-direction: column; gap: .4rem; padding: .65rem .75rem; border: 1px solid var(--border-main); border-radius: 12px; background: var(--tint-2); }
+.weekly-off-week .scope-switch { align-self: flex-start; background: var(--bg-card); }
+.weekly-off-week-label { color: var(--text-main); font-size: .76rem; font-weight: 700; }
+.weekly-off-week small { color: var(--text-muted); font-size: .68rem; }
+.weekly-off-week.is-locked { opacity: .7; }
+.weekly-off-week .scope-switch button:disabled { cursor: default; }

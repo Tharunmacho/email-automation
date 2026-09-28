@@ -158,18 +158,16 @@ def test_five_minute_work_session_uses_grace_then_deducts_uncovered_shift():
     assert calculated["unpaid_minutes"] == 415
 
 
-def test_alternate_friday_replaces_sunday_as_the_weekly_off():
+def test_a_chosen_friday_replaces_that_weeks_sunday():
     repository = AttendanceRepository(mongomock.MongoClient()["weekly-off-choice"])
-    repository.set_employee_policy("staff-1", {
-        "monthly_salary": 30000,
-        "weekly_off_pattern": "alternate_friday",
-        "alternate_friday_parity": 0,
-    })
+    # Week of Monday 31 Aug: Friday chosen. Week of Monday 7 Sep: nothing chosen.
+    repository.set_weekly_off_choice("staff-1", date(2026, 8, 31), "friday")
     attendance = AttendanceService(repository)
 
-    assert attendance.day("staff-1", date(2026, 9, 4))["status"] == "WO"
-    assert attendance.day("staff-1", date(2026, 9, 6))["status"] != "WO"
-    assert attendance.day("staff-1", date(2026, 9, 11))["status"] != "WO"
+    assert attendance.day("staff-1", date(2026, 9, 4))["status"] == "WO"   # the chosen Friday
+    assert attendance.day("staff-1", date(2026, 9, 6))["status"] != "WO"   # its Sunday is working
+    assert attendance.day("staff-1", date(2026, 9, 11))["status"] != "WO"  # next Friday: default
+    assert attendance.day("staff-1", date(2026, 9, 13))["status"] == "WO"  # default Sunday off
 
 
 def test_planned_sunday_duty_overrides_weekly_off():

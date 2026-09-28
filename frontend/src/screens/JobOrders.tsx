@@ -17,7 +17,6 @@ import {
   Check,
   Target,
   AlertTriangle,
-  XCircle,
   RotateCcw,
   UserCheck,
   Mail,
@@ -50,6 +49,7 @@ import {
   listSourcingClientsAPI,
   listCountriesAPI,
   submitCandidate,
+  unsubmitCandidate,
   type CandidateRecord,
 } from "@/lib/api";
 import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
@@ -89,7 +89,7 @@ function scoreTone(score: number): StatTone {
 
 export function deriveStatus(order: JobOrderRecord): JobOrderStatus {
   if (order.status === "CLOSED") return "CLOSED";
-  const filled = (order.shortlistedCandidateIds || []).length || order.fulfilledCount || 0;
+  const filled = (order.submittedCandidateIds || []).length;
   const required = order.headcount || 1;
   if (filled >= required) return "FILLED";
   if (filled > 0) return "IN PROGRESS";
@@ -188,10 +188,10 @@ export interface MatchResult {
   roleMatched: boolean;
   roleStatusText: string;
   summary: string;
-  isSelected: boolean;
-  isRejected: boolean;
-  /** Submitted to the order's client, on the order or on the candidate record. */
+  /** Submitted to this order's client: the candidate is mapped to this order. */
   isSubmitted: boolean;
+  /** The other job order this candidate is mapped to, which blocks submitting here. */
+  submittedElsewhere: string | null;
 }
 
 /** Related terms recruiters commonly use for the same capability. Matching is
@@ -245,11 +245,20 @@ function conceptTerms(term: string, concepts: string[][]): string[] {
   return concepts.find((group) => group.some((alias) => normaliseMatchText(alias).trim() === normalised)) ?? [term];
 }
 
+/**
+ * The job order a candidate is currently submitted against, if any. Mirrors
+ * the backend rule: a `job_order_id` counts while the candidate is out with the
+ * client, and stops counting once they are back in the pool.
+ */
+function mappedOrderOf(candidate: CandidateRecord): string | null {
+  if (!candidate.job_order_id) return null;
+  if (!candidate.recruitment_status || candidate.recruitment_status === "available") return null;
+  return candidate.job_order_id;
+}
+
 export function calculateCandidateMatch(
   order: JobOrderRecord,
   candidate: CandidateRecord,
-  shortlistedIds: string[] = [],
-  rejectedIds: string[] = []
 ): MatchResult {
   const profile = candidate.profile || {};
   const candSkills = [
@@ -371,11 +380,11 @@ export function calculateCandidateMatch(
     roleMatched,
     roleStatusText,
     summary,
-    isSelected: shortlistedIds.includes(candidate.id),
-    isRejected: rejectedIds.includes(candidate.id),
-    isSubmitted:
-      (order.submittedCandidateIds || []).includes(candidate.id) ||
-      (!!candidate.job_order_id && candidate.job_order_id === order.id),
+    isSubmitted: mappedOrderOf(candidate) === order.id,
+    submittedElsewhere: (() => {
+      const mapped = mappedOrderOf(candidate);
+      return mapped && mapped !== order.id ? mapped : null;
+    })(),
   };
 }
 
@@ -511,8 +520,14 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const [copiedSummary, setCopiedSummary] = useState(false);
 
   // Candidate matching filter + sort state
-  const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SHORTLISTED" | "SUBMITTED" | "REJECTED" | "ROLE">("ALL");
+  const [matchFilter, setMatchFilter] = useState<"ALL" | "TOP" | "SUBMITTED" | "ROLE">("ALL");
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  // Submitting and unsubmitting both ask first.
+  const [confirmSubmission, setConfirmSubmission] = useState<{
+    mode: "submit" | "unsubmit";
+    orderId: string;
+    candidateId: string;
+  } | null>(null);
   const [matchSort, setMatchSort] = useState<"SCORE" | "EXP" | "NAME">("SCORE");
   const [showWeakMatches, setShowWeakMatches] = useState(false);
 
@@ -687,6 +702,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   };
   const editDialogRef = useModalFocus<HTMLDivElement>(isEditModalOpen, closeEditModal);
   const createDialogRef = useModalFocus<HTMLDivElement>(isCreateModalOpen, () => setIsCreateModalOpen(false));
+  const confirmDialogRef = useModalFocus<HTMLDivElement>(confirmSubmission !== null, () => setConfirmSubmission(null));
 
   const handleUpdateOrder = (e: React.FormEvent) => {
     e.preventDefault();
@@ -766,86 +782,27 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const candidateLabel = (candidateId: string) =>
     candidateNameOf(dbCandidates.find((c) => c.id === candidateId));
 
-  const handleToggleShortlistCandidate = (orderId: string, candidateId: string) => {
-    const currentOrder = orders.find((o) => o.id === orderId);
-    if (!currentOrder) return;
-
-    const currentShortlisted = currentOrder.shortlistedCandidateIds || [];
-    const isCurrentlySelected = currentShortlisted.includes(candidateId);
-
-    const who = candidateLabel(candidateId);
-    activity(
-      isCurrentlySelected
-        ? `Removed ${who} from shortlist for ${currentOrder.title} (${currentOrder.client}).`
-        : `Shortlisted ${who} for ${currentOrder.title} (${currentOrder.client}).`,
-      isCurrentlySelected ? "warn" : "success",
-    );
-
-    const newShortlisted = isCurrentlySelected
-      ? currentShortlisted.filter((id) => id !== candidateId)
-      : [...currentShortlisted, candidateId];
-
+  /** Record the order's submitted list, and its fill count, after a change. */
+  const saveSubmitted = (order: JobOrderRecord, submittedIds: string[]) => {
     const draft: JobOrderRecord = {
-      ...currentOrder,
-      shortlistedCandidateIds: newShortlisted,
-      fulfilledCount: newShortlisted.length,
-      rejectedCandidateIds: (currentOrder.rejectedCandidateIds || []).filter((id) => id !== candidateId),
+      ...order,
+      submittedCandidateIds: submittedIds,
+      fulfilledCount: submittedIds.length,
     };
     const updatedOrder: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
-
-    updateJobOrderAPI(orderId, updatedOrder).catch(() => {});
-    const newOrders = orders.map((ord) => (ord.id === orderId ? updatedOrder : ord));
-    saveOrdersToStorage(newOrders);
-
-    if (selectedOrder?.id === orderId) {
-      setSelectedOrder(updatedOrder);
-    }
+    updateJobOrderAPI(order.id, updatedOrder).catch(() => {});
+    saveOrdersToStorage(orders.map((ord) => (ord.id === order.id ? updatedOrder : ord)));
+    if (selectedOrder?.id === order.id) setSelectedOrder(updatedOrder);
   };
 
-  const handleToggleRejectCandidate = (orderId: string, candidateId: string) => {
-    const currentOrder = orders.find((o) => o.id === orderId);
-    if (!currentOrder) return;
-
-    const currentRejected = currentOrder.rejectedCandidateIds || [];
-    const isCurrentlyRejected = currentRejected.includes(candidateId);
-
-    const who = candidateLabel(candidateId);
-    activity(
-      isCurrentlyRejected
-        ? `Restored ${who} to pool for ${currentOrder.title} (${currentOrder.client}).`
-        : `Rejected ${who} for ${currentOrder.title} (${currentOrder.client}).`,
-      isCurrentlyRejected ? "info" : "warn",
-    );
-
-    const newRejected = isCurrentlyRejected
-      ? currentRejected.filter((id) => id !== candidateId)
-      : [...currentRejected, candidateId];
-
-    const newShortlisted = isCurrentlyRejected
-      ? currentOrder.shortlistedCandidateIds || []
-      : (currentOrder.shortlistedCandidateIds || []).filter((id) => id !== candidateId);
-
-    const draft: JobOrderRecord = {
-      ...currentOrder,
-      rejectedCandidateIds: newRejected,
-      shortlistedCandidateIds: newShortlisted,
-      fulfilledCount: newShortlisted.length,
-    };
-    const updatedOrder: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
-
-    updateJobOrderAPI(orderId, updatedOrder).catch(() => {});
-    const newOrders = orders.map((ord) => (ord.id === orderId ? updatedOrder : ord));
-    saveOrdersToStorage(newOrders);
-
-    if (selectedOrder?.id === orderId) {
-      setSelectedOrder(updatedOrder);
-    }
+  const mergeCandidate = (candidateId: string, fresh: CandidateRecord) => {
+    setFetchedCandidates((list) => list.map((c) => (c.id === candidateId ? { ...c, ...fresh } : c)));
   };
 
   /**
-   * Send a shortlisted candidate to the order's client. The candidate record is
-   * stamped with this order's id (`POST /candidates/{id}/submit`), which is what
-   * maps them to the requisition; the order keeps its own list for the screen.
+   * Submit a candidate to the order's client. The candidate record is stamped
+   * with this order's id (`POST /candidates/{id}/submit`), which maps them to
+   * the order; the backend refuses a candidate already mapped to another one.
    */
   const handleSubmitToClient = async (orderId: string, candidateId: string) => {
     const currentOrder = orders.find((o) => o.id === orderId);
@@ -853,32 +810,15 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     const who = candidateLabel(candidateId);
     setSubmittingId(candidateId);
     try {
-      let updatedCandidate: CandidateRecord | null = null;
-      try {
-        updatedCandidate = await submitCandidate(candidateId, {
-          target_type: clientTypes[currentOrder.client] === "association" ? "associate" : "company",
-          target_name: currentOrder.client,
-          job_order_id: currentOrder.id,
-          notes: `Submitted for ${currentOrder.title} (${currentOrder.id}).`,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "";
-        // Already with this client: record it on the order rather than fail.
-        if (!/already submitted/i.test(message)) throw err;
-      }
-
+      const updated = await submitCandidate(candidateId, {
+        target_type: clientTypes[currentOrder.client] === "association" ? "associate" : "company",
+        target_name: currentOrder.client,
+        job_order_id: currentOrder.id,
+        notes: `Submitted for ${currentOrder.title} (${currentOrder.id}).`,
+      });
+      mergeCandidate(candidateId, updated);
       const submitted = currentOrder.submittedCandidateIds || [];
-      const updatedOrder: JobOrderRecord = {
-        ...currentOrder,
-        submittedCandidateIds: submitted.includes(candidateId) ? submitted : [...submitted, candidateId],
-      };
-      updateJobOrderAPI(orderId, updatedOrder).catch(() => {});
-      saveOrdersToStorage(orders.map((ord) => (ord.id === orderId ? updatedOrder : ord)));
-      if (selectedOrder?.id === orderId) setSelectedOrder(updatedOrder);
-      if (updatedCandidate) {
-        const fresh = updatedCandidate;
-        setFetchedCandidates((list) => list.map((c) => (c.id === candidateId ? { ...c, ...fresh } : c)));
-      }
+      saveSubmitted(currentOrder, submitted.includes(candidateId) ? submitted : [...submitted, candidateId]);
       activity(`Submitted ${who} to ${currentOrder.client} for ${currentOrder.title}.`, "success");
     } catch (err) {
       activity(
@@ -888,6 +828,37 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     } finally {
       setSubmittingId(null);
     }
+  };
+
+  /** Take a submission back: the candidate is released from this order. */
+  const handleUnsubmit = async (orderId: string, candidateId: string) => {
+    const currentOrder = orders.find((o) => o.id === orderId);
+    if (!currentOrder || submittingId) return;
+    const who = candidateLabel(candidateId);
+    setSubmittingId(candidateId);
+    try {
+      const updated = await unsubmitCandidate(candidateId, {
+        job_order_id: currentOrder.id,
+        notes: `Unsubmitted from ${currentOrder.title} (${currentOrder.id}).`,
+      });
+      mergeCandidate(candidateId, updated);
+      saveSubmitted(currentOrder, (currentOrder.submittedCandidateIds || []).filter((id) => id !== candidateId));
+      activity(`Unsubmitted ${who} from ${currentOrder.title} (${currentOrder.client}).`, "warn");
+    } catch (err) {
+      activity(
+        `Could not unsubmit ${who}: ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
+      );
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  const runConfirmedSubmission = () => {
+    if (!confirmSubmission) return;
+    const { mode, orderId, candidateId } = confirmSubmission;
+    setConfirmSubmission(null);
+    void (mode === "submit" ? handleSubmitToClient(orderId, candidateId) : handleUnsubmit(orderId, candidateId));
   };
 
   const handleCreateOrder = (e: React.FormEvent) => {
@@ -964,14 +935,11 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     if (dbCandidates.length === 0) return summary;
 
     for (const order of orders) {
-      const shortlisted = order.shortlistedCandidateIds || [];
-      const rejected = order.rejectedCandidateIds || [];
       let strong = 0;
       let best = 0;
 
       for (const cand of dbCandidates) {
-        const result = calculateCandidateMatch(order, cand, shortlisted, rejected);
-        if (result.isRejected) continue;
+        const result = calculateCandidateMatch(order, cand);
         if (result.matchScore >= 65) strong += 1;
         if (result.matchScore > best) best = result.matchScore;
       }
@@ -1001,14 +969,10 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     const counts = new Map<string, number>();
     if (!selectedOrder) return counts;
 
-    const shortlistedIds = selectedOrder.shortlistedCandidateIds || [];
-    const rejectedIds = selectedOrder.rejectedCandidateIds || [];
-
     for (const skill of selectedOrder.skills || []) counts.set(skill, 0);
 
     for (const cand of dbCandidates) {
-      const res = calculateCandidateMatch(selectedOrder, cand, shortlistedIds, rejectedIds);
-      if (res.isRejected) continue;
+      const res = calculateCandidateMatch(selectedOrder, cand);
       for (const skill of res.matchedSkills) {
         counts.set(skill, (counts.get(skill) || 0) + 1);
       }
@@ -1018,28 +982,16 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
 
   const matchedCandidateResults = useMemo(() => {
     if (!selectedOrder) return [];
-    const shortlistedIds = selectedOrder.shortlistedCandidateIds || [];
-    const rejectedIds = selectedOrder.rejectedCandidateIds || [];
-
     if (dbCandidates.length === 0) return [];
 
-    let results = dbCandidates.map((cand) =>
-      calculateCandidateMatch(selectedOrder, cand, shortlistedIds, rejectedIds)
-    );
+    let results = dbCandidates.map((cand) => calculateCandidateMatch(selectedOrder, cand));
 
-    if (matchFilter === "REJECTED") {
-      results = results.filter((r) => r.isRejected);
-    } else {
-      results = results.filter((r) => !r.isRejected);
-      if (matchFilter === "TOP") {
-        results = results.filter((r) => r.matchScore >= 65);
-      } else if (matchFilter === "SHORTLISTED") {
-        results = results.filter((r) => r.isSelected);
-      } else if (matchFilter === "SUBMITTED") {
-        results = results.filter((r) => r.isSubmitted);
-      } else if (matchFilter === "ROLE") {
-        results = results.filter((r) => r.roleMatched);
-      }
+    if (matchFilter === "TOP") {
+      results = results.filter((r) => r.matchScore >= 65);
+    } else if (matchFilter === "SUBMITTED") {
+      results = results.filter((r) => r.isSubmitted);
+    } else if (matchFilter === "ROLE") {
+      results = results.filter((r) => r.roleMatched);
     }
 
     if (activeSkillFilter.length > 0) {
@@ -1071,14 +1023,16 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   const handleCopyShortlistSummary = () => {
     if (!selectedOrder) return;
 
-    const shortlisted = matchedCandidateResults.filter((r) => r.isSelected);
+    const shortlisted = dbCandidates
+      .map((cand) => calculateCandidateMatch(selectedOrder, cand))
+      .filter((r) => r.isSubmitted);
     let summaryText = `📋 EXECUTIVE SHORTLIST SUMMARY: ${selectedOrder.title} (${selectedOrder.client})\n`;
     summaryText += `Requisition ID: ${selectedOrder.id} | Headcount: ${selectedOrder.headcount} | Budget: ₹${formatSalary(selectedOrder.salary)}\n`;
     summaryText += `Required Skills: ${selectedOrder.skills.join(", ")}\n`;
     summaryText += `--------------------------------------------------\n`;
 
     if (shortlisted.length === 0) {
-      summaryText += `No candidates currently shortlisted for this requisition.\n`;
+      summaryText += `No candidates submitted for this requisition yet.\n`;
     } else {
       shortlisted.forEach((res, i) => {
         const name = res.candidate.profile?.full_name || "Candidate";
@@ -1342,9 +1296,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
   // RENDER DETAILED VIEW IF AN ORDER IS SELECTED
   // -------------------------------------------------------------
   if (selectedOrder) {
-    const shortlistedIds = selectedOrder.shortlistedCandidateIds || [];
-    const rejectedIds = selectedOrder.rejectedCandidateIds || [];
-    const fulfilled = shortlistedIds.length || selectedOrder.fulfilledCount || 0;
+    const fulfilled = (selectedOrder.submittedCandidateIds || []).length;
     const totalHead = selectedOrder.headcount || 1;
     const progressPct = Math.min(100, Math.round((fulfilled / totalHead) * 100));
     const order = selectedOrder;
@@ -1378,12 +1330,12 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
       return (
         <article
           key={res.candidate.id}
-          className={`mc-card ${res.isSelected ? "is-shortlisted" : ""} ${res.isRejected ? "is-rejected" : ""}`}
+          className={`mc-card ${res.isSubmitted ? "is-shortlisted" : ""}`}
         >
           <div className="mc-main">
             <ScoreRadialGauge
               score={res.matchScore}
-              state={res.isSelected ? "on" : res.isRejected ? "off" : "open"}
+              state={res.isSubmitted ? "on" : "open"}
             />
 
             <div className="mc-identity">
@@ -1392,22 +1344,16 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                   {name}
                 </h4>
                 <span className={`mc-badge band-${band.key}`}>{band.label}</span>
-                {res.isSelected && !res.isSubmitted && (
-                  <span className="mc-badge mc-badge-on">
-                    <CheckCircle size={12} />
-                    Shortlisted
-                  </span>
-                )}
                 {res.isSubmitted && (
                   <span className="mc-badge mc-badge-submitted" title={`Submitted to ${order.client} for this order`}>
                     <Send size={12} />
                     Submitted to {order.client}
                   </span>
                 )}
-                {res.isRejected && (
-                  <span className="mc-badge mc-badge-rejected">
-                    <XCircle size={12} />
-                    Rejected
+                {res.submittedElsewhere && (
+                  <span className="mc-badge mc-badge-elsewhere" title="Mapped to another job order">
+                    <Send size={12} />
+                    Submitted to {res.submittedElsewhere}
                   </span>
                 )}
               </div>
@@ -1444,44 +1390,30 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
             </div>
 
             <div className="mc-actions" style={{ flexWrap: "wrap", gap: "6px" }}>
-
-              <button
-                className={`mc-btn mc-btn-reject ${res.isRejected ? "is-on" : ""}`}
-                onClick={() => handleToggleRejectCandidate(order.id, res.candidate.id)}
-                disabled={res.isSubmitted}
-                title={res.isSubmitted ? "Already submitted to the client. Record the outcome on the candidate profile." : undefined}
-              >
-                {res.isRejected ? <RotateCcw size={15} /> : <XCircle size={15} />}
-                <span>{res.isRejected ? "Restore" : "Reject"}</span>
-              </button>
-
-              {!res.isSubmitted && (
+              {res.isSubmitted ? (
                 <button
-                  className={`mc-btn mc-btn-primary ${res.isSelected ? "is-on" : ""}`}
-                  onClick={() => handleToggleShortlistCandidate(order.id, res.candidate.id)}
-                >
-                  {res.isSelected ? <CheckCircle size={15} /> : <Plus size={15} />}
-                  <span>{res.isSelected ? "Shortlisted" : "Shortlist"}</span>
-                </button>
-              )}
-
-              {res.isSelected && !res.isSubmitted && (
-                <button
-                  className="mc-btn mc-btn-submit"
-                  onClick={() => void handleSubmitToClient(order.id, res.candidate.id)}
+                  className="mc-btn mc-btn-reject"
+                  onClick={() => setConfirmSubmission({ mode: "unsubmit", orderId: order.id, candidateId: res.candidate.id })}
                   disabled={submittingId !== null}
-                  title={`Submit to ${order.client} and link to ${order.id}`}
+                  title={`Take the submission back from ${order.client}`}
+                >
+                  {submittingId === res.candidate.id ? <Loader2 size={15} className="icon-spin" /> : <RotateCcw size={15} />}
+                  <span>{submittingId === res.candidate.id ? "Working\u2026" : "Unsubmit"}</span>
+                </button>
+              ) : (
+                <button
+                  className="mc-btn mc-btn-primary"
+                  onClick={() => setConfirmSubmission({ mode: "submit", orderId: order.id, candidateId: res.candidate.id })}
+                  disabled={submittingId !== null || res.submittedElsewhere !== null}
+                  title={
+                    res.submittedElsewhere
+                      ? `Already submitted to job order ${res.submittedElsewhere}. Unsubmit there first.`
+                      : `Submit to ${order.client} for ${order.id}`
+                  }
                 >
                   {submittingId === res.candidate.id ? <Loader2 size={15} className="icon-spin" /> : <Send size={15} />}
-                  <span>{submittingId === res.candidate.id ? "Submitting…" : "Submit to client"}</span>
+                  <span>{submittingId === res.candidate.id ? "Submitting\u2026" : "Submit"}</span>
                 </button>
-              )}
-
-              {res.isSubmitted && (
-                <span className="mc-btn mc-btn-submit is-on" aria-disabled="true">
-                  <CheckCircle size={15} />
-                  <span>Submitted</span>
-                </span>
               )}
             </div>
           </div>
@@ -1591,13 +1523,53 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
     const detailStatus = deriveStatus(selectedOrder);
     const dueMeta = getDueMeta(selectedOrder.dueDate);
     const strongMatches = matchedCandidateResults.filter((r) => r.matchScore >= 65).length;
-    const submittedCount = new Set([
-      ...(selectedOrder.submittedCandidateIds || []),
-      ...dbCandidates.filter((c) => c.job_order_id === selectedOrder.id).map((c) => c.id),
-    ]).size;
+    const submittedCount = dbCandidates.filter((c) => mappedOrderOf(c) === selectedOrder.id).length;
 
     return (
       <div className="jod-root">
+        {confirmSubmission && (() => {
+          const who = candidateLabel(confirmSubmission.candidateId);
+          const submitting = confirmSubmission.mode === "submit";
+          return (
+            <div className="cm-overlay active" onClick={() => setConfirmSubmission(null)}>
+              <div
+                ref={confirmDialogRef}
+                className="cm-dialog sh-modal jo-confirm-dialog"
+                onClick={(e) => e.stopPropagation()}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="jo-confirm-title"
+                aria-describedby="jo-confirm-body"
+                tabIndex={-1}
+              >
+                <div className="sh-modal-head">
+                  <div>
+                    <h2 id="jo-confirm-title" className="sh-modal-title">
+                      {submitting ? "Submit candidate?" : "Unsubmit candidate?"}
+                    </h2>
+                    <p className="sh-modal-sub">{selectedOrder.title} · {selectedOrder.id}</p>
+                  </div>
+                  <button className="sh-modal-close" onClick={() => setConfirmSubmission(null)} aria-label="Close">
+                    <X size={18} />
+                  </button>
+                </div>
+                <p id="jo-confirm-body" className="jo-confirm-body">
+                  {submitting
+                    ? <>Submit <strong>{who}</strong> to <strong>{selectedOrder.client}</strong>? They will be mapped to this job order and cannot be submitted to another one until they are unsubmitted.</>
+                    : <>Take back <strong>{who}</strong>&apos;s submission to <strong>{selectedOrder.client}</strong>? They will be released from this job order and can be submitted elsewhere.</>}
+                </p>
+                <div className="modal-footer">
+                  <button type="button" className="modal-cancel-btn" onClick={() => setConfirmSubmission(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="modal-submit-btn" onClick={runConfirmedSubmission}>
+                    {submitting ? "Yes, submit" : "Yes, unsubmit"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         <div>
           <button className="jod-back" onClick={() => setSelectedOrder(null)} title="Back to the job orders list">
             <ArrowLeft size={17} />
@@ -1794,17 +1766,17 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
             />
             <StatTile
               tone="green"
-              icon={CheckCircle}
-              label="Shortlisted"
-              value={formatInt(shortlistedIds.length)}
+              icon={Send}
+              label="Submitted"
+              value={formatInt(submittedCount)}
               note={`${formatInt(totalHead)} seat${totalHead === 1 ? "" : "s"} on this order`}
             />
             <StatTile
-              tone={rejectedIds.length > 0 ? "red" : "slate"}
-              icon={XCircle}
-              label="Rejected"
-              value={formatInt(rejectedIds.length)}
-              note="Screened out of this order"
+              tone={submittedCount >= totalHead ? "green" : "slate"}
+              icon={CheckCircle}
+              label="Seats open"
+              value={formatInt(Math.max(0, totalHead - submittedCount))}
+              note="Still to be filled with submissions"
             />
           </div>
 
@@ -1816,9 +1788,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               {([
                 { id: "ALL", label: "All matches", count: matchedCandidateResults.length },
                 { id: "TOP", label: "Strong fits", count: dbCandidates.length > 0 ? strongMatches : 0 },
-                { id: "SHORTLISTED", label: "Shortlisted", count: shortlistedIds.length },
                 { id: "SUBMITTED", label: "Submitted", count: submittedCount },
-                { id: "REJECTED", label: "Rejected", count: rejectedIds.length },
                 { id: "ROLE", label: "Role aligned", count: null },
               ] as const).map((tab) => (
                 <button
@@ -1947,8 +1917,8 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
                 <p>
                   {dbCandidates.length === 0
                     ? "No candidate profiles in the database yet"
-                    : matchFilter === "REJECTED"
-                      ? "No rejected candidates for this order"
+                    : matchFilter === "SUBMITTED"
+                      ? "No candidates submitted to this order yet"
                       : activeSkillFilter.length > 0
                         ? `Nobody in this pool has ${skillMode === "ALL" ? "all of" : "any of"
                         } ${activeSkillFilter.join(", ")}`
@@ -2087,7 +2057,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
               </thead>
               <tbody>
                 {filteredOrders.map((item) => {
-                  const fulfilled = (item.shortlistedCandidateIds || []).length || item.fulfilledCount || 0;
+                  const fulfilled = (item.submittedCandidateIds || []).length;
                   const rowStatus = deriveStatus(item);
                   const due = getDueMeta(item.dueDate);
                   const isLate = due.overdue && rowStatus !== "CLOSED";
@@ -2221,7 +2191,7 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
           </div>
         ) : (
           filteredOrders.map((item) => {
-            const fulfilled = (item.shortlistedCandidateIds || []).length || item.fulfilledCount || 0;
+            const fulfilled = (item.submittedCandidateIds || []).length;
             const cardStatus = deriveStatus(item);
             const cardDue = getDueMeta(item.dueDate);
             const isLate = cardDue.overdue && cardStatus !== "CLOSED";

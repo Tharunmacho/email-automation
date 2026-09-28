@@ -17,6 +17,7 @@ SHIFTS = "attendance_shift_assignments"
 CALENDAR = "attendance_calendar"
 POLICIES = "attendance_employee_policies"
 EXTRA_OT = "attendance_extra_ot"
+WEEKLY_OFF = "attendance_weekly_off_choices"
 
 
 def _utcnow() -> datetime:
@@ -47,6 +48,7 @@ class AttendanceRepository:
         self.calendar = db[CALENDAR]
         self.policies = db[POLICIES]
         self.extra_ot_collection = db[EXTRA_OT]
+        self.weekly_off = db[WEEKLY_OFF]
 
     def append_event(self, event: dict) -> tuple[dict, bool]:
         """Insert once. A repeated webhook returns the original event."""
@@ -111,7 +113,9 @@ class AttendanceRepository:
     def create_permission(self, request: dict) -> dict:
         doc = dict(request)
         doc.setdefault("_id", uuid.uuid4().hex)
-        doc.update(status="pending", created_at=_utcnow(), updated_at=_utcnow())
+        # A leave naming a cover starts at "awaiting_cover" and reaches the
+        # approver only once the cover accepts; everything else starts pending.
+        doc.update(status=doc.get("status") or "pending", created_at=_utcnow(), updated_at=_utcnow())
         self.permissions.insert_one(doc)
         return _public(doc)
 
@@ -134,10 +138,10 @@ class AttendanceRepository:
 
     # ---- leave cover ------------------------------------------------------ #
     def nominate_cover(self, permission_id: str, employee_id: str, cover: dict) -> dict | None:
-        """Ask a colleague to cover. Refused once a cover has accepted."""
+        """Ask a colleague to cover. Only while the leave still awaits a cover."""
         result = self.permissions.find_one_and_update(
             {"_id": permission_id, "employee_id": employee_id,
-             "status": {"$in": ["pending", "approved"]},
+             "status": "awaiting_cover",
              "cover_status": {"$ne": "accepted"}},
             {"$set": {**cover, "cover_status": "requested", "cover_note": "",
                       "cover_responded_at": None, "updated_at": _utcnow()}},
@@ -146,11 +150,15 @@ class AttendanceRepository:
         return _public(result)
 
     def respond_to_cover(self, permission_id: str, cover_employee_id: str, accepted: bool, note: str) -> dict | None:
+        """Record the cover's answer. Acceptance moves the leave on to the approver."""
+        updates = {"cover_status": "accepted" if accepted else "declined",
+                   "cover_note": note, "cover_responded_at": _utcnow(), "updated_at": _utcnow()}
+        if accepted:
+            updates["status"] = "pending"
         result = self.permissions.find_one_and_update(
             {"_id": permission_id, "cover_employee_id": cover_employee_id,
-             "cover_status": "requested", "status": {"$in": ["pending", "approved"]}},
-            {"$set": {"cover_status": "accepted" if accepted else "declined",
-                      "cover_note": note, "cover_responded_at": _utcnow(), "updated_at": _utcnow()}},
+             "cover_status": "requested", "status": "awaiting_cover"},
+            {"$set": updates},
             return_document=ReturnDocument.AFTER,
         )
         return _public(result)
@@ -349,6 +357,27 @@ class AttendanceRepository:
         for row in rows:
             latest.setdefault(row["attendance_date"], _public(row))
         return list(latest.values())
+
+    # ---- weekly off: one choice per week, Sunday unless Friday was chosen --- #
+    def weekly_off_choice(self, employee_id: str, week_start: date) -> str | None:
+        row = self.weekly_off.find_one({"employee_id": employee_id, "week_start": week_start.isoformat()})
+        return row.get("day") if row else None
+
+    def weekly_off_choices(self, employee_id: str, weeks: Sequence[date]) -> dict[str, str]:
+        rows = self.weekly_off.find({
+            "employee_id": employee_id,
+            "week_start": {"$in": [week.isoformat() for week in weeks]},
+        })
+        return {row["week_start"]: row["day"] for row in rows}
+
+    def set_weekly_off_choice(self, employee_id: str, week_start: date, day: str) -> dict:
+        self.weekly_off.update_one(
+            {"employee_id": employee_id, "week_start": week_start.isoformat()},
+            {"$set": {"day": day, "updated_at": _utcnow()},
+             "$setOnInsert": {"_id": uuid.uuid4().hex, "created_at": _utcnow()}},
+            upsert=True,
+        )
+        return {"employee_id": employee_id, "week_start": week_start.isoformat(), "day": day}
 
     def employee_policy(self, employee_id: str) -> dict:
         return _public(self.policies.find_one({"employee_id": employee_id})) or {

@@ -144,6 +144,39 @@ def test_a_different_target_is_not_a_duplicate(api):
     assert current(api).submission_target_name == "Gulf Associates"
 
 
+def test_a_candidate_is_mapped_to_one_job_order(api):
+    assert submit(api).status_code == 200
+    other = api.post(
+        "/candidates/cand-1/submit",
+        json={"target_type": "company", "target_name": "Other Co", "job_order_id": "JO-10"},
+    )
+    assert other.status_code == 409
+    assert "JO-9" in other.json()["detail"]
+
+
+def test_unsubmit_releases_the_candidate_for_another_order(api):
+    submit(api)
+    wrong = api.post("/candidates/cand-1/unsubmit", json={"job_order_id": "JO-10"})
+    assert wrong.status_code == 409
+
+    assert api.post("/candidates/cand-1/unsubmit", json={"job_order_id": "JO-9"}).status_code == 200
+    record = current(api)
+    assert record.recruitment_status == "available"
+    assert record.job_order_id is None
+
+    again = api.post(
+        "/candidates/cand-1/submit",
+        json={"target_type": "company", "target_name": "Other Co", "job_order_id": "JO-10"},
+    )
+    assert again.status_code == 200
+
+
+def test_unsubmit_is_refused_once_the_client_has_acted(api):
+    submit(api)
+    interview(api, "scheduled")
+    assert api.post("/candidates/cand-1/unsubmit", json={"job_order_id": "JO-9"}).status_code == 409
+
+
 # --------------------------------------------------------------------------- #
 #  Interview
 # --------------------------------------------------------------------------- #

@@ -406,7 +406,12 @@ export interface AttendancePermission {
     | "unpaid_leave";
   requested_minutes: number;
   reason: string;
-  status: "pending" | "approved" | "rejected";
+  /**
+   * `awaiting_cover`: a leave day whose named cover has not accepted yet. It
+   * reaches the manager (or, for a manager's leave, the super admin) only once
+   * the cover accepts, and becomes `pending` then.
+   */
+  status: "awaiting_cover" | "pending" | "approved" | "rejected";
   created_at?: string;
   updated_at?: string;
   decision_reason?: string;
@@ -482,17 +487,28 @@ export function fetchAttendanceMonth(year: number, month: number, employeeId?: s
   return request(`/attendance/month/${year}/${month}${employeeQuery(employeeId)}`, { cache: "no-store" });
 }
 
-export type WeeklyOffPattern = "sunday" | "alternate_friday";
+export type WeeklyOffDay = "sunday" | "friday";
 
-export function fetchAttendanceWeeklyOff(): Promise<{ employee_id: string; weekly_off_pattern: WeeklyOffPattern }> {
+/** One Monday-to-Sunday week and which of its days is the weekly off. */
+export interface WeeklyOffWeek {
+  week_start: string;
+  friday: string;
+  sunday: string;
+  day: WeeklyOffDay;
+  /** Thursday 11:59 PM (office time): the last moment to change this week. */
+  deadline: string;
+  locked: boolean;
+}
+
+export function fetchAttendanceWeeklyOff(): Promise<{ employee_id: string; default: WeeklyOffDay; weeks: WeeklyOffWeek[] }> {
   return request("/attendance/weekly-off", { cache: "no-store" });
 }
 
-export function updateAttendanceWeeklyOff(weeklyOffPattern: WeeklyOffPattern): Promise<{ status: string; weekly_off_pattern: WeeklyOffPattern }> {
+export function updateAttendanceWeeklyOff(weekStart: string, day: WeeklyOffDay): Promise<{ status: string; week: WeeklyOffWeek }> {
   return request("/attendance/weekly-off", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ weekly_off_pattern: weeklyOffPattern }),
+    body: JSON.stringify({ week_start: weekStart, day }),
   });
 }
 
@@ -1200,6 +1216,18 @@ export function submitCandidate(
   },
 ): Promise<CandidateRecord> {
   return request<CandidateRecord>(`/candidates/${candidateId}/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Take back a submission made against a job order, returning the candidate to the pool. */
+export function unsubmitCandidate(
+  candidateId: string,
+  payload: { job_order_id: string; notes?: string },
+): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/unsubmit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

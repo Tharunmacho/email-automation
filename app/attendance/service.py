@@ -1,7 +1,7 @@
 """Application service enforcing attendance workflow invariants."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import calendar
 
 from app.attendance.engine import AttendancePolicy, calculate_day, local_day, shift_bounds
@@ -92,11 +92,13 @@ class AttendanceService:
             shift = Shift.model_validate(assignment["shift"])
         shift = shift or Shift()
         calendar_day = self.repository.calendar_day(employee_id, day)
-        employee_policy = getattr(self.repository, "employee_policy", lambda _id: {})(employee_id)
-        weekly_off_pattern = employee_policy.get("weekly_off_pattern", "sunday")
-        # The choices are mutually exclusive: Sunday off, or alternating
-        # Fridays off with Sunday as a normal office day. The legacy value is
-        # read as the new alternate-Friday option for existing employees.
+        # One weekly off per Monday-to-Sunday week: Sunday, unless the employee
+        # chose Friday for that week (by Thursday 11:59 PM), in which case the
+        # Friday is off and that week's Sunday is a normal working day.
+        week_start = day - timedelta(days=day.weekday())
+        weekly_off_day = getattr(
+            self.repository, "weekly_off_choice", lambda *_args: None,
+        )(employee_id, week_start) or "sunday"
         #
         # A *duty plan* — one date, explicitly rostered — is what turns a weekly
         # off into a working day. A rolling shift assignment is not: it says
@@ -104,13 +106,8 @@ class AttendanceService:
         # worked, so treating it as a plan made every Sunday after the first
         # rostered one a scheduled day the employee was then marked absent for.
         planned_duty = bool(assignment and assignment.get("kind") == "planned_duty")
-        is_sunday = day.weekday() == 6 and weekly_off_pattern == "sunday" and not planned_duty
-        is_rotational_friday = (
-            day.weekday() == 4
-            and weekly_off_pattern in {"alternate_friday", "sunday_alternate_friday"}
-            and day.isocalendar().week % 2 == int(employee_policy.get("alternate_friday_parity", 0))
-            and not planned_duty
-        )
+        is_sunday = day.weekday() == 6 and weekly_off_day == "sunday" and not planned_duty
+        is_rotational_friday = day.weekday() == 4 and weekly_off_day == "friday" and not planned_duty
         punches = self.repository.effective_punches_for_day(employee_id, day)
         permissions = self.repository.approved_permissions(employee_id, day)
         adjustments = self.repository.adjustments_for_day(employee_id, day)
@@ -150,7 +147,8 @@ class AttendanceService:
             "employee_id": employee_id,
         }
         if request.cover_employee_id and request.kind in LEAVE_KINDS:
-            record.update(cover_employee_id=request.cover_employee_id, cover_status="requested")
+            record.update(cover_employee_id=request.cover_employee_id, cover_status="requested",
+                          status="awaiting_cover")
         return self.repository.create_permission(record)
 
     def decide_permission(self, permission_id: str, decision: PermissionDecision, approver_id: str) -> dict:
