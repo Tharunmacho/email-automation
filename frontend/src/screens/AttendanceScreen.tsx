@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock3,
   LogIn,
-  LogOut,
   Percent,
   RefreshCw,
   ShieldCheck,
@@ -29,7 +28,6 @@ import {
   fetchAttendanceWeeklyOff,
   fetchDutyPlans,
   fetchExtraOtRequests,
-  recordAttendancePunch,
   requestAttendancePermission,
   requestExtraOt,
   updateAttendanceWeeklyOff,
@@ -407,20 +405,6 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     }
   };
 
-  const punch = async (action: "check_in" | "check_out") => {
-    setBusy(true);
-    try {
-      const result = await recordAttendancePunch(action);
-      setDay(result.attendance);
-      onToast(action === "check_in" ? "Check-in recorded" : "Check-out recorded", "success");
-      await load();
-    } catch (error) {
-      onToast(error instanceof Error ? error.message : "Punch could not be recorded", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const submitPermission = async () => {
     if (!reason.trim()) return onToast("Enter a reason for the permission", "info");
     const needsCover = LEAVE_KINDS.includes(kind) && coverColleagues.length > 0;
@@ -692,15 +676,6 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
       {!isTeamView && (
         <div className="attendance-grid">
-          <section className="ds-panel">
-            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Today’s attendance</h2><p className="ds-panel-sub">Default shift 10:00 AM–7:00 PM, including a one-hour break: 480 payable minutes.</p></div><Clock3 size={20} /></div>
-            <div className="attendance-minutes"><span><strong>{durationLabel(workedMinutes(currentDay))}</strong> worked today</span></div>
-            <div className="attendance-actions">
-              <button type="button" className="ds-primary-btn" disabled={busy || Boolean(currentDay?.check_in)} onClick={() => void punch("check_in")}><LogIn size={15} /> Check in</button>
-              <button type="button" className="ds-ghost-btn" disabled={busy || !currentDay?.check_in || Boolean(currentDay?.check_out)} onClick={() => void punch("check_out")}><LogOut size={15} /> Check out</button>
-            </div>
-          </section>
-
           <section className="ds-panel">
             <div className="ds-panel-head"><div><h2 className="ds-panel-title">Request permission</h2><p className="ds-panel-sub">{user.role === "manager" ? "Your request will go to the super admin for approval." : "Your request will go to your manager for approval."}</p></div></div>
             <div className="attendance-form">
