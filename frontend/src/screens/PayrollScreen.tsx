@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   Banknote,
   CalendarRange,
   Check,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   RefreshCw,
   RotateCcw,
+  Search,
   Settings2,
   ShieldCheck,
   WalletCards,
@@ -56,6 +58,9 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [busyId, setBusyId] = useState("");
   const [viewMode, setViewMode] = useState<"team" | "mine">("team");
   const [branch, setBranch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "review" | "paid">("all");
+  const [query, setQuery] = useState("");
+  const [expandedId, setExpandedId] = useState("");
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
   const personalView = !canManage || viewMode === "mine";
@@ -109,6 +114,16 @@ export default function PayrollScreen({ user, onToast }: Props) {
       ),
     [visibleItems],
   );
+
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return visibleItems.filter((row) => {
+      if (statusFilter === "paid" && row.status !== "paid") return false;
+      if (statusFilter === "review" && row.status === "paid") return false;
+      if (!needle) return true;
+      return [row.name, row.staff_code, row.branch].some((value) => value?.toLowerCase().includes(needle));
+    });
+  }, [query, statusFilter, visibleItems]);
 
   const savePolicy = async (row: PayrollRow, patch: Partial<PayrollRow>) => {
     setBusyId(row.employee_id);
@@ -214,25 +229,117 @@ export default function PayrollScreen({ user, onToast }: Props) {
           <div className="payroll-empty"><AlertTriangle aria-hidden="true" /><strong>Payroll is unavailable</strong><span>Retry the request above to load this month’s salary details.</span></div>
         ) : !visibleItems.length ? (
           <div className="payroll-empty"><WalletCards /><strong>No active employees</strong><span>Add staff before generating payroll.</span></div>
-        ) : (
-          <div className="payroll-card-grid">
+        ) : personalView ? (
+          <div className="payroll-card-grid is-single">
             {visibleItems.map((row) => (
               <EmployeePayCard
-                key={`${row.employee_id}:${row.monthly_salary}:${row.weekly_off_pattern}:${row.alternate_friday_parity}`}
+                key={row.employee_id}
                 row={row}
                 busy={busyId === row.employee_id || loading}
-                canManage={canManage}
+                canManage={false}
                 onSave={savePolicy}
                 onTogglePaid={togglePaid}
               />
             ))}
           </div>
+        ) : (
+          <>
+            <div className="payroll-filter-bar">
+              <div className="ds-tabs" role="tablist" aria-label="Filter by payment status">
+                {([
+                  ["all", "All", visibleItems.length],
+                  ["review", "Awaiting payment", visibleItems.length - totals.paid],
+                  ["paid", "Paid", totals.paid],
+                ] as const).map(([id, label, count]) => (
+                  <button key={id} type="button" role="tab" aria-selected={statusFilter === id} className={`ds-tab ${statusFilter === id ? "is-on" : ""}`} onClick={() => setStatusFilter(id)}>
+                    {label}<span className="ds-tab-count">{count}</span>
+                  </button>
+                ))}
+              </div>
+              <label className="payroll-search">
+                <Search size={15} aria-hidden="true" />
+                <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, code or branch" aria-label="Search employees" />
+              </label>
+            </div>
+            {!filteredItems.length ? (
+              <div className="payroll-empty is-compact"><Search /><strong>No employees match</strong><span>Change the filter or search to see more.</span></div>
+            ) : (
+              <div className="payroll-table-wrap">
+                <table className="payroll-table">
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Working days</th>
+                      <th className="is-num">Gross</th>
+                      <th className="is-num">Deductions</th>
+                      <th className="is-num">Net payable</th>
+                      <th>Status</th>
+                      <th className="is-actions">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredItems.map((row) => {
+                      const paid = row.status === "paid";
+                      const open = expandedId === row.employee_id;
+                      const busy = busyId === row.employee_id || loading;
+                      return (
+                        <Fragment key={row.employee_id}>
+                          <tr className={open ? "is-open" : undefined}>
+                            <td>
+                              <span className="payroll-who">
+                                <span className={`payroll-avatar ${paid ? "is-paid" : ""}`}>{initialsOf(row.name)}</span>
+                                <span><strong>{row.name}</strong><small>{row.staff_code || "Employee"} · <span className={row.branch ? "" : "payroll-branch-unset"}>{row.branch || "Unassigned"}</span></small></span>
+                              </span>
+                            </td>
+                            <td>{row.required_working_days} / {row.calendar_days}</td>
+                            <td className="is-num">{money.format(row.monthly_salary)}</td>
+                            <td className={`is-num ${row.deduction > 0 ? "is-deduction" : ""}`}>{row.deduction > 0 ? `− ${money.format(row.deduction)}` : money.format(0)}</td>
+                            <td className="is-num is-net">{money.format(row.total_payable)}</td>
+                            <td>
+                              <span className={`payroll-state ${paid ? "is-paid" : "is-review"}`}>
+                                {paid ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}
+                                {paid ? "Paid" : "To review"}
+                              </span>
+                            </td>
+                            <td className="is-actions">
+                              <div className="payroll-row-actions">
+                                <button type="button" className={paid ? "payroll-reopen-btn" : "payroll-pay-btn"} disabled={busy} onClick={() => void togglePaid(row)}>
+                                  {busy ? <RefreshCw size={14} className="icon-spin" /> : paid ? <RotateCcw size={14} /> : <Check size={14} />}
+                                  {paid ? "Reopen" : "Mark paid"}
+                                </button>
+                                <button type="button" className="payroll-expand-btn" aria-expanded={open} onClick={() => setExpandedId(open ? "" : row.employee_id)}>
+                                  Details <ChevronDown size={15} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr className="payroll-detail-row">
+                              <td colSpan={7}>
+                                <PayrollBreakdown row={row} />
+                                <SalarySetting key={`${row.employee_id}:${row.monthly_salary}`} row={row} busy={busy} onSave={savePolicy} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
   );
 }
 
+function initialsOf(name: string): string {
+  return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "ST";
+}
+
+/** The personal view: one employee, so the full card layout. */
 function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
   row: PayrollRow;
   busy: boolean;
@@ -241,18 +348,11 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
   onTogglePaid: (row: PayrollRow) => Promise<void>;
 }) {
   const paid = row.status === "paid";
-  const initials = row.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-  const [salary, setSalary] = useState(String(row.monthly_salary));
-  const changed = Number(salary) !== row.monthly_salary;
-
-  const saveSettings = () => onSave(row, {
-    monthly_salary: Number(salary) || 0,
-  });
 
   return (
     <article className={`payroll-card ${paid ? "is-paid" : ""}`}>
       <header className="payroll-card-head">
-        <span className="payroll-avatar">{initials || "ST"}</span>
+        <span className="payroll-avatar">{initialsOf(row.name)}</span>
         <div>
           <h3>{row.name}</h3>
           <p>
@@ -277,30 +377,9 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
         <div className="is-net"><span>Net payable</span><strong>{money.format(row.total_payable)}</strong></div>
       </div>
 
-      <div className="payroll-metrics">
-        <Metric label="Branch" value={row.branch || "Unassigned"} />
-        <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
-        <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
-        <Metric label="OT set against late time" value={`${row.ot_offset_minutes} min`} />
-        <Metric label="OT paid" value={`${row.paid_ot_minutes} min`} />
-        <Metric label="Daily LOP" value={money.format(row.daily_lop_rate)} />
-        <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
-        <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />
-        <Metric label="Unpaid time" value={`${row.unpaid_minutes} min`} warn={row.unpaid_minutes > 0} />
-      </div>
+      <PayrollBreakdown row={row} />
 
-      {canManage && <div className="payroll-settings">
-        <div className="payroll-settings-title"><Settings2 size={15} /> Salary setting</div>
-        <div className="payroll-settings-grid is-salary-only">
-          <label>Monthly salary<input type="number" min="0" value={salary} disabled={busy} onChange={(event) => setSalary(event.target.value)} /></label>
-        </div>
-        <div className="payroll-settings-actions">
-          <span>{changed ? "Unsaved changes" : "Settings are up to date"}</span>
-          <button type="button" className="payroll-save-btn" disabled={busy || !changed || Number(salary) < 0} onClick={() => void saveSettings()}>
-            {busy ? <RefreshCw size={15} className="icon-spin" /> : <Check size={15} />} Save salary settings
-          </button>
-        </div>
-      </div>}
+      {canManage && <SalarySetting key={`${row.employee_id}:${row.monthly_salary}`} row={row} busy={busy} onSave={onSave} />}
 
       <footer className="payroll-card-foot">
         <span>{paid ? "Payment confirmed for this period" : canManage ? "Review the calculation before confirming payment" : "Payment is awaiting manager confirmation"}</span>
@@ -310,6 +389,54 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
         </button>}
       </footer>
     </article>
+  );
+}
+
+/** How the month's attendance turned into the deduction, grouped by topic. */
+function PayrollBreakdown({ row }: { row: PayrollRow }) {
+  return (
+    <div className="payroll-breakdown">
+      <div className="payroll-breakdown-group">
+        <h4>Attendance</h4>
+        <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
+        <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />
+        <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
+      </div>
+      <div className="payroll-breakdown-group">
+        <h4>Overtime</h4>
+        <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
+        <Metric label="Set against late time" value={`${row.ot_offset_minutes} min`} />
+        <Metric label="OT paid" value={`${row.paid_ot_minutes} min`} />
+      </div>
+      <div className="payroll-breakdown-group">
+        <h4>Deductions</h4>
+        <Metric label="Unpaid time" value={`${row.unpaid_minutes} min`} warn={row.unpaid_minutes > 0} />
+        <Metric label="Daily LOP rate" value={money.format(row.daily_lop_rate)} />
+        <Metric label="Total deducted" value={money.format(row.deduction)} warn={row.deduction > 0} />
+      </div>
+    </div>
+  );
+}
+
+function SalarySetting({ row, busy, onSave }: {
+  row: PayrollRow;
+  busy: boolean;
+  onSave: (row: PayrollRow, patch: Partial<PayrollRow>) => Promise<void>;
+}) {
+  const [salary, setSalary] = useState(String(row.monthly_salary));
+  const changed = Number(salary) !== row.monthly_salary;
+
+  return (
+    <div className="payroll-settings">
+      <div className="payroll-settings-title"><Settings2 size={15} /> Salary setting</div>
+      <div className="payroll-settings-inline">
+        <label>Monthly salary<input type="number" min="0" value={salary} disabled={busy} onChange={(event) => setSalary(event.target.value)} /></label>
+        <span>{changed ? "Unsaved changes" : "Up to date"}</span>
+        <button type="button" className="payroll-save-btn" disabled={busy || !changed || Number(salary) < 0} onClick={() => void onSave(row, { monthly_salary: Number(salary) || 0 })}>
+          {busy ? <RefreshCw size={15} className="icon-spin" /> : <Check size={15} />} Save salary
+        </button>
+      </div>
+    </div>
   );
 }
 

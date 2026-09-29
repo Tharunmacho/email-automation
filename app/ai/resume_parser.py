@@ -1,11 +1,12 @@
-"""Turn extracted resume text into a structured CandidateProfile via Claude.
+"""Turn extracted resume text into a structured CandidateProfile via OpenAI.
 
-Uses Anthropic tool-use with a forced tool call, so the model must return JSON
+Uses OpenAI function calling with a forced tool call, so the model must return JSON
 matching our schema. We validate that JSON into a CandidateProfile pydantic model.
 """
 from __future__ import annotations
 
 import copy
+import json
 import re
 from typing import Mapping
 
@@ -89,18 +90,18 @@ class ResumeParser:
     @property
     def client(self):
         if self._client is None:
-            key = self._api_key or settings.anthropic_api_key
+            key = self._api_key or settings.openai_api_key
             if not key:
-                raise AIParseError("ANTHROPIC_API_KEY is not configured.")
-            import anthropic
+                raise AIParseError("OPENAI_API_KEY is not configured.")
+            import openai
 
-            self._client = anthropic.Anthropic(api_key=key)
+            self._client = openai.OpenAI(api_key=key)
         return self._client
 
     def parse(self, resume_text: str, hint: str = "") -> CandidateProfile:
-        return self._parse_via_anthropic(resume_text, hint)
+        return self._parse_via_openai(resume_text, hint)
 
-    def _parse_via_anthropic(self, resume_text: str, hint: str = "") -> CandidateProfile:
+    def _parse_via_openai(self, resume_text: str, hint: str = "") -> CandidateProfile:
         text = resume_text.strip()
         if not text:
             raise AIParseError("Empty resume text; nothing to parse.")
@@ -112,18 +113,23 @@ class ResumeParser:
         if hint:
             user_content = f"[Context from email: {hint}]\n\n{text}"
 
-        model_name = self._model or settings.anthropic_model
+        model_name = self._model or settings.openai_model
         try:
-            response = self.client.messages.create(
+            response = self.client.chat.completions.create(
                 model=model_name,
-                max_tokens=settings.anthropic_max_tokens,
-                system=SYSTEM_PROMPT,
-                tools=[RESUME_TOOL_SCHEMA],
-                tool_choice={"type": "tool", "name": RESUME_TOOL_NAME},
-                messages=[{"role": "user", "content": user_content}],
+                max_completion_tokens=settings.openai_max_tokens,
+                # GPT-6 Luna only accepts function calling on Chat Completions
+                # with reasoning switched off.
+                reasoning_effort="none",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                tools=[{"type": "function", "function": RESUME_TOOL_SCHEMA}],
+                tool_choice={"type": "function", "function": {"name": RESUME_TOOL_NAME}},
             )
         except Exception as exc:  # noqa: BLE001
-            raise AIParseError(f"Anthropic API call failed: {exc}") from exc
+            raise AIParseError(f"OpenAI API call failed: {exc}") from exc
 
         tool_input = self._extract_tool_input(response)
         try:
@@ -133,17 +139,22 @@ class ResumeParser:
 
     @staticmethod
     def _extract_tool_input(response) -> dict:
-        for block in response.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == RESUME_TOOL_NAME:
-                return block.input
+        message = response.choices[0].message if response.choices else None
+        for call in (getattr(message, "tool_calls", None) or []):
+            function = getattr(call, "function", None)
+            if function is not None and function.name == RESUME_TOOL_NAME:
+                try:
+                    return json.loads(function.arguments)
+                except ValueError as exc:
+                    raise AIParseError(f"Model returned invalid tool arguments: {exc}") from exc
         raise AIParseError("Model did not return the expected tool call.")
 
     def parse_text_fallback(self, resume_text: str, hint: str = "") -> CandidateProfile:
-        if settings.anthropic_api_key:
+        if settings.openai_api_key:
             try:
-                return self._parse_via_anthropic(resume_text, hint)
+                return self._parse_via_openai(resume_text, hint)
             except Exception as exc:
-                log.warning("Anthropic parsing failed (%s); using heuristic fallback parser", exc)
+                log.warning("OpenAI parsing failed (%s); using heuristic fallback parser", exc)
 
         import re
         from pathlib import Path
@@ -479,7 +490,7 @@ class ResumeParser:
             #
             # The gate exists to stop a *guess* replacing a failed OCR. Here no
             # OCR was needed: the text arrived as text. It goes to
-            # `parse_text_fallback`, which tries Anthropic before any heuristic,
+            # `parse_text_fallback`, which tries OpenAI before any heuristic,
             # so this path is the LLM reading real text rather than a
             # degradation of anything.
             log.info(

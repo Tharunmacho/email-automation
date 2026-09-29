@@ -109,7 +109,7 @@ def selftest() -> None:
     Generates a sample resume PDF, runs it through the real pipeline (extraction →
     GridFS/file storage → Mongo insert), reads it back byte-for-byte, verifies the
     structured fields, checks duplicate detection, then deletes the test data.
-    Only the AI step is stubbed with a fixed profile so no Anthropic key is required.
+    Only the AI step is stubbed with a fixed profile so no OpenAI key is required.
     """
     import fitz
 
@@ -130,23 +130,24 @@ def selftest() -> None:
     except Exception as exc:  # noqa: BLE001
         fail(f"MongoDB connection/index failed: {exc}")
 
-    # 1.5. Optional Anthropic API Check
+    # 1.5. Optional OpenAI API Check
     from app.config import settings
-    if settings.anthropic_api_key and not settings.anthropic_api_key.startswith("sk-ant-xxxxxxxxxx"):
+    if settings.openai_api_key and not settings.openai_api_key.startswith("sk-xxxxxxxxxx"):
         try:
             from app.ai.resume_parser import ResumeParser
             parser = ResumeParser()
             # Send a tiny message to check API connectivity/key validity
-            parser.client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=10,
+            parser.client.chat.completions.create(
+                model=settings.openai_model,
+                max_completion_tokens=10,
+                reasoning_effort="none",
                 messages=[{"role": "user", "content": "respond with 'OK'"}],
             )
-            ok("connected to Anthropic API successfully")
+            ok("connected to OpenAI API successfully")
         except Exception as exc:
-            fail(f"Anthropic API key check failed: {exc}")
+            fail(f"OpenAI API key check failed: {exc}")
     else:
-        typer.secho("  INFO  No Anthropic API key configured; skipping AI connection check.", fg=typer.colors.YELLOW)
+        typer.secho("  INFO  No OpenAI API key configured; skipping AI connection check.", fg=typer.colors.YELLOW)
 
     # 2. Build a realistic sample resume PDF in memory
     doc = fitz.open()
@@ -168,7 +169,7 @@ def selftest() -> None:
     doc.close()
     ok(f"generated sample resume PDF ({len(pdf_bytes)} bytes)")
 
-    # 3. Stub the AI parser with a fixed profile (no Anthropic key needed here)
+    # 3. Stub the AI parser with a fixed profile (no OpenAI key needed here)
     class _StubParser:
         def parse(self, text, hint=""):
             assert "john.selftest@example.com" in text, "extracted text missing expected content"

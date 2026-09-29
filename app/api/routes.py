@@ -1112,8 +1112,8 @@ def ingest_rules(_user: dict = Depends(require_admin)) -> dict:
             "local": _local_ocr_report(),
         },
         "extraction": {
-            "model": settings.anthropic_model,
-            "configured": bool(settings.anthropic_api_key),
+            "model": settings.openai_model,
+            "configured": bool(settings.openai_api_key),
         },
         "auto_reply": {"enabled": settings.auto_reply_enabled},
     }

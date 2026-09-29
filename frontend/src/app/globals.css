@@ -18433,7 +18433,7 @@ a.um-phone:hover {
 .attendance-form textarea { resize: vertical; min-width: 0; }
 .attendance-stats .ds-stat { min-height: 128px; border-radius: 15px; }
 .attendance-stats .ds-stat-value { font-size: 1.35rem; }
-.attendance-admin-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.attendance-admin-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .attendance-self-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .attendance-roster .ds-table tr.is-selected td { background: var(--tint-2); }
 .attendance-roster .ds-table th { white-space: nowrap; }
@@ -18493,12 +18493,32 @@ a.um-phone:hover {
 .attendance-approve-btn { border: 1px solid var(--primary); background: var(--primary); color: white; }
 .attendance-reject-btn { border: 1px solid var(--border-main); background: var(--bg-card); color: var(--danger); }
 .attendance-approve-btn:disabled, .attendance-reject-btn:disabled { cursor: wait; opacity: .55; }
-.attendance-page.is-manager-view .attendance-admin-stats { order: 2; }
-.attendance-page.is-manager-view .attendance-permissions { order: 3; }
-.attendance-page.is-manager-view .attendance-roster { order: 4; }
-.attendance-page.is-manager-view .attendance-selected-head { order: 5; }
-.attendance-page.is-manager-view > .ds-panel:last-child { order: 6; }
-@media (max-width: 950px) { .attendance-grid, .attendance-request-grid { grid-template-columns: 1fr; } .attendance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } .attendance-selected-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .attendance-selected-summary > span:nth-child(2) { border-right: 0; } .attendance-selected-summary > span:nth-child(-n+2) { border-bottom: 1px solid var(--border-main); } }
+/* Section tabs: the page shows one job at a time instead of stacking every
+   form, queue and ledger in one long scroll. */
+.page-tabs { display: flex; gap: .25rem; overflow-x: auto; padding: 4px; border: 1px solid var(--border-main); border-radius: 14px; background: var(--bg-card); scrollbar-width: none; }
+.page-tabs::-webkit-scrollbar { display: none; }
+.page-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .45rem; padding: .62rem .95rem; border: 0; border-radius: 10px; background: transparent; color: var(--text-muted); font: inherit; font-size: .8rem; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.page-tab:hover { background: var(--tint-2); color: var(--text-main); }
+.page-tab.is-on { background: var(--primary-glow); color: var(--primary); }
+.page-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.page-tab-count { min-width: 1.35rem; padding: .08rem .42rem; border-radius: 999px; background: var(--tint-2); color: var(--text-muted); font-size: .68rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+.page-tab.is-on .page-tab-count { background: var(--primary); color: #fff; }
+.page-tab-count.is-alert { background: var(--warning-fill); color: var(--warning); }
+.attendance-tab-panel { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.attendance-request-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); align-items: start; gap: 1rem; }
+.attendance-request-layout .ds-panel-head .scope-switch { align-self: flex-start; }
+.attendance-form-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; padding-top: .8rem; border-top: 1px solid var(--border-main); }
+.attendance-form-actions .ds-primary-btn { display: inline-flex; align-items: center; gap: .45rem; }
+.attendance-form input, .attendance-form select { min-width: 0; }
+.attendance-rules ul { display: flex; flex-direction: column; gap: .85rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.attendance-rules li { display: flex; align-items: flex-start; gap: .65rem; }
+.attendance-rules li > svg { flex: none; margin-top: .1rem; color: var(--primary); }
+.attendance-rules li span { color: var(--text-muted); font-size: .74rem; line-height: 1.4; }
+.attendance-rules li strong { display: block; color: var(--text-main); font-size: .8rem; }
+.attendance-employee-picker select { min-width: 220px; padding: .62rem .7rem; border: 1px solid var(--border-main); border-radius: 10px; background: var(--bg-card); color: var(--text-main); font: inherit; font-size: .8rem; }
+.attendance-view-btn { display: inline-flex; align-items: center; gap: .25rem; }
+.attendance-page .ds-panel-head { flex-wrap: wrap; gap: .75rem; }
+@media (max-width: 950px) { .attendance-grid, .attendance-request-grid, .attendance-request-layout { grid-template-columns: 1fr; } .attendance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } .attendance-selected-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .attendance-selected-summary > span:nth-child(2) { border-right: 0; } .attendance-selected-summary > span:nth-child(-n+2) { border-bottom: 1px solid var(--border-main); } }
 @media (max-width: 700px) { .attendance-weekly-off { align-items: stretch; flex-direction: column; } .attendance-weekly-off select, .attendance-save-off { width: 100%; } }
 @media (max-width: 600px) { .attendance-hero { align-items: stretch; } .attendance-stats, .attendance-form { grid-template-columns: 1fr !important; } .attendance-toolbar { align-items: stretch; flex-direction: column; } .scope-switch { align-self: stretch; } .scope-switch button { flex: 1; } .attendance-select input { width: 100%; } .attendance-request-grid { padding: .7rem; } .attendance-request-usage, .attendance-selected-summary { grid-template-columns: 1fr; } .attendance-request-usage div, .attendance-selected-summary > span { border-right: 0; border-bottom: 1px solid var(--border-main); } .attendance-request-usage div:last-child, .attendance-selected-summary > span:last-child { border-bottom: 0; } }
 
@@ -20074,6 +20094,51 @@ a.um-phone:hover {
 .payroll-empty svg { color: var(--primary); }
 .payroll-empty strong { color: var(--text-main); }
 .payroll-empty span { font-size: .78rem; }
+/* Team payroll is a register: one row per employee with the money columns
+   aligned, and the calculation opened on demand instead of printed for all. */
+.payroll-filter-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1.25rem; border-bottom: 1px solid var(--border-main); }
+.payroll-search { display: flex; align-items: center; gap: .45rem; min-width: 240px; padding: 0 .7rem; border: 1px solid var(--border-main); border-radius: 10px; background: var(--bg-card); color: var(--text-muted); }
+.payroll-search:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow); }
+.payroll-search input { flex: 1; min-width: 0; padding: .6rem 0; border: 0; background: transparent; color: var(--text-main); font: inherit; font-size: .8rem; outline: 0; }
+.payroll-table-wrap { overflow-x: auto; }
+.payroll-table { width: 100%; min-width: 860px; border-collapse: collapse; font-size: .82rem; }
+.payroll-table th { padding: .7rem 1rem; border-bottom: 1px solid var(--border-main); background: var(--tint-1); color: var(--text-muted); font-size: .7rem; font-weight: 700; letter-spacing: .02em; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.payroll-table td { padding: .75rem 1rem; border-bottom: 1px solid var(--border-main); color: var(--text-main); vertical-align: middle; white-space: nowrap; }
+.payroll-table tbody tr:not(.payroll-detail-row):hover td { background: var(--tint-1); }
+.payroll-table tr.is-open td { background: var(--tint-2); border-bottom-color: transparent; }
+.payroll-table .is-num { font-variant-numeric: tabular-nums; text-align: right; }
+.payroll-table td.is-deduction { color: var(--warning); }
+.payroll-table td.is-net { font-weight: 800; color: var(--success); }
+.payroll-table .is-actions { text-align: right; }
+.payroll-who { display: flex; align-items: center; gap: .7rem; }
+.payroll-who strong, .payroll-who small { display: block; }
+.payroll-who small { margin-top: .15rem; color: var(--text-muted); font-size: .7rem; }
+.payroll-who .payroll-avatar { flex: none; width: 34px; height: 34px; border-radius: 10px; font-size: .7rem; }
+.payroll-avatar.is-paid { background: var(--success); }
+.payroll-row-actions { display: inline-flex; align-items: center; gap: .4rem; }
+.payroll-row-actions .payroll-pay-btn, .payroll-row-actions .payroll-reopen-btn { min-width: 104px; padding: .48rem .65rem; font-size: .72rem; }
+.payroll-expand-btn { display: inline-flex; align-items: center; gap: .3rem; padding: .48rem .6rem; border: 1px solid var(--border-main); border-radius: 9px; background: var(--bg-card); color: var(--text-main); font-size: .72rem; font-weight: 700; cursor: pointer; }
+.payroll-expand-btn svg { transition: transform .18s ease; }
+.payroll-expand-btn[aria-expanded="true"] { border-color: var(--primary); color: var(--primary); }
+.payroll-expand-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.payroll-detail-row > td { padding: 0 1rem 1rem; background: var(--tint-2); white-space: normal; }
+.payroll-detail-row .payroll-breakdown { padding: 0; border: 0; }
+.payroll-detail-row .payroll-settings { margin: .75rem 0 0; background: var(--bg-card); }
+.payroll-breakdown { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; padding: 1rem; }
+.payroll-breakdown-group { padding: .8rem .9rem; border: 1px solid var(--border-main); border-radius: 12px; background: var(--bg-card); }
+.payroll-breakdown-group h4 { margin: 0 0 .5rem; color: var(--text-muted); font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.payroll-breakdown-group > div { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; padding: .38rem 0; border-top: 1px dashed var(--border-main); }
+.payroll-breakdown-group > h4 + div { border-top: 0; }
+.payroll-breakdown-group span { color: var(--text-muted); font-size: .74rem; }
+.payroll-breakdown-group strong { color: var(--text-main); font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.payroll-breakdown-group .is-warn strong { color: var(--warning); }
+.payroll-settings-inline { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.payroll-settings-inline label { flex: 0 1 240px; }
+.payroll-settings-inline > span { flex: 1; padding-bottom: .6rem; color: var(--text-light); font-size: .68rem; }
+.payroll-card-grid.is-single { grid-template-columns: minmax(0, 1fr); }
+.payroll-empty.is-compact { min-height: 180px; }
+@media (max-width: 900px) { .payroll-breakdown { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .payroll-filter-bar { padding-inline: 1rem; } .payroll-search { min-width: 0; width: 100%; } }
 @media (max-width: 1180px) { .payroll-card-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .payroll-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 680px) { .payroll-hero, .payroll-card-foot, .payroll-settings-actions { align-items: stretch; flex-direction: column; } .payroll-toolbar { align-items: stretch; flex-direction: column; } .payroll-summary-grid, .payroll-policy-strip { grid-template-columns: 1fr; } .payroll-card-head { grid-template-columns: auto minmax(0, 1fr); } .payroll-state { grid-column: 1 / -1; justify-self: start; } .payroll-money-flow { grid-template-columns: 1fr; } .payroll-flow-sign { display: none; } .payroll-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .payroll-metrics > div { border-right: 0; border-bottom: 1px solid var(--border-main); } .payroll-settings-grid { grid-template-columns: 1fr; } .payroll-pay-btn, .payroll-reopen-btn, .payroll-save-btn { width: 100%; } }

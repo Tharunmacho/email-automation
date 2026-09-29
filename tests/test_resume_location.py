@@ -30,7 +30,7 @@ fitz = pytest.importorskip("fitz", reason="PyMuPDF is needed to build test PDFs"
 def offline(monkeypatch):
     """`.env` carries a live Veris key; no test may spend it."""
     monkeypatch.setattr(settings, "veris_ocr_api_key", "")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
 
 
 def make_pdf(pages: list[str]) -> bytes:

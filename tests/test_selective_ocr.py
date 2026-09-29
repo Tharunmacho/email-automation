@@ -42,7 +42,7 @@ def scanned(monkeypatch):
     Yields ``(pages_read_locally, pages_uploaded)``.
     """
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "")
 
     read_locally: list[int] = []
@@ -141,7 +141,7 @@ def test_a_resume_deep_in_the_bundle_is_still_found(scanned):
 def test_a_readable_pdf_is_never_sent_to_ocr_at_all(monkeypatch):
     """The text layer is free; paying to re-read it caused the original timeouts."""
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
 
     def explode(*_a, **_k):
         raise AssertionError("a PDF with a good text layer must not be sent to OCR")

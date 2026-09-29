@@ -9,8 +9,8 @@ services:
       - key: MONGO_URI
         sync: false
         placeholder: "Paste your MongoDB Atlas connection string here (e.g. mongodb+srv://...)"
-      - key: ANTHROPIC_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
-        placeholder: "Paste your Anthropic API key here (starting with sk-ant-...)"
+        placeholder: "Paste your OpenAI API key here (starting with sk-...)"
       - key: GMAIL_QUERY
         value: "has:attachment is:unread"

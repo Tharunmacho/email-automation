@@ -39,7 +39,7 @@ def test_a_text_body_is_parsed_instead_of_being_sent_and_refused(monkeypatch):
 
     `require_veris_resume` is left ON, because that is the setting under which
     this used to fail permanently. Nothing is sent, so nothing can be refused,
-    and the text reaches `parse_text_fallback` — which tries Anthropic before
+    and the text reaches `parse_text_fallback` — which tries OpenAI before
     any heuristic, so this is the LLM reading real text rather than a guess
     standing in for a failed extraction.
     """

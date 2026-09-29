@@ -220,10 +220,10 @@ class Settings(BaseSettings):
     #: accident on every poll.
     mail_lookback_days: int = 30
 
-    # ---- Anthropic Claude ----
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-haiku-4-5-20251001"
-    anthropic_max_tokens: int = 4096
+    # ---- OpenAI ----
+    openai_api_key: str = ""
+    openai_model: str = "gpt-6-luna"
+    openai_max_tokens: int = 4096
 
 
 

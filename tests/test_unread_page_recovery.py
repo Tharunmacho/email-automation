@@ -44,7 +44,7 @@ def starved(monkeypatch):
     every payload that left the host.
     """
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "veris_refine_resume_pages", False)
     # conftest caps this at 10 for speed; these bundles are 28 pages.
     monkeypatch.setattr(settings, "ocr_max_pages", 300)
@@ -232,7 +232,7 @@ def fumbled(monkeypatch):
     half-size retry tags its own output.
     """
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(settings, "veris_refine_resume_pages", False)
     monkeypatch.setattr(settings, "ocr_max_pages", 300)
     monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "")

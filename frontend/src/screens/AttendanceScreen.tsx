@@ -4,10 +4,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
+  ClipboardList,
   Clock3,
+  History,
+  LayoutGrid,
   LogIn,
   Percent,
   RefreshCw,
+  Send,
   ShieldCheck,
   Timer,
   Trash2,
@@ -238,6 +243,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [dutyEnd, setDutyEnd] = useState("19:00");
   const [dutyBreak, setDutyBreak] = useState("60");
   const [dutyReason, setDutyReason] = useState("");
+  const [tab, setTab] = useState("overview");
+  const [requestType, setRequestType] = useState<"permission" | "ot">("permission");
 
   const canManage = user.role === "admin" || user.role === "manager";
   const isTeamView = canManage && viewMode === "team";
@@ -564,10 +571,34 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
   const openEmployeeDetails = (selectedEmployeeId: string) => {
     setEmployeeId(selectedEmployeeId);
-    window.setTimeout(() => {
-      document.getElementById("attendance-employee-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    setTab("employee");
   };
+
+  const tabs: PageTab[] = isTeamView
+    ? [
+      { id: "overview", label: "Team overview", icon: <Users size={15} /> },
+      { id: "approvals", label: "Approvals", icon: <ShieldCheck size={15} />, count: pendingCount + pendingOt, alert: pendingCount + pendingOt > 0 },
+      { id: "employee", label: "Employee record", icon: <CalendarDays size={15} /> },
+      { id: "roster", label: "Duty roster", icon: <ClipboardList size={15} />, count: dutyPlans.length || undefined },
+    ]
+    : [
+      { id: "overview", label: "Overview", icon: <LayoutGrid size={15} /> },
+      { id: "request", label: "New request", icon: <Send size={15} /> },
+      { id: "history", label: "My requests", icon: <History size={15} />, count: (permissions.length + extraOt.length) || undefined },
+      ...(user.role !== "admin" ? [{ id: "weekly", label: "Weekly off", icon: <CalendarDays size={15} /> }] : []),
+      ...(coverRequests.length > 0 ? [{ id: "cover", label: "Cover requests", icon: <Users size={15} />, count: coverRequests.length, alert: coverRequests.some((request) => request.cover_status === "requested") }] : []),
+    ];
+  const activeTab = tabs.some((item) => item.id === tab) ? tab : "overview";
+  const selectedUnpaid = visibleMonth?.totals.unpaid_minutes ?? 0;
+
+  const employeePicker = (
+    <label className="attendance-select attendance-employee-picker">
+      Employee
+      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>
+        {staff.map((person) => <option key={person.id} value={person.id}>{person.name}{person.staff_code ? ` · ${person.staff_code}` : ""}</option>)}
+      </select>
+    </label>
+  );
 
   return (
     <div className={`ds-page attendance-page ${isTeamView ? "is-manager-view" : "is-staff-view"}`}>
@@ -577,8 +608,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           <h1 className="ds-head-title">{isTeamView ? "Staff attendance" : "My attendance"}</h1>
           <p className="ds-head-sub">
             {isTeamView
-              ? "Monthly attendance, exceptions and permission requests for every active staff member"
-              : "Your attendance percentage, punches and permission history"}
+              ? "Monthly attendance, exceptions and approvals for every active staff member"
+              : "Your attendance, requests and daily record for the month"}
           </p>
         </div>
         <div className="attendance-toolbar">
@@ -596,193 +627,309 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         </div>
       </header>
 
-      <div className="attendance-policy-strip" aria-label="Attendance policy summary">
-        <span><Clock3 size={15} /><strong>8 hours</strong> payable work + 1-hour break</span>
-        <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
-        <span><ShieldCheck size={15} />Sunday weekly off, or Friday if chosen by Thursday</span>
-        <span><WalletCards size={15} />Extra time deducted by minute</span>
-      </div>
-
-      {!isTeamView && user.role !== "admin" && <section className="attendance-weekly-off is-weekly">
-        <div><CalendarDays size={18} /><span><strong>Choose your weekly off</strong><small>Sunday by default. To take Friday off instead, choose it by Thursday 11:59 PM; that week&rsquo;s Sunday then becomes a working day.</small></span></div>
-        <div className="weekly-off-weeks">
-          {weeklyOffWeeks.map((week) => (
-            <div key={week.week_start} className={`weekly-off-week ${week.locked ? "is-locked" : ""}`}>
-              <span className="weekly-off-week-label">Week of {shortDate(week.week_start)}</span>
-              <div className="scope-switch" role="group" aria-label={`Weekly off for the week of ${shortDate(week.week_start)}`}>
-                {(["sunday", "friday"] as const).map((choice) => (
-                  <button
-                    key={choice}
-                    type="button"
-                    className={week.day === choice ? "is-active" : ""}
-                    aria-pressed={week.day === choice}
-                    disabled={weeklyOffBusy || week.locked}
-                    onClick={() => void saveWeeklyOff(week, choice)}
-                  >
-                    {choice === "sunday" ? `Sun ${shortDate(week.sunday)}` : `Fri ${shortDate(week.friday)}`}
-                  </button>
-                ))}
-              </div>
-              <small>{week.locked ? "Locked" : `Change by ${deadlineLabel(week.deadline)}`}</small>
-            </div>
-          ))}
-        </div>
-      </section>}
-
       {isTeamView ? (
-        <>
-          <div className="ds-stats attendance-stats attendance-admin-stats">
-            <Stat label="Active staff" value={String(staff.length)} note="Included in this month" icon={<Users size={16} />} />
-            <Stat label="Pending permissions" value={String(pendingCount)} note="Awaiting an admin decision" icon={<ShieldCheck size={16} />} />
-            <Stat label="Pending extra OT" value={String(pendingOt)} note="Only approved OT reaches payroll" icon={<Timer size={16} />} />
-            <Stat label="Unpaid minutes" value={String(rosterSummaries.reduce((sum, row) => sum + (row.month?.totals.unpaid_minutes ?? 0), 0))} note="Across the active roster" icon={<WalletCards size={16} />} />
-          </div>
-
-          <section className="ds-panel attendance-roster">
-            <div className="ds-panel-head">
-              <div>
-                <h2 className="ds-panel-title">Monthly staff overview</h2>
-                <p className="ds-panel-sub">Select a staff member to inspect their daily record and permissions.</p>
-              </div>
-            </div>
-            <div className="ds-table-wrap is-ruled">
-              <table className="ds-table is-ruled">
-                <thead><tr><th>Employee</th><th>Attendance</th><th>Working days</th><th>Exceptions</th><th>Salary-impact time</th><th /></tr></thead>
-                <tbody>
-                  {rosterSummaries.map(({ person, month: staffMonth, summary: staffSummary, permissions: staffPermissions }) => (
-                    <tr key={person.id} className={employeeId === person.id ? "is-selected" : undefined}>
-                      <td><span className="ds-who-text"><strong>{person.name}</strong><small>{person.staff_code || person.email}</small></span></td>
-                      <td><div className="attendance-rate"><strong className="attendance-percentage">{staffSummary.percentage}%</strong><span><i style={{ width: `${Math.min(100, staffSummary.percentage)}%` }} /></span></div></td>
-                      <td><strong>{staffSummary.attended} of {staffSummary.scheduled}</strong><small className="attendance-cell-note">Tracked from {staffMonth?.days[0]?.date || "first punch"}</small></td>
-                      <td><div className="attendance-exception-list"><span>{staffSummary.absent} absent</span><span>{staffSummary.late} late</span><span>{staffSummary.missing} incomplete records</span><span>{staffPermissions.length} requests</span></div></td>
-                      <td><strong className={(staffMonth?.totals.unpaid_minutes ?? 0) > 0 ? "attendance-unpaid" : ""}>{durationLabel(staffMonth?.totals.unpaid_minutes ?? 0)}</strong><small className="attendance-cell-note">After paid allowance</small></td>
-                      <td><button type="button" className="attendance-view-btn" onClick={() => openEmployeeDetails(person.id)}>Open details</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
+        <div className="ds-stats attendance-stats attendance-admin-stats">
+          <Stat label="Active staff" value={String(staff.length)} note="Included in this month" icon={<Users size={16} />} />
+          <Stat label="Pending permissions" value={String(pendingCount)} note="Awaiting a decision" icon={<ShieldCheck size={16} />} />
+          <Stat label="Pending extra OT" value={String(pendingOt)} note="Only approved OT reaches payroll" icon={<Timer size={16} />} />
+          <Stat label="Unpaid time" value={durationLabel(rosterSummaries.reduce((sum, row) => sum + (row.month?.totals.unpaid_minutes ?? 0), 0))} note="Across the active roster" icon={<WalletCards size={16} />} />
+        </div>
       ) : (
         <div className="ds-stats attendance-stats attendance-self-stats">
           <Stat label="Attendance" value={`${summary.percentage}%`} note={`${summary.attended} of ${summary.scheduled} working days`} icon={<Percent size={16} />} />
           <Stat label="Today" value={statusLabel(currentDay)} note={today} icon={<CalendarDays size={16} />} />
           <Stat label="Check in" value={timeOf(currentDay?.check_in)} note="Server-recorded time" icon={<LogIn size={16} />} />
           <Stat label="Permission used" value={`${permissionUsed} / 60 min`} note={`${month?.totals.permission_occasions ?? 0} of 2 occasions`} icon={<ShieldCheck size={16} />} />
-          <Stat label="Unpaid" value={`${month?.totals.unpaid_minutes ?? 0} min`} note="Actual absence time only" icon={<WalletCards size={16} />} />
+          <Stat label="Unpaid" value={durationLabel(month?.totals.unpaid_minutes ?? 0)} note="Actual absence time only" icon={<WalletCards size={16} />} />
         </div>
       )}
 
-      {!isTeamView && (
-        <div className="attendance-grid">
-          <section className="ds-panel">
-            <div className="ds-panel-head"><div><h2 className="ds-panel-title">Request permission</h2><p className="ds-panel-sub">{user.role === "manager" ? "Your request will go to the super admin for approval." : "Your request will go to your manager for approval."}</p></div></div>
-            <div className="attendance-form">
-              <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
-              <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_check_in">Early check-in</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
-              {TIMED_KINDS.includes(kind) && <label>{kind === "early_check_in" ? "Minutes early" : "Minutes"}<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
-              {BEFORE_SHIFT_KINDS.includes(kind) && (
-                <p className="attendance-form-note">
-                  {kind === "early_check_in"
-                    ? "Send this before your shift starts. Without an approved early check-in the system will not accept an early punch."
-                    : "This must be requested before your shift starts."}
-                </p>
-              )}
-              {LEAVE_KINDS.includes(kind) && (
-                <>
-                  <label className="is-wide">
-                    Who will handle your work that day?
-                    <select value={coverId} onChange={(event) => setCoverId(event.target.value)} required>
-                      <option value="">{coverColleagues.length ? "Select a colleague" : "No colleague available"}</option>
-                      {coverColleagues.map((colleague) => (
-                        <option key={colleague.id} value={colleague.id}>{colleague.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <p className="attendance-form-note">
-                    Your colleague is asked first. Only after they accept does the request go to{" "}
-                    {user.role === "manager" ? "the super admin" : "your manager"} for approval. On your leave day your
-                    unfinished candidates move to them; whatever they complete stays done, and anything still pending
-                    comes back to you the next day.
-                  </p>
-                </>
-              )}
-              <label className="is-wide">Reason<textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this permission needed?" /></label>
-              <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitPermission()}>Send for approval</button>
-            </div>
-          </section>
+      <PageTabs tabs={tabs} active={activeTab} onChange={setTab} label="Attendance sections" />
 
+      <div className="attendance-tab-panel" role="tabpanel">
+        {isTeamView && activeTab === "overview" && (
+          <>
+            <PolicyStrip />
+            <section className="ds-panel attendance-roster">
+              <div className="ds-panel-head">
+                <div>
+                  <h2 className="ds-panel-title">Monthly staff overview</h2>
+                  <p className="ds-panel-sub">Open an employee to see their daily record.</p>
+                </div>
+                <span className="attendance-request-count">{staff.length} staff</span>
+              </div>
+              <div className="ds-table-wrap is-ruled">
+                <table className="ds-table is-ruled">
+                  <thead><tr><th>Employee</th><th>Attendance</th><th>Working days</th><th>Exceptions</th><th>Unpaid time</th><th /></tr></thead>
+                  <tbody>
+                    {rosterSummaries.map(({ person, month: staffMonth, summary: staffSummary, permissions: staffPermissions }) => (
+                      <tr key={person.id} className={employeeId === person.id ? "is-selected" : undefined}>
+                        <td><span className="ds-who-text"><strong>{person.name}</strong><small>{person.staff_code || person.email}</small></span></td>
+                        <td><div className="attendance-rate"><strong className="attendance-percentage">{staffSummary.percentage}%</strong><span><i style={{ width: `${Math.min(100, staffSummary.percentage)}%` }} /></span></div></td>
+                        <td><strong>{staffSummary.attended} of {staffSummary.scheduled}</strong><small className="attendance-cell-note">Tracked from {staffMonth?.days[0]?.date || "first punch"}</small></td>
+                        <td><div className="attendance-exception-list"><span>{staffSummary.absent} absent</span><span>{staffSummary.late} late</span><span>{staffSummary.missing} incomplete</span><span>{staffPermissions.length} requests</span></div></td>
+                        <td><strong className={(staffMonth?.totals.unpaid_minutes ?? 0) > 0 ? "attendance-unpaid" : ""}>{durationLabel(staffMonth?.totals.unpaid_minutes ?? 0)}</strong><small className="attendance-cell-note">After paid allowance</small></td>
+                        <td><button type="button" className="attendance-view-btn" onClick={() => openEmployeeDetails(person.id)}>View record <ChevronRight size={14} /></button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+
+        {isTeamView && activeTab === "approvals" && (
+          <>
+            <PermissionTable
+              permissions={selectedPermissions}
+              staff={staff}
+              admin
+              busy={busy}
+              onDecision={decidePermission}
+              months={adminMonths}
+            />
+            <ExtraOtSection
+              requests={extraOt}
+              staff={staff}
+              admin
+              busy={busy}
+              approvedMinutes={approvedOtMinutes}
+              onDecision={decideOt}
+            />
+          </>
+        )}
+
+        {isTeamView && activeTab === "employee" && (
+          <>
+            <section className="ds-panel attendance-selected-head">
+              <div className="ds-panel-head">
+                <div>
+                  <h2 className="ds-panel-title">{selectedStaff?.name || "Select an employee"}</h2>
+                  <p className="ds-panel-sub">{selectedStaff?.staff_code || selectedStaff?.email || "Choose whose month to inspect."}</p>
+                </div>
+                {employeePicker}
+              </div>
+              <div className="attendance-selected-summary">
+                <span><small>Attendance</small><strong>{summary.percentage}%</strong></span>
+                <span><small>Days attended</small><strong>{summary.attended} of {summary.scheduled}</strong></span>
+                <span><small>Absent · late · incomplete</small><strong>{summary.absent} · {summary.late} · {summary.missing}</strong></span>
+                <span><small>Unpaid time</small><strong className={selectedUnpaid ? "attendance-unpaid" : ""}>{durationLabel(selectedUnpaid)}</strong></span>
+              </div>
+            </section>
+            <MonthTable month={visibleMonth} title="Daily attendance" />
+          </>
+        )}
+
+        {isTeamView && activeTab === "roster" && (
+          <DutyPlanSection
+            plans={employeeDutyPlans}
+            employeeName={selectedStaff?.name}
+            picker={employeePicker}
+            busy={busy}
+            date={dutyDate}
+            start={dutyStart}
+            end={dutyEnd}
+            breakMinutes={dutyBreak}
+            reason={dutyReason}
+            onDateChange={setDutyDate}
+            onStartChange={setDutyStart}
+            onEndChange={setDutyEnd}
+            onBreakChange={setDutyBreak}
+            onReasonChange={setDutyReason}
+            onSave={saveDutyPlan}
+            onRemove={removeDutyPlan}
+          />
+        )}
+
+        {!isTeamView && activeTab === "overview" && (
+          <MonthTable month={visibleMonth} title="This month" />
+        )}
+
+        {!isTeamView && activeTab === "request" && (
+          <div className="attendance-request-layout">
+            <section className="ds-panel">
+              <div className="ds-panel-head">
+                <div>
+                  <h2 className="ds-panel-title">{requestType === "permission" ? "Request permission" : "Request extra OT"}</h2>
+                  <p className="ds-panel-sub">
+                    Goes to {user.role === "manager" ? "the super admin" : "your manager"} for approval.
+                  </p>
+                </div>
+                <div className="scope-switch" role="group" aria-label="Request type">
+                  <button type="button" className={requestType === "permission" ? "is-active" : ""} aria-pressed={requestType === "permission"} onClick={() => setRequestType("permission")}>Permission / leave</button>
+                  <button type="button" className={requestType === "ot" ? "is-active" : ""} aria-pressed={requestType === "ot"} onClick={() => setRequestType("ot")}>Extra OT</button>
+                </div>
+              </div>
+
+              {requestType === "permission" ? (
+                <div className="attendance-form">
+                  <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
+                  <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_check_in">Early check-in</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
+                  {TIMED_KINDS.includes(kind) && <label>{kind === "early_check_in" ? "Minutes early" : "Minutes"}<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
+                  {BEFORE_SHIFT_KINDS.includes(kind) && (
+                    <p className="attendance-form-note">
+                      {kind === "early_check_in"
+                        ? "Send this before your shift starts. Without an approved early check-in the system will not accept an early punch."
+                        : "This must be requested before your shift starts."}
+                    </p>
+                  )}
+                  {LEAVE_KINDS.includes(kind) && (
+                    <>
+                      <label className="is-wide">
+                        Who will handle your work that day?
+                        <select value={coverId} onChange={(event) => setCoverId(event.target.value)} required>
+                          <option value="">{coverColleagues.length ? "Select a colleague" : "No colleague available"}</option>
+                          {coverColleagues.map((colleague) => (
+                            <option key={colleague.id} value={colleague.id}>{colleague.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <p className="attendance-form-note">
+                        Your colleague is asked first. Only after they accept does the request go to{" "}
+                        {user.role === "manager" ? "the super admin" : "your manager"} for approval. On your leave day your
+                        unfinished candidates move to them; whatever they complete stays done, and anything still pending
+                        comes back to you the next day.
+                      </p>
+                    </>
+                  )}
+                  <label className="is-wide">Reason<textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this permission needed?" /></label>
+                  <div className="attendance-form-actions">
+                    <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitPermission()}><Send size={15} /> Send for approval</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="attendance-form">
+                  <label>Date<input type="date" value={otDate} onChange={(event) => setOtDate(event.target.value)} /></label>
+                  <label>Extra minutes<input type="number" min="1" max="1440" value={otMinutes} onChange={(event) => setOtMinutes(event.target.value)} /></label>
+                  <label className="is-wide">Reason<textarea rows={3} value={otReason} onChange={(event) => setOtReason(event.target.value)} placeholder="What was worked beyond the normal shift?" /></label>
+                  <p className="attendance-form-note">
+                    Only approved extra OT is paid. Pending and rejected requests do not affect payroll.
+                  </p>
+                  <div className="attendance-form-actions">
+                    <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitExtraOt()}><Send size={15} /> Send for approval</button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <aside className="ds-panel attendance-rules">
+              <h2 className="ds-panel-title">How it works</h2>
+              <ul>
+                <li><Clock3 size={15} /><span><strong>8 payable hours</strong>10:00 AM–7:00 PM with a one-hour break</span></li>
+                <li><ShieldCheck size={15} /><span><strong>60 min permission</strong>Up to 2 occasions a month, paid</span></li>
+                <li><CalendarDays size={15} /><span><strong>1 paid leave</strong>Per month</span></li>
+                <li><Timer size={15} /><span><strong>Extra OT</strong>Paid only once approved</span></li>
+                <li><WalletCards size={15} /><span><strong>Deductions</strong>Uncovered time is deducted by the minute</span></li>
+              </ul>
+            </aside>
+          </div>
+        )}
+
+        {!isTeamView && activeTab === "history" && (
+          <>
+            <PermissionTable
+              permissions={selectedPermissions}
+              staff={staff}
+              admin={false}
+              busy={busy}
+              onDecision={decidePermission}
+              months={adminMonths}
+              colleagues={coverColleagues}
+              onAskCover={askAnotherCover}
+            />
+            <ExtraOtSection
+              requests={extraOt}
+              staff={staff}
+              admin={false}
+              busy={busy}
+              approvedMinutes={approvedOtMinutes}
+              onDecision={decideOt}
+            />
+          </>
+        )}
+
+        {!isTeamView && activeTab === "weekly" && (
           <section className="ds-panel">
             <div className="ds-panel-head">
               <div>
-                <h2 className="ds-panel-title">Request extra OT</h2>
-                <p className="ds-panel-sub">
-                  {user.role === "manager"
-                    ? "Hours worked beyond your shift. Approved by an administrator."
-                    : "Hours worked beyond your shift. Approved by your manager."}
-                </p>
+                <h2 className="ds-panel-title">Choose your weekly off</h2>
+                <p className="ds-panel-sub">Sunday by default. To take Friday off instead, choose it by Thursday 11:59 PM; that week&rsquo;s Sunday then becomes a working day.</p>
               </div>
-              <Timer size={20} />
             </div>
-            <div className="attendance-form">
-              <label>Date<input type="date" value={otDate} onChange={(event) => setOtDate(event.target.value)} /></label>
-              <label>Extra minutes<input type="number" min="1" max="1440" value={otMinutes} onChange={(event) => setOtMinutes(event.target.value)} /></label>
-              <label className="is-wide">Reason<textarea rows={3} value={otReason} onChange={(event) => setOtReason(event.target.value)} placeholder="What was worked beyond the normal shift?" /></label>
-              <p className="attendance-form-note">
-                Only approved extra OT is paid. Pending and rejected requests do not affect payroll.
-              </p>
-              <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitExtraOt()}>Send for approval</button>
-            </div>
+            {weeklyOffWeeks.length === 0 ? (
+              <div className="ds-empty-state"><CalendarDays size={28} /><h3>No upcoming weeks to choose</h3></div>
+            ) : (
+              <div className="weekly-off-weeks">
+                {weeklyOffWeeks.map((week) => (
+                  <div key={week.week_start} className={`weekly-off-week ${week.locked ? "is-locked" : ""}`}>
+                    <span className="weekly-off-week-label">Week of {shortDate(week.week_start)}</span>
+                    <div className="scope-switch" role="group" aria-label={`Weekly off for the week of ${shortDate(week.week_start)}`}>
+                      {(["sunday", "friday"] as const).map((choice) => (
+                        <button
+                          key={choice}
+                          type="button"
+                          className={week.day === choice ? "is-active" : ""}
+                          aria-pressed={week.day === choice}
+                          disabled={weeklyOffBusy || week.locked}
+                          onClick={() => void saveWeeklyOff(week, choice)}
+                        >
+                          {choice === "sunday" ? `Sun ${shortDate(week.sunday)}` : `Fri ${shortDate(week.friday)}`}
+                        </button>
+                      ))}
+                    </div>
+                    <small>{week.locked ? "Locked" : `Change by ${deadlineLabel(week.deadline)}`}</small>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
-        </div>
-      )}
+        )}
 
-      {!isTeamView && coverRequests.length > 0 && (
-        <CoverRequestsSection requests={coverRequests} busy={busy} onAnswer={answerCover} />
-      )}
+        {!isTeamView && activeTab === "cover" && (
+          <CoverRequestsSection requests={coverRequests} busy={busy} onAnswer={answerCover} />
+        )}
+      </div>
+    </div>
+  );
+}
 
-      <PermissionTable
-        permissions={selectedPermissions}
-        staff={staff}
-        admin={isTeamView}
-        busy={busy}
-        onDecision={decidePermission}
-        months={adminMonths}
-        colleagues={coverColleagues}
-        onAskCover={askAnotherCover}
-      />
+interface PageTab {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  count?: number;
+  alert?: boolean;
+}
 
-      <ExtraOtSection
-        requests={extraOt}
-        staff={staff}
-        admin={isTeamView}
-        busy={busy}
-        approvedMinutes={approvedOtMinutes}
-        onDecision={decideOt}
-      />
+function PageTabs({ tabs, active, onChange, label }: { tabs: PageTab[]; active: string; onChange: (id: string) => void; label: string }) {
+  return (
+    <nav className="page-tabs" role="tablist" aria-label={label}>
+      {tabs.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          role="tab"
+          aria-selected={active === item.id}
+          className={`page-tab ${active === item.id ? "is-on" : ""}`}
+          onClick={() => onChange(item.id)}
+        >
+          {item.icon}
+          {item.label}
+          {item.count !== undefined && <span className={`page-tab-count ${item.alert ? "is-alert" : ""}`}>{item.count}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+}
 
-      {isTeamView && (
-        <DutyPlanSection
-          plans={employeeDutyPlans}
-          employeeName={selectedStaff?.name}
-          busy={busy}
-          date={dutyDate}
-          start={dutyStart}
-          end={dutyEnd}
-          breakMinutes={dutyBreak}
-          reason={dutyReason}
-          onDateChange={setDutyDate}
-          onStartChange={setDutyStart}
-          onEndChange={setDutyEnd}
-          onBreakChange={setDutyBreak}
-          onReasonChange={setDutyReason}
-          onSave={saveDutyPlan}
-          onRemove={removeDutyPlan}
-        />
-      )}
-
-      <MonthTable month={visibleMonth} title={isTeamView && selectedStaff ? `${selectedStaff.name} · daily attendance` : "This month"} sectionId={isTeamView ? "attendance-employee-details" : undefined} />
+function PolicyStrip() {
+  return (
+    <div className="attendance-policy-strip" aria-label="Attendance policy summary">
+      <span><Clock3 size={15} /><strong>8 hours</strong> payable work + 1-hour break</span>
+      <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
+      <span><ShieldCheck size={15} />Sunday weekly off, or Friday if chosen by Thursday</span>
+      <span><WalletCards size={15} />Extra time deducted by minute</span>
     </div>
   );
 }
@@ -1076,11 +1223,12 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
  * after the first rostered one into an absence.
  */
 function DutyPlanSection({
-  plans, employeeName, busy, date, start, end, breakMinutes, reason,
+  plans, employeeName, picker, busy, date, start, end, breakMinutes, reason,
   onDateChange, onStartChange, onEndChange, onBreakChange, onReasonChange, onSave, onRemove,
 }: {
   plans: DutyPlan[];
   employeeName?: string;
+  picker?: ReactNode;
   busy: boolean;
   date: string;
   start: string;
@@ -1111,7 +1259,7 @@ function DutyPlanSection({
             calculated and paid normally.
           </p>
         </div>
-        <CalendarDays size={20} />
+        {picker}
       </div>
 
       <div className="attendance-form">

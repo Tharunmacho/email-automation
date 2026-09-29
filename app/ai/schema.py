@@ -1,6 +1,6 @@
 """JSON schema for the resume-extraction tool.
 
-We force Claude to call a single tool whose ``input_schema`` mirrors
+We force the model to call a single function whose ``parameters`` mirrors
 ``CandidateProfile``. Tool use guarantees valid JSON matching this shape, so we
 never parse free-form model text. Keep this in sync with core.models.CandidateProfile.
 """
@@ -16,7 +16,7 @@ RESUME_TOOL_SCHEMA = {
         "(e.g. an invoice, newsletter, receipt, OTP, or unrelated document), set "
         "is_resume=false and confidence accordingly, and leave profile fields empty."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "is_resume": {

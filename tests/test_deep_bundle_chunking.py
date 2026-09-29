@@ -46,7 +46,7 @@ def scan(monkeypatch):
     Yields the list of 1-based page numbers that were read.
     """
     monkeypatch.setattr(settings, "veris_ocr_api_key", "test-key")
-    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(settings, "openai_api_key", "")
     # A scan has no text layer; this is what PyMuPDF sees on one.
     monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "")
 
