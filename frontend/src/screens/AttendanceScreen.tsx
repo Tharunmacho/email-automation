@@ -694,7 +694,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         <div className="attendance-grid">
           <section className="ds-panel">
             <div className="ds-panel-head"><div><h2 className="ds-panel-title">Today’s attendance</h2><p className="ds-panel-sub">Default shift 10:00 AM–7:00 PM, including a one-hour break: 480 payable minutes.</p></div><Clock3 size={20} /></div>
-            <div className="attendance-minutes"><span><strong>{durationLabel(workedMinutes(currentDay))}</strong> worked today</span><span><strong>{durationLabel(currentDay?.unpaid_minutes ?? 0)}</strong> salary-impact time</span></div>
+            <div className="attendance-minutes"><span><strong>{durationLabel(workedMinutes(currentDay))}</strong> worked today</span></div>
             <div className="attendance-actions">
               <button type="button" className="ds-primary-btn" disabled={busy || Boolean(currentDay?.check_in)} onClick={() => void punch("check_in")}><LogIn size={15} /> Check in</button>
               <button type="button" className="ds-ghost-btn" disabled={busy || !currentDay?.check_in || Boolean(currentDay?.check_out)} onClick={() => void punch("check_out")}><LogOut size={15} /> Check out</button>
