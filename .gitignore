@@ -21,3 +21,6 @@ venv/
 
 # Manual backups — git already holds the history these duplicate
 *.bak
+
+# Scratch/temporary files
+scratch/

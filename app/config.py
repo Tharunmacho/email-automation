@@ -831,6 +831,21 @@ class Settings(BaseSettings):
     # timeout, so this stays comfortably underneath it while still letting the
     # two mailboxes work in parallel with each other.
     imap_max_connections: int = 4
+    # Every login is a session the provider counts. Zoho caps sessions per
+    # account and blocks IMAP for anything from minutes to days when logins
+    # pile up, so a pooled connection is kept alive with a NOOP once it has sat
+    # idle this long, rather than being let go and logged in again for the
+    # next email. Keep it under the provider's idle disconnect, which for the
+    # common ones is somewhere between five and thirty minutes.
+    imap_keepalive_seconds: int = 240
+    # Per-operation socket timeout on an IMAP connection. Without one a server
+    # that has silently dropped the session leaves the caller blocked forever.
+    # A large FETCH is unaffected: the clock restarts every time bytes arrive.
+    imap_socket_timeout_seconds: int = 60
+    # Auto-replies reuse one SMTP session per account instead of logging in for
+    # each one. Replies arrive in bursts, so the session is closed with a QUIT
+    # after this much quiet rather than held open all day.
+    smtp_idle_close_seconds: int = 120
 
     # ---- Multipass extraction ----
     # Route Aadhaar and passport pages out of the same bundle to their own OCR

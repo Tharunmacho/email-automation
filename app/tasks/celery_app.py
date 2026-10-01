@@ -15,8 +15,24 @@ so threads lose almost nothing.
 from __future__ import annotations
 
 from celery import Celery
+from celery.signals import worker_process_shutdown, worker_shutdown
 
 from app.config import settings
+
+
+@worker_process_shutdown.connect
+@worker_shutdown.connect
+def _logout_of_mailboxes(**_kwargs) -> None:
+    """End every mail session this process holds before it exits.
+
+    Each prefork child keeps its own logged-in IMAP connections and SMTP
+    session. A child that just dies leaves those sessions counted against the
+    account until Zoho times them out, and a restart with four children and
+    two mailboxes orphans eight at once. A LOGOUT ends them immediately.
+    """
+    from app.email_client.factory import close_email_clients
+
+    close_email_clients()
 
 
 def _mail_poll_schedule() -> dict:

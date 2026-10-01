@@ -1,6 +1,7 @@
 """Factory module for selecting the configured email client (SMTP/IMAP or Gmail API)."""
 from __future__ import annotations
 
+import atexit
 import hashlib
 import threading
 from typing import Any, List
@@ -76,10 +77,35 @@ def get_email_client(config: dict | None = None) -> Any:
         return client
 
 
+def close_email_clients() -> None:
+    """Log every cached client out of its mailbox and forget it.
+
+    The process-exit half of session hygiene. A client's pooled IMAP
+    connections and its SMTP session are each a login the provider is still
+    counting; LOGOUT and QUIT end them now, where a socket that simply closes
+    with the process leaves the session on the books until it times out. Runs
+    from `atexit`, the Celery worker shutdown signals and the API's shutdown
+    hook, and is safe to run more than once.
+    """
+    with _clients_lock:
+        clients = list(_clients.values())
+        _clients.clear()
+    for client in clients:
+        close = getattr(client, "close", None)
+        if close is None:
+            continue
+        try:
+            close()
+        except Exception as exc:  # noqa: BLE001 — shutdown must not raise
+            log.debug("Closing mail client failed: %s", exc)
+
+
 def reset_email_clients() -> None:
     """Drop every cached client. For tests, and for a credentials change."""
-    with _clients_lock:
-        _clients.clear()
+    close_email_clients()
+
+
+atexit.register(close_email_clients)
 
 
 def get_all_email_clients() -> List[Any]:
