@@ -211,16 +211,14 @@ def test_rejected_extra_ot_does_not_move_payroll(api):
     assert after["total_payable"] == before["total_payable"]
 
 
-def test_approved_extra_ot_is_paid(api):
+def test_approved_extra_ot_is_never_paid_as_extra_money(api):
     before = rows_by_name(payroll(api))["Ravi"]
     add_ot(api, "approved", minutes=120)
     after = rows_by_name(payroll(api))["Ravi"]
 
     assert after["approved_ot_minutes"] == 120
-    assert after["extra_ot_amount"] > 0
-    assert after["total_payable"] == pytest.approx(
-        before["total_payable"] + after["extra_ot_amount"]
-    )
+    assert after["extra_ot_amount"] == 0
+    assert after["total_payable"] == before["total_payable"]
 
 
 def test_only_the_approved_share_of_a_mixed_month_is_paid(api):
@@ -287,8 +285,9 @@ def test_approved_ot_first_cancels_late_time(api):
     assert after["ot_offset_minutes"] == 180
     assert after["late_unpaid_minutes"] == 0
     assert after["unpaid_minutes"] == before["unpaid_minutes"] - 180
-    # Only the 20 minutes left over are paid as Extra OT.
+    # The 20 minutes left over earn nothing.
     assert after["paid_ot_minutes"] == 20
+    assert after["extra_ot_amount"] == 0
     assert after["deduction"] < before["deduction"]
 
 
@@ -305,7 +304,7 @@ def test_ot_smaller_than_the_late_time_only_reduces_it(api):
 
 
 def test_ot_never_cancels_an_absent_day(api):
-    """Absence is a missing day, not lateness; OT is paid instead."""
+    """Absence is a missing day, not lateness; OT does not cancel it."""
     add_ot(api, "approved", minutes=120)
     row = rows_by_name(payroll(api))["Ravi"]
     assert row["ot_offset_minutes"] == 0

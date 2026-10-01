@@ -631,7 +631,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         <div className="ds-stats attendance-stats attendance-admin-stats">
           <Stat label="Active staff" value={String(staff.length)} note="Included in this month" icon={<Users size={16} />} />
           <Stat label="Pending permissions" value={String(pendingCount)} note="Awaiting a decision" icon={<ShieldCheck size={16} />} />
-          <Stat label="Pending extra OT" value={String(pendingOt)} note="Only approved OT reaches payroll" icon={<Timer size={16} />} />
+          <Stat label="Pending extra OT" value={String(pendingOt)} note="Approved OT only offsets late time" icon={<Timer size={16} />} />
           <Stat label="Unpaid time" value={durationLabel(rosterSummaries.reduce((sum, row) => sum + (row.month?.totals.unpaid_minutes ?? 0), 0))} note="Across the active roster" icon={<WalletCards size={16} />} />
         </div>
       ) : (
@@ -804,7 +804,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                   <label>Extra minutes<input type="number" min="1" max="1440" value={otMinutes} onChange={(event) => setOtMinutes(event.target.value)} /></label>
                   <label className="is-wide">Reason<textarea rows={3} value={otReason} onChange={(event) => setOtReason(event.target.value)} placeholder="What was worked beyond the normal shift?" /></label>
                   <p className="attendance-form-note">
-                    Only approved extra OT is paid. Pending and rejected requests do not affect payroll.
+                    Extra OT is not paid. Approved OT only offsets late or short time in the same month; pending and rejected requests do not count.
                   </p>
                   <div className="attendance-form-actions">
                     <button type="button" className="ds-primary-btn" disabled={busy} onClick={() => void submitExtraOt()}><Send size={15} /> Send for approval</button>
@@ -819,7 +819,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <li><Clock3 size={15} /><span><strong>8 payable hours</strong>{day?.shift_start && day?.shift_end ? `${timeOf(day.shift_start)}–${timeOf(day.shift_end)}` : "10:00 AM–7:00 PM"} with a one-hour break</span></li>
                 <li><ShieldCheck size={15} /><span><strong>60 min permission</strong>Up to 2 occasions a month, paid</span></li>
                 <li><CalendarDays size={15} /><span><strong>1 paid leave</strong>Per month</span></li>
-                <li><Timer size={15} /><span><strong>Extra OT</strong>Paid only once approved</span></li>
+                <li><Timer size={15} /><span><strong>Extra OT</strong>Not paid; approved OT offsets late time</span></li>
                 <li><WalletCards size={15} /><span><strong>Deductions</strong>Uncovered time is deducted by the minute</span></li>
               </ul>
             </aside>
@@ -1131,7 +1131,7 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
           {admin && <span className="attendance-section-kicker">MANAGER ACTION CENTRE</span>}
           <h2 className="ds-panel-title">{admin ? "Extra OT requests" : "My extra OT"}</h2>
           <p className="ds-panel-sub">
-            {durationLabel(approvedMinutes)} approved this month — the only extra OT payroll pays.
+            {durationLabel(approvedMinutes)} approved this month. OT is not paid; it only offsets late time.
           </p>
         </div>
         {admin && (

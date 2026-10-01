@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Clock3,
   Download,
+  Gift,
   RefreshCw,
   RotateCcw,
   Search,
@@ -28,7 +29,7 @@ import {
   type PayrollRow,
 } from "@/lib/api";
 import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
-import { IncentivesPanel, NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
+import { IncentiveDialog, IncentivesPanel, NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
 
 interface Props {
   user: AuthUser;
@@ -66,6 +67,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [expandedId, setExpandedId] = useState("");
   const [logKey, setLogKey] = useState(0);
   const [payslipFor, setPayslipFor] = useState<PayrollRow | null>(null);
+  const [incentiveFor, setIncentiveFor] = useState<PayrollRow | null>(null);
   const allBranches = useBranches();
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
@@ -317,6 +319,9 @@ export default function PayrollScreen({ user, onToast }: Props) {
                                   {busy ? <RefreshCw size={14} className="icon-spin" /> : paid ? <RotateCcw size={14} /> : <Check size={14} />}
                                   {paid ? "Reopen" : "Mark paid"}
                                 </button>
+                                <button type="button" className="payroll-expand-btn" onClick={() => setIncentiveFor(row)} title="Add or view this month's incentives">
+                                  <Gift size={15} /> Incentive{row.incentive_amount > 0 ? ` · ${money.format(row.incentive_amount)}` : ""}
+                                </button>
                                 {payroll.payslips_available && (
                                   <button type="button" className="payroll-expand-btn" onClick={() => setPayslipFor(row)} title="Enter the payment date and incentives, then download the payslip (PDF)">
                                     <Download size={15} /> Payslip
@@ -361,7 +366,6 @@ export default function PayrollScreen({ user, onToast }: Props) {
         <IncentivesPanel
           year={year}
           month={month}
-          employees={personalView ? visibleItems : payroll.items}
           currentUserId={user.id}
           refreshKey={logKey}
           onChanged={() => void load()}
@@ -372,6 +376,17 @@ export default function PayrollScreen({ user, onToast }: Props) {
       {canManage && !personalView && payroll && <NetPayableLogs year={year} month={month} refreshKey={logKey} />}
 
       <ReimbursementsPanel currentUserId={user.id} onToast={onToast} onChanged={() => void load()} />
+
+      {incentiveFor && (
+        <IncentiveDialog
+          row={incentiveFor}
+          year={year}
+          month={month}
+          onClose={() => setIncentiveFor(null)}
+          onChanged={() => { setLogKey((key) => key + 1); void load(); }}
+          onToast={onToast}
+        />
+      )}
 
       {payslipFor && (
         <PayslipDialog
@@ -430,10 +445,10 @@ function EmployeePayCard({ row, busy, canManage, payslipHref, onSave, onTogglePa
         <span className="payroll-flow-sign">=</span>
         <div className="is-net"><span>Net payable</span><strong>{money.format(row.total_payable)}</strong></div>
       </div>
-      {(row.extra_ot_amount > 0 || row.reimbursement_amount > 0 || row.net_payable_overridden) && (
+      {(row.incentive_amount > 0 || row.reimbursement_amount > 0 || row.net_payable_overridden) && (
         <p className="payroll-extras-sub">
           {[
-            row.extra_ot_amount > 0 ? `Includes Extra OT ${money.format(row.extra_ot_amount)}` : "",
+            row.incentive_amount > 0 ? `Includes incentives ${money.format(row.incentive_amount)}` : "",
             row.reimbursement_amount > 0 ? `reimbursements ${money.format(row.reimbursement_amount)}` : "",
             row.net_payable_overridden ? `adjusted by ${row.overridden_by_name || "an admin"}: ${row.override_remarks ?? ""}` : "",
           ].filter(Boolean).join(" · ")}
@@ -477,11 +492,11 @@ function PayrollBreakdown({ row }: { row: PayrollRow }) {
         <h4>Overtime</h4>
         <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
         <Metric label="Set against late time" value={`${row.ot_offset_minutes} min`} />
-        <Metric label="OT paid" value={`${row.paid_ot_minutes} min`} />
+        <Metric label="OT left over (unpaid)" value={`${row.paid_ot_minutes} min`} />
       </div>
       <div className="payroll-breakdown-group">
         <h4>Additions</h4>
-        <Metric label="Extra OT pay" value={money.format(row.extra_ot_amount)} />
+        <Metric label="Incentives" value={money.format(row.incentive_amount)} />
         <Metric label="Reimbursements" value={money.format(row.reimbursement_amount)} />
         <Metric label="Calculated payable" value={money.format(row.computed_payable)} />
       </div>

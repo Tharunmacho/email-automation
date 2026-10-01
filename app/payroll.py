@@ -145,15 +145,17 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
     approved_ot_minutes = attendance_repo.approved_extra_ot_minutes(
         employee.id, date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
     )
-    # Approved OT is time worked beyond the normal hours, and it first
+    # Approved OT is time worked beyond the normal hours, and it only
     # cancels the month's late / short time. Only late time: an absent day
     # or unpaid leave is a whole missing day, not lateness, and stays
-    # deducted. Whatever OT is left after that is paid as Extra OT.
+    # deducted. OT is never paid as extra money; whatever is left after the
+    # offset is reported (`paid_ot_minutes`, kept for compatibility) but earns
+    # nothing.
     ot_offset_minutes = min(approved_ot_minutes, late_unpaid_minutes)
     unpaid_minutes = unpaid_before_ot - ot_offset_minutes
     paid_ot_minutes = approved_ot_minutes - ot_offset_minutes
     deduction = lop_amount(unpaid_minutes, monthly_salary, scheduled_minutes)
-    extra_ot_amount = round(paid_ot_minutes * monthly_salary / scheduled_minutes, 2)
+    extra_ot_amount = 0.0
     # Claims Yoosuf approved this month are paid with this month's salary.
     reimbursement_amount = approved_reimbursements(employee.id, year, month, db=runs.database)
     run = runs.find_one({"employee_id": employee.id, "year": year, "month": month}) or {}

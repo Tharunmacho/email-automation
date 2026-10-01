@@ -365,7 +365,6 @@ export function PayslipDialog({ row, year, month, onClose, onSaved, onToast }: {
 
           <div className="payroll-breakdown-group payroll-payslip-sum">
             <div><span>Salary after deductions</span><strong>{money.format(row.net_salary)}</strong></div>
-            {row.extra_ot_amount > 0 && <div><span>Extra OT</span><strong>{money.format(row.extra_ot_amount)}</strong></div>}
             <div><span>Incentives</span><strong>{money.format(row.incentive_amount)}</strong></div>
             <div><span>Reimbursements</span><strong>{money.format(row.reimbursement_amount)}</strong></div>
             <div className="is-total"><span>Net salary</span><strong>{money.format(row.total_payable)}</strong></div>
@@ -390,24 +389,17 @@ export function PayslipDialog({ row, year, month, onClose, onSaved, onToast }: {
 // --------------------------------------------------------------------------- //
 //  Incentives
 // --------------------------------------------------------------------------- //
-export function IncentivesPanel({ year, month, employees, currentUserId, refreshKey, onChanged, onToast }: {
+export function IncentivesPanel({ year, month, currentUserId, refreshKey, onChanged, onToast }: {
   year: number;
   month: number;
-  /** The payroll rows this session can see; the employee picker offers these. */
-  employees: PayrollRow[];
   currentUserId: string;
   refreshKey: number;
-  /** Called after an add or remove, so net payable can be reloaded. */
+  /** Called after a removal, so net payable can be reloaded. */
   onChanged: () => void;
   onToast: (message: string, type?: "success" | "error" | "info") => void;
 }) {
   const [items, setItems] = useState<PayrollIncentive[] | null>(null);
   const [canManage, setCanManage] = useState(false);
-  const [employeeId, setEmployeeId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [incentiveDate, setIncentiveDate] = useState(todayIso());
-  const [remarks, setRemarks] = useState("");
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -424,31 +416,6 @@ export function IncentivesPanel({ year, month, employees, currentUserId, refresh
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load, refreshKey]);
-
-  const valid = Boolean(employeeId) && Number(amount) > 0 && Boolean(incentiveDate);
-
-  const add = async () => {
-    if (!valid || busy) return;
-    setBusy(true);
-    try {
-      await addIncentive(year, month, {
-        employee_id: employeeId,
-        amount: Number(amount),
-        remarks: remarks.trim(),
-        incentive_date: incentiveDate,
-      });
-      const who = employees.find((row) => row.employee_id === employeeId)?.name ?? "the employee";
-      onToast(`Incentive of ${money.format(Number(amount))} added for ${who}`, "success");
-      setAmount("");
-      setRemarks("");
-      await load();
-      onChanged();
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not add the incentive", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const remove = async (item: PayrollIncentive) => {
     if (!window.confirm(`Remove the ${money.format(item.amount)} incentive for ${item.employee_name}?`)) return;
@@ -471,31 +438,13 @@ export function IncentivesPanel({ year, month, employees, currentUserId, refresh
           <span className="payroll-section-icon"><Gift size={18} /></span>
           <div>
             <h2>Incentives — {MONTHS[month - 1]} {year}</h2>
-            <p>Add as many incentives as needed, each with remarks. They are added to the month&rsquo;s net payable and listed on the payslip.</p>
+            <p>{canManage
+              ? "Add incentives with the Incentive button on each employee's row. They are added to the month's net payable and listed on the payslip."
+              : "Incentives added to your salary this month."}</p>
           </div>
         </div>
         {items && items.length > 0 && <span className="payroll-count">{items.length} · {money.format(total)}</span>}
       </div>
-
-      {canManage && (
-        <div className="payroll-settings">
-          <div className="payroll-settings-title"><Plus size={15} /> Add incentive</div>
-          <div className="payroll-extras-form">
-            <label className="is-wide">Employee
-              <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} disabled={busy}>
-                <option value="">Choose an employee</option>
-                {employees.map((row) => <option key={row.employee_id} value={row.employee_id}>{row.name}{row.staff_code ? ` (${row.staff_code})` : ""}</option>)}
-              </select>
-            </label>
-            <label>Amount (₹)<input type="number" min="1" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={busy} /></label>
-            <label>Date<input type="date" value={incentiveDate} onChange={(event) => setIncentiveDate(event.target.value)} disabled={busy} /></label>
-            <label className="is-wide">Remarks<input value={remarks} maxLength={500} onChange={(event) => setRemarks(event.target.value)} placeholder="e.g. Interview incentive" disabled={busy} /></label>
-            <button type="button" className="payroll-save-btn" disabled={!valid || busy} onClick={() => void add()}>
-              {busy ? <RefreshCw size={15} className="icon-spin" /> : <Plus size={15} />} Add incentive
-            </button>
-          </div>
-        </div>
-      )}
 
       {items === null ? (
         <div className="payroll-empty is-compact" role="status"><RefreshCw className="icon-spin" /><strong>Loading incentives</strong></div>
@@ -536,5 +485,133 @@ export function IncentivesPanel({ year, month, employees, currentUserId, refresh
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * One employee's incentives for the month, opened from their payroll row.
+ * Any number can be added, each with its own amount, date and remarks.
+ */
+export function IncentiveDialog({ row, year, month, onClose, onChanged, onToast }: {
+  row: PayrollRow;
+  year: number;
+  month: number;
+  onClose: () => void;
+  onChanged: () => void;
+  onToast: (message: string, type?: "success" | "error" | "info") => void;
+}) {
+  const [items, setItems] = useState<PayrollIncentive[] | null>(null);
+  const [amount, setAmount] = useState("");
+  const [incentiveDate, setIncentiveDate] = useState(todayIso());
+  const [remarks, setRemarks] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await fetchIncentives(year, month);
+      setItems(result.items.filter((item) => item.employee_id === row.employee_id));
+    } catch (err) {
+      setItems([]);
+      onToast(err instanceof Error ? err.message : "Could not load incentives", "error");
+    }
+  }, [month, onToast, row.employee_id, year]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const valid = Number(amount) > 0 && Boolean(incentiveDate);
+
+  const add = async () => {
+    if (!valid || busy) return;
+    setBusy(true);
+    try {
+      await addIncentive(year, month, {
+        employee_id: row.employee_id,
+        amount: Number(amount),
+        remarks: remarks.trim(),
+        incentive_date: incentiveDate,
+      });
+      onToast(`Incentive of ${money.format(Number(amount))} added for ${row.name}`, "success");
+      setAmount("");
+      setRemarks("");
+      await load();
+      onChanged();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not add the incentive", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (item: PayrollIncentive) => {
+    if (!window.confirm(`Remove the ${money.format(item.amount)} incentive?`)) return;
+    setBusy(true);
+    try {
+      await deleteIncentive(year, month, item.id);
+      onToast("Incentive removed", "success");
+      await load();
+      onChanged();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not remove the incentive", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const total = (items ?? []).reduce((sum, item) => sum + item.amount, 0);
+
+  return (
+    <div className="modal-overlay active" onClick={() => !busy && onClose()}>
+      <div className="modal-container is-narrow" role="dialog" aria-modal="true" aria-labelledby="incentive-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2 className="modal-title" id="incentive-title">Incentives — {MONTHS[month - 1]} {year}</h2>
+            <p className="modal-subtitle">{row.name}{row.staff_code ? ` · ${row.staff_code}` : ""}</p>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="modal-body payroll-settings">
+          <div className="payroll-extras-form">
+            <label>Amount (₹)<input type="number" min="1" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={busy} autoFocus /></label>
+            <label>Date<input type="date" value={incentiveDate} onChange={(event) => setIncentiveDate(event.target.value)} disabled={busy} /></label>
+            <label className="is-wide">Remarks<input value={remarks} maxLength={500} onChange={(event) => setRemarks(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void add(); }} placeholder="e.g. Interview incentive" disabled={busy} /></label>
+            <button type="button" className="payroll-save-btn" disabled={!valid || busy} onClick={() => void add()}>
+              {busy ? <RefreshCw size={15} className="icon-spin" /> : <Plus size={15} />} Add incentive
+            </button>
+          </div>
+
+          <div className="payroll-settings-title">This month</div>
+          {items === null ? (
+            <p className="payroll-extras-sub">Loading…</p>
+          ) : !items.length ? (
+            <p className="payroll-extras-sub">No incentives yet. Add as many as needed above.</p>
+          ) : (
+            <table className="payroll-table">
+              <thead>
+                <tr><th>Date</th><th className="is-num">Amount</th><th>Remarks</th><th className="is-actions" /></tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.incentive_date}</td>
+                    <td className="is-num">{money.format(item.amount)}</td>
+                    <td>{item.remarks || "—"}<small className="payroll-extras-sub">Added by {item.created_by_name || "—"}</small></td>
+                    <td className="is-actions">
+                      <button type="button" className="payroll-reopen-btn" onClick={() => void remove(item)} disabled={busy} aria-label="Remove incentive"><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="payroll-incentive-total"><td>Total</td><td className="is-num">{money.format(total)}</td><td colSpan={2} /></tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="db-btn is-primary" onClick={onClose} disabled={busy}><Check size={14} /> Done</button>
+        </div>
+      </div>
+    </div>
   );
 }
