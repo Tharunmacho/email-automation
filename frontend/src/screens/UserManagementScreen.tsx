@@ -32,19 +32,23 @@ import {
   UserPlus,
   Users,
   X,
+  Clock3,
 } from "lucide-react";
 
-import BranchSwitch, { BRANCHES, sameBranch } from "@/components/ui/BranchSwitch";
+import BranchSwitch, { BranchSelect, sameBranch, useBranches } from "@/components/ui/BranchSwitch";
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf, timeAgo } from "@/lib/format";
 import {
+  assignWorkTiming,
   createUserAPI,
   deleteUserAPI,
+  fetchWorkTiming,
   listUsersAPI,
   updateUserAPI,
   type ManagedUser,
+  type WorkTiming,
 } from "@/lib/api";
 
 /**
@@ -227,6 +231,7 @@ export default function UserManagementScreen({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ManagedUser | null>(null);
   const [branchFilter, setBranchFilter] = useState("");
+  const branches = useBranches();
 
   const say = useCallback(
     (message: string, type: "info" | "success" | "error" = "info") => onActivity?.(message, type),
@@ -284,11 +289,11 @@ export default function UserManagementScreen({
 
   const branchCounts = useMemo(() => {
     const counts: Record<string, number> = { "": users.length };
-    for (const name of BRANCHES) {
+    for (const name of branches) {
       counts[name] = users.filter((u) => sameBranch(u.effective_branch, name)).length;
     }
     return counts;
-  }, [users]);
+  }, [branches, users]);
 
   const visibleUsers = useMemo(
     () => branchFilter ? users.filter((u) => sameBranch(u.effective_branch, branchFilter)) : users,
@@ -311,8 +316,9 @@ export default function UserManagementScreen({
         role: draft.role,
         page_grants: draft.grants,
         action_grants: draft.actionGrants,
+        crm_access: draft.crmAccess,
       });
-      say(`${draft.email} created`, "success");
+      say(`${draft.name.trim() || draft.email} created`, "success");
       setSection("manage");
       await load();
     } catch (err) {
@@ -396,7 +402,7 @@ export default function UserManagementScreen({
       </header>
 
       {section === "create" && (
-        <CreateUserForm pages={pages} actions={actions} onCancel={() => setSection("manage")} onCreate={create} />
+        <CreateUserForm pages={pages} actions={actions} branches={branches} onCancel={() => setSection("manage")} onCreate={create} />
       )}
 
       <section className="db-card">
@@ -410,7 +416,7 @@ export default function UserManagementScreen({
               A grant puts a page on someone&apos;s rail. It does not widen the data behind it.
             </p>
           </div>
-          <BranchSwitch value={branchFilter} onChange={setBranchFilter} counts={branchCounts} ariaLabel="Filter accounts by branch" />
+          <BranchSwitch value={branchFilter} onChange={setBranchFilter} branches={branches} counts={branchCounts} ariaLabel="Filter accounts by branch" />
         </header>
 
         {visibleUsers.length === 0 ? (
@@ -452,7 +458,9 @@ export default function UserManagementScreen({
                               Staff ID · {user.staff_code || `STF-${user.id.slice(-12).toUpperCase()}`}
                             </small>
                           )}
-                          <small>{user.email}</small>
+                          {user.crm_access === false
+                            ? <small><em className="staff-flag">no CRM access</em></small>
+                            : <small>{user.email}</small>}
                         </span>
                       </span>
                     </td>
@@ -540,6 +548,7 @@ export default function UserManagementScreen({
         <EditUserModal
           user={editing}
           pages={pages}
+          branches={branches}
           actions={actions}
           isSelf={editing.id === currentUserId}
           isLastAdmin={editing.role === "admin" && activeAdmins <= 1}
@@ -567,16 +576,20 @@ interface CreateDraft {
   role: string;
   grants: string[];
   actionGrants: string[];
+  /** False: attendance and payroll only — cannot sign in, gets no candidates. */
+  crmAccess: boolean;
 }
 
 function CreateUserForm({
   pages,
   actions,
+  branches,
   onCancel,
   onCreate,
 }: {
   pages: string[];
   actions: string[];
+  branches: string[];
   onCancel: () => void;
   onCreate: (draft: CreateDraft) => void;
 }) {
@@ -589,6 +602,7 @@ function CreateUserForm({
   const [role, setRole] = useState("staff");
   const [grants, setGrants] = useState<string[]>([]);
   const [actionGrants, setActionGrants] = useState<string[]>([]);
+  const [crmAccess, setCrmAccess] = useState(true);
 
   // Stated once, next to the control it governs, rather than being discovered
   // by pressing a disabled button and guessing why.
@@ -597,7 +611,9 @@ function CreateUserForm({
     passwordConfirmation.length > 0 && passwordConfirmation !== password;
   const passwordConfirmed =
     password.length >= 6 && passwordConfirmation === password;
-  const ready = Boolean(email.trim()) && passwordConfirmed;
+  const ready = crmAccess
+    ? Boolean(email.trim()) && passwordConfirmed
+    : Boolean(name.trim()) && (!password || passwordConfirmed);
 
   return (
     <div className="db-card um-create-card">
@@ -606,7 +622,11 @@ function CreateUserForm({
           <UserPlus size={16} />
           <div>
             <h3 className="db-card-title">Create a user</h3>
-            <p className="db-card-sub">They can sign in as soon as this is saved.</p>
+            <p className="db-card-sub">
+              {crmAccess
+                ? "They can sign in as soon as this is saved."
+                : "Added to attendance and payroll only. They cannot sign in to the CRM."}
+            </p>
           </div>
         </div>
       </div>
@@ -617,6 +637,16 @@ function CreateUserForm({
           its neighbour's input out of line, because the hint sits in the
           field's own row rather than in the grid's. */}
       <div className="um-form">
+        <div className="field-group">
+          <Checkbox
+            checked={crmAccess}
+            onChange={setCrmAccess}
+            label="CRM access"
+            hint={crmAccess
+              ? "Signs in with the email and password below."
+              : "Staff without CRM access: on attendance and payroll, never allocated candidates. Email and password are optional."}
+          />
+        </div>
         <div className="um-form-grid">
           <div className="field-group">
             <label className="modal-label" htmlFor="u-name">
@@ -665,18 +695,9 @@ function CreateUserForm({
             <label className="modal-label" htmlFor="u-branch">
               Branch
             </label>
-            <input
-              id="u-branch"
-              className="modal-input"
-              type="text"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="Mount Road"
-              maxLength={100}
-            />
+            <BranchSelect id="u-branch" value={branch} onChange={setBranch} branches={branches} />
             <p className="modal-hint">
-              Optional. Payroll can be viewed one branch at a time, and this is what fills that
-              filter; employees without a branch appear under &ldquo;Unassigned&rdquo;.
+              Payroll and attendance are grouped by branch. Add new branches in Data Management.
             </p>
           </div>
 
@@ -742,7 +763,7 @@ function CreateUserForm({
           type="button"
           className="db-btn is-primary"
           disabled={!ready}
-          onClick={() => onCreate({ email, password, name, phone, branch, role, grants, actionGrants })}
+          onClick={() => onCreate({ email, password, name, phone, branch, role, grants, actionGrants, crmAccess })}
         >
           <Check size={14} /> Create
         </button>
@@ -757,6 +778,7 @@ function EditUserModal({
   actions,
   isSelf,
   isLastAdmin,
+  branches,
   onCancel,
   onSave,
 }: {
@@ -765,9 +787,11 @@ function EditUserModal({
   actions: string[];
   isSelf: boolean;
   isLastAdmin: boolean;
+  branches: string[];
   onCancel: () => void;
   onSave: (patch: Parameters<typeof updateUserAPI>[1]) => Promise<void>;
 }) {
+  const [crmAccess, setCrmAccess] = useState(user.crm_access !== false);
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [emailError, setEmailError] = useState("");
@@ -811,6 +835,7 @@ function EditUserModal({
         active,
         page_grants: grants,
         action_grants: actionGrants,
+        crm_access: crmAccess,
         ...(password ? { password } : {}),
       });
     } catch (err) {
@@ -887,19 +912,9 @@ function EditUserModal({
               <label className="modal-label" htmlFor="e-branch">
                 Branch
               </label>
-              <input
-                id="e-branch"
-                className="modal-input"
-                type="text"
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                placeholder="Mount Road"
-                maxLength={100}
-                disabled={saving}
-              />
+              <BranchSelect id="e-branch" value={branch} onChange={setBranch} branches={branches} />
               <p className="modal-hint">
-                Drives the branch filter in payroll. Leave empty for
-                &ldquo;Unassigned&rdquo;.
+                Drives the branch filter in payroll and attendance.
               </p>
             </div>
           </div>
@@ -937,6 +952,20 @@ function EditUserModal({
               {isSelf && <p className="modal-hint">This is you.</p>}
             </div>
           </div>
+
+          <div className="field-group">
+            <Checkbox
+              checked={crmAccess}
+              disabled={locked || isSelf || saving}
+              onChange={setCrmAccess}
+              label="CRM access"
+              hint={crmAccess
+                ? "Can sign in and receive candidate allocations."
+                : "Attendance and payroll only: cannot sign in and is never allocated candidates."}
+            />
+          </div>
+
+          {(user.role === "staff" || user.role === "manager") && <WorkTimingSection user={user} />}
 
           {locked && (
             <div className="modal-hint">
@@ -1161,6 +1190,131 @@ function ActionPicker({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function hhmm(value: string): string {
+  return value.slice(0, 5);
+}
+
+function clockLabel(value: string): string {
+  const [hours, minutes] = hhmm(value).split(":").map(Number);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  return `${((hours + 11) % 12) + 1}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function todayIso(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+
+/**
+ * Custom work timing: the hours this employee works from a date onwards.
+ * Saved on its own, apart from the account form, because it is a dated change
+ * to attendance — the history below is what payroll was calculated against.
+ */
+function WorkTimingSection({ user }: { user: ManagedUser }) {
+  const [timing, setTiming] = useState<WorkTiming | null>(null);
+  const [start, setStart] = useState("10:00");
+  const [end, setEnd] = useState("19:00");
+  const [breakMinutes, setBreakMinutes] = useState("60");
+  const [effectiveFrom, setEffectiveFrom] = useState(todayIso());
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await fetchWorkTiming(user.id);
+      setTiming(result);
+      setStart(hhmm(result.current.start));
+      setEnd(hhmm(result.current.end));
+      setBreakMinutes(String(result.current.break_minutes));
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Could not load work timing", error: true });
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      if (live) await load();
+    })();
+    return () => {
+      live = false;
+    };
+  }, [load]);
+
+  const invalid = !start || !end || start === end || !reason.trim() || !effectiveFrom;
+
+  const save = async () => {
+    if (invalid || busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await assignWorkTiming({
+        employee_id: user.id,
+        effective_from: effectiveFrom,
+        shift: { start: `${start}:00`, end: `${end}:00`, break_minutes: Number(breakMinutes) || 0 },
+        reason: reason.trim(),
+      });
+      setReason("");
+      setMessage({ text: `Work timing saved from ${effectiveFrom}.`, error: false });
+      await load();
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Could not save work timing", error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="field-group um-work-timing">
+      <span className="modal-label"><Clock3 size={12} /> Work timing</span>
+      <p className="modal-hint">
+        {timing
+          ? `Currently ${clockLabel(timing.current.start)} – ${clockLabel(timing.current.end)} with a ${timing.current.break_minutes}-minute break.`
+          : "Loading…"}
+      </p>
+      <div className="um-form-grid">
+        <div className="field-group">
+          <label className="modal-label" htmlFor="wt-start">Start</label>
+          <input id="wt-start" className="modal-input" type="time" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy} />
+        </div>
+        <div className="field-group">
+          <label className="modal-label" htmlFor="wt-end">End</label>
+          <input id="wt-end" className="modal-input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} disabled={busy} />
+        </div>
+        <div className="field-group">
+          <label className="modal-label" htmlFor="wt-break">Break (minutes)</label>
+          <input id="wt-break" className="modal-input" type="number" min={0} max={480} value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} disabled={busy} />
+        </div>
+        <div className="field-group">
+          <label className="modal-label" htmlFor="wt-from">Effective from</label>
+          <input id="wt-from" className="modal-input" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} disabled={busy} />
+        </div>
+      </div>
+      <div className="field-group">
+        <label className="modal-label" htmlFor="wt-reason">Reason</label>
+        <input id="wt-reason" className="modal-input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Royapettah office hours" maxLength={1000} disabled={busy} />
+      </div>
+      <div className="um-work-timing-actions">
+        <button type="button" className="db-btn" disabled={invalid || busy} onClick={() => void save()}>
+          {busy ? <Loader2 size={14} className="icon-spin" /> : <Check size={14} />} Save work timing
+        </button>
+        {message && <span className={message.error ? "sh-form-error" : "modal-hint"} role="status">{message.text}</span>}
+      </div>
+      {timing && timing.history.length > 0 && (
+        <ul className="um-work-timing-history">
+          {timing.history.slice(0, 5).map((row) => (
+            <li key={row.id}>
+              From {row.effective_from}: {clockLabel(row.shift.start)} – {clockLabel(row.shift.end)}
+              {row.reason ? ` · ${row.reason}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

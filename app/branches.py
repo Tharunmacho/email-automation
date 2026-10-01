@@ -15,7 +15,12 @@ second manager to a branch — is a User Management change, not a code change.
 """
 from __future__ import annotations
 
+import re
+import uuid
+
 from app.assignment.balancer import GENERAL_DESK, SINGAPORE_MALAYSIA_DESK, desk_for_staff
+from app.core.models import utcnow
+from app.db.mongo import get_db
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, normalize_branch
 
 ROYAPETTAH = "Royapettah"
@@ -23,6 +28,48 @@ MOUNT_ROAD = "Mount Road"
 
 #: The branches the console switches between, in display order.
 BRANCHES = (ROYAPETTAH, MOUNT_ROAD)
+
+#: Further offices added from Data Management, one document per branch.
+BRANCHES_COLLECTION = "branches"
+
+
+def _branch_collection(db=None):
+    return (db if db is not None else get_db())[BRANCHES_COLLECTION]
+
+
+def all_branches(db=None) -> list[str]:
+    """The two original branches, then every branch added since, oldest first."""
+    names = list(BRANCHES)
+    for row in _branch_collection(db).find({}, {"name": 1}).sort("created_at", 1):
+        name = normalize_branch(row.get("name"))
+        if name and not any(name.casefold() == seen.casefold() for seen in names):
+            names.append(name)
+    return names
+
+
+def add_branch(name: str, actor_id: str, db=None) -> str:
+    """Register a new branch. Raises ValueError for a blank or existing name."""
+    name = normalize_branch(name)
+    if not name:
+        raise ValueError("Branch name is required.")
+    if any(name.casefold() == existing.casefold() for existing in all_branches(db)):
+        raise ValueError(f"The branch {name} already exists.")
+    _branch_collection(db).insert_one({
+        "_id": uuid.uuid4().hex, "name": name, "created_by": actor_id, "created_at": utcnow(),
+    })
+    return name
+
+
+def remove_branch(name: str, db=None) -> bool:
+    """Remove an added branch. The two original branches cannot be removed."""
+    name = normalize_branch(name)
+    if any(name.casefold() == fixed.casefold() for fixed in BRANCHES):
+        raise ValueError(f"{name} is one of the original branches and cannot be removed.")
+    result = _branch_collection(db).delete_many(
+        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}}
+    )
+    return result.deleted_count > 0
+
 
 #: The branch each allocation desk works from.
 DESK_BRANCH_NAMES = {

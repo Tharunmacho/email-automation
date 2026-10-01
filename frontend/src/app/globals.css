@@ -20786,3 +20786,37 @@ a.um-phone:hover {
 .weekly-off-week small { color: var(--text-muted); font-size: .68rem; }
 .weekly-off-week.is-locked { opacity: .7; }
 .weekly-off-week .scope-switch button:disabled { cursor: default; }
+
+/* User Management: custom work timing for one employee. */
+.um-work-timing {
+  border-top: 1px solid var(--border-blue-faint);
+  padding-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.um-work-timing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.um-work-timing-history {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+/* Payroll: reimbursements, net payable override and its log. */
+.payroll-extras { margin-top: 1.25rem; }
+.payroll-extras-form { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.payroll-extras-form label { flex: 0 1 180px; }
+.payroll-extras-form label.is-wide { flex: 1 1 280px; }
+.payroll-extras-sub { display: block; margin-top: .2rem; color: var(--text-muted); font-size: .68rem; font-weight: 400; }
+.payroll-extras-link { display: inline-flex; align-items: center; gap: .3rem; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payroll-extras-decide { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.payroll-extras-decide input { min-width: 140px; font-size: .73rem; }
+.payroll-state.is-rejected { background: var(--error-fill); color: var(--error-ink); }
+a.payroll-expand-btn { text-decoration: none; }

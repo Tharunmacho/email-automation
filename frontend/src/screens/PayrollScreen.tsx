@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Download,
   RefreshCw,
   RotateCcw,
   Search,
@@ -19,13 +20,15 @@ import {
 
 import {
   fetchPayrollMonth,
+  payslipUrl,
   updatePayrollPolicy,
   updatePayrollStatus,
   type AuthUser,
   type PayrollMonth,
   type PayrollRow,
 } from "@/lib/api";
-import BranchSwitch, { branchOptions } from "@/components/ui/BranchSwitch";
+import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
+import { NetPayableLogs, NetPayableOverrideForm, ReimbursementsPanel } from "@/screens/PayrollExtras";
 
 interface Props {
   user: AuthUser;
@@ -61,6 +64,8 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [statusFilter, setStatusFilter] = useState<"all" | "review" | "paid">("all");
   const [query, setQuery] = useState("");
   const [expandedId, setExpandedId] = useState("");
+  const [logKey, setLogKey] = useState(0);
+  const allBranches = useBranches();
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
   const personalView = !canManage || viewMode === "mine";
@@ -176,7 +181,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
               value={branch}
               onChange={setBranch}
               // Admins always see both branches; a manager only what they run.
-              branches={branchOptions(payroll.branches, user.role === "admin")}
+              branches={user.role === "admin" ? branchOptions([...allBranches, ...payroll.branches], false) : branchOptions(payroll.branches, false)}
               allowAll={user.role === "admin" || payroll.branches.length > 1}
               ariaLabel="Payroll branch"
             />
@@ -210,7 +215,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
       </div>}
 
       <section className="payroll-policy-strip">
-        <span><CalendarRange size={17} /><strong>480-minute workday</strong> 10:00 AM–7:00 PM with a one-hour break</span>
+        <span><CalendarRange size={17} /><strong>480-minute workday</strong> 10:00 AM–7:00 PM with a one-hour break, unless a custom work timing is set</span>
         <span><ShieldCheck size={17} /><strong>Monthly allowance</strong> 60-minute grace and one paid leave</span>
       </section>
 
@@ -237,6 +242,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
                 row={row}
                 busy={busyId === row.employee_id || loading}
                 canManage={false}
+                payslipHref={payroll.payslips_available ? payslipUrl(year, month, row.employee_id) : undefined}
                 onSave={savePolicy}
                 onTogglePaid={togglePaid}
               />
@@ -294,7 +300,10 @@ export default function PayrollScreen({ user, onToast }: Props) {
                             <td>{row.required_working_days} / {row.calendar_days}</td>
                             <td className="is-num">{money.format(row.monthly_salary)}</td>
                             <td className={`is-num ${row.deduction > 0 ? "is-deduction" : ""}`}>{row.deduction > 0 ? `− ${money.format(row.deduction)}` : money.format(0)}</td>
-                            <td className="is-num is-net">{money.format(row.total_payable)}</td>
+                            <td className="is-num is-net">
+                              {money.format(row.total_payable)}
+                              {row.net_payable_overridden && <small className="payroll-extras-sub" title={row.override_remarks ?? ""}>Overridden</small>}
+                            </td>
                             <td>
                               <span className={`payroll-state ${paid ? "is-paid" : "is-review"}`}>
                                 {paid ? <CheckCircle2 size={13} /> : <Clock3 size={13} />}
@@ -307,6 +316,11 @@ export default function PayrollScreen({ user, onToast }: Props) {
                                   {busy ? <RefreshCw size={14} className="icon-spin" /> : paid ? <RotateCcw size={14} /> : <Check size={14} />}
                                   {paid ? "Reopen" : "Mark paid"}
                                 </button>
+                                {payroll.payslips_available && (
+                                  <a className="payroll-expand-btn" href={payslipUrl(year, month, row.employee_id)} title="Download payslip (PDF)">
+                                    <Download size={15} /> Payslip
+                                  </a>
+                                )}
                                 <button type="button" className="payroll-expand-btn" aria-expanded={open} onClick={() => setExpandedId(open ? "" : row.employee_id)}>
                                   Details <ChevronDown size={15} />
                                 </button>
@@ -318,6 +332,16 @@ export default function PayrollScreen({ user, onToast }: Props) {
                               <td colSpan={7}>
                                 <PayrollBreakdown row={row} />
                                 <SalarySetting key={`${row.employee_id}:${row.monthly_salary}`} row={row} busy={busy} onSave={savePolicy} />
+                                {payroll.can_override && (
+                                  <NetPayableOverrideForm
+                                    key={`${row.employee_id}:${row.total_payable}`}
+                                    row={row}
+                                    year={year}
+                                    month={month}
+                                    onToast={onToast}
+                                    onSaved={() => { setLogKey((key) => key + 1); void load(); }}
+                                  />
+                                )}
                               </td>
                             </tr>
                           )}
@@ -331,6 +355,10 @@ export default function PayrollScreen({ user, onToast }: Props) {
           </>
         )}
       </section>
+
+      {canManage && !personalView && payroll && <NetPayableLogs year={year} month={month} refreshKey={logKey} />}
+
+      <ReimbursementsPanel currentUserId={user.id} onToast={onToast} onChanged={() => void load()} />
     </div>
   );
 }
@@ -340,10 +368,12 @@ function initialsOf(name: string): string {
 }
 
 /** The personal view: one employee, so the full card layout. */
-function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
+function EmployeePayCard({ row, busy, canManage, payslipHref, onSave, onTogglePaid }: {
   row: PayrollRow;
   busy: boolean;
   canManage: boolean;
+  /** Present from the last day of the month, when the payslip exists. */
+  payslipHref?: string;
   onSave: (row: PayrollRow, patch: Partial<PayrollRow>) => Promise<void>;
   onTogglePaid: (row: PayrollRow) => Promise<void>;
 }) {
@@ -376,12 +406,22 @@ function EmployeePayCard({ row, busy, canManage, onSave, onTogglePaid }: {
         <span className="payroll-flow-sign">=</span>
         <div className="is-net"><span>Net payable</span><strong>{money.format(row.total_payable)}</strong></div>
       </div>
+      {(row.extra_ot_amount > 0 || row.reimbursement_amount > 0 || row.net_payable_overridden) && (
+        <p className="payroll-extras-sub">
+          {[
+            row.extra_ot_amount > 0 ? `Includes Extra OT ${money.format(row.extra_ot_amount)}` : "",
+            row.reimbursement_amount > 0 ? `reimbursements ${money.format(row.reimbursement_amount)}` : "",
+            row.net_payable_overridden ? `adjusted by ${row.overridden_by_name || "an admin"}: ${row.override_remarks ?? ""}` : "",
+          ].filter(Boolean).join(" · ")}
+        </p>
+      )}
 
       <PayrollBreakdown row={row} />
 
       {canManage && <SalarySetting key={`${row.employee_id}:${row.monthly_salary}`} row={row} busy={busy} onSave={onSave} />}
 
       <footer className="payroll-card-foot">
+        {payslipHref && <a className="payroll-expand-btn" href={payslipHref}><Download size={15} /> Download payslip</a>}
         <span>{paid ? "Payment confirmed for this period" : canManage ? "Review the calculation before confirming payment" : "Payment is awaiting manager confirmation"}</span>
         {canManage && <button type="button" className={paid ? "payroll-reopen-btn" : "payroll-pay-btn"} disabled={busy} onClick={() => void onTogglePaid(row)}>
           {busy ? <RefreshCw size={15} className="icon-spin" /> : paid ? <RotateCcw size={15} /> : <Check size={15} />}
@@ -407,6 +447,12 @@ function PayrollBreakdown({ row }: { row: PayrollRow }) {
         <Metric label="Approved extra OT" value={`${row.approved_ot_minutes} min`} />
         <Metric label="Set against late time" value={`${row.ot_offset_minutes} min`} />
         <Metric label="OT paid" value={`${row.paid_ot_minutes} min`} />
+      </div>
+      <div className="payroll-breakdown-group">
+        <h4>Additions</h4>
+        <Metric label="Extra OT pay" value={money.format(row.extra_ot_amount)} />
+        <Metric label="Reimbursements" value={money.format(row.reimbursement_amount)} />
+        <Metric label="Calculated payable" value={money.format(row.computed_payable)} />
       </div>
       <div className="payroll-breakdown-group">
         <h4>Deductions</h4>

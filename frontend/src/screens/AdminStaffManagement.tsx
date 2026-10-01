@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import BranchSwitch, { BRANCHES, sameBranch } from "@/components/ui/BranchSwitch";
+import BranchSwitch, { sameBranch, useBranches } from "@/components/ui/BranchSwitch";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -204,13 +204,14 @@ export default function AdminStaffManagement({
     () => rosterBranch ? staff.filter((member) => sameBranch(member.effective_branch, rosterBranch)) : staff,
     [rosterBranch, staff],
   );
+  const branches = useBranches();
   const rosterBranchCounts = useMemo(() => {
     const counts: Record<string, number> = { "": staff.length };
-    for (const name of BRANCHES) {
+    for (const name of branches) {
       counts[name] = staff.filter((member) => sameBranch(member.effective_branch, name)).length;
     }
     return counts;
-  }, [staff]);
+  }, [branches, staff]);
 
   const pool = (totals?.assigned ?? 0) + (totals?.unassigned ?? 0);
   const evaluatedPct =
@@ -853,6 +854,7 @@ export default function AdminStaffManagement({
             <BranchSwitch
               value={rosterBranch}
               onChange={setRosterBranch}
+              branches={branches}
               counts={rosterBranchCounts}
               ariaLabel="Filter roster by branch"
             />

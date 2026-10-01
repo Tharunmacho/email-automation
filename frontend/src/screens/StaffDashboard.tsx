@@ -674,7 +674,7 @@ export default function StaffDashboard({
 
                       <td className="is-actions" onClick={(event) => event.stopPropagation()}>
                         <div className="ds-acts">
-                          {candidate.resume?.storage_key && (
+                          {(candidate.resume_available || candidate.resume?.storage_key) && (
                             <a
                               className="ds-act"
                               href={resumeDownloadUrl(candidate.id)}

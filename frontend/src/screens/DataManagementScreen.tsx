@@ -13,14 +13,16 @@
  * country by country, and the job list marks which rows a candidate will
  * actually be shown.
  *
- * Three sections cover recruitment data, screening questions, and the mobile
- * numbers that must never enter the bot's candidate conversation.
+ * Four sections cover recruitment data, screening questions, the mobile
+ * numbers that must never enter the bot's candidate conversation, and the
+ * office branches employees are grouped into.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Ban,
+  Building2,
   Check,
   Database,
   FileQuestion,
@@ -35,6 +37,9 @@ import {
 
 import {
   addBotSuppressionNumberAPI,
+  createBranch,
+  deleteBranch,
+  fetchBranches,
   deleteBotSuppressionNumberAPI,
   deleteJobQuestionAPI,
   listCountriesAPI,
@@ -51,6 +56,7 @@ import {
   type JobDesignation,
   type JobQuestion,
 } from "@/lib/api";
+import { BRANCHES, BRANCHES_CHANGED, sameBranch } from "@/components/ui/BranchSwitch";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 
@@ -64,7 +70,7 @@ import { useModalFocus } from "@/components/ui/useModalFocus";
  */
 const BOT_VISIBLE_ROWS = 9;
 
-type Section = "jobs" | "questions" | "suppression";
+type Section = "jobs" | "questions" | "suppression" | "branches";
 
 interface Props {
   onActivity?: (message: string, type?: "info" | "success" | "error") => void;
@@ -325,6 +331,13 @@ export default function DataManagementScreen({ onActivity }: Props) {
               onClick={() => setSection("suppression")}
             >
               Bot suppression
+            </button>
+            <button
+              type="button"
+              className={`ds-seg-btn ${section === "branches" ? "is-on" : ""}`}
+              onClick={() => setSection("branches")}
+            >
+              Branches
             </button>
           </div>
 
@@ -727,6 +740,8 @@ export default function DataManagementScreen({ onActivity }: Props) {
           )}
         </section>
       )}
+
+      {section === "branches" && <BranchesPanel onActivity={onActivity} />}
 
       {section === "suppression" && (
         <section className="db-card dm-panel">
@@ -1301,5 +1316,133 @@ function QuestionEditor({
         </button>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * The offices employees belong to. Every branch dropdown in User Management,
+ * Attendance and Payroll lists these; the two original branches are fixed.
+ */
+function BranchesPanel({ onActivity }: Props) {
+  const [branches, setBranches] = useState<string[]>([...BRANCHES]);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchBranches()
+      .then((result) => { if (live) setBranches(result.items); })
+      .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const changed = (items: string[]) => {
+    setBranches(items);
+    window.dispatchEvent(new Event(BRANCHES_CHANGED));
+  };
+
+  const add = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await createBranch(name.trim());
+      changed(result.items);
+      onActivity?.(`Branch ${result.name} added`, "success");
+      setName("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add the branch");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (branch: string) => {
+    if (!window.confirm(`Remove the ${branch} branch?`)) return;
+    setError(null);
+    try {
+      const result = await deleteBranch(branch);
+      changed(result.items);
+      onActivity?.(`Branch ${branch} removed`, "success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove the branch");
+    }
+  };
+
+  return (
+    <section className="db-card dm-panel">
+      <div className="db-card-head dm-panel-head">
+        <div className="dm-panel-title">
+          <Building2 size={16} />
+          <div>
+            <h3 className="db-card-title">Branches</h3>
+            <p>The offices staff are assigned to. Every branch dropdown in the CRM lists these.</p>
+          </div>
+        </div>
+      </div>
+      <div className="db-card-body">
+        <div className="dm-suppression-add">
+          <label>
+            <span>Branch name</span>
+            <input
+              className="modal-input"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void add(); }}
+              placeholder="Example: Anna Nagar"
+              maxLength={100}
+              disabled={saving}
+            />
+          </label>
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() => void add()}
+            disabled={!name.trim() || saving}
+          >
+            <Plus size={14} /> {saving ? "Adding…" : "Add branch"}
+          </button>
+        </div>
+        {error && <p className="sh-form-error" role="alert">{error}</p>}
+        <div className="dm-table-frame">
+          <table className="dm-table is-register">
+            <thead>
+              <tr>
+                <th>Branch</th>
+                <th>Type</th>
+                <th className="is-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {branches.map((branch) => {
+                const original = BRANCHES.some((fixed) => sameBranch(fixed, branch));
+                return (
+                  <tr key={branch}>
+                    <td><span className="dm-primary-cell"><strong>{branch}</strong></span></td>
+                    <td>{original ? "Original branch" : "Added"}</td>
+                    <td className="is-actions">
+                      {!original && (
+                        <button
+                          type="button"
+                          className="db-btn is-danger"
+                          onClick={() => void remove(branch)}
+                          aria-label={`Remove the ${branch} branch`}
+                        >
+                          <Trash2 size={13} /> Remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   );
 }

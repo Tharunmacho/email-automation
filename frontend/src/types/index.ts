@@ -281,6 +281,11 @@ export interface IdentityDocument {
 
 export interface CandidateRecord {
   id: string;
+  /**
+   * Set on list rows, which leave out `resume.storage_key`: whether a résumé
+   * file is stored and can be downloaded.
+   */
+  resume_available?: boolean;
   /** Human-facing CRM identifier; the internal database key remains `id`. */
   candidate_code?: string;
   /**

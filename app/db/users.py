@@ -121,6 +121,9 @@ class User:
     page_grants: list[str] = None
     #: High-impact actions granted independently of navigation access.
     action_grants: list[str] = None
+    #: False for an employee who is on attendance and payroll but never signs
+    #: in to the CRM: they cannot log in and are never allocated candidates.
+    crm_access: bool = True
 
     def to_public(self) -> dict:
         """The shape sent to the browser — never includes the hash."""
@@ -140,6 +143,7 @@ class User:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "page_grants": self.page_grants or [],
             "action_grants": self.action_grants or [],
+            "crm_access": self.crm_access,
             # What the rail should actually show. Computed here so the browser
             # never has to reimplement the role rules to draw a menu.
             "pages": pages_for(self.role, self.page_grants),
@@ -155,6 +159,11 @@ def normalize_branch(value: str | None) -> str:
     people reading a payslip wrote it — and readers match case-insensitively.
     """
     return " ".join((value or "").split())
+
+
+def no_login_email(user_id: str) -> str:
+    """The placeholder address of an employee without CRM access."""
+    return f"no-login-{user_id}@staff.local"
 
 
 def _normalize(email: str) -> str:
@@ -227,6 +236,7 @@ class UserRepository:
             created_at=doc.get("created_at"),
             page_grants=doc.get("page_grants", []),
             action_grants=doc.get("action_grants", []),
+            crm_access=doc.get("crm_access") is not False,
         )
 
     def authenticate(self, email: str, password: str) -> Optional[User]:
@@ -236,6 +246,8 @@ class UserRepository:
             verify_password(password, hash_password("timing-equalizer"))
             return None
         if not verify_password(password, doc.get("password_hash", "")):
+            return None
+        if doc.get("crm_access") is False:
             return None
 
         self._coll.update_one({"_id": doc["_id"]}, {"$set": {"last_login_at": utcnow()}})
@@ -251,11 +263,21 @@ class UserRepository:
         action_grants: "list[str] | None" = None,
         phone: str = "",
         branch: str = "",
+        crm_access: bool = True,
     ) -> User:
+        user_id = uuid.uuid4().hex
         email = _normalize(email)
+        if not crm_access:
+            # Nobody signs in as this employee, but the unique email index still
+            # needs a distinct value, and a random password locks the door.
+            email = email or no_login_email(user_id)
+            password = password or uuid.uuid4().hex
+        if not email:
+            raise ValueError("Email address is required.")
+        if not password:
+            raise ValueError("Password is required.")
         if self.find_by_email(email):
             raise ValueError(f"A user with email {email} already exists.")
-        user_id = uuid.uuid4().hex
         doc = {
             "_id": user_id,
             "email": email,
@@ -273,6 +295,7 @@ class UserRepository:
             "active": True,
             "keywords": [],
             "password_hash": hash_password(password),
+            "crm_access": bool(crm_access),
             "created_at": utcnow(),
             "last_login_at": None,
         }
@@ -333,9 +356,10 @@ class UserRepository:
         """The pool allocation draws from: active staff accounts, in join order.
 
         The balancer's single source of "who could this go to" — a deactivated
-        account keeps the work it already holds but receives nothing new.
+        account keeps the work it already holds but receives nothing new, and
+        an employee without CRM access could never open what they were given.
         """
-        return self.list_staff(include_inactive=False)
+        return [user for user in self.list_staff(include_inactive=False) if user.crm_access]
 
     def create_staff(
         self,
@@ -399,6 +423,7 @@ class UserRepository:
         keywords: list[str] | None = None,
         phone: str | None = None,
         branch: str | None = None,
+        crm_access: bool | None = None,
     ) -> User | None:
         """Edit any account, whatever its role.
 
@@ -437,6 +462,8 @@ class UserRepository:
             updates["phone"] = phone.strip()
         if branch is not None:
             updates["branch"] = normalize_branch(branch)
+        if crm_access is not None:
+            updates["crm_access"] = crm_access
         if page_grants is not None:
             # Unknown ids are dropped rather than stored: a grant for a page
             # that does not exist is a permission nobody can use and a puzzle

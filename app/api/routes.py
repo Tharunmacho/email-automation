@@ -36,7 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.config import settings
 from app.core.models import (
@@ -94,7 +94,7 @@ from app.db.users import (
     ensure_rafi_manager,
     remove_legacy_demo_staff,
 )
-from app.branches import BRANCHES, with_branch
+from app.branches import BRANCHES, add_branch, all_branches, remove_branch, with_branch
 from app.notifications import notify_candidate_assigned
 from app.staff_whatsapp import WhatsAppChatError, fetch_candidate_chat, relay_assignment
 from app.storage.factory import get_storage_backend
@@ -294,6 +294,8 @@ def current_user(
     user = users.get(subject)
     if not user:
         raise HTTPException(status_code=401, detail="Account no longer exists")
+    if not user.crm_access:
+        raise HTTPException(status_code=401, detail="This account has no CRM access")
     return user.to_public()
 
 
@@ -2162,7 +2164,7 @@ def list_staff(
     return {
         "count": len(staff_items),
         "items": [with_branch(u, u.to_public()) for u in staff_items],
-        "branches": list(BRANCHES),
+        "branches": _branch_names(),
     }
 
 
@@ -2185,7 +2187,10 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     # Managers can retain candidate queues after a role change. Keep them in
     # the visible roster while new-profile allocation remains staff-only.
     everyone = users.list_employees(include_inactive=True)
-    assignable = users.list_staff(include_inactive=False)
+    assignable = [
+        member for member in users.list_staff(include_inactive=False)
+        if getattr(member, "crm_access", True)
+    ]
 
     # Give an owner to anything ingested while the roster was empty, without
     # waiting to be asked. Deliberately `allocate_unassigned` and not
@@ -2204,7 +2209,7 @@ def staff_workload(_admin: dict = Depends(require_page("staff"))) -> dict:
     roster_ids = [member.id for member in everyone]
     return {
         "items": items,
-        "branches": list(BRANCHES),
+        "branches": _branch_names(),
         # The whole employee roster, deactivated accounts included. Orphan
         # detection must recognise retained ownership by staff and managers.
         "roster_ids": roster_ids,
@@ -3933,7 +3938,12 @@ def attach_identity_document_file(
         )
 
     try:
-        doc = find_one(candidate_id, document_type, record_id)
+        # Conversations filed through the legacy intake stored their records
+        # as `whatsapp:<id>`, while the bot still names them by the bare id.
+        doc = (
+            find_one(candidate_id, document_type, record_id)
+            or find_one(candidate_id, document_type, f"whatsapp:{record_id}")
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"Identity records unavailable: {exc}")
     if not doc:
@@ -3952,7 +3962,7 @@ def attach_identity_document_file(
         stored = identity_files.store(
             candidate_id=candidate_id,
             document_type=document_type,
-            record_id=record_id,
+            record_id=doc["_id"],
             data=file.file.read(),
             filename=file.filename,
             mime_type=file.content_type,
@@ -3964,7 +3974,7 @@ def attach_identity_document_file(
     except identity_files.IdentityRejected as exc:
         return JSONResponse(status_code=422, content={"code": exc.code, "detail": exc.message})
 
-    if not attach_file(document_type, record_id, candidate_id, stored):
+    if not attach_file(document_type, doc["_id"], candidate_id, stored):
         raise HTTPException(status_code=404, detail="Identity record not found")
 
     return {
@@ -4595,8 +4605,9 @@ def bot_assignment_summary(
 class UserIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    email: str = Field(min_length=3)
-    password: str = Field(min_length=6)
+    #: Both optional only for an employee without CRM access, who never signs in.
+    email: str = ""
+    password: str = ""
     name: str = ""
     role: str = STAFF_ROLE
     page_grants: list[str] = Field(default_factory=list)
@@ -4604,6 +4615,17 @@ class UserIn(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     phone: str = Field(default="", max_length=40)
     branch: str = Field(default="", max_length=100)
+    crm_access: bool = True
+
+    @model_validator(mode="after")
+    def sign_in_details_for_crm_users(self):
+        if self.crm_access and len(self.email.strip()) < 3:
+            raise ValueError("Email address is required.")
+        if self.crm_access and len(self.password) < 6:
+            raise ValueError("Password must be at least 6 characters.")
+        if self.password and len(self.password) < 6:
+            raise ValueError("Password must be at least 6 characters.")
+        return self
 
 
 class UserPatch(BaseModel):
@@ -4619,6 +4641,7 @@ class UserPatch(BaseModel):
     keywords: list[str] | None = None
     phone: str | None = Field(default=None, max_length=40)
     branch: str | None = Field(default=None, max_length=100)
+    crm_access: bool | None = None
 
     @field_validator("email")
     @classmethod
@@ -4628,6 +4651,62 @@ class UserPatch(BaseModel):
         return value
 
 
+def _branch_db():
+    """The database the user accounts live in; branches are kept beside them."""
+    return getattr(getattr(users, "_coll", None), "database", None)
+
+
+def _branch_names() -> list[str]:
+    """Branches for a listing's filter; the two originals if the registry is unreadable."""
+    try:
+        return all_branches(_branch_db())
+    except Exception as exc:  # noqa: BLE001 - a filter is not worth failing the page for
+        log.warning("Branch registry unavailable: %s", exc)
+        return list(BRANCHES)
+
+
+class BranchIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+@app.get("/branches")
+def list_branches(_user: dict = Depends(current_user)) -> dict:
+    """Every branch an employee can belong to, for the dropdowns."""
+    return {"items": all_branches(_branch_db())}
+
+
+@app.post("/branches", status_code=201)
+def create_branch(payload: BranchIn, admin: dict = Depends(require_admin)) -> dict:
+    try:
+        name = add_branch(payload.name, admin["id"], _branch_db())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log.info("Branch %s added by %s", name, admin.get("email"))
+    return {"status": "created", "name": name, "items": all_branches(_branch_db())}
+
+
+@app.delete("/branches/{name}")
+def delete_branch(name: str, admin: dict = Depends(require_admin)) -> dict:
+    """Remove an added branch, provided nobody is still assigned to it."""
+    in_use = [
+        user.name for user in users.list_all(include_inactive=False)
+        if user.branch and user.branch.casefold() == " ".join(name.split()).casefold()
+    ]
+    if in_use:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Move {', '.join(in_use)} to another branch before removing {name}.",
+        )
+    try:
+        removed = remove_branch(name, _branch_db())
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    log.info("Branch %s removed by %s", name, admin.get("email"))
+    return {"status": "deleted", "items": all_branches(_branch_db())}
+
+
 @app.get("/users")
 def list_users(_user: dict = Depends(require_page("users"))) -> dict:
     """Every account, and the pages each one reaches."""
@@ -4635,7 +4714,7 @@ def list_users(_user: dict = Depends(require_page("users"))) -> dict:
 
     return {
         "items": [with_branch(u, u.to_public()) for u in users.list_all()],
-        "branches": list(BRANCHES),
+        "branches": _branch_names(),
         # The vocabulary the permission screen renders its checkboxes from, so a
         # page added to the system appears there without a frontend release.
         "pages": list(PAGES),
@@ -4658,6 +4737,7 @@ def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -
             action_grants=payload.action_grants,
             phone=payload.phone,
             branch=payload.branch,
+            crm_access=payload.crm_access,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -4686,7 +4766,9 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
         raise HTTPException(status_code=404, detail="User not found")
 
     losing_an_admin = target.role == _ADMIN and (
-        (payload.role is not None and payload.role != _ADMIN) or payload.active is False
+        (payload.role is not None and payload.role != _ADMIN)
+        or payload.active is False
+        or payload.crm_access is False
     )
     if losing_an_admin and users.count_active_admins() <= 1:
         raise HTTPException(
@@ -4707,6 +4789,7 @@ def update_user(user_id: str, payload: UserPatch, admin: dict = Depends(require_
             keywords=payload.keywords,
             phone=payload.phone,
             branch=payload.branch,
+            crm_access=payload.crm_access,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -4760,8 +4843,11 @@ def delete_user(user_id: str, admin: dict = Depends(require_page("users"))) -> d
 # and before the catch-all static mount below.
 from app.attendance.api import router as attendance_router
 from app.payroll import router as payroll_router
+from app.reimbursements import router as reimbursements_router
 
 app.include_router(attendance_router)
+# Before payroll, whose `/{year}/{month}` would otherwise claim these paths.
+app.include_router(reimbursements_router)
 app.include_router(payroll_router)
 
 

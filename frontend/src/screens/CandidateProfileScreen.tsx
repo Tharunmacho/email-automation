@@ -844,7 +844,7 @@ export default function CandidateProfileScreen({
           )}
 
           {/* Only offered when a file exists. See `hasResume`. */}
-          {hasResume && (
+          {hasResume ? (
             <button
               type="button"
               className="cscreen-btn"
@@ -852,6 +852,10 @@ export default function CandidateProfileScreen({
               disabled={downloading}
             >
               <Download size={15} /> {downloading ? "Downloading…" : "Download resume"}
+            </button>
+          ) : (
+            <button type="button" className="cscreen-btn" disabled title="No résumé file was received for this candidate.">
+              <Download size={15} /> No resume on file
             </button>
           )}
 
@@ -1073,7 +1077,11 @@ export default function CandidateProfileScreen({
                             documentType="passport"
                             recordId={passport._id}
                           />
-                        ) : null
+                        ) : (
+                          <span className="cprof-doc-badge" title="The details were read, but no scan file is stored for this passport.">
+                            Scan not on file
+                          </span>
+                        )
                       }
                     >
                       <Fact label="Passport number" value={passport.passport_number} />
@@ -1148,7 +1156,11 @@ export default function CandidateProfileScreen({
                         documentType="aadhaar"
                         recordId={aadhaar._id}
                       />
-                    ) : null
+                    ) : (
+                      <span className="cprof-doc-badge" title="Aadhaar scans download for administrators, and only when a scan file is stored.">
+                        Scan not available
+                      </span>
+                    )
                   }
                 >
                   <Fact label="Name" value={aadhaar.name} />

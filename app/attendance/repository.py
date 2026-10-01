@@ -313,6 +313,14 @@ class AttendanceRepository:
         """Remove one rostered day. Recurring shift history is never deleted."""
         return _public(self.shifts.find_one_and_delete({"_id": plan_id, "kind": "planned_duty"}))
 
+    def recurring_shifts(self, employee_id: str, limit: int = 20) -> list[dict]:
+        """An employee's work-timing changes, newest effective date first."""
+        rows = self.shifts.find(
+            {"employee_id": employee_id, "kind": {"$ne": "planned_duty"}},
+            sort=[("effective_from", DESCENDING), ("created_at", DESCENDING)],
+        ).limit(limit)
+        return [_public(row) for row in rows]
+
     def shift_for_day(self, employee_id: str, day: date) -> dict | None:
         """The hours this day is worked to, and whether it was explicitly rostered.
 

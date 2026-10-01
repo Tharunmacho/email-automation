@@ -24,11 +24,13 @@ says "page 54" cannot drift away from what page 54 actually holds.
 """
 from __future__ import annotations
 
+import mimetypes
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.config import settings
 from app.core.models import CandidateRecord
 from app.db.dedup import sha256_hex
 from app.extraction import pdf_pages
@@ -123,6 +125,35 @@ def _stored(doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _ingested(record: CandidateRecord, doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The separate attachment an emailed record was read from, if it was saved.
+
+    An Aadhaar or passport that arrived as its own attachment beside the CV is
+    stored under its ingestion row, and the identity record shares that row's
+    id — but no file block was ever written onto the record, so the scan was
+    on disk with no button to reach it. The row's own fingerprint must match
+    the record's, and the attachment must not be the CV bundle itself (that
+    case is served by cutting pages out of the résumé).
+    """
+    source = doc.get("source") or {}
+    if not source.get("sha256") or source.get("provider") == "whatsapp":
+        return None
+    if record.resume and source.get("sha256") == record.resume.sha256:
+        return None
+    try:
+        from app.db.ingestion_state import IngestionStateStore
+
+        row = IngestionStateStore().get(str(doc.get("_id") or ""))
+    except Exception as exc:  # noqa: BLE001 - a lookup failure is "no file", not an error page
+        log.warning("Ingestion row lookup failed for %s: %s", doc.get("_id"), exc)
+        return None
+    if not row or not row.storage_key or row.sha256 != source.get("sha256"):
+        return None
+    if record.resume and row.storage_key == record.resume.storage_key:
+        return None
+    return {"storage_key": row.storage_key, "filename": row.filename or source.get("filename")}
+
+
 def _pages(doc: Dict[str, Any]) -> List[int]:
     source = doc.get("source") or {}
     try:
@@ -142,6 +173,10 @@ def _bundle_matches(record: CandidateRecord, doc: Dict[str, Any]) -> bool:
     need looking up.
     """
     stored_hash = (doc.get("source") or {}).get("sha256")
+    if not stored_hash and str(doc.get("_id") or "").startswith("whatsapp:"):
+        # Documents the legacy WhatsApp intake filed were sent on their own,
+        # never inside the CV, so the CV is not their file whatever it holds.
+        return False
     if not stored_hash or not record.resume:
         return True
     return stored_hash == record.resume.sha256
@@ -196,6 +231,8 @@ def available(record: CandidateRecord, doc: Dict[str, Any]) -> bool:
     """
     if _stored(doc):
         return True
+    if not _bundle_matches(record, doc) or not (record.resume and record.resume.storage_key):
+        return _ingested(record, doc) is not None
     return bool(
         record.resume
         and record.resume.storage_key
@@ -220,6 +257,19 @@ def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
             mime_type=block.get("mime_type") or "application/octet-stream",
             filename=block.get("filename") or f"{document_type}.pdf",
         )
+
+    sibling = None
+    if not (record.resume and record.resume.storage_key) or not _bundle_matches(record, doc):
+        sibling = _ingested(record, doc)
+    if sibling:
+        data = _load(settings.storage_backend, sibling["storage_key"])
+        pages = _pages(doc)
+        subset = pdf_pages.subset_pdf(data, pages) if pages else None
+        name = sibling.get("filename") or f"{document_type}.pdf"
+        if subset is not None:
+            return IdentityFile(data=subset, mime_type="application/pdf", filename=f"{_stem(name)}_{document_type}.pdf")
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return IdentityFile(data=data, mime_type=mime, filename=name)
 
     if not (record.resume and record.resume.storage_key):
         raise IdentityFileMissing(

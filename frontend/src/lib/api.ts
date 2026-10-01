@@ -672,7 +672,17 @@ export interface PayrollRow {
   /** Approved OT left after the offset, paid as Extra OT. */
   paid_ot_minutes: number;
   extra_ot_amount: number;
+  /** Approved reimbursements paid with this month's salary. */
+  reimbursement_amount: number;
+  /** What the payroll rules produce, before any admin override. */
+  computed_payable: number;
+  /** What is actually paid: the override when there is one. */
   total_payable: number;
+  net_payable_overridden: boolean;
+  override_remarks?: string | null;
+  overridden_by_name?: string | null;
+  present_days: number;
+  absent_days: number;
   unpaid_minutes: number;
   unpaid_minutes_before_ot: number;
   late_unpaid_minutes: number;
@@ -695,6 +705,10 @@ export interface PayrollMonth {
   items: PayrollRow[];
   branch?: string | null;
   branches: string[];
+  /** Whether this session may override net payable (administrators). */
+  can_override: boolean;
+  /** Payslips exist from the last day of the month onwards. */
+  payslips_available: boolean;
 }
 
 export function fetchPayrollMonth(year: number, month: number, branch?: string): Promise<PayrollMonth> {
@@ -717,6 +731,137 @@ export function updatePayrollStatus(year: number, month: number, employeeId: str
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ paid }),
+  });
+}
+
+export function overrideNetPayable(
+  year: number, month: number, employeeId: string, amount: number | null, remarks: string,
+) {
+  return request(`/payroll/${year}/${month}/employees/${employeeId}/net-payable`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount, remarks }),
+  });
+}
+
+export interface NetPayableLog {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  computed_payable: number;
+  previous_payable: number;
+  new_payable: number;
+  cleared: boolean;
+  remarks: string;
+  actor_name: string;
+  actor_email: string;
+  created_at: string;
+}
+
+export function fetchNetPayableLogs(year: number, month: number): Promise<{ items: NetPayableLog[] }> {
+  return request(`/payroll/${year}/${month}/net-payable-logs`, { cache: "no-store" });
+}
+
+function withToken(path: string): string {
+  const token = getToken();
+  return `${API_BASE}${path}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
+
+export function payslipUrl(year: number, month: number, employeeId: string): string {
+  return withToken(`/payroll/${year}/${month}/employees/${employeeId}/payslip`);
+}
+
+export interface Reimbursement {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  amount: number;
+  description: string;
+  expense_date: string;
+  status: "pending" | "approved" | "rejected";
+  attachment?: { filename: string; content_type: string; size: number } | null;
+  decision_note?: string;
+  decided_by_name?: string;
+  payroll_year?: number;
+  payroll_month?: number;
+  created_at: string;
+  decided_at?: string;
+}
+
+export function fetchReimbursements(): Promise<{ items: Reimbursement[]; can_decide: boolean }> {
+  return request("/payroll/reimbursements", { cache: "no-store" });
+}
+
+export function submitReimbursement(payload: {
+  amount: number;
+  description: string;
+  expense_date: string;
+  attachment?: File | null;
+}): Promise<{ status: string; reimbursement: Reimbursement }> {
+  const body = new FormData();
+  body.append("amount", String(payload.amount));
+  body.append("description", payload.description);
+  body.append("expense_date", payload.expense_date);
+  if (payload.attachment) body.append("attachment", payload.attachment);
+  return request("/payroll/reimbursements", { method: "POST", body });
+}
+
+export function decideReimbursement(id: string, approved: boolean, note: string) {
+  return request(`/payroll/reimbursements/${id}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ approved, note }),
+  });
+}
+
+export function reimbursementAttachmentUrl(id: string): string {
+  return withToken(`/payroll/reimbursements/${id}/attachment`);
+}
+
+// ---- Branches --------------------------------------------------------------- //
+export function fetchBranches(): Promise<{ items: string[] }> {
+  return request("/branches", { cache: "no-store" });
+}
+
+export function createBranch(name: string): Promise<{ status: string; name: string; items: string[] }> {
+  return request("/branches", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteBranch(name: string): Promise<{ status: string; items: string[] }> {
+  return request(`/branches/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+// ---- Work timing ------------------------------------------------------------ //
+export interface WorkShift {
+  start: string;
+  end: string;
+  break_minutes: number;
+}
+
+export interface WorkTiming {
+  employee_id: string;
+  current: WorkShift;
+  history: { id: string; effective_from: string; shift: WorkShift; reason: string }[];
+}
+
+export function fetchWorkTiming(employeeId: string): Promise<WorkTiming> {
+  return request(`/attendance/shifts/${employeeId}`, { cache: "no-store" });
+}
+
+export function assignWorkTiming(payload: {
+  employee_id: string;
+  effective_from: string;
+  shift: WorkShift;
+  reason: string;
+}) {
+  return request("/attendance/shifts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, kind: "recurring" }),
   });
 }
 
@@ -1682,10 +1827,12 @@ export interface ManagedUser {
   pages: string[];
   /** Effective high-impact actions, including administrator defaults. */
   actions: string[];
+  /** False for an employee on attendance and payroll who never signs in. */
+  crm_access?: boolean;
 }
 
-export function listUsersAPI(): Promise<{ items: ManagedUser[]; pages: string[]; actions: string[] }> {
-  return request<{ items: ManagedUser[]; pages: string[]; actions: string[] }>("/users");
+export function listUsersAPI(): Promise<{ items: ManagedUser[]; pages: string[]; actions: string[]; branches: string[] }> {
+  return request<{ items: ManagedUser[]; pages: string[]; actions: string[]; branches: string[] }>("/users");
 }
 
 export function createUserAPI(payload: {
@@ -1699,6 +1846,8 @@ export function createUserAPI(payload: {
   phone?: string;
   /** Which branch this employee is payrolled at. Drives the payroll filter. */
   branch?: string;
+  /** False: on attendance and payroll only; email and password optional. */
+  crm_access?: boolean;
 }): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>("/users", {
     method: "POST",
@@ -1720,6 +1869,7 @@ export function updateUserAPI(
     keywords?: string[];
     phone?: string;
     branch?: string;
+    crm_access?: boolean;
   },
 ): Promise<{ status: string; user: ManagedUser }> {
   return request<{ status: string; user: ManagedUser }>(`/users/${userId}`, {

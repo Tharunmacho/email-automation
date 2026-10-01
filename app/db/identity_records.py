@@ -309,6 +309,11 @@ def store_passport_record(
         {"$set": doc, "$setOnInsert": {"created_at": utcnow()}},
         upsert=True,
     )
+    if candidate_id:
+        try:
+            apply_passport_name(candidate_id, doc, db=coll.database)
+        except Exception as exc:  # noqa: BLE001 - the passport is filed either way
+            log.warning("Could not name candidate %s from passport %s: %s", candidate_id, record_id, exc)
     pass_no = doc.get("passport_number") or "N/A"
     given = doc.get("given_names") or ""
     surname = doc.get("surname") or ""
@@ -328,6 +333,36 @@ def store_passport_record(
         pass_no, nat, full_name, check_valid,
     )
     return record_id
+
+
+def passport_name(doc: Dict[str, Any]) -> str:
+    """"Given-names Surname" off the passport MRZ, in title case.
+
+    Empty when the MRZ failed its own check digits: a misread character is
+    better left out of the candidate's name than written into it.
+    """
+    if doc.get("check_digits_valid") is False:
+        return ""
+    parts = [
+        " ".join(word.capitalize() for word in str(doc.get(key) or "").replace("<", " ").split())
+        for key in ("given_names", "surname")
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def apply_passport_name(candidate_id: str, doc: Dict[str, Any], db=None) -> bool:
+    """Name the candidate as their passport does: given name, then surname."""
+    name = passport_name(doc)
+    if not name:
+        return False
+    from app.db.repository import _id_filter  # imported here: repository imports this module's peers
+
+    candidates = (db if db is not None else get_db())[settings.mongo_candidates_collection]
+    result = candidates.update_one(
+        {**_id_filter(candidate_id), "profile.full_name": {"$ne": name}},
+        {"$set": {"profile.full_name": name, "updated_at": utcnow()}},
+    )
+    return result.modified_count > 0
 
 
 def store_document_record(

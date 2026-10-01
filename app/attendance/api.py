@@ -654,6 +654,20 @@ def assign_shift(payload: ShiftAssignmentRequest, admin: dict = Depends(require_
     return {"status": "recorded", "assignment": service().assign_shift(payload, admin["id"])}
 
 
+@router.get("/shifts/{employee_id}")
+def employee_work_timing(employee_id: str, admin: dict = Depends(require_attendance_manager)) -> dict:
+    """The hours an employee works today, and every change of their timing."""
+    employee_id = _employee_id(admin, employee_id)
+    attendance = service()
+    today = local_day(datetime.now(timezone.utc), attendance.policy.timezone_name)
+    current = attendance._shift(employee_id, today)
+    return {
+        "employee_id": employee_id,
+        "current": current.model_dump(mode="json"),
+        "history": attendance.repository.recurring_shifts(employee_id),
+    }
+
+
 @router.post("/calendar", status_code=201)
 def set_calendar_day(payload: CalendarDayRequest, admin: dict = Depends(require_attendance_manager)) -> dict:
     _employee_id(admin, payload.employee_id)

@@ -1,11 +1,60 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
+import Select from "@/components/ui/Select";
+import { fetchBranches } from "@/lib/api";
+
 /**
- * The agency's two branches, in the order every screen shows them. Mirrors
- * `app.branches.BRANCHES`; the Royapettah desk handles Singapore and Malaysia,
- * Mount Road every other destination.
+ * The agency's two original branches, in the order every screen shows them.
+ * Mirrors `app.branches.BRANCHES`; the Royapettah desk handles Singapore and
+ * Malaysia, Mount Road every other destination. Branches added in Data
+ * Management follow them — read those with `useBranches`.
  */
 export const BRANCHES = ["Royapettah", "Mount Road"] as const;
+
+/** Fired after Data Management adds or removes a branch. */
+export const BRANCHES_CHANGED = "adira:branches-changed";
+
+/** Every branch, original and added, kept current across screens. */
+export function useBranches(): string[] {
+  const [branches, setBranches] = useState<string[]>([...BRANCHES]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchBranches()
+        .then((result) => { if (alive && result.items.length) setBranches(result.items); })
+        .catch(() => { /* keep the original branches */ });
+    };
+    load();
+    window.addEventListener(BRANCHES_CHANGED, load);
+    return () => { alive = false; window.removeEventListener(BRANCHES_CHANGED, load); };
+  }, []);
+  return branches;
+}
+
+/**
+ * A branch dropdown. A stored value that is no longer a registered branch is
+ * still offered, so editing an old record never silently changes its branch.
+ */
+export function BranchSelect({ id, value, onChange, branches, placeholder = "No branch" }: {
+  id?: string;
+  value: string;
+  onChange: (branch: string) => void;
+  branches: readonly string[];
+  placeholder?: string;
+}) {
+  const names = branchOptions(value ? [...branches, value] : branches, false);
+  return (
+    <Select
+      id={id}
+      value={names.find((name) => sameBranch(name, value)) ?? ""}
+      options={[{ value: "", label: placeholder }, ...names.map((name) => ({ value: name, label: name }))]}
+      onChange={onChange}
+      ariaLabel="Branch"
+    />
+  );
+}
 
 /** Case- and whitespace-insensitive branch comparison, as the backend does it. */
 export function sameBranch(a?: string | null, b?: string | null): boolean {
