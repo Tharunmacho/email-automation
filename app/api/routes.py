@@ -249,7 +249,18 @@ async def _startup() -> None:
         logger.info("Redis status: local direct execution mode active (Redis lock fallback: %s)", err)
 
 
+@app.on_event("shutdown")
+def _logout_of_mailboxes() -> None:
+    """End this process's mail sessions on the way out.
 
+    The inline poll and the auto-reply sweep both run in here, so this process
+    holds logged-in IMAP and SMTP connections of its own. A LOGOUT now keeps a
+    restart from leaving them counted against the account until Zoho expires
+    them — the same cleanup the Celery worker does for its children.
+    """
+    from app.email_client.factory import close_email_clients
+
+    close_email_clients()
 
 
 def repo() -> CandidateRepository:

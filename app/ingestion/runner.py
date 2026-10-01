@@ -338,6 +338,9 @@ class IngestionRunner:
                 continue
             detail = "; ".join(
                 f"{a.filename}: {a.status}" + (f" ({a.detail})" if a.detail else "")
+                # A duplicate names the candidate that already holds the file,
+                # so "skipped" can be checked in the CRM rather than taken on trust.
+                + (f" -> existing candidate {a.candidate_id}" if a.candidate_id else "")
                 for a in res.attachments
             ) or res.reason
             log.info("  %s -> %s | %s", res.message_id, res.status, detail)

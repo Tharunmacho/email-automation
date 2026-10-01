@@ -12,8 +12,11 @@ import email.header
 import email.message
 import email.utils
 import imaplib
+import os
 import smtplib
 import threading
+import time
+import weakref
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Callable, List, Optional
@@ -59,12 +62,30 @@ class _ImapPool:
     than a queue size because the expensive thing to bound is *simultaneous*
     connections — Hostinger closes the newest one over its per-account limit,
     which surfaced as random "command timed out" failures mid-batch.
+
+    Every LOGIN is a *session* on the provider's side, and Zoho counts them:
+    an account has a maximum session count, and too many logins in a short
+    window gets IMAP access blocked outright, for anything from five minutes
+    to five days. So this pool is also responsible for two things a plain
+    cache is not:
+
+    * keeping an idle connection alive (`keepalive`), so a quiet half hour
+      between two résumés does not end in the server dropping the session and
+      the next email paying a fresh LOGIN — which, across four worker
+      processes and two mailboxes, is how a day's mail became a hundred-odd
+      sessions in the Zoho security console;
+    * logging every connection out when the process stops (`close_all`),
+      because a session whose socket merely vanished lingers on the server
+      until it times out, and a redeploy that orphans eight of them a time
+      walks the account straight into the session cap.
     """
 
     def __init__(self, max_size: int):
         self._idle: List[imaplib.IMAP4] = []
+        self._last_used: dict[int, float] = {}
         self._lock = threading.Lock()
         self._slots = threading.BoundedSemaphore(max(1, max_size))
+        self._closed = False
 
     def borrow(self, connect: Callable[[], imaplib.IMAP4]) -> imaplib.IMAP4:
         self._slots.acquire()
@@ -72,6 +93,8 @@ class _ImapPool:
             while True:
                 with self._lock:
                     conn = self._idle.pop() if self._idle else None
+                    if conn is not None:
+                        self._last_used.pop(id(conn), None)
                 if conn is None:
                     return connect()
                 if self._alive(conn):
@@ -83,12 +106,59 @@ class _ImapPool:
 
     def give_back(self, conn: imaplib.IMAP4) -> None:
         with self._lock:
-            self._idle.append(conn)
+            if self._closed:
+                # The process is on its way out; a connection handed back now
+                # has nobody left to reuse it, so end the session properly.
+                self._close(conn)
+            else:
+                self._idle.append(conn)
+                self._last_used[id(conn)] = time.monotonic()
         self._slots.release()
 
     def discard(self, conn: imaplib.IMAP4) -> None:
         self._close(conn)
         self._slots.release()
+
+    def keepalive(self, idle_after: float) -> None:
+        """NOOP every connection that has sat idle longer than `idle_after`.
+
+        A NOOP is one round trip and no login; it is what tells the server the
+        session is still in use. A connection that fails it is logged out and
+        forgotten rather than left for the next borrower to trip over. Held
+        under the lock so a borrower arriving mid-check waits for a live
+        connection instead of opening a parallel one.
+        """
+        now = time.monotonic()
+        with self._lock:
+            if self._closed:
+                return
+            survivors: List[imaplib.IMAP4] = []
+            for conn in self._idle:
+                last = self._last_used.get(id(conn), 0.0)
+                if now - last < idle_after:
+                    survivors.append(conn)
+                    continue
+                if self._alive(conn):
+                    survivors.append(conn)
+                    self._last_used[id(conn)] = now
+                else:
+                    self._last_used.pop(id(conn), None)
+                    self._close(conn)
+            self._idle = survivors
+
+    def close_all(self) -> None:
+        """LOGOUT every idle connection and stop pooling new ones."""
+        with self._lock:
+            self._closed = True
+            idle, self._idle = self._idle, []
+            self._last_used.clear()
+        for conn in idle:
+            self._close(conn)
+
+    @property
+    def size(self) -> int:
+        with self._lock:
+            return len(self._idle)
 
     @staticmethod
     def _alive(conn: imaplib.IMAP4) -> bool:
@@ -109,6 +179,44 @@ class _ImapPool:
 # Guards the one-time folder LIST, which several worker threads sharing a client
 # would otherwise all issue at once.
 _INDEX_LOCK = threading.Lock()
+
+
+# ---- session upkeep -------------------------------------------------------- #
+# One daemon thread per process walks every live client on a short tick and
+# asks each to tend its sessions: NOOP the IMAP connections that have gone
+# quiet, and QUIT an SMTP connection nobody has sent through for a while. Per
+# process rather than per client so a Celery worker with two mailboxes runs one
+# thread, not two, and so a client that is garbage-collected simply drops out
+# of the set.
+_KEEPALIVE_TICK_SECONDS = 60
+
+_live_clients: "weakref.WeakSet[SMTPIMAPClient]" = weakref.WeakSet()
+_keepalive_lock = threading.Lock()
+_keepalive_thread: threading.Thread | None = None
+
+
+def _keepalive_loop() -> None:
+    while True:
+        time.sleep(_KEEPALIVE_TICK_SECONDS)
+        for client in list(_live_clients):
+            try:
+                client.maintain_sessions()
+            except Exception as exc:  # noqa: BLE001 — upkeep must never kill the thread
+                log.debug("Session upkeep for %s failed: %s", client.account_id, exc)
+
+
+def _watch(client: "SMTPIMAPClient") -> None:
+    """Put a client under the upkeep thread, starting the thread on first use."""
+    global _keepalive_thread
+    _live_clients.add(client)
+    with _keepalive_lock:
+        thread = _keepalive_thread
+        if thread is not None and thread.is_alive() and getattr(thread, "pid", None) == os.getpid():
+            return
+        thread = threading.Thread(target=_keepalive_loop, name="mail-session-keepalive", daemon=True)
+        thread.pid = os.getpid()  # type: ignore[attr-defined] — a forked child restarts its own
+        thread.start()
+        _keepalive_thread = thread
 
 
 def _decode_header_str(header_value: str | None) -> str:
@@ -172,6 +280,11 @@ class SMTPIMAPClient:
         # In-memory cache for fetched messages during batch run to avoid re-fetching
         self._fetched_bytes_cache: dict[str, bytes] = _BoundedBytesCache()
 
+        # One SMTP session, reused across sends. See `_smtp_connection`.
+        self._smtp_lock = threading.RLock()
+        self._smtp_conn: smtplib.SMTP | None = None
+        self._smtp_last_used = 0.0
+
     # ---- message identity -------------------------------------------------- #
     # A UID is only a message *within this account*: every mailbox numbers its
     # own from 1, so two polled accounts hand out the same ids for unrelated
@@ -228,12 +341,17 @@ class SMTPIMAPClient:
         return message_ids.local_id_of(message_id)
 
     def _connect_imap(self) -> imaplib.IMAP4:
+        # A socket timeout, because the default is none: a keepalive NOOP on a
+        # connection the server has silently dropped would otherwise block the
+        # upkeep thread — and the pool lock it holds — forever.
+        timeout = float(settings.imap_socket_timeout_seconds)
         if self.imap_use_ssl:
-            client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port)
+            client = imaplib.IMAP4_SSL(self.imap_server, self.imap_port, timeout=timeout)
         else:
-            client = imaplib.IMAP4(self.imap_server, self.imap_port)
+            client = imaplib.IMAP4(self.imap_server, self.imap_port, timeout=timeout)
         if self.imap_username and self.imap_password:
             client.login(self.imap_username, self.imap_password)
+        log.info("IMAP session opened for %s", self.imap_username)
         return client
 
     # ---- connection reuse -------------------------------------------------- #
@@ -260,10 +378,45 @@ class SMTPIMAPClient:
         depends on.
         """
         pool = getattr(self, "_imap_pool", None)
-        if pool is None:
+        # A pool built before a fork holds sockets that belong to the parent;
+        # using them from the child would interleave two processes' commands on
+        # one session. The child starts its own and leaves the parent's alone.
+        if pool is None or getattr(self, "_imap_pool_pid", None) != os.getpid():
             pool = _ImapPool(settings.imap_max_connections)
             self._imap_pool = pool
+            self._imap_pool_pid = os.getpid()
+            _watch(self)
         return pool
+
+    def maintain_sessions(self) -> None:
+        """Tend this client's open sessions; called on a timer by `_watch`.
+
+        IMAP connections that have been idle for `imap_keepalive_seconds` get
+        a NOOP so the server keeps the session, and the next email reuses it
+        instead of logging in again. The SMTP connection is the reverse: it is
+        closed with a proper QUIT once `smtp_idle_close_seconds` have passed
+        without a send, since replies arrive in bursts and a session held open
+        between bursts is a slot taken for nothing.
+        """
+        pool = getattr(self, "_imap_pool", None)
+        if pool is not None and getattr(self, "_imap_pool_pid", None) == os.getpid():
+            pool.keepalive(float(settings.imap_keepalive_seconds))
+        self._close_idle_smtp(float(settings.smtp_idle_close_seconds))
+
+    def close(self) -> None:
+        """LOGOUT every pooled IMAP connection and QUIT the SMTP one.
+
+        Called when the process stops. A session ended with LOGOUT is gone from
+        the provider's books at once; one whose socket just disappeared is
+        still counted until the server times it out.
+        """
+        pool = getattr(self, "_imap_pool", None)
+        if pool is not None and getattr(self, "_imap_pool_pid", None) == os.getpid():
+            count = pool.size
+            pool.close_all()
+            if count:
+                log.info("Logged out %d IMAP session(s) for %s", count, self.imap_username)
+        self._close_idle_smtp(0.0)
 
     def _account_key(self) -> str:
         return f"{self.imap_server}:{self.imap_port}/{self.imap_username}"
@@ -519,24 +672,85 @@ class SMTPIMAPClient:
             msg["References"] = thread_id
         msg.set_content(body_text)
 
+        with self._smtp_lock:
+            server = self._smtp_connection()
+            try:
+                server.send_message(msg)
+            except Exception:
+                # The session may be mid-transaction or already gone; either
+                # way the next send is better off with a fresh one than this.
+                self._drop_smtp()
+                raise
+            self._smtp_last_used = time.monotonic()
+            log.info("Sent SMTP reply email to %s for message %s", to_addr, message_id)
+            return {"status": "sent", "to": to_addr}
+
+    # ---- SMTP session reuse ------------------------------------------------ #
+    # A send used to be connect, STARTTLS, LOGIN, send, QUIT — a new session
+    # on the provider for every single reply, and the auto-reply sweep sends
+    # them in a run. Zoho counts each of those logins against the account, and
+    # enough of them in a short window is what gets the account blocked. One
+    # session per client, checked with a NOOP before reuse and closed after
+    # `smtp_idle_close_seconds` of quiet (see `maintain_sessions`), turns a
+    # sweep of twenty replies into one login.
+
+    def _smtp_connection(self) -> smtplib.SMTP:
+        """The open SMTP session, reconnected if the server has let it go."""
+        server = self._smtp_conn
+        if server is not None:
+            try:
+                code, _ = server.noop()
+            except Exception:  # noqa: BLE001 — anything here means "reconnect"
+                code = None
+            if code == 250:
+                return server
+            self._drop_smtp()
+
         if self.smtp_use_ssl:
             server = smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, timeout=15)
         else:
             server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=15)
-
         try:
             if not self.smtp_use_ssl and self.smtp_use_tls:
                 server.starttls()
             if self.smtp_username and self.smtp_password:
                 server.login(self.smtp_username, self.smtp_password)
-            server.send_message(msg)
-            log.info("Sent SMTP reply email to %s for message %s", to_addr, message_id)
-            return {"status": "sent", "to": to_addr}
-        finally:
+        except Exception:
             try:
-                server.quit()
-            except Exception:
+                server.close()
+            except Exception:  # noqa: BLE001
                 pass
+            raise
+        log.info("SMTP session opened for %s", self.smtp_username)
+        self._smtp_conn = server
+        self._smtp_last_used = time.monotonic()
+        return server
+
+    def _drop_smtp(self) -> None:
+        server, self._smtp_conn = self._smtp_conn, None
+        if server is None:
+            return
+        try:
+            server.quit()
+        except Exception:  # noqa: BLE001
+            try:
+                server.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _close_idle_smtp(self, idle_after: float) -> None:
+        """QUIT the SMTP session if it has been unused for `idle_after` seconds."""
+        # Non-blocking on purpose: a send in progress holds the lock, and that
+        # session is by definition not idle.
+        if not self._smtp_lock.acquire(blocking=False):
+            return
+        try:
+            if self._smtp_conn is None:
+                return
+            if time.monotonic() - self._smtp_last_used >= idle_after:
+                self._drop_smtp()
+        finally:
+            self._smtp_lock.release()
 
     def mark_read(self, message_id: str) -> None:
         try:
