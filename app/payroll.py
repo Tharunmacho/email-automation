@@ -29,6 +29,7 @@ log = get_logger(__name__)
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 RUNS = "payroll_runs"
 OVERRIDE_LOGS = "payroll_override_logs"
+INCENTIVES = "payroll_incentives"
 DEFAULT_SHIFT_MINUTES = 8 * 60
 PRESENT_STATUSES = {"P", "LT", "EE", "PP", "OD", "WFH"}
 
@@ -41,15 +42,17 @@ class PaymentStatus(BaseModel):
     paid: bool
 
 
-class Incentive(BaseModel):
+class IncentiveIn(BaseModel):
+    """One incentive for one employee's month; any number may be added."""
+    employee_id: str = Field(min_length=1)
     amount: float = Field(gt=0, le=10_000_000)
-    notes: str = Field(default="", max_length=300)
+    remarks: str = Field(default="", max_length=500)
+    incentive_date: date | None = None
 
 
 class PayslipDetails(BaseModel):
-    """Asked for before a payslip is issued: when it was paid, and incentives."""
+    """Asked for before a payslip is issued: when the salary was paid."""
     payment_date: date
-    incentives: list[Incentive] = Field(default_factory=list, max_length=50)
 
 
 class NetPayableOverride(BaseModel):
@@ -154,8 +157,8 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
     # Claims Yoosuf approved this month are paid with this month's salary.
     reimbursement_amount = approved_reimbursements(employee.id, year, month, db=runs.database)
     run = runs.find_one({"employee_id": employee.id, "year": year, "month": month}) or {}
-    # Incentives are entered when the payslip is issued (`save_payslip_details`).
-    incentives = list(run.get("incentives") or [])
+    # Incentives are recorded one by one in the Incentives section.
+    incentives = _incentives(runs.database, year, month, employee.id)
     incentive_amount = round(sum(float(item.get("amount", 0) or 0) for item in incentives), 2)
     computed_payable = round(
         max(0, monthly_salary - deduction) + extra_ot_amount + reimbursement_amount + incentive_amount, 2
@@ -210,6 +213,20 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
         "alternate_friday_parity": int(policy.get("alternate_friday_parity", 0)),
         "status": "paid" if run.get("paid") else "draft",
     }
+
+
+def _incentives(db, year: int, month: int, employee_id: str | None = None) -> list[dict]:
+    query: dict = {"year": year, "month": month}
+    if employee_id:
+        query["employee_id"] = employee_id
+    rows = []
+    for row in db[INCENTIVES].find(query).sort("created_at", ASCENDING):
+        row["id"] = row.pop("_id")
+        created = row.get("created_at")
+        if isinstance(created, datetime):
+            row["created_at"] = created.replace(tzinfo=created.tzinfo or timezone.utc).isoformat()
+        rows.append(row)
+    return rows
 
 
 def _row_for(employee, year: int, month: int) -> dict:
@@ -408,7 +425,7 @@ def _payslip_html(row: dict, employee, year: int, month: int, reimbursements: li
     )
 
     other = [
-        ("Incentives", _day_label(row.get("payment_date")), item.get("amount", 0), item.get("notes", ""))
+        ("Incentives", _day_label(item.get("incentive_date") or row.get("payment_date")), item.get("amount", 0), item.get("remarks", ""))
         for item in row.get("incentives") or []
     ] + [
         ("Reimbursements", _day_label(claim.get("decided_at")), claim.get("amount", 0), claim.get("description", ""))
@@ -533,41 +550,79 @@ def _payslip_employee(user: dict, employee_id: str):
     return employee
 
 
-@router.get("/{year}/{month}/employees/{employee_id}/payslip-details")
-def payslip_details(year: int, month: int, employee_id: str, user: dict = Depends(_manager)) -> dict:
-    """What was entered for this payslip: the payment date and incentives."""
-    _payslip_employee(user, employee_id)
-    run = get_db()[RUNS].find_one({"employee_id": employee_id, "year": year, "month": month}) or {}
-    return {"payment_date": run.get("payment_date"), "incentives": run.get("incentives") or []}
+# --------------------------------------------------------------------------- #
+#  Incentives: as many as needed per employee per month, each with remarks
+# --------------------------------------------------------------------------- #
+@router.get("/{year}/{month}/incentives")
+def list_incentives(year: int, month: int, user: dict = Depends(current_user)) -> dict:
+    """The month's incentives: own for staff, their branch for managers, all for admins."""
+    visible = {employee.id for employee in _visible_employees(user)}
+    items = [row for row in _incentives(get_db(), year, month) if row["employee_id"] in visible]
+    return {"items": items, "can_manage": user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}}
+
+
+@router.post("/{year}/{month}/incentives", status_code=201)
+def add_incentive(year: int, month: int, payload: IncentiveIn, user: dict = Depends(_manager)) -> dict:
+    """Record one incentive; it is added to that month's net payable."""
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=422, detail="month must be between 1 and 12")
+    employee = _payslip_employee(user, payload.employee_id)
+    _require_payroll_authority(user, employee)
+    doc = {
+        "_id": uuid.uuid4().hex,
+        "employee_id": employee.id,
+        "employee_name": employee.name,
+        "year": year,
+        "month": month,
+        "amount": round(payload.amount, 2),
+        "remarks": payload.remarks.strip(),
+        "incentive_date": (payload.incentive_date or local_day(datetime.now(timezone.utc))).isoformat(),
+        "created_by": user["id"],
+        "created_by_name": user.get("name", ""),
+        "created_at": datetime.now(timezone.utc),
+    }
+    get_db()[INCENTIVES].insert_one(doc)
+    log.info("Incentive of %s for %s %04d-%02d added by %s: %s",
+             doc["amount"], employee.id, year, month, user.get("email"), doc["remarks"])
+    doc["id"] = doc.pop("_id")
+    doc["created_at"] = doc["created_at"].isoformat()
+    return {"status": "created", "incentive": doc}
+
+
+@router.delete("/{year}/{month}/incentives/{incentive_id}")
+def delete_incentive(year: int, month: int, incentive_id: str, user: dict = Depends(_manager)) -> dict:
+    doc = get_db()[INCENTIVES].find_one({"_id": incentive_id, "year": year, "month": month})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Incentive not found")
+    employee = _payslip_employee(user, doc["employee_id"])
+    _require_payroll_authority(user, employee)
+    get_db()[INCENTIVES].delete_one({"_id": incentive_id})
+    log.info("Incentive %s for %s %04d-%02d removed by %s", incentive_id, employee.id, year, month, user.get("email"))
+    return {"status": "deleted", "id": incentive_id}
 
 
 @router.put("/{year}/{month}/employees/{employee_id}/payslip-details")
 def save_payslip_details(year: int, month: int, employee_id: str, payload: PayslipDetails, user: dict = Depends(_manager)) -> dict:
-    """Record the payment date and incentives asked for before a payslip is issued.
+    """Record the salary payment date, asked for before a payslip is issued.
 
-    Incentives are added to the month's net payable. The staff member can
-    download their payslip once a payment date is recorded.
+    The staff member can download their payslip once a payment date is recorded.
     """
     employee = _payslip_employee(user, employee_id)
     _require_payroll_authority(user, employee)
     if not payslip_available(year, month):
         raise HTTPException(status_code=409, detail="The payslip is generated on the last day of the month")
-    incentives = [
-        {"amount": round(item.amount, 2), "notes": item.notes.strip()} for item in payload.incentives
-    ]
     get_db()[RUNS].update_one(
         {"employee_id": employee_id, "year": year, "month": month},
         {"$set": {
             "payment_date": payload.payment_date.isoformat(),
-            "incentives": incentives,
             "payslip_details_by": user["id"],
             "updated_at": datetime.now(timezone.utc),
         }},
         upsert=True,
     )
-    log.info("Payslip details for %s %04d-%02d saved by %s: paid %s, %d incentive(s)",
-             employee_id, year, month, user.get("email"), payload.payment_date, len(incentives))
-    return {"status": "saved", "payment_date": payload.payment_date.isoformat(), "incentives": incentives}
+    log.info("Payslip payment date for %s %04d-%02d set to %s by %s",
+             employee_id, year, month, payload.payment_date, user.get("email"))
+    return {"status": "saved", "payment_date": payload.payment_date.isoformat()}
 
 
 @router.get("/{year}/{month}/employees/{employee_id}/payslip")
@@ -578,7 +633,7 @@ def download_payslip(year: int, month: int, employee_id: str, user: dict = Depen
         raise HTTPException(status_code=409, detail="The payslip is generated on the last day of the month")
     row = _row_for(employee, year, month)
     if not row.get("payment_date"):
-        raise HTTPException(status_code=409, detail="Enter the payment date and incentives before downloading the payslip")
+        raise HTTPException(status_code=409, detail="Enter the payment date before downloading the payslip")
     reimbursements = approved_claims(employee.id, year, month, db=get_db())
     slug = re.sub(r"[^A-Za-z0-9]+", "-", employee.name).strip("-") or employee_id
     filename = f"Pay-Slip-{date(year, month, 1).strftime('%B')}-{year}-{slug}.pdf"
@@ -595,6 +650,11 @@ def ensure_payroll_indexes() -> None:
         [("employee_id", ASCENDING), ("year", ASCENDING), ("month", ASCENDING)],
         "payroll_employee_period",
         unique=True,
+    )
+    ensure_index(
+        get_db()[INCENTIVES],
+        [("year", ASCENDING), ("month", ASCENDING), ("employee_id", ASCENDING)],
+        "payroll_incentive_period",
     )
     ensure_index(
         get_db()[OVERRIDE_LOGS],

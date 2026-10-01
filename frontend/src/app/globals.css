@@ -20823,3 +20823,5 @@ a.payroll-expand-btn { text-decoration: none; }
 .payroll-payslip-sum { margin-top: 1rem; }
 .payroll-payslip-sum > div { display: flex; justify-content: space-between; padding: .3rem 0; font-size: .78rem; }
 .payroll-payslip-sum .is-total { border-top: 1px solid var(--border-main); font-weight: 700; }
+.payroll-payslip-incentives { margin: 0; padding-left: 1.1rem; font-size: .76rem; display: grid; gap: .25rem; }
+.payroll-extras-form select { width: 100%; min-width: 0; background: var(--bg-card); font-size: .73rem; }

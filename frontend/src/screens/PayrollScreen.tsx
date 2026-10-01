@@ -28,7 +28,7 @@ import {
   type PayrollRow,
 } from "@/lib/api";
 import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
-import { NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
+import { IncentivesPanel, NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
 
 interface Props {
   user: AuthUser;
@@ -356,6 +356,18 @@ export default function PayrollScreen({ user, onToast }: Props) {
           </>
         )}
       </section>
+
+      {payroll && (
+        <IncentivesPanel
+          year={year}
+          month={month}
+          employees={personalView ? visibleItems : payroll.items}
+          currentUserId={user.id}
+          refreshKey={logKey}
+          onChanged={() => void load()}
+          onToast={onToast}
+        />
+      )}
 
       {canManage && !personalView && payroll && <NetPayableLogs year={year} month={month} refreshKey={logKey} />}
 

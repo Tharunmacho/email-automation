@@ -169,13 +169,18 @@ def test_payslip_is_generated_from_the_last_day_of_the_month(api):
     # Not issued until a manager or admin records the payment date.
     assert api.get(f"{url}/payslip").status_code == 409
     assert api.put(f"{url}/payslip-details", json={"payment_date": "2026-09-04"}).status_code == 403
+    assert api.post(f"/payroll/{YEAR}/{MONTH}/incentives", json={"employee_id": RAVI.id, "amount": 9}).status_code == 403
 
     as_user(YOOSUF)
     before = row(api)["computed_payable"]
-    saved = api.put(f"{url}/payslip-details", json={
-        "payment_date": "2026-09-04",
-        "incentives": [{"amount": 500, "notes": "Interview incentive"}, {"amount": 250, "notes": "Target"}],
-    })
+    incentives = f"/payroll/{YEAR}/{MONTH}/incentives"
+    for amount, remarks in ((500, "Interview incentive"), (250, "Target"), (100, "Removed later")):
+        added = api.post(incentives, json={"employee_id": RAVI.id, "amount": amount, "remarks": remarks})
+        assert added.status_code == 201, added.text
+    assert api.delete(f"{incentives}/{added.json()['incentive']['id']}").status_code == 200
+    listed = api.get(incentives).json()["items"]
+    assert [(item["amount"], item["remarks"]) for item in listed] == [(500, "Interview incentive"), (250, "Target")]
+    saved = api.put(f"{url}/payslip-details", json={"payment_date": "2026-09-04"})
     assert saved.status_code == 200, saved.text
     issued = row(api)
     assert issued["incentive_amount"] == 750 and issued["payment_date"] == "2026-09-04"

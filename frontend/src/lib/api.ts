@@ -678,7 +678,7 @@ export interface PayrollRow {
   reimbursement_amount: number;
   /** Incentives entered when the payslip was issued. */
   incentive_amount: number;
-  incentives: PayslipIncentive[];
+  incentives: PayrollIncentive[];
   /** When the salary was paid; set before the payslip can be downloaded. */
   payment_date?: string | null;
   payslip_issued: boolean;
@@ -775,14 +775,43 @@ function withToken(path: string): string {
   return `${API_BASE}${path}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 }
 
-export interface PayslipIncentive {
+export interface PayrollIncentive {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  year: number;
+  month: number;
   amount: number;
-  notes: string;
+  remarks: string;
+  incentive_date: string;
+  created_by_name?: string;
+  created_at: string;
+}
+
+export function fetchIncentives(year: number, month: number): Promise<{ items: PayrollIncentive[]; can_manage: boolean }> {
+  return request(`/payroll/${year}/${month}/incentives`, { cache: "no-store" });
+}
+
+export function addIncentive(year: number, month: number, payload: {
+  employee_id: string;
+  amount: number;
+  remarks: string;
+  incentive_date?: string;
+}): Promise<{ status: string; incentive: PayrollIncentive }> {
+  return request(`/payroll/${year}/${month}/incentives`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteIncentive(year: number, month: number, incentiveId: string) {
+  return request(`/payroll/${year}/${month}/incentives/${incentiveId}`, { method: "DELETE" });
 }
 
 export function savePayslipDetails(
   year: number, month: number, employeeId: string,
-  details: { payment_date: string; incentives: PayslipIncentive[] },
+  details: { payment_date: string },
 ) {
   return request(`/payroll/${year}/${month}/employees/${employeeId}/payslip-details`, {
     method: "PUT",
