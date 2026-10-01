@@ -89,6 +89,17 @@ def approved_amount(employee_id: str, year: int, month: int, db=None) -> float:
     return round(sum(float(row.get("amount", 0) or 0) for row in rows), 2)
 
 
+def approved_claims(employee_id: str, year: int, month: int, db=None) -> list[dict]:
+    """The approved claims paid with this month's salary, for the payslip."""
+    collection = db[REIMBURSEMENTS] if db is not None else _collection()
+    return [
+        _public(row) for row in collection.find({
+            "employee_id": employee_id, "status": "approved",
+            "payroll_year": year, "payroll_month": month,
+        }).sort("decided_at", ASCENDING)
+    ]
+
+
 def _may_view(user: dict, employee_id: str) -> bool:
     if user.get("role") == ADMIN_ROLE or user.get("id") == employee_id:
         return True

@@ -15,7 +15,7 @@ from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNo
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import LEAVE_KINDS, AttendanceError, AttendanceService
 from app.branches import branch_managers, branch_of, can_see, manages, same_branch
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
+from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, on_attendance
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
 from app.logging_config import get_logger
@@ -39,6 +39,9 @@ def _employee_id(user: dict, requested: str | None = None) -> str:
     employee = users.get(employee_id)
     if not employee or not employee.active or employee.role not in {STAFF_ROLE, MANAGER_ROLE}:
         raise HTTPException(status_code=404, detail="Active employee not found")
+    if not on_attendance(employee):
+        # Staff without CRM access are on payroll only.
+        raise HTTPException(status_code=404, detail="This employee is on payroll only, not attendance")
     if user.get("role") == MANAGER_ROLE and not can_see(users.get(user["id"]), employee, users):
         # Noorul works Royapettah and Rafi works Mount Road; neither reads nor
         # changes the other branch's attendance.
@@ -95,7 +98,7 @@ def whatsapp_punch(payload: PunchRequest, _service: None = Depends(require_servi
     if not payload.employee_id:
         raise HTTPException(status_code=422, detail="employee_id is required")
     employee = users.get(payload.employee_id)
-    if not employee or not employee.active:
+    if not employee or not employee.active or not on_attendance(employee):
         raise HTTPException(status_code=404, detail="Active employee not found")
     payload.source = "whatsapp"
     attendance = service()
@@ -157,6 +160,7 @@ def whatsapp_attendance_directory(
             "active": employee.active,
         }
         for employee in users.list_employees(include_inactive=False)
+        if on_attendance(employee)
     ]
     return {"contacts": contacts, "count": len(contacts)}
 
@@ -173,6 +177,7 @@ def attendance_employees(user: dict = Depends(require_attendance_manager)) -> di
         employees = users.list_employees(include_inactive=False)
     else:
         employees = _branch_staff(user)
+    employees = [employee for employee in employees if on_attendance(employee)]
     return {"items": [employee.to_public() for employee in employees], "count": len(employees)}
 
 
@@ -372,7 +377,7 @@ def _cover_colleagues(employee_id: str) -> list:
             users.list_employees(include_inactive=False)
             if hasattr(users, "list_employees") else users.list_assignable_staff()
         )
-        if member.id != employee_id and getattr(member, "active", True)
+        if member.id != employee_id and getattr(member, "active", True) and on_attendance(member)
     ]
     if me is not None and me.role == MANAGER_ROLE:
         colleagues = [member for member in colleagues if member.role == STAFF_ROLE]
@@ -561,7 +566,7 @@ def _visible_employee_ids(user: dict, employee_id: str | None) -> str | list[str
             )
         else:
             members = _branch_staff(user)
-        return [member.id for member in members]
+        return [member.id for member in members if on_attendance(member)]
     return _employee_id(user, employee_id)
 
 

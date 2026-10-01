@@ -161,6 +161,15 @@ def normalize_branch(value: str | None) -> str:
     return " ".join((value or "").split())
 
 
+def on_attendance(employee) -> bool:
+    """Whether this employee's attendance is tracked.
+
+    An employee without CRM access is on payroll only: paid their monthly
+    salary, with no check-ins, leave or attendance deductions.
+    """
+    return getattr(employee, "crm_access", True) is not False
+
+
 def no_login_email(user_id: str) -> str:
     """The placeholder address of an employee without CRM access."""
     return f"no-login-{user_id}@staff.local"

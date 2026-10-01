@@ -336,8 +336,11 @@ class Settings(BaseSettings):
     sla_super_admin_threshold_hours: int = 72
     sla_super_admin_name: str = "Yoosuf"
     auto_assign_enabled: bool = True
-    #: The employer named at the top of every payslip.
-    payslip_company_name: str = "Adira"
+    #: The employer named at the top of every payslip, and its address.
+    payslip_company_name: str = "Adira Enterprises Private Limited"
+    payslip_company_address: str = (
+        "No 758, Mount Chambers, Vasan Ave, Mount Road, Thousand Lights, Chennai-600002"
+    )
 
     # ---- WhatsApp bot integration ----
     # The recruitment bot's credential for POST /candidates and

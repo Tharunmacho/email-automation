@@ -307,7 +307,7 @@ export default function UserManagementScreen({
 
   const create = async (draft: CreateDraft) => {
     try {
-      await createUserAPI({
+      const created = await createUserAPI({
         email: draft.email.trim(),
         password: draft.password,
         name: draft.name.trim(),
@@ -318,7 +318,27 @@ export default function UserManagementScreen({
         action_grants: draft.actionGrants,
         crm_access: draft.crmAccess,
       });
-      say(`${draft.name.trim() || draft.email} created`, "success");
+      const label = draft.name.trim() || draft.email;
+      const timing = draft.timing;
+      const custom = timing && (timing.start !== DEFAULT_TIMING.start
+        || timing.end !== DEFAULT_TIMING.end
+        || timing.breakMinutes !== DEFAULT_TIMING.breakMinutes);
+      if (custom && (draft.role === "staff" || draft.role === "manager")) {
+        try {
+          await assignWorkTiming({
+            employee_id: created.user.id,
+            effective_from: todayIso(),
+            shift: { start: `${timing.start}:00`, end: `${timing.end}:00`, break_minutes: Number(timing.breakMinutes) || 0 },
+            reason: "Set when the account was created",
+          });
+        } catch (err) {
+          say(`${label} was created, but the work timing was not saved: ${err instanceof Error ? err.message : err}. Set it from Edit account.`, "error");
+          setSection("manage");
+          await load();
+          return;
+        }
+      }
+      say(`${label} created`, "success");
       setSection("manage");
       await load();
     } catch (err) {
@@ -459,7 +479,7 @@ export default function UserManagementScreen({
                             </small>
                           )}
                           {user.crm_access === false
-                            ? <small><em className="staff-flag">no CRM access</em></small>
+                            ? <small><em className="staff-flag">payroll only · no CRM access</em></small>
                             : <small>{user.email}</small>}
                         </span>
                       </span>
@@ -578,7 +598,17 @@ interface CreateDraft {
   actionGrants: string[];
   /** False: attendance and payroll only — cannot sign in, gets no candidates. */
   crmAccess: boolean;
+  /** Work timing for staff and managers; the office default unless changed. */
+  timing: TimingDraft | null;
 }
+
+interface TimingDraft {
+  start: string;
+  end: string;
+  breakMinutes: string;
+}
+
+const DEFAULT_TIMING: TimingDraft = { start: "10:00", end: "19:00", breakMinutes: "60" };
 
 function CreateUserForm({
   pages,
@@ -603,6 +633,10 @@ function CreateUserForm({
   const [grants, setGrants] = useState<string[]>([]);
   const [actionGrants, setActionGrants] = useState<string[]>([]);
   const [crmAccess, setCrmAccess] = useState(true);
+  const [timing, setTiming] = useState<TimingDraft>(DEFAULT_TIMING);
+  // Payroll-only staff (no CRM access) have no attendance, so no work timing.
+  const employee = (role === "staff" || role === "manager") && crmAccess;
+  const timingInvalid = employee && (!timing.start || !timing.end || timing.start === timing.end);
 
   // Stated once, next to the control it governs, rather than being discovered
   // by pressing a disabled button and guessing why.
@@ -611,9 +645,9 @@ function CreateUserForm({
     passwordConfirmation.length > 0 && passwordConfirmation !== password;
   const passwordConfirmed =
     password.length >= 6 && passwordConfirmation === password;
-  const ready = crmAccess
+  const ready = !timingInvalid && (crmAccess
     ? Boolean(email.trim()) && passwordConfirmed
-    : Boolean(name.trim()) && (!password || passwordConfirmed);
+    : Boolean(name.trim()) && (!password || passwordConfirmed));
 
   return (
     <div className="db-card um-create-card">
@@ -625,7 +659,7 @@ function CreateUserForm({
             <p className="db-card-sub">
               {crmAccess
                 ? "They can sign in as soon as this is saved."
-                : "Added to attendance and payroll only. They cannot sign in to the CRM."}
+                : "Added to payroll only. They cannot sign in to the CRM and have no attendance."}
             </p>
           </div>
         </div>
@@ -644,7 +678,7 @@ function CreateUserForm({
             label="CRM access"
             hint={crmAccess
               ? "Signs in with the email and password below."
-              : "Staff without CRM access: on attendance and payroll, never allocated candidates. Email and password are optional."}
+              : "Payroll only: paid the monthly salary with no attendance, cannot sign in and is never allocated candidates. Email and password are optional."}
           />
         </div>
         <div className="um-form-grid">
@@ -751,6 +785,30 @@ function CreateUserForm({
           </div>
         </div>
 
+        {employee && (
+          <div className="field-group um-work-timing">
+            <span className="modal-label"><Clock3 size={12} /> Work timing</span>
+            <p className="modal-hint">
+              Office default is 10:00 AM – 7:00 PM with a 60-minute break. Change it here for staff on different hours; it applies from today.
+            </p>
+            <div className="um-form-grid">
+              <div className="field-group">
+                <label className="modal-label" htmlFor="u-wt-start">Start</label>
+                <input id="u-wt-start" className="modal-input" type="time" value={timing.start} onChange={(e) => setTiming({ ...timing, start: e.target.value })} />
+              </div>
+              <div className="field-group">
+                <label className="modal-label" htmlFor="u-wt-end">End</label>
+                <input id="u-wt-end" className="modal-input" type="time" value={timing.end} onChange={(e) => setTiming({ ...timing, end: e.target.value })} />
+              </div>
+              <div className="field-group">
+                <label className="modal-label" htmlFor="u-wt-break">Break (minutes)</label>
+                <input id="u-wt-break" className="modal-input" type="number" min={0} max={480} value={timing.breakMinutes} onChange={(e) => setTiming({ ...timing, breakMinutes: e.target.value })} />
+              </div>
+            </div>
+            {timingInvalid && <p className="modal-hint is-warn">Start and end time must differ.</p>}
+          </div>
+        )}
+
         <PagePicker role={role} grants={grants} pages={pages} onChange={setGrants} />
         <ActionPicker role={role} grants={actionGrants} actions={actions} onChange={setActionGrants} />
       </div>
@@ -763,7 +821,7 @@ function CreateUserForm({
           type="button"
           className="db-btn is-primary"
           disabled={!ready}
-          onClick={() => onCreate({ email, password, name, phone, branch, role, grants, actionGrants, crmAccess })}
+          onClick={() => onCreate({ email, password, name, phone, branch, role, grants, actionGrants, crmAccess, timing: employee ? timing : null })}
         >
           <Check size={14} /> Create
         </button>
@@ -961,11 +1019,11 @@ function EditUserModal({
               label="CRM access"
               hint={crmAccess
                 ? "Can sign in and receive candidate allocations."
-                : "Attendance and payroll only: cannot sign in and is never allocated candidates."}
+                : "Payroll only: no attendance, cannot sign in and is never allocated candidates."}
             />
           </div>
 
-          {(user.role === "staff" || user.role === "manager") && <WorkTimingSection user={user} />}
+          {(user.role === "staff" || user.role === "manager") && crmAccess && user.crm_access !== false && <WorkTimingSection user={user} />}
 
           {locked && (
             <div className="modal-hint">

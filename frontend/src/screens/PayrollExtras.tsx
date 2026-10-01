@@ -7,14 +7,16 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, FileText, History, Paperclip, PencilLine, Receipt, RefreshCw, RotateCcw, Send, X } from "lucide-react";
+import { Check, Download, FileText, History, Paperclip, PencilLine, Plus, Receipt, RefreshCw, RotateCcw, Send, Trash2, X } from "lucide-react";
 
 import {
   decideReimbursement,
   fetchNetPayableLogs,
   fetchReimbursements,
   overrideNetPayable,
+  payslipUrl,
   reimbursementAttachmentUrl,
+  savePayslipDetails,
   submitReimbursement,
   type NetPayableLog,
   type PayrollRow,
@@ -302,3 +304,100 @@ export function NetPayableLogs({ year, month, refreshKey }: { year: number; mont
     </section>
   );
 }
+
+// --------------------------------------------------------------------------- //
+//  Payslip: asks for the payment date and incentives, then downloads
+// --------------------------------------------------------------------------- //
+export function PayslipDialog({ row, year, month, onClose, onSaved, onToast }: {
+  row: PayrollRow;
+  year: number;
+  month: number;
+  onClose: () => void;
+  onSaved: () => void;
+  onToast: (message: string, type?: "success" | "error" | "info") => void;
+}) {
+  const [paymentDate, setPaymentDate] = useState(row.payment_date ?? todayIso());
+  const [incentives, setIncentives] = useState<{ amount: string; notes: string }[]>(
+    row.incentives?.length
+      ? row.incentives.map((item) => ({ amount: String(item.amount), notes: item.notes }))
+      : [],
+  );
+  const [busy, setBusy] = useState(false);
+
+  const incentiveTotal = incentives.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  // What the month pays with these incentives instead of the ones saved before.
+  const computed = row.computed_payable - row.incentive_amount + incentiveTotal;
+  const invalid = !paymentDate || incentives.some((item) => !(Number(item.amount) > 0));
+
+  const update = (index: number, patch: Partial<{ amount: string; notes: string }>) =>
+    setIncentives((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+
+  const save = async () => {
+    if (invalid || busy) return;
+    setBusy(true);
+    try {
+      await savePayslipDetails(year, month, row.employee_id, {
+        payment_date: paymentDate,
+        incentives: incentives.map((item) => ({ amount: Number(item.amount), notes: item.notes.trim() })),
+      });
+      window.location.assign(payslipUrl(year, month, row.employee_id));
+      onToast(`${row.name}'s payslip is downloading`, "success");
+      onSaved();
+      onClose();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not prepare the payslip", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay active" onClick={() => !busy && onClose()}>
+      <div className="modal-container is-narrow" role="dialog" aria-modal="true" aria-labelledby="payslip-title" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h2 className="modal-title" id="payslip-title">Payslip for {MONTHS[month - 1]} {year}</h2>
+            <p className="modal-subtitle">{row.name}</p>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Close"><X size={16} /></button>
+        </div>
+        <div className="modal-body payroll-settings">
+          <label>Date of payment<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} disabled={busy} /></label>
+
+          <div className="payroll-settings-title">Incentives</div>
+          {incentives.length === 0 && <p className="payroll-extras-sub">No incentives this month.</p>}
+          {incentives.map((item, index) => (
+            <div className="payroll-extras-form" key={index}>
+              <label>Amount (₹)<input type="number" min="1" step="0.01" value={item.amount} onChange={(event) => update(index, { amount: event.target.value })} disabled={busy} /></label>
+              <label className="is-wide">Notes<input value={item.notes} maxLength={300} onChange={(event) => update(index, { notes: event.target.value })} placeholder="e.g. Interview incentive" disabled={busy} /></label>
+              <button type="button" className="payroll-reopen-btn" onClick={() => setIncentives((current) => current.filter((_, i) => i !== index))} disabled={busy} aria-label="Remove incentive"><Trash2 size={14} /></button>
+            </div>
+          ))}
+          <button type="button" className="payroll-expand-btn" onClick={() => setIncentives((current) => [...current, { amount: "", notes: "" }])} disabled={busy}>
+            <Plus size={14} /> Add incentive
+          </button>
+
+          <div className="payroll-breakdown-group payroll-payslip-sum">
+            <div><span>Salary after deductions</span><strong>{money.format(row.net_salary)}</strong></div>
+            {row.extra_ot_amount > 0 && <div><span>Extra OT</span><strong>{money.format(row.extra_ot_amount)}</strong></div>}
+            <div><span>Incentives</span><strong>{money.format(incentiveTotal)}</strong></div>
+            <div><span>Reimbursements</span><strong>{money.format(row.reimbursement_amount)}</strong></div>
+            <div className="is-total"><span>Net salary</span><strong>{money.format(row.net_payable_overridden ? row.total_payable : computed)}</strong></div>
+            {row.net_payable_overridden && (
+              <p className="payroll-extras-sub">
+                Net payable is overridden to {money.format(row.total_payable)} by {row.overridden_by_name || "an admin"}. Reset the override to include these incentives in the calculation.
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="modal-cancel-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="db-btn is-primary" onClick={() => void save()} disabled={invalid || busy}>
+            {busy ? <RefreshCw size={14} className="icon-spin" /> : <Download size={14} />} Save &amp; download payslip
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

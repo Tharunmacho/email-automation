@@ -20820,3 +20820,6 @@ a.um-phone:hover {
 .payroll-extras-decide input { min-width: 140px; font-size: .73rem; }
 .payroll-state.is-rejected { background: var(--error-fill); color: var(--error-ink); }
 a.payroll-expand-btn { text-decoration: none; }
+.payroll-payslip-sum { margin-top: 1rem; }
+.payroll-payslip-sum > div { display: flex; justify-content: space-between; padding: .3rem 0; font-size: .78rem; }
+.payroll-payslip-sum .is-total { border-top: 1px solid var(--border-main); font-weight: 700; }

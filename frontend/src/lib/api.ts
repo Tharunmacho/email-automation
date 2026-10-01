@@ -663,6 +663,8 @@ export interface PayrollRow {
   name: string;
   branch: string;
   staff_code?: string;
+  /** False for payroll-only staff (no CRM access): no attendance, no deductions. */
+  attendance_tracked?: boolean;
   monthly_salary: number;
   deduction: number;
   net_salary: number;
@@ -674,6 +676,12 @@ export interface PayrollRow {
   extra_ot_amount: number;
   /** Approved reimbursements paid with this month's salary. */
   reimbursement_amount: number;
+  /** Incentives entered when the payslip was issued. */
+  incentive_amount: number;
+  incentives: PayslipIncentive[];
+  /** When the salary was paid; set before the payslip can be downloaded. */
+  payment_date?: string | null;
+  payslip_issued: boolean;
   /** What the payroll rules produce, before any admin override. */
   computed_payable: number;
   /** What is actually paid: the override when there is one. */
@@ -765,6 +773,22 @@ export function fetchNetPayableLogs(year: number, month: number): Promise<{ item
 function withToken(path: string): string {
   const token = getToken();
   return `${API_BASE}${path}${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+}
+
+export interface PayslipIncentive {
+  amount: number;
+  notes: string;
+}
+
+export function savePayslipDetails(
+  year: number, month: number, employeeId: string,
+  details: { payment_date: string; incentives: PayslipIncentive[] },
+) {
+  return request(`/payroll/${year}/${month}/employees/${employeeId}/payslip-details`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(details),
+  });
 }
 
 export function payslipUrl(year: number, month: number, employeeId: string): string {

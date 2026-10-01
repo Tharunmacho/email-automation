@@ -236,6 +236,8 @@ def resolve_employee(users, sender_phone: str, stated_name: str):
         employee
         for employee in users.list_employees(include_inactive=False)
         if sender and normalize_phone(employee.phone) == sender
+        # Staff without CRM access are on payroll only: no attendance.
+        and getattr(employee, "crm_access", True) is not False
     ]
     if len(matches) != 1:
         raise GroupIntakeError(

@@ -28,7 +28,7 @@ import {
   type PayrollRow,
 } from "@/lib/api";
 import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
-import { NetPayableLogs, NetPayableOverrideForm, ReimbursementsPanel } from "@/screens/PayrollExtras";
+import { NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
 
 interface Props {
   user: AuthUser;
@@ -65,6 +65,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [query, setQuery] = useState("");
   const [expandedId, setExpandedId] = useState("");
   const [logKey, setLogKey] = useState(0);
+  const [payslipFor, setPayslipFor] = useState<PayrollRow | null>(null);
   const allBranches = useBranches();
   const [year, month] = period.split("-").map(Number);
   const canManage = user.role === "admin" || user.role === "manager";
@@ -242,7 +243,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
                 row={row}
                 busy={busyId === row.employee_id || loading}
                 canManage={false}
-                payslipHref={payroll.payslips_available ? payslipUrl(year, month, row.employee_id) : undefined}
+                payslipHref={payroll.payslips_available && row.payslip_issued ? payslipUrl(year, month, row.employee_id) : undefined}
                 onSave={savePolicy}
                 onTogglePaid={togglePaid}
               />
@@ -297,7 +298,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
                                 <span><strong>{row.name}</strong><small>{row.staff_code || "Employee"} · <span className={row.branch ? "" : "payroll-branch-unset"}>{row.branch || "Unassigned"}</span></small></span>
                               </span>
                             </td>
-                            <td>{row.required_working_days} / {row.calendar_days}</td>
+                            <td>{row.attendance_tracked === false ? <span className="payroll-extras-sub">Payroll only</span> : `${row.required_working_days} / ${row.calendar_days}`}</td>
                             <td className="is-num">{money.format(row.monthly_salary)}</td>
                             <td className={`is-num ${row.deduction > 0 ? "is-deduction" : ""}`}>{row.deduction > 0 ? `− ${money.format(row.deduction)}` : money.format(0)}</td>
                             <td className="is-num is-net">
@@ -317,9 +318,9 @@ export default function PayrollScreen({ user, onToast }: Props) {
                                   {paid ? "Reopen" : "Mark paid"}
                                 </button>
                                 {payroll.payslips_available && (
-                                  <a className="payroll-expand-btn" href={payslipUrl(year, month, row.employee_id)} title="Download payslip (PDF)">
+                                  <button type="button" className="payroll-expand-btn" onClick={() => setPayslipFor(row)} title="Enter the payment date and incentives, then download the payslip (PDF)">
                                     <Download size={15} /> Payslip
-                                  </a>
+                                  </button>
                                 )}
                                 <button type="button" className="payroll-expand-btn" aria-expanded={open} onClick={() => setExpandedId(open ? "" : row.employee_id)}>
                                   Details <ChevronDown size={15} />
@@ -359,6 +360,17 @@ export default function PayrollScreen({ user, onToast }: Props) {
       {canManage && !personalView && payroll && <NetPayableLogs year={year} month={month} refreshKey={logKey} />}
 
       <ReimbursementsPanel currentUserId={user.id} onToast={onToast} onChanged={() => void load()} />
+
+      {payslipFor && (
+        <PayslipDialog
+          row={payslipFor}
+          year={year}
+          month={month}
+          onClose={() => setPayslipFor(null)}
+          onSaved={() => void load()}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 }
@@ -422,6 +434,7 @@ function EmployeePayCard({ row, busy, canManage, payslipHref, onSave, onTogglePa
 
       <footer className="payroll-card-foot">
         {payslipHref && <a className="payroll-expand-btn" href={payslipHref}><Download size={15} /> Download payslip</a>}
+        {!payslipHref && <span className="payroll-extras-sub">The payslip is available once the salary payment is recorded at month end.</span>}
         <span>{paid ? "Payment confirmed for this period" : canManage ? "Review the calculation before confirming payment" : "Payment is awaiting manager confirmation"}</span>
         {canManage && <button type="button" className={paid ? "payroll-reopen-btn" : "payroll-pay-btn"} disabled={busy} onClick={() => void onTogglePaid(row)}>
           {busy ? <RefreshCw size={15} className="icon-spin" /> : paid ? <RotateCcw size={15} /> : <Check size={15} />}
@@ -438,9 +451,15 @@ function PayrollBreakdown({ row }: { row: PayrollRow }) {
     <div className="payroll-breakdown">
       <div className="payroll-breakdown-group">
         <h4>Attendance</h4>
-        <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
-        <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />
-        <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
+        {row.attendance_tracked === false ? (
+          <Metric label="Attendance" value="Not tracked (payroll only)" />
+        ) : (
+          <>
+            <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
+            <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />
+            <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
+          </>
+        )}
       </div>
       <div className="payroll-breakdown-group">
         <h4>Overtime</h4>

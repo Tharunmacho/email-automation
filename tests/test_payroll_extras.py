@@ -164,11 +164,31 @@ def test_staff_cannot_override_net_payable(api):
 def test_payslip_is_generated_from_the_last_day_of_the_month(api):
     assert not payslip_available(YEAR, MONTH, today=date(YEAR, MONTH, 30))
     assert payslip_available(YEAR, MONTH, today=date(YEAR, MONTH, 31))
+    url = f"/payroll/{YEAR}/{MONTH}/employees/{RAVI.id}"
     as_user(STAFF)
-    response = api.get(f"/payroll/{YEAR}/{MONTH}/employees/{RAVI.id}/payslip")
+    # Not issued until a manager or admin records the payment date.
+    assert api.get(f"{url}/payslip").status_code == 409
+    assert api.put(f"{url}/payslip-details", json={"payment_date": "2026-09-04"}).status_code == 403
+
+    as_user(YOOSUF)
+    before = row(api)["computed_payable"]
+    saved = api.put(f"{url}/payslip-details", json={
+        "payment_date": "2026-09-04",
+        "incentives": [{"amount": 500, "notes": "Interview incentive"}, {"amount": 250, "notes": "Target"}],
+    })
+    assert saved.status_code == 200, saved.text
+    issued = row(api)
+    assert issued["incentive_amount"] == 750 and issued["payment_date"] == "2026-09-04"
+    assert issued["computed_payable"] == issued["total_payable"] == before + 750
+
+    as_user(STAFF)
+    response = api.get(f"{url}/payslip")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert response.content.startswith(b"%PDF")
+    import fitz
+    text = fitz.open(stream=response.content, filetype="pdf")[0].get_text()
+    assert "Pay Slip for August 2026" in text and "Interview incentive" in text
+    assert "04 Sep 2026" in text and "SalaryBox" not in text
 
 
 def test_branches_can_be_added_and_removed_but_not_the_originals():
@@ -205,3 +225,32 @@ def test_local_day_is_used_for_payroll_month():
     # Sanity: the approval month comes from office time, not UTC.
     from datetime import datetime, timezone
     assert local_day(datetime(2026, 8, 31, 20, 0, tzinfo=timezone.utc)) == date(2026, 9, 1)
+
+
+def test_payroll_only_staff_get_full_salary_with_no_attendance(api):
+    offline = FakeEmployee("staff-9", "Helper")
+    offline.crm_access = False
+    api.db["attendance_calendar"].insert_one({
+        "_id": "absent", "employee_id": "staff-9", "attendance_date": date(YEAR, MONTH, 4).isoformat(),
+        "status": "UL", "reason": "would be deducted if tracked",
+    })
+    from app.attendance.repository import AttendanceRepository as Repo
+    Repo(api.db).set_employee_policy("staff-9", {"monthly_salary": 20000})
+    with patch.object(FakeUsers, "list_employees", lambda self, include_inactive=False: [offline]):
+        as_user(YOOSUF)
+        paid = row(api)
+    assert paid["attendance_tracked"] is False
+    assert paid["deduction"] == 0 and paid["total_payable"] == 20000
+    assert paid["calendar_days"] == 0
+
+
+def test_payroll_only_staff_are_not_on_attendance():
+    from app.attendance import api as attendance_api
+    from app.db.users import on_attendance
+
+    offline = SimpleNamespace(id="x", active=True, role="staff", crm_access=False)
+    assert not on_attendance(offline) and on_attendance(SimpleNamespace())
+    with patch.object(attendance_api.users, "get", return_value=offline):
+        with pytest.raises(Exception) as refused:
+            attendance_api._employee_id({"id": "admin", "role": "admin"}, "x")
+    assert refused.value.status_code == 404
