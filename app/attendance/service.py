@@ -6,6 +6,7 @@ import calendar
 
 from app.attendance.engine import AttendancePolicy, calculate_day, local_day, shift_bounds
 from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
+from app.attendance.office_calendar import festival_holiday, standard_shift
 from app.attendance.repository import AttendanceRepository
 
 #: Permission kinds that take the whole day off, and so may name a cover.
@@ -39,6 +40,14 @@ class AttendanceService:
     def __init__(self, repository: AttendanceRepository, policy: AttendancePolicy | None = None):
         self.repository = repository
         self.policy = policy or AttendancePolicy()
+
+    def _shift(self, employee_id: str, day: date, assignment: dict | None = None) -> Shift:
+        """An assigned shift, else the employee's standard office hours."""
+        assignment = assignment or self.repository.shift_for_day(employee_id, day)
+        if assignment:
+            return Shift.model_validate(assignment["shift"])
+        email = getattr(self.repository, "employee_email", lambda *_args: None)(employee_id)
+        return standard_shift(email, day)
 
     def punch(self, employee_id: str, request: PunchRequest, *, allow_recorded_time: bool = False) -> tuple[dict, bool]:
         delivered = self.repository.event_by_idempotency_key(request.idempotency_key)
@@ -83,10 +92,12 @@ class AttendanceService:
 
     def day(self, employee_id: str, day: date, *, shift: Shift | None = None, now: datetime | None = None) -> dict:
         assignment = self.repository.shift_for_day(employee_id, day)
-        if shift is None and assignment:
-            shift = Shift.model_validate(assignment["shift"])
-        shift = shift or Shift()
+        if shift is None:
+            shift = self._shift(employee_id, day, assignment)
         calendar_day = self.repository.calendar_day(employee_id, day)
+        holiday = festival_holiday(day)
+        if calendar_day is None and holiday:
+            calendar_day = {"status": AttendanceStatus.HOLIDAY, "reason": holiday}
         # One weekly off per Monday-to-Sunday week: Sunday, unless the employee
         # chose Friday for that week (by Thursday 11:59 PM), in which case the
         # Friday is off and that week's Sunday is a normal working day.
@@ -127,8 +138,7 @@ class AttendanceService:
 
     def request_permission(self, employee_id: str, request: PermissionRequest) -> dict:
         now = datetime.now(timezone.utc)
-        assignment = self.repository.shift_for_day(employee_id, request.attendance_date)
-        shift = Shift.model_validate(assignment["shift"]) if assignment else Shift()
+        shift = self._shift(employee_id, request.attendance_date)
         start, end = shift_bounds(request.attendance_date, shift, self.policy.timezone_name)
         if request.kind in {"late", "early_check_in", "work_from_home"} and now >= start:
             raise AttendanceError(f"{request.kind} permission must be requested before shift start")
@@ -152,8 +162,7 @@ class AttendanceService:
             raise AttendanceError("pending permission not found")
         if decision.approved and pending.get("kind") == "work_from_home":
             day = date.fromisoformat(pending["attendance_date"])
-            assignment = self.repository.shift_for_day(pending["employee_id"], day)
-            shift = Shift.model_validate(assignment["shift"]) if assignment else Shift()
+            shift = self._shift(pending["employee_id"], day)
             start, _ = shift_bounds(day, shift, self.policy.timezone_name)
             if datetime.now(timezone.utc) >= start:
                 raise AttendanceError("work-from-home must be approved before shift start")

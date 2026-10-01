@@ -816,7 +816,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
             <aside className="ds-panel attendance-rules">
               <h2 className="ds-panel-title">How it works</h2>
               <ul>
-                <li><Clock3 size={15} /><span><strong>8 payable hours</strong>10:00 AM–7:00 PM with a one-hour break</span></li>
+                <li><Clock3 size={15} /><span><strong>8 payable hours</strong>{day?.shift_start && day?.shift_end ? `${timeOf(day.shift_start)}–${timeOf(day.shift_end)}` : "10:00 AM–7:00 PM"} with a one-hour break</span></li>
                 <li><ShieldCheck size={15} /><span><strong>60 min permission</strong>Up to 2 occasions a month, paid</span></li>
                 <li><CalendarDays size={15} /><span><strong>1 paid leave</strong>Per month</span></li>
                 <li><Timer size={15} /><span><strong>Extra OT</strong>Paid only once approved</span></li>

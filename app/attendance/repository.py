@@ -15,6 +15,7 @@ ADJUSTMENTS = "attendance_adjustments"
 PERMISSIONS = "attendance_permissions"
 SHIFTS = "attendance_shift_assignments"
 CALENDAR = "attendance_calendar"
+USERS = "users"
 POLICIES = "attendance_employee_policies"
 EXTRA_OT = "attendance_extra_ot"
 WEEKLY_OFF = "attendance_weekly_off_choices"
@@ -49,6 +50,7 @@ class AttendanceRepository:
         self.policies = db[POLICIES]
         self.extra_ot_collection = db[EXTRA_OT]
         self.weekly_off = db[WEEKLY_OFF]
+        self.users = db[USERS]
 
     def append_event(self, event: dict) -> tuple[dict, bool]:
         """Insert once. A repeated webhook returns the original event."""
@@ -334,6 +336,10 @@ class AttendanceRepository:
             sort=[("effective_from", DESCENDING), ("created_at", DESCENDING)],
         )
         return _public(row)
+
+    def employee_email(self, employee_id: str) -> str | None:
+        row = self.users.find_one({"_id": employee_id}, {"email": 1})
+        return (row or {}).get("email")
 
     def set_calendar_day(self, value: dict) -> dict:
         doc = dict(value)
