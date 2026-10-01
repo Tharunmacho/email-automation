@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Download, FileText, Gift, History, Paperclip, PencilLine, Plus, Receipt, RefreshCw, RotateCcw, Send, Trash2, X } from "lucide-react";
+import { Check, Download, FileText, History, Paperclip, PencilLine, Plus, Receipt, RefreshCw, RotateCcw, Send, Trash2, X } from "lucide-react";
 
 import {
   addIncentive,
@@ -389,105 +389,6 @@ export function PayslipDialog({ row, year, month, onClose, onSaved, onToast }: {
 // --------------------------------------------------------------------------- //
 //  Incentives
 // --------------------------------------------------------------------------- //
-export function IncentivesPanel({ year, month, currentUserId, refreshKey, onChanged, onToast }: {
-  year: number;
-  month: number;
-  currentUserId: string;
-  refreshKey: number;
-  /** Called after a removal, so net payable can be reloaded. */
-  onChanged: () => void;
-  onToast: (message: string, type?: "success" | "error" | "info") => void;
-}) {
-  const [items, setItems] = useState<PayrollIncentive[] | null>(null);
-  const [canManage, setCanManage] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const result = await fetchIncentives(year, month);
-      setItems(result.items);
-      setCanManage(result.can_manage);
-    } catch (err) {
-      setItems([]);
-      onToast(err instanceof Error ? err.message : "Could not load incentives", "error");
-    }
-  }, [month, onToast, year]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
-  }, [load, refreshKey]);
-
-  const remove = async (item: PayrollIncentive) => {
-    if (!window.confirm(`Remove the ${money.format(item.amount)} incentive for ${item.employee_name}?`)) return;
-    try {
-      await deleteIncentive(year, month, item.id);
-      onToast("Incentive removed", "success");
-      await load();
-      onChanged();
-    } catch (err) {
-      onToast(err instanceof Error ? err.message : "Could not remove the incentive", "error");
-    }
-  };
-
-  const total = (items ?? []).reduce((sum, item) => sum + item.amount, 0);
-
-  return (
-    <section className="payroll-run payroll-extras">
-      <div className="payroll-section-head">
-        <div>
-          <span className="payroll-section-icon"><Gift size={18} /></span>
-          <div>
-            <h2>Incentives — {MONTHS[month - 1]} {year}</h2>
-            <p>{canManage
-              ? "Add incentives with the Incentive button on each employee's row. They are added to the month's net payable and listed on the payslip."
-              : "Incentives added to your salary this month."}</p>
-          </div>
-        </div>
-        {items && items.length > 0 && <span className="payroll-count">{items.length} · {money.format(total)}</span>}
-      </div>
-
-      {items === null ? (
-        <div className="payroll-empty is-compact" role="status"><RefreshCw className="icon-spin" /><strong>Loading incentives</strong></div>
-      ) : !items.length ? (
-        <div className="payroll-empty is-compact"><Gift /><strong>No incentives this month</strong></div>
-      ) : (
-        <div className="payroll-table-wrap">
-          <table className="payroll-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Date</th>
-                <th className="is-num">Amount</th>
-                <th>Remarks</th>
-                <th>Added by</th>
-                {canManage && <th className="is-actions">Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.id}>
-                  <td><strong>{item.employee_id === currentUserId ? "You" : item.employee_name}</strong></td>
-                  <td>{item.incentive_date}</td>
-                  <td className="is-num">{money.format(item.amount)}</td>
-                  <td>{item.remarks || "—"}</td>
-                  <td>{item.created_by_name || "—"}</td>
-                  {canManage && (
-                    <td className="is-actions">
-                      <button type="button" className="payroll-reopen-btn" onClick={() => void remove(item)} aria-label={`Remove incentive for ${item.employee_name}`}>
-                        <Trash2 size={14} /> Remove
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
 /**
  * One employee's incentives for the month, opened from their payroll row.
  * Any number can be added, each with its own amount, date and remarks.
