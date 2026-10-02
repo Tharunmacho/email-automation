@@ -23,11 +23,11 @@ import { isTopModalPopover, registerModalPopover } from "./useModalFocus";
  * because the modal animates on a `transform`, and a transformed ancestor
  * becomes the containing block for fixed children and clips them all the same.
  */
-export interface PopoverState {
+export interface PopoverState<T extends HTMLElement = HTMLButtonElement> {
   open: boolean;
   /** The panel opens upward because there is not enough room below the anchor. */
   up: boolean;
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  anchorRef: React.RefObject<T | null>;
   panelRef: React.RefObject<HTMLDivElement | null>;
   /** Fixed-position style for the portalled panel. Spread onto it. */
   style: React.CSSProperties;
@@ -49,6 +49,7 @@ interface Anchor {
   /** Distance from the viewport bottom to the anchor's top, for an upward one. */
   bottom: number;
   width: number;
+  room: number;
 }
 
 /**
@@ -56,25 +57,30 @@ interface Anchor {
  *   gives up and opens upward. Pass the panel's own height — a calendar needs
  *   more than a six-row list.
  */
-export function usePopover(minRoomBelow = 260): PopoverState {
+export function usePopover<T extends HTMLElement = HTMLButtonElement>(minRoomBelow = 260): PopoverState<T> {
   const [open, setOpenState] = useState(false);
   const [up, setUp] = useState(false);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
-  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const anchorRef = useRef<T | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const measure = useCallback(() => {
     const element = anchorRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
+    const panelWidth = Math.min(panelRef.current?.offsetWidth || rect.width, window.innerWidth - 16);
+    const panelHeight = Math.max(minRoomBelow, panelRef.current?.offsetHeight || 0);
+    const below = window.innerHeight - rect.bottom - GAP - 8;
+    const above = rect.top - GAP - 8;
+    const opensUp = below < panelHeight && above > below;
     setAnchor({
-      left: rect.left,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - panelWidth - 8)),
       top: rect.bottom + GAP,
       bottom: window.innerHeight - rect.top + GAP,
-      width: rect.width,
+      width: Math.min(rect.width, window.innerWidth - 16),
+      room: Math.max(80, opensUp ? above : below),
     });
-    const below = window.innerHeight - rect.bottom;
-    setUp(below < minRoomBelow && rect.top > below);
+    setUp(opensUp);
   }, [minRoomBelow]);
 
   const close = useCallback((refocus = true) => {
@@ -116,6 +122,10 @@ export function usePopover(minRoomBelow = 260): PopoverState {
         close();
       }
     };
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target as Node;
+      if (!anchorRef.current?.contains(target) && !panelRef.current?.contains(target)) setOpenState(false);
+    };
 
     /**
      * Anything that moves the trigger re-measures, so the panel stays glued to
@@ -137,6 +147,7 @@ export function usePopover(minRoomBelow = 260): PopoverState {
     // enough to feel like a lag.
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("scroll", onReflow, true);
     window.addEventListener("resize", onReflow);
 
@@ -144,6 +155,7 @@ export function usePopover(minRoomBelow = 260): PopoverState {
       unregister?.();
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("scroll", onReflow, true);
       window.removeEventListener("resize", onReflow);
     };
@@ -156,6 +168,8 @@ export function usePopover(minRoomBelow = 260): PopoverState {
         position: "fixed",
         left: anchor.left,
         minWidth: anchor.width,
+        maxHeight: anchor.room,
+        overflowY: "auto",
         ...(up ? { bottom: anchor.bottom } : { top: anchor.top }),
       }
     : { position: "fixed", visibility: "hidden" };

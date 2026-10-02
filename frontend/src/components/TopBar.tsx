@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, LoaderCircle, LogOut, Menu, Move, ScanLine, Settings, X, ZoomIn } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, LoaderCircle, LogOut, Mail, Menu, Move, ScanLine, Settings, X, ZoomIn } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
 import CommandSearch from "@/components/CommandSearch";
@@ -216,6 +216,7 @@ export default function TopBar({
     <header className="topbar">
       {hasRail && <button className="topbar-icon-btn topbar-menu-btn" onClick={onToggleRail} aria-label="Open navigation"><Menu size={20} /></button>}
       <div className="topbar-brand"><span className="topbar-logo"><BrandLogo /></span></div>
+      <p className="topbar-welcome">Welcome back, {user.name?.split(" ")[0] || "team"}</p>
       <CommandSearch user={user} candidates={candidates} candidatesLoading={candidatesLoading} onNavigate={onNavigate} onOpenCandidate={onOpenCandidate} />
 
       <div className="topbar-actions">
@@ -233,11 +234,14 @@ export default function TopBar({
           </div>
         )}
 
+        {onNavigate && (user.pages ? user.pages.includes("sourcing") : user.role !== "staff") && (
+          <button type="button" className="topbar-icon-btn topbar-mail" aria-label="Open sourcing hub" onClick={() => onNavigate("sourcing")}><Mail size={17} strokeWidth={1.5} /></button>
+        )}
         <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
         <div className="topbar-profile" ref={profileRef}>
           <button ref={profileTriggerRef} type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu" aria-label={`Open profile menu for ${user.name || user.email}`}>
             <span className="topbar-profile-avatar" aria-hidden="true">{profilePhoto ? <Image src={profilePhoto} alt="" width={30} height={30} unoptimized /> : initialsOf(user.name || user.email)}</span>
-            <span className="topbar-profile-copy"><strong>{user.name || user.email}</strong><small>{user.role}</small></span>
+            <span className="topbar-profile-copy"><strong>{user.name || user.email}</strong><small>{user.email}</small></span>
             <ChevronDown size={14} />
           </button>
 

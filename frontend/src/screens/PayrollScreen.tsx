@@ -29,6 +29,7 @@ import {
   type PayrollRow,
 } from "@/lib/api";
 import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
+import DatePicker from "@/components/ui/DatePicker";
 import { IncentiveDialog, NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
 
 interface Props {
@@ -177,7 +178,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
           </div>}
           <label>
             Pay period
-            <input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} />
+            <DatePicker mode="month" value={period} onChange={setPeriod} ariaLabel="Pay period" clearable={false} />
           </label>
           {canManage && !personalView && payroll ? (
             <BranchSwitch

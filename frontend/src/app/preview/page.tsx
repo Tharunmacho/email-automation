@@ -78,6 +78,12 @@ function buildCandidates(count: number): CandidateRecord[] {
     out.push({
       id: `c${(1000 + i).toString(16)}${Math.floor(rand() * 1e6).toString(16)}`,
       status: verified ? "verified" : "parsed",
+      source: i % 5 < 2 ? "whatsapp" : i % 5 === 2 ? "upload" : "email",
+      assigned_staff_id: i % 7 ? `preview-staff-${i % 4}` : null,
+      assigned_staff_name: i % 7 ? ["Aarthi Menon", "Rafi Ahmed", "Noorul Huda", "Sreya Nair"][i % 4] : null,
+      evaluated_at: verified || i % 3 === 0 ? created.toISOString() : null,
+      recruitment_status: i % 6 === 0 ? "submitted" : i % 11 === 0 ? "interviewing" : "available",
+      job: { country: { selected_names: [["Saudi Arabia", "UAE", "Qatar", "Malaysia"][i % 4]] } },
       created_at: created.toISOString(),
       updated_at: created.toISOString(),
       profile: {
@@ -189,6 +195,7 @@ const noop = () => {};
 
 export default function PreviewPage() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const params = useMemo(
     () => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search)),
@@ -237,7 +244,7 @@ export default function PreviewPage() {
         candidates={candidates}
         onNavigate={go}
         onSync={noop}
-        onToggleRail={noop}
+        onToggleRail={() => setMobileOpen((open) => !open)}
         onOpenProfile={() => go("settings")}
         onSignOut={noop}
       />
@@ -246,11 +253,11 @@ export default function PreviewPage() {
         <Sidebar
           activeId={screen}
           collapsed={collapsed}
-          mobileOpen={false}
+          mobileOpen={mobileOpen}
           user={USER}
           onNavigate={go}
           onToggleCollapse={() => setCollapsed((c) => !c)}
-          onCloseMobile={noop}
+          onCloseMobile={() => setMobileOpen(false)}
         />
 
         <main className="workspace">

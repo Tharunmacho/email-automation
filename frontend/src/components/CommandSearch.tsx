@@ -264,8 +264,16 @@ export default function CommandSearch(props: CommandSearchProps) {
         setOpen(true);
       }
     };
+    const onOpenSearch = () => {
+      setRecent(readRecentSearches(historyKey));
+      setOpen(true);
+    };
     document.addEventListener("keydown", onShortcut);
-    return () => document.removeEventListener("keydown", onShortcut);
+    window.addEventListener("adira-open-search", onOpenSearch);
+    return () => {
+      document.removeEventListener("keydown", onShortcut);
+      window.removeEventListener("adira-open-search", onOpenSearch);
+    };
   }, [historyKey, open]);
 
   return (

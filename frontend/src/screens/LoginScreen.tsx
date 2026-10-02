@@ -1,16 +1,14 @@
 "use client";
 
 import React, { useState, useSyncExternalStore } from "react";
+import Image from "next/image";
 import {
   AlertCircle,
   Eye,
   EyeOff,
   Loader2,
-  Lock,
-  Mail,
   Moon,
   ShieldCheck,
-  Sparkles,
   Sun,
 } from "lucide-react";
 
@@ -22,6 +20,7 @@ import {
   setTheme,
   subscribeTheme,
 } from "@/lib/theme";
+import styles from "./LoginScreen.module.css";
 
 interface LoginScreenProps {
   onSuccess: (user: AuthUser) => void;
@@ -33,6 +32,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -41,6 +41,7 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
     if (busy) return;
 
     setError(null);
+    setShowHelp(false);
     if (!email.trim() || !password) {
       setError("Enter both your email and password.");
       return;
@@ -59,42 +60,41 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
   };
 
   return (
-    <main className="signin-page">
-      <section className="signin-story" aria-labelledby="signin-story-title">
-        <div className="signin-story-glow" aria-hidden="true" />
-        <div className="signin-story-lines" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-
-        <span className="signin-story-mark" aria-hidden="true">
-          <Sparkles size={43} strokeWidth={1.8} />
-        </span>
-
-        <div className="signin-story-copy">
-          <p className="signin-story-kicker">Adira Master CRM</p>
+    <main className={styles.page}>
+      <section className={styles.story} aria-labelledby="signin-story-title">
+        <picture className={styles.artworkFrame}>
+          <source media="(max-width: 680px)" srcSet="/login-ribbons-mobile.webp" width={2172} height={724} />
+          <source media="(min-aspect-ratio: 9/5)" srcSet="/login-ribbons-panel.webp" width={1285} height={1224} />
+          <Image
+            src="/login-ribbons-v3.webp"
+            alt=""
+            width={1122}
+            height={1402}
+            className={styles.artwork}
+            unoptimized
+            loading="eager"
+          />
+        </picture>
+        <p className={styles.kicker}>A world of possibilities<span aria-hidden="true" /></p>
+        <div className={styles.storyCopy}>
           <h1 id="signin-story-title">
-            Hello,
-            <br />
-            welcome back!
+            <span>Find talent.</span>
+            <span>Build teams.</span>
+            <span>Create futures.</span>
           </h1>
           <p>
-            Turn every application into action. Manage candidates, coordinate
-            your team, and keep recruitment moving from one workspace.
+            Great opportunities begin with the right people.
+            Bring them together with Adira.
           </p>
         </div>
-
-        <p className="signin-copyright">© 2026 Adira Enterprises. All rights reserved.</p>
       </section>
 
-      <section className="signin-access" aria-labelledby="auth-title">
-        <header className="signin-access-top">
-          <BrandLogo className="signin-logo" />
+      <section className={styles.access} aria-labelledby="auth-title">
+        <header className={styles.brandHeader}>
+          <BrandLogo className={styles.logo} />
           <button
             type="button"
-            className="signin-theme-toggle"
+            className={styles.themeToggle}
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
@@ -103,73 +103,92 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
           </button>
         </header>
 
-        <div className="signin-card">
-          <header className="signin-head">
-            <p className="signin-eyebrow">Secure workspace</p>
-            <h2 id="auth-title">Welcome back!</h2>
-            <p>Sign in with your work email to continue to Adira Master CRM.</p>
+        <div className={styles.card}>
+          <header className={styles.heading}>
+            <h2 id="auth-title">Welcome Back</h2>
+            <p>Enter your email and password to access your workspace.</p>
           </header>
 
-          <form className="signin-form" onSubmit={handleSubmit} noValidate aria-busy={busy}>
-            <label className="signin-label" htmlFor="login-email">Email address</label>
-            <div className="signin-field">
-              <Mail size={19} aria-hidden="true" />
-              <input
-                id="login-email"
-                type="email"
-                autoComplete="username"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={busy}
-                autoFocus
-              />
+          <form className={styles.form} onSubmit={handleSubmit} noValidate aria-busy={busy}>
+            <div className={styles.formGroup}>
+              <label className={styles.label} htmlFor="login-email">Email address</label>
+              <div className={styles.field}>
+                <input
+                  id="login-email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={busy}
+                  required
+                />
+              </div>
             </div>
 
-            <label className="signin-label" htmlFor="login-password">Password</label>
-            <div className="signin-field">
-              <Lock size={19} aria-hidden="true" />
-              <input
-                id="login-password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                placeholder="Enter your password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                disabled={busy}
-              />
+            <div className={styles.formGroup}>
+              <label className={styles.label} htmlFor="login-password">Password</label>
+              <div className={styles.field}>
+                <input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={busy}
+                  required
+                />
+                <button
+                  type="button"
+                  className={styles.reveal}
+                  disabled={busy}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.options}>
+              <label className={styles.remember}>
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(event) => setRemember(event.target.checked)}
+                  disabled={busy}
+                />
+                <span>Remember me</span>
+              </label>
               <button
                 type="button"
-                className="signin-reveal"
-                onClick={() => setShowPassword((visible) => !visible)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                className={styles.helpButton}
+                disabled={busy}
+                onClick={() => {
+                  setError(null);
+                  setShowHelp((visible) => !visible);
+                }}
+                aria-expanded={showHelp}
+                aria-controls="signin-help"
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                Forgot password?
               </button>
             </div>
 
-            <label className="signin-remember">
-              <input
-                type="checkbox"
-                checked={remember}
-                onChange={(event) => setRemember(event.target.checked)}
-                disabled={busy}
-              />
-              <span className="signin-checkbox" aria-hidden="true" />
-              <span>Keep me signed in on this device</span>
-            </label>
+            {showHelp && <p id="signin-help" className={styles.help} role="status">Contact your Adira administrator to reset your password or request access.</p>}
 
             {error && (
-              <p className="signin-error" role="alert">
+              <p className={styles.error} role="alert">
                 <AlertCircle size={17} />
                 <span>{error}</span>
               </p>
             )}
 
-            <button type="submit" className="signin-submit" disabled={busy}>
+            <button type="submit" className={styles.submit} disabled={busy}>
               {busy ? (
                 <>
-                  <Loader2 size={18} className="signin-spin" />
+                  <Loader2 size={18} className={styles.spin} />
                   <span>Signing in...</span>
                 </>
               ) : (
@@ -178,11 +197,15 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
             </button>
           </form>
 
-          <p className="signin-foot">
+          <p className={styles.secure}>
             <ShieldCheck size={16} aria-hidden="true" />
-            Secure, role-based access for authorised staff
+            Secure access to Adira Master CRM
           </p>
         </div>
+        <footer className={styles.footer}>
+          <p>Need an account? <span>Contact your administrator</span></p>
+          <small>© 2026 Adira Enterprises</small>
+        </footer>
       </section>
     </main>
   );

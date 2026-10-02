@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import Select from "@/components/ui/Select";
+import Combobox from "@/components/ui/Combobox";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
@@ -1111,19 +1112,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                     <label className="modal-label" htmlFor="sh-country">
                       Country
                     </label>
-                    <input
+                    <Combobox
                       id="sh-country"
-                      type="text"
-                      className="modal-input"
-                      list="sh-country-options"
                       placeholder="e.g. United Arab Emirates"
                       value={newCountry}
-                      onChange={(event) => setNewCountry(event.target.value)}
-                      autoComplete="country-name"
+                      onChange={setNewCountry}
+                      options={selectableCountries}
+                      ariaLabel="Country"
                     />
-                    <datalist id="sh-country-options">
-                      {selectableCountries.map((country) => <option value={country} key={country} />)}
-                    </datalist>
                   </div>
 
                   <div className="sh-field">

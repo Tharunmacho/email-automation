@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import Select from "@/components/ui/Select";
+import DatePicker from "@/components/ui/DatePicker";
+import TimePicker from "@/components/ui/TimePicker";
 import {
   CalendarDays,
   CheckCircle2,
@@ -594,9 +597,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const employeePicker = (
     <label className="attendance-select attendance-employee-picker">
       Employee
-      <select value={employeeId} onChange={(event) => setEmployeeId(event.target.value)}>
-        {staff.map((person) => <option key={person.id} value={person.id}>{person.name}{person.staff_code ? ` · ${person.staff_code}` : ""}</option>)}
-      </select>
+      <Select value={employeeId} onChange={setEmployeeId} ariaLabel="Attendance employee" options={staff.map((person) => ({ value: person.id, label: `${person.name}${person.staff_code ? ` · ${person.staff_code}` : ""}` }))} />
     </label>
   );
 
@@ -619,7 +620,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           </div>}
           <label className="attendance-select">
             Month
-            <input type="month" value={yearMonth} onChange={(event) => setYearMonth(event.target.value)} />
+            <DatePicker mode="month" value={yearMonth} onChange={setYearMonth} ariaLabel="Attendance month" clearable={false} />
           </label>
           <button className="ds-ghost-btn" type="button" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={14} className={loading ? "icon-spin" : ""} /> Refresh
@@ -764,8 +765,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
 
               {requestType === "permission" ? (
                 <div className="attendance-form">
-                  <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
-                  <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_check_in">Early check-in</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
+                  <label>Date<DatePicker value={permissionDate} onChange={setPermissionDate} ariaLabel="Permission date" clearable={false} /></label>
+                  <label>Type<Select value={kind} onChange={(value) => setKind(value as AttendancePermission["kind"])} ariaLabel="Permission type" options={Object.entries(PERMISSION_KIND).map(([value, label]) => ({ value, label: value === "paid_leave" ? "Paid leave / holiday" : label }))} /></label>
                   {TIMED_KINDS.includes(kind) && <label>{kind === "early_check_in" ? "Minutes early" : "Minutes"}<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
                   {BEFORE_SHIFT_KINDS.includes(kind) && (
                     <p className="attendance-form-note">
@@ -778,12 +779,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                     <>
                       <label className="is-wide">
                         Who will handle your work that day?
-                        <select value={coverId} onChange={(event) => setCoverId(event.target.value)} required>
-                          <option value="">{coverColleagues.length ? "Select a colleague" : "No colleague available"}</option>
-                          {coverColleagues.map((colleague) => (
-                            <option key={colleague.id} value={colleague.id}>{colleague.name}</option>
-                          ))}
-                        </select>
+                        <Select value={coverId} onChange={setCoverId} required ariaLabel="Colleague covering your work" placeholder={coverColleagues.length ? "Select a colleague" : "No colleague available"} options={coverColleagues.map((colleague) => ({ value: colleague.id, label: colleague.name }))} />
                       </label>
                       <p className="attendance-form-note">
                         Your colleague is asked first. Only after they accept does the request go to{" "}
@@ -800,7 +796,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 </div>
               ) : (
                 <div className="attendance-form">
-                  <label>Date<input type="date" value={otDate} onChange={(event) => setOtDate(event.target.value)} /></label>
+                  <label>Date<DatePicker value={otDate} onChange={setOtDate} ariaLabel="Extra OT date" clearable={false} /></label>
                   <label>Extra minutes<input type="number" min="1" max="1440" value={otMinutes} onChange={(event) => setOtMinutes(event.target.value)} /></label>
                   <label className="is-wide">Reason<textarea rows={3} value={otReason} onChange={(event) => setOtReason(event.target.value)} placeholder="What was worked beyond the normal shift?" /></label>
                   <p className="attendance-form-note">
@@ -1001,17 +997,15 @@ function CoverCell({ permission, colleagues, busy, onAskCover }: {
       ) : <span>No cover</span>}
       {outcome && <small className="attendance-decision-reason">{outcome}</small>}
       {canAsk && (permission.cover_status === "declined" || !permission.cover_employee_id) && (
-        <select
-          aria-label="Ask a colleague to cover"
+        <Select
+          ariaLabel="Ask a colleague to cover"
           value=""
           disabled={busy}
-          onChange={(event) => void onAskCover(permission, event.target.value)}
-        >
-          <option value="">{permission.cover_employee_id ? "Ask someone else…" : "Ask a colleague…"}</option>
-          {colleagues.filter((c) => c.id !== permission.cover_employee_id).map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
+          onChange={(value) => void onAskCover(permission, value)}
+          placeholder={permission.cover_employee_id ? "Ask someone else…" : "Ask a colleague…"}
+          options={colleagues.filter((c) => c.id !== permission.cover_employee_id).map((c) => ({ value: c.id, label: c.name }))}
+          size="sm"
+        />
       )}
     </span>
   );
@@ -1263,9 +1257,9 @@ function DutyPlanSection({
       </div>
 
       <div className="attendance-form">
-        <label>Date<input type="date" value={date} onChange={(event) => onDateChange(event.target.value)} /></label>
-        <label>Shift start<input type="time" value={start} onChange={(event) => onStartChange(event.target.value)} /></label>
-        <label>Shift end<input type="time" value={end} onChange={(event) => onEndChange(event.target.value)} /></label>
+        <label>Date<DatePicker value={date} onChange={onDateChange} ariaLabel="Planned duty date" clearable={false} /></label>
+        <label>Shift start<TimePicker value={start} onChange={onStartChange} ariaLabel="Planned shift start" /></label>
+        <label>Shift end<TimePicker value={end} onChange={onEndChange} ariaLabel="Planned shift end" /></label>
         <label>Break (minutes)<input type="number" min="0" max="480" value={breakMinutes} onChange={(event) => onBreakChange(event.target.value)} /></label>
         <label className="is-wide">Reason<textarea rows={2} value={reason} onChange={(event) => onReasonChange(event.target.value)} placeholder="Why is this day being worked?" /></label>
         <p className="attendance-form-note">

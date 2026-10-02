@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./product.css";
+import "./reference.css";
 
 export const metadata: Metadata = {
   title: "ADIRA-Master CRM",
@@ -23,6 +24,14 @@ export default function RootLayout({
       style={{ colorScheme: "light" }}
       className="h-full antialiased"
     >
+      <head>
+        <link rel="preconnect" href="https://api.fontshare.com" />
+        <link rel="preconnect" href="https://cdn.fontshare.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://api.fontshare.com/v2/css?f[]=satoshi@1,2&display=swap"
+        />
+      </head>
       {/* The shell owns its own layout now — a flex body would fight the fixed
           header and rail it lays out for itself. */}
       <body className="min-h-full">{children}</body>
