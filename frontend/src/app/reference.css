@@ -70,9 +70,9 @@
 .app-shell .workspace { margin-top: 0; padding: 12px 32px 40px; background: var(--bg-main); }
 .db-page { width: 100%; max-width: 1600px; margin: 0 auto; }
 .rail, [data-theme="dark"] .rail { border-right: 0; background: var(--bg-sidebar); box-shadow: none; --rail-pad: 10px; }
-.rail-brand, [data-theme="dark"] .rail-brand { display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 51px; min-height: 51px; padding: 9px 13px 6px; border: 0; background: var(--bg-sidebar); }
-.rail-logo { --brand-mark-size: 24px; --brand-name-size: .65rem; --brand-tag-size: .22rem; --brand-gap: .3rem; width: 140px; max-width: 140px; height: 30px; padding: 0; justify-content: flex-start; }
-.rail-logo .brand-lockup { width: 140px; }
+.rail-brand, [data-theme="dark"] .rail-brand { position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 6px; height: 51px; min-height: 51px; padding: 9px 13px 6px; border: 0; background: var(--bg-sidebar); }
+.rail-logo { --brand-mark-size: 36px; --brand-name-size: .85rem; --brand-tag-size: .22rem; --brand-gap: .4rem; position: absolute; left: 50%; transform: translateX(-50%); width: 162px; max-width: 162px; height: 36px; padding: 0; justify-content: center; }
+.rail-logo .brand-lockup { width: 100%; }
 .rail-logo .brand-tagline { display: none; }
 .rail-toggle, [data-theme="dark"] .rail-toggle { width: 22px; height: 25px; min-width: 22px; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); display: grid; place-items: center; }
 .rail-toggle:hover { background: var(--tint-2); }
