@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 
 import BrandLogo from "@/components/BrandLogo";
+import {
+  loginArtworkFallback,
+  loginArtworkSources,
+} from "@/assets/login/artwork";
 import { login, type AuthUser } from "@/lib/api";
 import {
   getThemeServerSnapshot,
@@ -63,16 +67,16 @@ export default function LoginScreen({ onSuccess }: LoginScreenProps) {
     <main className={styles.page}>
       <section className={styles.story} aria-labelledby="signin-story-title">
         <picture className={styles.artworkFrame}>
-          <source media="(max-width: 680px)" srcSet="/login-ribbons-mobile.webp" width={2172} height={724} />
-          <source media="(min-aspect-ratio: 9/5)" srcSet="/login-ribbons-panel.webp" width={1285} height={1224} />
+          {loginArtworkSources.map((source) => (
+            <source key={source.srcSet} {...source} />
+          ))}
           <Image
-            src="/login-ribbons-v3.webp"
+            src={loginArtworkFallback}
             alt=""
-            width={1122}
-            height={1402}
             className={styles.artwork}
             unoptimized
             loading="eager"
+            fetchPriority="high"
           />
         </picture>
         <p className={styles.kicker}>A world of possibilities<span aria-hidden="true" /></p>

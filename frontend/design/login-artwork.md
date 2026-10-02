@@ -1,12 +1,28 @@
 # Login artwork
 
-Generated using the built-in `image_gen` tool. The current page uses three compositions, all encoded as lossless WebP without resizing and served directly:
+Generated using the built-in `image_gen` tool. The three lossless WebP masters are retained for future artwork changes:
 
 - `public/login-ribbons-panel.webp`: 1285 × 1224, 1,262,744 bytes. Reframed for the wider desktop panel shown in the user's screenshot.
 - `public/login-ribbons-v3.webp`: 1122 × 1402, 1,232,098 bytes. Portrait composition for narrower desktop panels.
 - `public/login-ribbons-mobile.webp`: 2172 × 724, 1,078,198 bytes. Wide composition for phone banners.
 
 The artwork occupies the complete panel bounds with no inset margins, crop, or CSS zoom. A picture source selects the closest composition for the viewport; the full selected image is fitted to the panel's width and height. Earlier assets remain in `public/`.
+
+## Optimized delivery
+
+The login page serves pre-encoded variants in `src/assets/login/`, rather than downloading the lossless masters. Each composition has a 640-pixel variant and a larger variant: 1122 pixels for portrait, 1285 for the wide desktop panel, and 1360 for mobile. Desktop variants retain the full native resolution; the mobile variant covers the banner at high pixel density without downloading its oversized master.
+
+Variants were encoded with Sharp 0.34.5 using WebP quality 92, effort 6. Resizing preserves the entire composition and its aspect ratio, with no enlargement. WebP uses the supported static image import path in Next.js 16.2.12/Turbopack; this version reports placeholder dimensions for AVIF imports.
+
+| Composition | 640-pixel variant | Larger variant | Lossless master |
+| --- | ---: | ---: | ---: |
+| Portrait | 81,080 bytes | 209,290 bytes | 1,232,098 bytes |
+| Wide desktop panel | 68,824 bytes | 222,022 bytes | 1,262,744 bytes |
+| Mobile banner | 25,534 bytes | 82,814 bytes | 1,078,198 bytes |
+
+`artwork.ts` imports the variants statically, so Next.js generates content-hashed URLs and sends `Cache-Control: public, max-age=31536000, immutable` in production. The picture's `sizes` accounts for the panel width, height, and pixel density so tall panels also receive enough resolution. `fetchPriority="high"` prioritizes the selected artwork. There is no image conversion on the first request and no preload of another composition.
+
+Verified against the production standalone server on 2026-10-03 at six viewport/pixel-density combinations. Each page downloaded one artwork variant, kept the image within the complete panel, and had no page overflow. A cached reload transferred zero artwork bytes. With Chromium throttled to 1.6 Mbps and 150 ms latency, isolated desktop image delivery changed from 6552 ms to 1288 ms; mobile changed from 5647 ms to 586 ms. These timings measure the image request, not the entire page load.
 
 ## Wide panel generation prompt
 
