@@ -11,11 +11,20 @@
  */
 
 export type Theme = "light" | "dark";
+export const PALETTES = [
+  { id: "classic", label: "Default" },
+  { id: "blue", label: "Blue & White" },
+  { id: "purple", label: "Purple & White" },
+  { id: "green", label: "Green & White" },
+] as const;
+export type Palette = (typeof PALETTES)[number]["id"];
 
 const STORAGE_KEY = "ats_theme";
+const PALETTE_STORAGE_KEY = "ats_palette";
 
 const listeners = new Set<() => void>();
 let cache: Theme | null = null;
+let paletteCache: Palette | null = null;
 
 /**
  * Light is the product's default, on every visit and every refresh. The
@@ -67,6 +76,39 @@ export function setTheme(theme: Theme): void {
     window.localStorage.setItem(STORAGE_KEY, theme);
   } catch {
     // Private browsing — the choice just will not survive the tab.
+  }
+  for (const listener of listeners) listener();
+}
+
+/** Palette and light/dark are independent, so either control keeps the other choice. */
+export function getPaletteSnapshot(): Palette {
+  if (paletteCache === null) {
+    paletteCache = "classic";
+    if (typeof window !== "undefined") {
+      try {
+        const stored = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+        const paletteId = stored === "teal" ? "green" : stored === "indigo" ? "purple" : stored;
+        paletteCache = PALETTES.find((palette) => palette.id === paletteId)?.id ?? "classic";
+      } catch {
+        // Storage is optional; the default remains usable.
+      }
+      document.documentElement.dataset.palette = paletteCache;
+    }
+  }
+  return paletteCache;
+}
+
+export function getPaletteServerSnapshot(): Palette {
+  return "classic";
+}
+
+export function setPalette(palette: Palette): void {
+  paletteCache = palette;
+  if (typeof document !== "undefined") document.documentElement.dataset.palette = palette;
+  try {
+    window.localStorage.setItem(PALETTE_STORAGE_KEY, palette);
+  } catch {
+    // The selection still works when storage is unavailable.
   }
   for (const listener of listeners) listener();
 }

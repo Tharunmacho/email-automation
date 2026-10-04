@@ -9,7 +9,7 @@
 .addButton { display: flex; align-items: center; justify-content: center; gap: 7px; height: 40px; padding: 0 15px; border: 1px solid var(--primary); border-radius: 7px; background: var(--primary); color: var(--on-primary); font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .addButton:hover { background: var(--primary-hover); }
 .metricGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 28px; row-gap: 30px; }
-.metric { min-width: 0; padding: 0 8px; }
+.metric { min-width: 0; padding: 20px; border: 1px solid var(--border-main); border-radius: 12px; background: var(--bg-card); }
 .metricHeader { min-height: 90px; }
 .metricLabel { color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 .metricReading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 7px; margin-top: 5px; }
@@ -79,7 +79,7 @@
   .overview { gap: 24px; padding-top: 5px; }
   .sectionHead { margin-bottom: 22px; }
   .metricGrid { column-gap: 20px; }
-  .metric { padding: 0; }
+  .metric { padding: 16px; }
   .metricHeader { min-height: 108px; }
   .sectionHead h1, .sectionHead h2 { font-size: 24px; }
   .sectionHead p { font-size: 14px; }
@@ -97,14 +97,14 @@
   .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 35px; row-gap: 36px; }
   .sectionHead { flex-wrap: wrap; margin-bottom: 30px; }
   .overview { gap: 40px; }
-  .metric { padding: 0; }
+  .metric { padding: 18px; }
 }
 @media (max-width: 480px) {
   .overview { padding-top: 5px; }
   .sectionHead { gap: 15px; }
   .sectionHead h1, .sectionHead h2 { font-size: 24px; }
   .sectionHead p { font-size: 13px; max-width: 40ch; }
-  .metricGrid { column-gap: 19px; }
+  .metricGrid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .metricReading { gap: 4px; }
   .metricReading > strong { font-size: 30px; }
   .metricHint { flex-basis: 100%; font-size: 11px; }

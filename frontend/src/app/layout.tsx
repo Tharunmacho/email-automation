@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./product.css";
 import "./reference.css";
+import "./palettes.css";
 
 export const metadata: Metadata = {
   title: "ADIRA-Master CRM",

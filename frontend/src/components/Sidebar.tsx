@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
-import { ChevronsUpDown, Menu, Moon, Search, Sun, X } from "lucide-react";
+import { Check, ChevronsUpDown, Menu, Moon, Search, Sun, X } from "lucide-react";
 import Link from "next/link";
 import BrandLogo from "@/components/BrandLogo";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { navGroupsFor, navPath, type NavId } from "@/lib/nav";
-import { getThemeServerSnapshot, getThemeSnapshot, setTheme, subscribeTheme } from "@/lib/theme";
+import { getPaletteServerSnapshot, getPaletteSnapshot, getThemeServerSnapshot, getThemeSnapshot, PALETTES, setPalette, setTheme, subscribeTheme } from "@/lib/theme";
 import type { AuthUser } from "@/lib/api";
 
 interface SidebarProps {
@@ -27,6 +27,7 @@ const SECTIONS: { label: string; ids: NavId[] }[] = [
 
 export default function Sidebar({ activeId, collapsed, mobileOpen, user, onNavigate, onToggleCollapse, onCloseMobile }: SidebarProps) {
   const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
+  const palette = useSyncExternalStore(subscribeTheme, getPaletteSnapshot, getPaletteServerSnapshot);
   const railRef = useModalFocus<HTMLElement>(mobileOpen, onCloseMobile);
   const sections = useMemo(() => {
     const items = navGroupsFor(user.role, user.pages).flatMap((group) => group.items);
@@ -64,6 +65,12 @@ export default function Sidebar({ activeId, collapsed, mobileOpen, user, onNavig
         </div>
         <div className="rail-foot">
           <div className="rail-workspace-note"><span className="rail-workspace-dot" /><span>Adira Master CRM</span><small>Workspace</small></div>
+          <div className="palette-picker" role="group" aria-label="Colour palette">
+            <div className="palette-picker-label"><span>Palette</span><strong>{PALETTES.find((option) => option.id === palette)?.label}</strong></div>
+            <div className="palette-swatches">
+              {PALETTES.map(({ id, label }) => <button key={id} type="button" className={`palette-swatch is-${id}`} onClick={() => setPalette(id)} aria-label={`${label} palette`} aria-pressed={palette === id} title={label}>{palette === id && <Check size={14} strokeWidth={2.5} />}</button>)}
+            </div>
+          </div>
           <div className="theme-switch" role="group" aria-label="Colour theme">
             {[{ id: "light" as const, label: "Light", icon: Sun }, { id: "dark" as const, label: "Dark", icon: Moon }].map(({ id, label, icon: Icon }) => <button key={id} type="button" className={`theme-switch-btn ${theme === id ? "is-on" : ""}`} onClick={() => setTheme(id)} aria-pressed={theme === id} title={`${label} theme`}><Icon size={12} /><span className="rail-item-label">{label}</span></button>)}
           </div>

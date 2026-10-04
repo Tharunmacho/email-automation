@@ -127,7 +127,9 @@
 .topbar-icon-btn, .notif-toggle { width: 34px; height: 34px; min-width: 34px; border-radius: 8px; border: 1px solid var(--border-main); background: var(--bg-card); color: var(--text-main); }
 .topbar-profile-trigger { gap: 9px; padding: 3px 0 3px 7px; border: 0; border-radius: 6px; background: transparent; }
 .topbar-profile-trigger:hover { border: 0; background: var(--tint-2); }
-.topbar-profile-avatar, [data-theme="dark"] .topbar-profile-avatar { width: 36px; height: 36px; border-radius: 8px; background: #ded8ce; color: #665748; font-size: 12px; }
+.topbar-profile-avatar, [data-theme="dark"] .topbar-profile-avatar { width: 36px; height: 36px; border-radius: 8px; background: var(--tint-2); color: var(--primary-deep); font-size: 12px; }
+.topbar-profile-card > .topbar-profile-avatar { color: var(--primary-deep); }
+[data-theme="dark"] .topbar-profile-avatar { color: var(--primary); }
 .topbar-profile-copy { min-width: 105px; }
 .topbar-profile-copy strong { font-size: 14px; font-weight: 500; }
 .topbar-profile-copy small { margin-top: 3px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; text-transform: none; color: var(--text-muted); }
