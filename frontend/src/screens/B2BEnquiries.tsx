@@ -28,6 +28,7 @@ import {
 
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
 import Select from "@/components/ui/Select";
+import DatePicker from "@/components/ui/DatePicker";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf, timeAgo } from "@/lib/format";
@@ -1139,12 +1140,11 @@ function EnquiryDialog({
                   <label className="modal-label" htmlFor="be-due">
                     Due date
                   </label>
-                  <input
+                  <DatePicker
                     id="be-due"
-                    type="date"
-                    className="modal-input"
                     value={form?.dueDate ?? ""}
-                    onChange={(e) => onFormChange({ dueDate: e.target.value })}
+                    onChange={(value) => onFormChange({ dueDate: value })}
+                    ariaLabel="Enquiry due date"
                   />
                 </div>
               </div>

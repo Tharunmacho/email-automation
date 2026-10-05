@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import DatePicker from "@/components/ui/DatePicker";
 import { Check, Download, FileText, History, Paperclip, PencilLine, Plus, Receipt, RefreshCw, RotateCcw, Send, Trash2, X } from "lucide-react";
 
 import {
@@ -132,7 +133,7 @@ export function ReimbursementsPanel({ currentUserId, onToast, onChanged }: {
         <div className="payroll-settings-title"><Send size={15} /> New claim</div>
         <div className="payroll-extras-form">
           <label>Amount (₹)<input type="number" min="1" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={submitting} /></label>
-          <label>Expense date<input type="date" value={expenseDate} onChange={(event) => setExpenseDate(event.target.value)} disabled={submitting} /></label>
+          <label>Expense date<DatePicker value={expenseDate} onChange={setExpenseDate} disabled={submitting} ariaLabel="Expense date" clearable={false} /></label>
           <label className="is-wide">What was it for?<input value={description} maxLength={1000} onChange={(event) => setDescription(event.target.value)} placeholder="e.g. Courier charges for passports" disabled={submitting} /></label>
           <label className="is-wide">Bill photo or document (optional)
             <input key={fileKey} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => setFile(event.target.files?.[0] ?? null)} disabled={submitting} />
@@ -350,7 +351,7 @@ export function PayslipDialog({ row, year, month, onClose, onSaved, onToast }: {
           <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Close"><X size={16} /></button>
         </div>
         <div className="modal-body payroll-settings">
-          <label>Date of payment<input type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} disabled={busy} /></label>
+          <label>Date of payment<DatePicker value={paymentDate} onChange={setPaymentDate} disabled={busy} ariaLabel="Date of payment" clearable={false} /></label>
 
           <div className="payroll-settings-title">Incentives this month</div>
           {row.incentives.length === 0
@@ -476,7 +477,7 @@ export function IncentiveDialog({ row, year, month, onClose, onChanged, onToast 
         <div className="modal-body payroll-settings">
           <div className="payroll-extras-form">
             <label>Amount (₹)<input type="number" min="1" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} disabled={busy} autoFocus /></label>
-            <label>Date<input type="date" value={incentiveDate} onChange={(event) => setIncentiveDate(event.target.value)} disabled={busy} /></label>
+            <label>Date<DatePicker value={incentiveDate} onChange={setIncentiveDate} disabled={busy} ariaLabel="Incentive date" clearable={false} /></label>
             <label className="is-wide">Remarks<input value={remarks} maxLength={500} onChange={(event) => setRemarks(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void add(); }} placeholder="e.g. Interview incentive" disabled={busy} /></label>
             <button type="button" className="payroll-save-btn" disabled={!valid || busy} onClick={() => void add()}>
               {busy ? <RefreshCw size={15} className="icon-spin" /> : <Plus size={15} />} Add incentive

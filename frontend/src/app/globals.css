@@ -1,30 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  /* Typography. One family, product-wide — `next/font` sets this variable from
-     the loaded Nunito face and the fallback here is only what paints before it
-     arrives. There is deliberately no second family and no monospace: the
-     places that used to reach for one (the log console, timestamps, the
-     confidence figures) now hold their columns with `tabular-nums` and a wider
-     letter-spacing instead. */
-  /* The loaded face arrives on --font-display (see app/layout.tsx). This is
-     the alias every other rule in the sheet is written against, so the family
-     is swapped in exactly one place. The stack after it is only what paints
-     before the webfont lands. */
-  --font-outfit: Inter, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  /* Kept as a name because rules across the sheet still ask for it, and code
-     and clocks want even digits wherever they appear. */
-  --font-numeric: var(--font-outfit);
-
-  /* Tailwind reads these two for its own preflight (`html`, and
-     `code, kbd, samp, pre`) and for the `font-sans`/`font-mono` utilities. They
-     are unset by default, so those rules fall back to a system sans and a
-     system monospace — a second and a third family, arriving through the
-     framework rather than through this sheet. Pointing both at Nunito closes
-     that door: there is no way to ask this stylesheet for another face. */
-  --font-sans: var(--font-outfit);
-  --font-mono: var(--font-outfit);
-
+  /* One font family across the dashboard, including controls and data. */
+  --font-satoshi: "Satoshi", Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: var(--font-satoshi);
+  --font-sans: var(--font-satoshi);
+  --font-mono: var(--font-satoshi);
   /* ------------------------------------------------------------------------
      COLOUR SYSTEM — "DataBlue"
      A neutral grey product with one blue in it. The page is off-white, every
@@ -502,7 +483,7 @@
 }
 
 .rail-brandname {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.0625rem;
   font-weight: 700;
   line-height: 1.15;
@@ -796,7 +777,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.72rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -1036,7 +1017,7 @@
 }
 
 .topbar-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.0625rem;
   font-weight: 700;
   /* Just enough leading to keep descenders clear of `overflow: hidden`, and
@@ -1315,7 +1296,7 @@
   border: 1px solid var(--border-blue);
   background: var(--brand-gradient);
   color: #ffffff;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.82rem;
   font-weight: 700;
   display: inline-flex;
@@ -1392,7 +1373,7 @@
   border-radius: 6px;
   border: 1px solid var(--border-blue-strong);
   background: var(--bg-card);
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.68rem;
   font-weight: 600;
   line-height: 1.5;
@@ -1585,7 +1566,7 @@
 
 .db-title {
   margin: 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: -0.028em;
@@ -1618,7 +1599,7 @@
 
 .db-card-title {
   margin: 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.012em;
@@ -1930,7 +1911,7 @@
 }
 
 .db-chip.is-mono {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   font-size: 0.74rem;
@@ -2093,7 +2074,7 @@
 
 .ov-kpi-value {
   margin: 0.5rem 0 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 2.4rem;
   font-weight: 800;
   letter-spacing: -0.04em;
@@ -2112,7 +2093,7 @@
   padding: 0.15rem 0.45rem;
   border-radius: 999px;
   vertical-align: middle;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0;
@@ -2290,7 +2271,7 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
 }
@@ -2351,7 +2332,7 @@ body {
 
 
 .page-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -2444,7 +2425,7 @@ body {
 }
 
 .section-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.15rem;
   fontWeight: 600;
   color: var(--text-main);
@@ -2582,7 +2563,7 @@ body {
   justify-content: center;
   font-weight: 700;
   font-size: 0.9rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   background: var(--brand-gradient);
   color: #ffffff;
   flex-shrink: 0;
@@ -2621,7 +2602,7 @@ body {
 .candidate-name {
   font-size: 1.02rem;
   font-weight: 650;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   letter-spacing: -0.01em;
   color: var(--text-main);
   margin-bottom: 0.2rem;
@@ -2655,7 +2636,7 @@ body {
 }
 
 .cc-meta-value {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -2774,7 +2755,7 @@ body {
 }
 
 .flow-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.45rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -2844,7 +2825,7 @@ body {
 }
 
 .flow-node-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-light);
@@ -3384,7 +3365,7 @@ body {
 }
 
 .modal-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.35rem;
   font-weight: 700;
   color: var(--dash-ink);
@@ -3853,7 +3834,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.92rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -3869,7 +3850,7 @@ body {
 }
 
 .sh-name {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -4301,7 +4282,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   font-size: 0.72rem;
@@ -4360,7 +4341,7 @@ body {
 }
 
 .sh-empty-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.02rem;
   font-weight: 700;
   color: var(--dash-ink);
@@ -4504,7 +4485,7 @@ body {
 }
 
 .sh-modal-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.28rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -4888,7 +4869,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.98rem;
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -5106,7 +5087,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.8rem;
   font-weight: 700;
 }
@@ -5211,7 +5192,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
@@ -5487,7 +5468,7 @@ body {
 }
 
 .metric-tile-value {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.62rem;
   font-weight: 700;
   line-height: 1.1;
@@ -5557,7 +5538,7 @@ body {
 }
 
 .stat-tile-value {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.42rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -5628,7 +5609,7 @@ body {
 
 .mc-gauge-value {
   position: absolute;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -5653,7 +5634,7 @@ body {
 
 /* Parsed names are occasionally a whole sentence — one line, always. */
 .mc-name {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -6193,7 +6174,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.92rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -6222,7 +6203,7 @@ body {
 }
 
 .jo-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.2rem;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -6350,7 +6331,7 @@ body {
 }
 
 .jo-meta-value {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.02rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -6540,7 +6521,7 @@ body {
 
 .jo-ring-value {
   position: absolute;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.76rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -6876,7 +6857,7 @@ body {
 }
 
 .login-brandname {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.98rem;
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -6890,7 +6871,7 @@ body {
 }
 
 .login-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -7148,7 +7129,7 @@ body {
 }
 
 .login-creds-row code {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   font-size: 0.78rem;
@@ -7462,7 +7443,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.75rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -7476,7 +7457,7 @@ body {
 
 .ctable-name {
   letter-spacing: -0.005em;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.89rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -7882,7 +7863,7 @@ body {
 }
 
 .jod-ref {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   font-size: 0.72rem;
@@ -7919,7 +7900,7 @@ body {
 }
 
 .jod-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -8009,7 +7990,7 @@ body {
 }
 
 .jod-progress-value {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--dash-ink);
@@ -8124,7 +8105,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -8925,7 +8906,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -8945,7 +8926,7 @@ body {
 
 .cprof-name {
   margin: 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--dash-ink);
@@ -9865,7 +9846,7 @@ body {
 }
 
 .clog-time {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.75rem;
   color: var(--dash-muted);
   font-variant-numeric: tabular-nums;
@@ -10094,7 +10075,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.8rem;
   font-weight: 700;
   flex-shrink: 0;
@@ -10107,7 +10088,7 @@ body {
 
 .ccard-name {
   display: block;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -10522,7 +10503,7 @@ body {
 .jod-section-title,
 .sh-demand-title,
 .sh-modal-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.012em;
@@ -10970,7 +10951,7 @@ body {
 }
 
 .tl-time {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
@@ -11620,7 +11601,7 @@ body {
 
 .eval-head-id h3 {
   margin: 0;
-  font-family: var(--font-outfit);
+  font-family: var(--font-satoshi);
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-main);
@@ -12202,7 +12183,7 @@ body {
 
 .login-demo-text code {
   margin-top: 0.15rem;
-  font-family: var(--font-outfit);
+  font-family: var(--font-satoshi);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   font-size: 0.63rem;
@@ -14150,7 +14131,7 @@ body {
   fill: var(--text-light);
   font-size: 11px;
   font-weight: 600;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
 }
 
 .bar-day-label.is-peak {
@@ -14163,7 +14144,7 @@ body {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
 }
 
 /* ---- Verification dial ---- */
@@ -14194,7 +14175,7 @@ body {
   font-size: 34px;
   font-weight: 800;
   letter-spacing: -0.04em;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
@@ -14202,7 +14183,7 @@ body {
   fill: var(--text-muted);
   font-size: 11.5px;
   font-weight: 500;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
 }
 
 .ov-gauge-cta {
@@ -15954,7 +15935,7 @@ body {
   align-items: center;
   width: fit-content;
   color: var(--primary) !important;
-  font-family: var(--font-outfit), Arial, sans-serif;
+  font-family: var(--font-satoshi), Arial, sans-serif;
   font-size: 0.68rem !important;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -17231,7 +17212,7 @@ body {
   border-radius: 11px;
   background: var(--tone-soft);
   color: var(--tone-ink, var(--tone));
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.01em;
@@ -17246,7 +17227,7 @@ body {
 }
 
 .be-name {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 0.95rem;
   font-weight: 700;
   line-height: 1.25;
@@ -17484,7 +17465,7 @@ body {
 }
 
 .be-dialog-title {
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.2;
@@ -17637,7 +17618,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-main);
@@ -18232,7 +18213,7 @@ a.um-phone:hover {
 
 .sh-directory-head h2 {
   margin: 0;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.012em;
@@ -19310,7 +19291,7 @@ a.um-phone:hover {
 .auth-story-content h1 {
   max-width: 520px;
   margin-top: 0.95rem;
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: clamp(2.15rem, 3.2vw, 2.85rem);
   font-weight: 720;
   line-height: 1.02;
@@ -19431,7 +19412,7 @@ a.um-phone:hover {
 
 .auth-head h2 {
   color: var(--text-main);
-  font-family: var(--font-outfit), sans-serif;
+  font-family: var(--font-satoshi), sans-serif;
   font-size: clamp(1.8rem, 2.5vw, 2.1rem);
   font-weight: 720;
   line-height: 1.1;

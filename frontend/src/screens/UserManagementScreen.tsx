@@ -38,6 +38,8 @@ import {
 import BranchSwitch, { BranchSelect, sameBranch, useBranches } from "@/components/ui/BranchSwitch";
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
+import DatePicker from "@/components/ui/DatePicker";
+import TimePicker from "@/components/ui/TimePicker";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf, timeAgo } from "@/lib/format";
 import {
@@ -794,11 +796,11 @@ function CreateUserForm({
             <div className="um-form-grid">
               <div className="field-group">
                 <label className="modal-label" htmlFor="u-wt-start">Start</label>
-                <input id="u-wt-start" className="modal-input" type="time" value={timing.start} onChange={(e) => setTiming({ ...timing, start: e.target.value })} />
+                <TimePicker id="u-wt-start" value={timing.start} onChange={(value) => setTiming({ ...timing, start: value })} ariaLabel="Work start" />
               </div>
               <div className="field-group">
                 <label className="modal-label" htmlFor="u-wt-end">End</label>
-                <input id="u-wt-end" className="modal-input" type="time" value={timing.end} onChange={(e) => setTiming({ ...timing, end: e.target.value })} />
+                <TimePicker id="u-wt-end" value={timing.end} onChange={(value) => setTiming({ ...timing, end: value })} ariaLabel="Work end" />
               </div>
               <div className="field-group">
                 <label className="modal-label" htmlFor="u-wt-break">Break (minutes)</label>
@@ -1338,11 +1340,11 @@ function WorkTimingSection({ user }: { user: ManagedUser }) {
       <div className="um-form-grid">
         <div className="field-group">
           <label className="modal-label" htmlFor="wt-start">Start</label>
-          <input id="wt-start" className="modal-input" type="time" value={start} onChange={(e) => setStart(e.target.value)} disabled={busy} />
+          <TimePicker id="wt-start" value={start} onChange={setStart} disabled={busy} ariaLabel="Work start" />
         </div>
         <div className="field-group">
           <label className="modal-label" htmlFor="wt-end">End</label>
-          <input id="wt-end" className="modal-input" type="time" value={end} onChange={(e) => setEnd(e.target.value)} disabled={busy} />
+          <TimePicker id="wt-end" value={end} onChange={setEnd} disabled={busy} ariaLabel="Work end" />
         </div>
         <div className="field-group">
           <label className="modal-label" htmlFor="wt-break">Break (minutes)</label>
@@ -1350,7 +1352,7 @@ function WorkTimingSection({ user }: { user: ManagedUser }) {
         </div>
         <div className="field-group">
           <label className="modal-label" htmlFor="wt-from">Effective from</label>
-          <input id="wt-from" className="modal-input" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} disabled={busy} />
+          <DatePicker id="wt-from" value={effectiveFrom} onChange={setEffectiveFrom} disabled={busy} clearable={false} ariaLabel="Work timing effective date" />
         </div>
       </div>
       <div className="field-group">

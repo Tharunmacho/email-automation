@@ -21,6 +21,7 @@ interface SelectProps {
   /** Shown when nothing is chosen. */
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
   id?: string;
   /** Needed whenever there is no visible <label> pointing at `id`. */
   ariaLabel?: string;
@@ -51,6 +52,7 @@ export default function Select({
   onChange,
   placeholder = "Select…",
   disabled = false,
+  required = false,
   id,
   ariaLabel,
   size = "md",
@@ -78,7 +80,7 @@ export default function Select({
    * a wasted render and a visible flash of the wrong highlighted row.
    */
   const openList = () => {
-    setActive(selectedIndex >= 0 ? selectedIndex : firstEnabled(options));
+    setActive(selectedIndex >= 0 && !options[selectedIndex].disabled ? selectedIndex : firstEnabled(options));
     setOpen(true);
   };
 
@@ -177,6 +179,8 @@ export default function Select({
         aria-controls={listboxId}
         aria-haspopup="listbox"
         aria-label={ariaLabel}
+        aria-required={required || undefined}
+        aria-activedescendant={open && active >= 0 && options[active] ? `${listboxId}-option-${active}` : undefined}
         className={`ui-select-trigger ${open ? "is-open" : ""} ${selected ? "" : "is-empty"}`}
         disabled={disabled}
         onClick={() => (open ? close(false) : openList())}
@@ -211,7 +215,9 @@ export default function Select({
                 return (
                   <button
                     key={option.value}
+                    id={`${listboxId}-option-${index}`}
                     type="button"
+                    tabIndex={-1}
                     role="option"
                     aria-selected={isSelected}
                     data-index={index}
@@ -222,6 +228,7 @@ export default function Select({
                     // Hover moves the cursor too, so the pointer and the keyboard
                     // never disagree about which row is current.
                     onMouseMove={() => !option.disabled && setActive(index)}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => commit(index)}
                   >
                     <span className="ui-select-option-text">
@@ -243,6 +250,5 @@ export default function Select({
 }
 
 function firstEnabled(options: SelectOption[]): number {
-  const index = options.findIndex((option) => !option.disabled);
-  return index >= 0 ? index : 0;
+  return options.findIndex((option) => !option.disabled);
 }

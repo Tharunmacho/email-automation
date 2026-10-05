@@ -31,6 +31,8 @@ import {
 } from "lucide-react";
 
 import { useModalFocus } from "@/components/ui/useModalFocus";
+import Select from "@/components/ui/Select";
+import DateTimePicker from "@/components/ui/DateTimePicker";
 // The Sourcing Hub owns what a relationship's `type` means, and exports the
 // reading of it. Duplicating that rule here is how the two would drift.
 import { normaliseType, type SourcingType } from "@/screens/SourcingHub";
@@ -497,31 +499,20 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Send to
-            <select value={targetType} onChange={(e) => chooseTargetType(e.target.value as "company" | "associate")}>
-              <option value="company">Company</option>
-              <option value="associate">Associate</option>
-            </select>
+            <Select value={targetType} onChange={(value) => chooseTargetType(value as "company" | "associate")} ariaLabel="Submission target type" options={[{ value: "company", label: "Company" }, { value: "associate", label: "Associate" }]} />
           </label>
           <label>
             {targetType === "company" ? "Company" : "Associate"}
-            <select
+            <Select
               value={targetIsCustom ? "__custom__" : targetName}
-              onChange={(e) => {
-                const picked = e.target.value;
+              onChange={(picked) => {
                 setTargetIsCustom(picked === "__custom__");
                 setTargetName(picked === "__custom__" ? "" : picked);
               }}
-            >
-              <option value="">
-                {partnerOptions.length
-                  ? `Select ${article} ${targetType}`
-                  : `No ${targetType} on file — choose "Not listed"`}
-              </option>
-              {partnerOptions.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-              <option value="__custom__">Not listed — type a name</option>
-            </select>
+              ariaLabel={targetType === "company" ? "Company" : "Associate"}
+              placeholder={partnerOptions.length ? `Select ${article} ${targetType}` : `No ${targetType} on file — choose "Not listed"`}
+              options={[...partnerOptions.map((name) => ({ value: name, label: name })), { value: "__custom__", label: "Not listed — type a name" }]}
+            />
           </label>
           {targetIsCustom && (
             <label>
@@ -553,16 +544,11 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Status
-            <select value={interviewStatus} onChange={(e) => setInterviewStatus(e.target.value as InterviewStatus)}>
-              <option value="scheduled">Scheduled</option>
-              <option value="completed">Completed</option>
-              <option value="pending">Still pending</option>
-              <option value="unavailable">Candidate unavailable</option>
-            </select>
+            <Select value={interviewStatus} onChange={(value) => setInterviewStatus(value as InterviewStatus)} ariaLabel="Interview status" options={[{ value: "scheduled", label: "Scheduled" }, { value: "completed", label: "Completed" }, { value: "pending", label: "Still pending" }, { value: "unavailable", label: "Candidate unavailable" }]} />
           </label>
           <label>
             Date and time
-            <input type="datetime-local" value={interviewAt} onChange={(e) => setInterviewAt(e.target.value)} />
+            <DateTimePicker value={interviewAt} onChange={setInterviewAt} ariaLabel="Interview" />
           </label>
           <label className="is-wide">
             Notes
@@ -578,12 +564,7 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Client decision
-            <select value={outcome} onChange={(e) => setOutcome(e.target.value as InterviewOutcome)}>
-              <option value="selected">Selected</option>
-              <option value="on_hold">On hold</option>
-              <option value="rejected">Rejected</option>
-              <option value="offer_declined">Offer declined</option>
-            </select>
+            <Select value={outcome} onChange={(value) => setOutcome(value as InterviewOutcome)} ariaLabel="Client decision" options={[{ value: "selected", label: "Selected" }, { value: "on_hold", label: "On hold" }, { value: "rejected", label: "Rejected" }, { value: "offer_declined", label: "Offer declined" }]} />
           </label>
           <label className="is-wide">
             Notes
@@ -605,11 +586,7 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Offer
-            <select value={offerStatus} onChange={(e) => setOfferStatus(e.target.value as OfferStatus)}>
-              {!locked && <option value="issued">Issued</option>}
-              <option value="accepted">Accepted / signed</option>
-              <option value="declined">Declined by candidate</option>
-            </select>
+            <Select value={offerStatus} onChange={(value) => setOfferStatus(value as OfferStatus)} ariaLabel="Offer status" options={[...(!locked ? [{ value: "issued", label: "Issued" }] : []), { value: "accepted", label: "Accepted / signed" }, { value: "declined", label: "Declined by candidate" }]} />
           </label>
           <label className="is-wide">
             Notes
@@ -632,39 +609,20 @@ export default function RecruitmentPanel({
         <div className="recruit-form">
           <label>
             Destination country
-            <select value={country} onChange={(e) => setCountry(e.target.value)}>
-              <option value="">Select a country</option>
-              {countries.map((row) => (
-                <option key={row.id} value={row.name}>{row.name}</option>
-              ))}
-            </select>
+            <Select value={country} onChange={setCountry} ariaLabel="Destination country" options={[{ value: "", label: "Select a country" }, ...countries.map((row) => ({ value: row.name, label: row.name }))]} />
           </label>
           <label>
             Office
-            <select value={officeId} onChange={(e) => setOfficeId(e.target.value)}>
-              <option value="">Leave unchanged</option>
-              {offices.map((office) => (
-                <option key={office.id} value={office.id}>{office.name}</option>
-              ))}
-            </select>
+            <Select value={officeId} onChange={setOfficeId} ariaLabel="Office" options={[{ value: "", label: "Leave unchanged" }, ...offices.map((office) => ({ value: office.id, label: office.name }))]} />
           </label>
           <label>
             New owner
-            <select value={ownerMode} onChange={(e) => setOwnerMode(e.target.value as typeof ownerMode)}>
-              <option value="auto">Route to the desk for that country</option>
-              <option value="keep">Keep {candidate.assigned_staff_name || "the current owner"}</option>
-              <option value="named">Choose someone</option>
-            </select>
+            <Select value={ownerMode} onChange={(value) => setOwnerMode(value as typeof ownerMode)} ariaLabel="New owner" options={[{ value: "auto", label: "Route to the desk for that country" }, { value: "keep", label: `Keep ${candidate.assigned_staff_name || "the current owner"}` }, { value: "named", label: "Choose someone" }]} />
           </label>
           {ownerMode === "named" && (
             <label>
               Staff member
-              <select value={staffId} onChange={(e) => setStaffId(e.target.value)}>
-                <option value="">Select a staff member</option>
-                {staff.map((person) => (
-                  <option key={person.id} value={person.id}>{person.name}</option>
-                ))}
-              </select>
+              <Select value={staffId} onChange={setStaffId} ariaLabel="Staff member" options={[{ value: "", label: "Select a staff member" }, ...staff.map((person) => ({ value: person.id, label: person.name }))]} />
             </label>
           )}
           <label className="is-wide">
