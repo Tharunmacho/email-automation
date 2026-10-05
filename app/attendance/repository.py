@@ -372,26 +372,39 @@ class AttendanceRepository:
             latest.setdefault(row["attendance_date"], _public(row))
         return list(latest.values())
 
-    # ---- weekly off: one choice per week, Sunday unless Friday was chosen --- #
+    # ---- weekly off: one day per week, Sunday unless another was chosen ---- #
     def weekly_off_choice(self, employee_id: str, week_start: date) -> str | None:
         row = self.weekly_off.find_one({"employee_id": employee_id, "week_start": week_start.isoformat()})
         return row.get("day") if row else None
 
     def weekly_off_choices(self, employee_id: str, weeks: Sequence[date]) -> dict[str, str]:
+        return {week: row["day"] for week, row in self.weekly_off_rows(employee_id, weeks).items()}
+
+    def weekly_off_rows(self, employee_id: str, weeks: Sequence[date]) -> dict[str, dict]:
+        """The stored choice per week, with where it came from."""
         rows = self.weekly_off.find({
             "employee_id": employee_id,
             "week_start": {"$in": [week.isoformat() for week in weeks]},
         })
-        return {row["week_start"]: row["day"] for row in rows}
+        return {row["week_start"]: _public(row) for row in rows}
 
-    def set_weekly_off_choice(self, employee_id: str, week_start: date, day: str) -> dict:
+    def set_weekly_off_choice(
+        self, employee_id: str, week_start: date, day: str, *, permission_id: str | None = None,
+    ) -> dict:
+        """Record a week's off day.
+
+        `permission_id` marks a rotational weekly off the manager approved. The
+        self-service picker refuses to change such a week, so an approval cannot
+        be undone by a click on Sunday.
+        """
+        source = "request" if permission_id else "self"
         self.weekly_off.update_one(
             {"employee_id": employee_id, "week_start": week_start.isoformat()},
-            {"$set": {"day": day, "updated_at": _utcnow()},
+            {"$set": {"day": day, "source": source, "permission_id": permission_id, "updated_at": _utcnow()},
              "$setOnInsert": {"_id": uuid.uuid4().hex, "created_at": _utcnow()}},
             upsert=True,
         )
-        return {"employee_id": employee_id, "week_start": week_start.isoformat(), "day": day}
+        return {"employee_id": employee_id, "week_start": week_start.isoformat(), "day": day, "source": source}
 
     def employee_policy(self, employee_id: str) -> dict:
         return _public(self.policies.find_one({"employee_id": employee_id})) or {

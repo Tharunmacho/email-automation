@@ -5,7 +5,7 @@ import pytest
 from app.attendance.engine import IST, AttendancePolicy, calculate_day, calculate_month, lop_amount
 from app.attendance.models import AttendanceStatus, DutyPlanRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift
 from app.attendance.repository import AttendanceRepository
-from app.attendance.service import AttendanceService
+from app.attendance.service import AttendanceError, AttendanceService
 
 import mongomock
 
@@ -508,3 +508,68 @@ def test_a_planned_duty_overrides_a_declared_holiday_but_never_approved_leave():
     assert service.day("staff-1", date(2026, 9, 6))["status"] != "H"
     # Granted leave outranks a roster.
     assert service.day("staff-1", date(2026, 9, 13))["status"] == "PL"
+
+
+def _approve_weekly_off(attendance: AttendanceService, employee_id: str, day: date) -> dict:
+    permission = attendance.request_permission(
+        employee_id, PermissionRequest(attendance_date=day, kind="weekly_off", reason="Rotational weekly off"),
+    )
+    return attendance.decide_permission(
+        permission["id"], PermissionDecision(approved=True, reason="ok"), "manager-1",
+    )
+
+
+def test_an_approved_rotational_weekly_off_makes_that_weeks_sunday_a_working_day():
+    repository = AttendanceRepository(mongomock.MongoClient()["rotational-weekly-off"])
+    attendance = AttendanceService(repository)
+
+    # Week of Monday 28 Sep 2026: Saturday 3 Oct taken instead of Sunday 4 Oct.
+    decided = _approve_weekly_off(attendance, "staff-1", date(2026, 10, 3))
+
+    assert decided["status"] == "approved"
+    assert decided["weekly_off_day"] == "saturday"
+    assert attendance.day("staff-1", date(2026, 10, 3))["status"] == "WO"
+    assert attendance.day("staff-1", date(2026, 10, 4))["status"] != "WO"   # Sunday is working
+    assert attendance.day("staff-1", date(2026, 10, 11))["status"] == "WO"  # next week: default Sunday
+
+
+def test_a_pending_rotational_weekly_off_changes_nothing_until_approved():
+    repository = AttendanceRepository(mongomock.MongoClient()["rotational-pending"])
+    attendance = AttendanceService(repository)
+    attendance.request_permission(
+        "staff-1", PermissionRequest(attendance_date=date(2026, 10, 6), kind="weekly_off", reason="Personal"),
+    )
+
+    assert attendance.day("staff-1", date(2026, 10, 6))["status"] != "WO"
+    assert attendance.day("staff-1", date(2026, 10, 11))["status"] == "WO"
+
+
+def test_a_rejected_rotational_weekly_off_keeps_sunday():
+    repository = AttendanceRepository(mongomock.MongoClient()["rotational-rejected"])
+    attendance = AttendanceService(repository)
+    permission = attendance.request_permission(
+        "staff-1", PermissionRequest(attendance_date=date(2026, 10, 7), kind="weekly_off", reason="Personal"),
+    )
+    attendance.decide_permission(permission["id"], PermissionDecision(approved=False, reason="busy"), "manager-1")
+
+    assert attendance.day("staff-1", date(2026, 10, 7))["status"] != "WO"
+    assert attendance.day("staff-1", date(2026, 10, 11))["status"] == "WO"
+
+
+def test_only_one_rotational_weekly_off_per_week_and_never_on_sunday():
+    repository = AttendanceRepository(mongomock.MongoClient()["rotational-limits"])
+    attendance = AttendanceService(repository)
+    _approve_weekly_off(attendance, "staff-1", date(2026, 10, 7))
+
+    with pytest.raises(AttendanceError, match="already been requested"):
+        attendance.request_permission(
+            "staff-1", PermissionRequest(attendance_date=date(2026, 10, 9), kind="weekly_off", reason="again"),
+        )
+    with pytest.raises(AttendanceError, match="Sunday"):
+        attendance.request_permission(
+            "staff-1", PermissionRequest(attendance_date=date(2026, 10, 18), kind="weekly_off", reason="sunday"),
+        )
+    # A different week is unaffected.
+    _approve_weekly_off(attendance, "staff-1", date(2026, 10, 13))
+    assert attendance.day("staff-1", date(2026, 10, 13))["status"] == "WO"
+    assert attendance.day("staff-1", date(2026, 10, 18))["status"] != "WO"

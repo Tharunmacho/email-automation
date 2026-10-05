@@ -56,7 +56,9 @@ class PunchRequest(BaseModel):
 class PermissionRequest(BaseModel):
     employee_id: str | None = None
     attendance_date: date
-    kind: Literal["late", "early_exit", "early_check_in", "official_duty", "work_from_home", "paid_leave", "unpaid_leave"]
+    #: `weekly_off` is a rotational weekly off: any day of the week taken in
+    #: place of Sunday once the manager approves. It needs no cover.
+    kind: Literal["late", "early_exit", "early_check_in", "official_duty", "work_from_home", "paid_leave", "unpaid_leave", "weekly_off"]
     requested_minutes: int = Field(default=0, ge=0, le=1440)
     reason: str = Field(min_length=1, max_length=1000)
     #: A colleague asked to take over the requester's work for a leave day.

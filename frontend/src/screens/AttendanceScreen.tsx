@@ -89,6 +89,7 @@ const PERMISSION_KIND: Record<AttendancePermission["kind"], string> = {
   work_from_home: "Work from home",
   paid_leave: "Paid leave",
   unpaid_leave: "Unpaid leave",
+  weekly_off: "Weekly off (rotational)",
 };
 
 /**
@@ -765,13 +766,20 @@ export default function AttendanceScreen({ user, onToast }: Props) {
               {requestType === "permission" ? (
                 <div className="attendance-form">
                   <label>Date<input type="date" value={permissionDate} onChange={(event) => setPermissionDate(event.target.value)} /></label>
-                  <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_check_in">Early check-in</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option></select></label>
+                  <label>Type<select value={kind} onChange={(event) => setKind(event.target.value as AttendancePermission["kind"])}><option value="late">Late arrival</option><option value="early_check_in">Early check-in</option><option value="early_exit">Early leaving</option><option value="official_duty">Official duty</option><option value="work_from_home">Work from home</option><option value="paid_leave">Paid leave / holiday</option><option value="unpaid_leave">Unpaid leave</option><option value="weekly_off">Weekly off (rotational)</option></select></label>
                   {TIMED_KINDS.includes(kind) && <label>{kind === "early_check_in" ? "Minutes early" : "Minutes"}<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
                   {BEFORE_SHIFT_KINDS.includes(kind) && (
                     <p className="attendance-form-note">
                       {kind === "early_check_in"
                         ? "Send this before your shift starts. Without an approved early check-in the system will not accept an early punch."
                         : "This must be requested before your shift starts."}
+                    </p>
+                  )}
+                  {kind === "weekly_off" && (
+                    <p className="attendance-form-note">
+                      Take this day as your weekly off instead of Sunday. Once{" "}
+                      {user.role === "manager" ? "the super admin" : "your manager"} approves, that week&rsquo;s Sunday
+                      becomes a working day. No leave is used and no colleague needs to cover.
                     </p>
                   )}
                   {LEAVE_KINDS.includes(kind) && (
@@ -854,7 +862,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
             <div className="ds-panel-head">
               <div>
                 <h2 className="ds-panel-title">Choose your weekly off</h2>
-                <p className="ds-panel-sub">Sunday by default. To take Friday off instead, choose it by Thursday 11:59 PM; that week&rsquo;s Sunday then becomes a working day.</p>
+                <p className="ds-panel-sub">Sunday by default. To take Friday off instead, choose it by Thursday 11:59 PM; that week&rsquo;s Sunday then becomes a working day. For any other day, send a &ldquo;Weekly off (rotational)&rdquo; request for approval.</p>
               </div>
             </div>
             {weeklyOffWeeks.length === 0 ? (
@@ -864,6 +872,11 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 {weeklyOffWeeks.map((week) => (
                   <div key={week.week_start} className={`weekly-off-week ${week.locked ? "is-locked" : ""}`}>
                     <span className="weekly-off-week-label">Week of {shortDate(week.week_start)}</span>
+                    {week.approved ? (
+                      <span className="weekly-off-approved">
+                        {week.day.charAt(0).toUpperCase() + week.day.slice(1, 3)} {shortDate(week.off_date ?? week.sunday)} · approved
+                      </span>
+                    ) : (
                     <div className="scope-switch" role="group" aria-label={`Weekly off for the week of ${shortDate(week.week_start)}`}>
                       {(["sunday", "friday"] as const).map((choice) => (
                         <button
@@ -878,7 +891,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                         </button>
                       ))}
                     </div>
-                    <small>{week.locked ? "Locked" : `Change by ${deadlineLabel(week.deadline)}`}</small>
+                    )}
+                    <small>{week.approved ? "Approved weekly off; Sunday is a working day" : week.locked ? "Locked" : `Change by ${deadlineLabel(week.deadline)}`}</small>
                   </div>
                 ))}
               </div>

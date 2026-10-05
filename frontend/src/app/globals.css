@@ -20784,6 +20784,7 @@ a.um-phone:hover {
 .weekly-off-week .scope-switch { align-self: flex-start; background: var(--bg-card); }
 .weekly-off-week-label { color: var(--text-main); font-size: .76rem; font-weight: 700; }
 .weekly-off-week small { color: var(--text-muted); font-size: .68rem; }
+.weekly-off-approved { align-self: flex-start; padding: .35rem .65rem; border-radius: 999px; background: var(--bg-card); color: var(--primary); font-size: .74rem; font-weight: 700; }
 .weekly-off-week.is-locked { opacity: .7; }
 .weekly-off-week .scope-switch button:disabled { cursor: default; }
 

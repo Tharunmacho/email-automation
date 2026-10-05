@@ -403,7 +403,9 @@ export interface AttendancePermission {
     | "official_duty"
     | "work_from_home"
     | "paid_leave"
-    | "unpaid_leave";
+    | "unpaid_leave"
+    /** Rotational weekly off: this day off instead of Sunday, once approved. */
+    | "weekly_off";
   requested_minutes: number;
   reason: string;
   /**
@@ -487,14 +489,22 @@ export function fetchAttendanceMonth(year: number, month: number, employeeId?: s
   return request(`/attendance/month/${year}/${month}${employeeQuery(employeeId)}`, { cache: "no-store" });
 }
 
+/** What the self-service picker can choose. */
 export type WeeklyOffDay = "sunday" | "friday";
+
+/** Any day can be the weekly off through an approved rotational request. */
+export type Weekday = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
 
 /** One Monday-to-Sunday week and which of its days is the weekly off. */
 export interface WeeklyOffWeek {
   week_start: string;
   friday: string;
   sunday: string;
-  day: WeeklyOffDay;
+  day: Weekday;
+  /** The date of `day` in this week. */
+  off_date?: string;
+  /** A rotational weekly off the manager approved; the picker cannot change it. */
+  approved?: boolean;
   /** Thursday 11:59 PM (office time): the last moment to change this week. */
   deadline: string;
   locked: boolean;

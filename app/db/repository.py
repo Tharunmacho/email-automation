@@ -126,6 +126,14 @@ LIST_PROJECTION = {
     "profile.languages": 1,
     "profile.current_designation": 1,
     "profile.current_company": 1,
+    # The job a WhatsApp candidate picked. A fresher has no designation, so
+    # without these the Role column has nothing to show for them.
+    "profile.job_title": 1,
+    "profile.job_category": 1,
+    "profile.job_preference": 1,
+    "job.job": 1,
+    "job.job_category": 1,
+    "job.job_category_title": 1,
     "profile.total_experience_years": 1,
     "profile.work_experience": 1,
     "profile.resume_summary": 1,

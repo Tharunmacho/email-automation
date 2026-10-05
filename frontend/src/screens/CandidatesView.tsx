@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
+import { humanizeKey } from "@/lib/candidateProfile";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import {
@@ -100,7 +101,20 @@ function getDisplayName(candidate: CandidateRecord): string {
 function getDesignation(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const exps = profile.work_experience ?? [];
-  return profile.current_designation || (exps[0]?.designation ?? "") || "";
+  const job = candidate.job ?? null;
+  const category = profile.job_category || job?.job_category || "";
+  // A fresher registered through WhatsApp has no designation yet; the job they
+  // applied for is the role a recruiter is looking for.
+  return (
+    profile.current_designation ||
+    (exps[0]?.designation ?? "") ||
+    profile.job_title ||
+    job?.job_category_title ||
+    (category ? humanizeKey(category) : "") ||
+    profile.job_preference ||
+    job?.job ||
+    ""
+  );
 }
 
 function getIndustry(candidate: CandidateRecord): string {

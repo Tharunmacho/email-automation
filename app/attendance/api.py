@@ -13,7 +13,7 @@ from app.api.routes import current_user, require_admin, require_service_key, use
 from app.attendance.engine import calculate_month, local_day, lop_amount
 from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNomination, CoverResponse, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
-from app.attendance.service import LEAVE_KINDS, AttendanceError, AttendanceService
+from app.attendance.service import LEAVE_KINDS, WEEKDAYS, AttendanceError, AttendanceService
 from app.branches import branch_managers, branch_of, can_see, manages, same_branch
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, on_attendance
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
@@ -196,15 +196,22 @@ def _weekly_off_deadline(week_start: date, timezone_name: str) -> datetime:
     return datetime.combine(thursday, time(23, 59, 59), tzinfo=ZoneInfo(timezone_name))
 
 
-def _weekly_off_week(week_start: date, day: str, now: datetime, timezone_name: str) -> dict:
+def _weekly_off_week(
+    week_start: date, day: str, now: datetime, timezone_name: str, *, approved: bool = False,
+) -> dict:
     deadline = _weekly_off_deadline(week_start, timezone_name)
+    index = WEEKDAYS.index(day) if day in WEEKDAYS else 6
     return {
         "week_start": week_start.isoformat(),
         "friday": (week_start + timedelta(days=4)).isoformat(),
         "sunday": (week_start + timedelta(days=6)).isoformat(),
         "day": day,
+        "off_date": (week_start + timedelta(days=index)).isoformat(),
         "deadline": deadline.isoformat(),
-        "locked": now > deadline,
+        # A rotational weekly off the manager approved is settled: the picker
+        # may not change it.
+        "approved": approved,
+        "locked": approved or now > deadline,
     }
 
 
@@ -217,12 +224,18 @@ def get_weekly_off(user: dict = Depends(current_user)) -> dict:
     today = local_day(now, timezone_name)
     first = today - timedelta(days=today.weekday())
     weeks = [first + timedelta(weeks=offset) for offset in range(WEEKLY_OFF_WEEKS_AHEAD)]
-    chosen = AttendanceRepository().weekly_off_choices(employee_id, weeks)
+    chosen = AttendanceRepository().weekly_off_rows(employee_id, weeks)
     return {
         "employee_id": employee_id,
         "default": "sunday",
         "weeks": [
-            _weekly_off_week(week, chosen.get(week.isoformat(), "sunday"), now, timezone_name)
+            _weekly_off_week(
+                week,
+                (chosen.get(week.isoformat()) or {}).get("day", "sunday"),
+                now,
+                timezone_name,
+                approved=(chosen.get(week.isoformat()) or {}).get("source") == "request",
+            )
             for week in weeks
         ],
     }
@@ -242,7 +255,14 @@ def update_weekly_off(payload: WeeklyOffRequest, user: dict = Depends(current_us
             status_code=409,
             detail="The weekly off for this week was due by Thursday 11:59 PM and can no longer be changed",
         )
-    saved = AttendanceRepository().set_weekly_off_choice(employee_id, week_start, payload.day)
+    repository = AttendanceRepository()
+    current = repository.weekly_off_rows(employee_id, [week_start]).get(week_start.isoformat())
+    if current and current.get("source") == "request":
+        raise HTTPException(
+            status_code=409,
+            detail="Your manager approved a weekly off for this week; it can no longer be changed here",
+        )
+    saved = repository.set_weekly_off_choice(employee_id, week_start, payload.day)
     return {
         "status": "saved",
         "employee_id": employee_id,

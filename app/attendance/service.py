@@ -12,6 +12,9 @@ from app.attendance.repository import AttendanceRepository
 #: Permission kinds that take the whole day off, and so may name a cover.
 LEAVE_KINDS = frozenset({"paid_leave", "unpaid_leave"})
 
+#: `date.weekday()` order. A week's stored weekly-off day is one of these.
+WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
 
 class AttendanceError(ValueError):
     pass
@@ -98,13 +101,15 @@ class AttendanceService:
         holiday = festival_holiday(day)
         if calendar_day is None and holiday:
             calendar_day = {"status": AttendanceStatus.HOLIDAY, "reason": holiday}
-        # One weekly off per Monday-to-Sunday week: Sunday, unless the employee
-        # chose Friday for that week (by Thursday 11:59 PM), in which case the
-        # Friday is off and that week's Sunday is a normal working day.
+        # One weekly off per Monday-to-Sunday week: Sunday, unless another day
+        # was taken for that week — Friday from the self-service picker, or any
+        # day through an approved rotational weekly-off request. Either way that
+        # day is off and the week's Sunday is a normal working day.
         week_start = day - timedelta(days=day.weekday())
         weekly_off_day = getattr(
             self.repository, "weekly_off_choice", lambda *_args: None,
         )(employee_id, week_start) or "sunday"
+        weekly_off_index = WEEKDAYS.index(weekly_off_day) if weekly_off_day in WEEKDAYS else 6
         #
         # A *duty plan* — one date, explicitly rostered — is what turns a weekly
         # off into a working day. A rolling shift assignment is not: it says
@@ -112,8 +117,7 @@ class AttendanceService:
         # worked, so treating it as a plan made every Sunday after the first
         # rostered one a scheduled day the employee was then marked absent for.
         planned_duty = bool(assignment and assignment.get("kind") == "planned_duty")
-        is_sunday = day.weekday() == 6 and weekly_off_day == "sunday" and not planned_duty
-        is_rotational_friday = day.weekday() == 4 and weekly_off_day == "friday" and not planned_duty
+        is_weekly_off = day.weekday() == weekly_off_index and not planned_duty
         punches = self.repository.effective_punches_for_day(employee_id, day)
         permissions = self.repository.approved_permissions(employee_id, day)
         adjustments = self.repository.adjustments_for_day(employee_id, day)
@@ -125,7 +129,7 @@ class AttendanceService:
             recovered_minutes=recovered,
             non_working_status=_non_working_status(
                 calendar_day, planned_duty=planned_duty,
-                weekly_off=is_sunday or is_rotational_friday,
+                weekly_off=is_weekly_off,
             ),
         )
         if status_override:
@@ -146,6 +150,8 @@ class AttendanceService:
             punches = self.repository.events_for_day(employee_id, request.attendance_date)
             if now >= end or any(row["action"] == "check_out" for row in punches):
                 raise AttendanceError("early-exit permission must be requested before leaving")
+        if request.kind == "weekly_off":
+            self._check_weekly_off_request(employee_id, request.attendance_date)
         record = {
             **request.model_dump(exclude={"employee_id", "cover_employee_id"}),
             "attendance_date": request.attendance_date.isoformat(),
@@ -155,6 +161,15 @@ class AttendanceService:
             record.update(cover_employee_id=request.cover_employee_id, cover_status="requested",
                           status="awaiting_cover")
         return self.repository.create_permission(record)
+
+    def _check_weekly_off_request(self, employee_id: str, day: date) -> None:
+        """One rotational weekly off per week, and never on the Sunday it replaces."""
+        if day.weekday() == 6:
+            raise AttendanceError("Sunday is already the weekly off; choose the day you want instead of Sunday")
+        week_start = day - timedelta(days=day.weekday())
+        existing = self.repository.permissions_for_period(employee_id, week_start, week_start + timedelta(days=6))
+        if any(row.get("kind") == "weekly_off" and row.get("status") in {"pending", "approved"} for row in existing):
+            raise AttendanceError("a weekly off has already been requested for this week")
 
     def decide_permission(self, permission_id: str, decision: PermissionDecision, approver_id: str) -> dict:
         pending = self.repository.permission(permission_id)
@@ -169,6 +184,15 @@ class AttendanceService:
         result = self.repository.decide_permission(permission_id, {**decision.model_dump(), "decided_by": approver_id, "decided_at": datetime.now(timezone.utc)})
         if not result:
             raise AttendanceError("pending permission not found")
+        if decision.approved and pending.get("kind") == "weekly_off":
+            # The approved day becomes this week's weekly off, which is what
+            # turns the week's Sunday back into a working day.
+            day = date.fromisoformat(pending["attendance_date"])
+            self.repository.set_weekly_off_choice(
+                pending["employee_id"], day - timedelta(days=day.weekday()), WEEKDAYS[day.weekday()],
+                permission_id=permission_id,
+            )
+            result["weekly_off_day"] = WEEKDAYS[day.weekday()]
         if decision.approved and pending.get("kind") in {"paid_leave", "unpaid_leave"}:
             calendar_day = self.set_calendar_day(
                 CalendarDayRequest(

@@ -277,6 +277,25 @@ def test_thursday_evening_is_still_in_time():
     assert repository.weekly_off_choice("staff-1", date(2026, 10, 5)) == "friday"
 
 
+def test_an_approved_rotational_weekly_off_cannot_be_changed_from_the_picker():
+    repository = AttendanceRepository(mongomock.MongoClient()["weekly-off-approved"])
+    repository.set_weekly_off_choice("staff-1", date(2026, 10, 5), "tuesday", permission_id="perm-1")
+    # Wednesday 7 Oct 2026, 10:00 IST: before the self-service deadline.
+    clock = _at(datetime(2026, 10, 7, 4, 30, tzinfo=timezone.utc))
+    try:
+        with patch("app.attendance.api.users", FakeUsers()), patch(
+            "app.attendance.api.AttendanceRepository", return_value=repository
+        ), pytest.raises(HTTPException) as refused:
+            update_weekly_off_route(
+                WeeklyOffRequest(week_start=date(2026, 10, 5), day="sunday"),
+                user={"id": "staff-1", "role": STAFF_ROLE},
+            )
+    finally:
+        clock.stop()
+    assert refused.value.status_code == 409
+    assert repository.weekly_off_choice("staff-1", date(2026, 10, 5)) == "tuesday"
+
+
 def test_saving_salary_does_not_overwrite_staff_weekly_off():
     repository = AttendanceRepository(mongomock.MongoClient()["salary-keeps-weekly-off"])
     repository.set_employee_policy("staff-1", {"weekly_off_pattern": "alternate_friday"})
