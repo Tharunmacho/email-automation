@@ -66,6 +66,11 @@ PHONE_SITES: dict[str, str] = {
 class OffSiteError(ValueError):
     """The punch carried no location, or one outside the employee's office."""
 
+    def __init__(self, message: str, *, distance_m: float | None = None):
+        super().__init__(message)
+        #: How far away the punch was made, for the log; never shown to staff.
+        self.distance_m = distance_m
+
 
 def _phone_key(phone: str | None) -> str:
     digits = re.sub(r"\D", "", phone or "")
@@ -105,9 +110,8 @@ def check_on_site(employee, latitude: float | None, longitude: float | None) -> 
         )
     distance = distance_m(latitude, longitude, site.latitude, site.longitude)
     if distance > site.radius_m:
-        far = f"{distance / 1000:.1f} km" if distance >= 1000 else f"{round(distance)} m"
         raise OffSiteError(
-            f"Attendance not recorded: you are {far} from the {site.name} office. "
-            f"It can only be marked within {site.radius_m} m of the office."
+            "Attendance not recorded. You are at the wrong location.",
+            distance_m=round(distance),
         )
     return {"site": site.name, "distance_m": round(distance), "radius_m": site.radius_m}

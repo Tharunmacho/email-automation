@@ -89,7 +89,7 @@ def test_a_punch_outside_the_radius_is_refused_and_not_recorded(env):
     with pytest.raises(HTTPException) as refused:
         whatsapp_private_attendance(_event(_north_of(ROYA, 400)))
     assert refused.value.status_code == 403
-    assert "Royapettah" in refused.value.detail
+    assert refused.value.detail == "Attendance not recorded. You are at the wrong location."
     assert env.repository.events_for_day("listed", datetime(2026, 10, 5).date()) == []
 
 

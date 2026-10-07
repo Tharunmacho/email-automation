@@ -62,6 +62,7 @@ def _on_site(employee, latitude: float | None, longitude: float | None) -> dict 
     try:
         return check_on_site(employee, latitude, longitude)
     except OffSiteError as exc:
+        log.info("Attendance refused off-site for %s: %s m away", employee.id, exc.distance_m)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
