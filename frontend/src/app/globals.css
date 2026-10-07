@@ -12422,6 +12422,130 @@ body {
   color: var(--warning-ink);
 }
 
+.eval-log-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-main);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Review logs: one card per action, newest first. */
+.eval-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.eval-log-row {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-main);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.eval-log-row.is-completed {
+  border-left-color: var(--success);
+}
+
+.eval-log-row.is-reopened {
+  border-left-color: var(--warning);
+}
+
+.eval-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.eval-log-head strong {
+  color: var(--text-main);
+  font-weight: 650;
+}
+
+.eval-log-role {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  font-size: 0.68rem;
+  text-transform: capitalize;
+}
+
+.eval-log-head time {
+  margin-left: auto;
+  font-size: 0.72rem;
+}
+
+.eval-log-verdict {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+}
+
+.eval-log-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-main);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
+.eval-log-status.is-shortlisted,
+.eval-log-status.is-hired {
+  background: var(--success-fill);
+  color: var(--success-ink);
+}
+
+.eval-log-status.is-interviewing {
+  background: var(--primary-glow);
+  color: var(--primary-deep);
+}
+
+.eval-log-status.is-rejected {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.eval-log-status.is-callback,
+.eval-log-status.is-on_hold {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.eval-log-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--warning);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.eval-log-remarks {
+  margin: 0.45rem 0 0;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .eval-callback-hint {
   display: flex;
   align-items: flex-start;

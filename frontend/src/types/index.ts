@@ -358,6 +358,17 @@ export interface CandidateRecord {
   evaluation_score?: number | null;
   evaluation_notes?: string | null;
   evaluated_at?: string | null;
+  /** Every verdict saved and review completed or reopened, oldest first. */
+  evaluation_history?: Array<{
+    at: string;
+    action: "evaluated" | "completed" | "reopened" | string;
+    status?: EvaluationStatus | null;
+    score?: number | null;
+    remarks?: string | null;
+    by_user_id?: string | null;
+    by_user_name?: string | null;
+    by_role?: string | null;
+  }>;
 
   /**
    * Where the candidate stands with the outside world.

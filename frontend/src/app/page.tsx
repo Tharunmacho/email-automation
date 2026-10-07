@@ -1029,6 +1029,7 @@ export default function Home() {
     candidateId: string,
     verdict: Verdict,
     advance: boolean,
+    complete = false,
   ) => {
     setEvaluating(true);
     // Read before the save: `nextUnviewed` is derived from a list this save is
@@ -1051,13 +1052,22 @@ export default function Home() {
         "success",
         user?.email,
       );
+      if (complete) {
+        // "Save & complete": the verdict is stored first, so the review is only
+        // ever completed with the remarks that were just written.
+        await verifyCandidate(candidateId);
+        appendCandidateLog(candidateId, "Verified", "Review completed.", "success", user?.email);
+      }
       await refreshCandidates();
 
       if (following) {
         showToast(`Saved. Opening ${candidateNameOf(following)}.`, "success");
         handleOpenCandidate(following);
       } else {
-        showToast(advance ? "Saved — nothing else is waiting." : "Evaluation saved.", "success");
+        showToast(
+          complete ? "Saved and review completed." : advance ? "Saved — nothing else is waiting." : "Evaluation saved.",
+          "success",
+        );
         if (advance) closeScreen();
         else setDetailNonce((n) => n + 1);
       }
@@ -1222,16 +1232,15 @@ export default function Home() {
                 verifying={verifying}
                 onBack={closeScreen}
                 onEdit={() => handleEditCandidate(screenCandidate)}
-                // Staff complete the review of their own candidates too; only
-                // admins can take a completed review back.
-                onVerify={handleVerify}
+                // Completing a review now happens from the verdict panel ("Save &
+                // complete"); only admins can take a completed review back.
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
                 evaluation={{
                   saving: evaluating,
                   allowAdvance: user?.role === "staff",
                   nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
-                  onSave: (verdict, advance) =>
-                    void handleSaveEvaluation(screenCandidate.id, verdict, advance),
+                  onSave: (verdict, advance, complete) =>
+                    void handleSaveEvaluation(screenCandidate.id, verdict, advance, complete),
                 }}
                 recruitment={
                   <RecruitmentPanel

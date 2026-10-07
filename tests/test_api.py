@@ -46,6 +46,10 @@ class MockRepository:
             if duplicate_of:
                 self.candidates[candidate_id].duplicate_of = duplicate_of
 
+    def log_evaluation_event(self, candidate_id: str, entry: dict) -> None:
+        if candidate_id in self.candidates:
+            self.candidates[candidate_id].evaluation_history.append(entry)
+
     def delete(self, candidate_id: str) -> bool:
         return self.candidates.pop(candidate_id, None) is not None
 

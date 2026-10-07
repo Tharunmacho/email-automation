@@ -223,7 +223,8 @@ export interface EvaluationSuite {
   allowAdvance?: boolean;
   /** The next unopened profile's name, if there is one, for the advance button. */
   nextName?: string | null;
-  onSave: (verdict: Verdict, advance: boolean) => void;
+  /** `complete` also marks the review completed once the verdict is saved. */
+  onSave: (verdict: Verdict, advance: boolean, complete?: boolean) => void;
 }
 
 interface CandidateProfileScreenProps {
@@ -232,7 +233,6 @@ interface CandidateProfileScreenProps {
   onBack?: () => void;
   /** Opens the separate edit screen; the profile itself remains read-only. */
   onEdit?: () => void;
-  onVerify?: (candidateId: string) => void;
   /** Return an admin-verified profile to the review queue. */
   onUnverify?: (candidateId: string) => void;
   /** Supplied to users who may add candidate remarks and record a verdict. */
@@ -482,7 +482,6 @@ export default function CandidateProfileScreen({
   verifying = false,
   onBack,
   onEdit,
-  onVerify,
   onUnverify,
   evaluation,
   recruitment,
@@ -510,7 +509,7 @@ export default function CandidateProfileScreen({
     chat: WhatsAppChatResponse | null;
     error: string | null;
   } | null>(null);
-  const [activityModal, setActivityModal] = useState<"whatsapp" | "reallocation" | null>(null);
+  const [activityModal, setActivityModal] = useState<"whatsapp" | "reallocation" | "logs" | null>(null);
   const activityDialogRef = useModalFocus<HTMLDivElement>(
     Boolean(activityModal),
     () => setActivityModal(null),
@@ -795,11 +794,15 @@ export default function CandidateProfileScreen({
     .filter(Boolean)
     .join(" · ");
 
-  const submit = (advance: boolean) =>
+  const submit = (advance: boolean, complete = false) =>
     evaluation?.onSave(
       { status, score: score > 0 ? score : null, remarks: remarks.trim() || null },
       advance,
+      complete,
     );
+
+  /** Newest first: the Logs dialog answers "what happened last?" before anything else. */
+  const reviewLog = [...(candidate.evaluation_history ?? [])].reverse();
 
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
@@ -861,29 +864,17 @@ export default function CandidateProfileScreen({
             </button>
           )}
 
-          {/* Shown to admins and to staff; staff can complete reviews of their own candidates. */}
-          {onVerify && (
+          {/* Completing a review lives in the verdict panel ("Save & complete").
+              Only taking a completed review back stays up here, for admins. */}
+          {isVerified && onUnverify && (
             <button
               type="button"
-              className={`cscreen-btn ${isVerified ? "is-unverify" : "is-primary"}`}
-              onClick={() => {
-                if (isVerified) onUnverify?.(candidate.id);
-                else if (!(candidate.evaluation_notes || "").trim()) openRemarks();
-                else onVerify(candidate.id);
-              }}
-              disabled={verifying || (isVerified && !onUnverify)}
-              title={
-                !isVerified && !(candidate.evaluation_notes || "").trim()
-                  ? "Add and save compulsory remarks before completing the review"
-                  : undefined
-              }
+              className="cscreen-btn is-unverify"
+              onClick={() => onUnverify(candidate.id)}
+              disabled={verifying}
             >
-              {isVerified ? <RotateCcw size={15} /> : <CheckCircle2 size={15} />}
-              {verifying
-                ? "Updating…"
-                : isVerified
-                  ? "Unverify candidate"
-                  : "Complete review"}
+              <RotateCcw size={15} />
+              {verifying ? "Updating…" : "Unverify candidate"}
             </button>
           )}
         </div>
@@ -1568,6 +1559,24 @@ export default function CandidateProfileScreen({
                 <button
                   type="button"
                   className={`db-btn ${evaluation.allowAdvance ? "" : "is-primary"}`}
+                  onClick={() => submit(false, true)}
+                  disabled={evaluation.saving || !hasRemarks || isVerified}
+                  title={
+                    isVerified
+                      ? "This review is already completed"
+                      : "Save the verdict and mark this review completed"
+                  }
+                >
+                  {evaluation.saving ? (
+                    <Loader2 size={14} className="icon-spin" />
+                  ) : (
+                    <ShieldCheck size={14} />
+                  )}
+                  {isVerified ? "Review completed" : "Save & complete"}
+                </button>
+                <button
+                  type="button"
+                  className="db-btn"
                   onClick={() => submit(false)}
                   disabled={evaluation.saving || !hasRemarks}
                 >
@@ -1578,16 +1587,16 @@ export default function CandidateProfileScreen({
                   )}
                   Save verdict
                 </button>
-                {onBack && (
-                  <button
-                    type="button"
-                    className="db-btn is-quiet"
-                    onClick={onBack}
-                    disabled={evaluation.saving}
-                  >
-                    Back to candidates
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="db-btn is-quiet"
+                  onClick={() => setActivityModal("logs")}
+                  disabled={evaluation.saving}
+                >
+                  <History size={14} />
+                  Logs
+                  {reviewLog.length > 0 && <span className="eval-log-count">{reviewLog.length}</span>}
+                </button>
               </div>
             </div>
           </aside>
@@ -1608,11 +1617,17 @@ export default function CandidateProfileScreen({
             <div className="modal-header">
               <div>
                 <h2 id="candidate-activity-title" className="modal-title">
-                  {activityModal === "whatsapp" ? "WhatsApp conversation" : "Reallocation history"}
+                  {activityModal === "whatsapp"
+                    ? "WhatsApp conversation"
+                    : activityModal === "logs"
+                      ? "Review logs"
+                      : "Reallocation history"}
                 </h2>
                 <p className="modal-subtitle">
                   {activityModal === "whatsapp"
                     ? `Messages exchanged with ${view.full_name}.`
+                    : activityModal === "logs"
+                      ? `Who reviewed ${view.full_name}, the status they chose and their remarks.`
                     : `${candidate.assignment_history?.length ?? 0} staff ownership change${
                         candidate.assignment_history?.length === 1 ? "" : "s"
                       } recorded for ${view.full_name}.`}
@@ -1621,7 +1636,13 @@ export default function CandidateProfileScreen({
               <button
                 type="button"
                 className="modal-close"
-                aria-label={`Close ${activityModal === "whatsapp" ? "WhatsApp conversation" : "reallocation history"}`}
+                aria-label={`Close ${
+                  activityModal === "whatsapp"
+                    ? "WhatsApp conversation"
+                    : activityModal === "logs"
+                      ? "review logs"
+                      : "reallocation history"
+                }`}
                 onClick={() => setActivityModal(null)}
               >
                 <X size={18} />
@@ -1629,7 +1650,50 @@ export default function CandidateProfileScreen({
             </div>
 
             <div className="modal-body">
-              {activityModal === "whatsapp" ? (
+              {activityModal === "logs" ? (
+                reviewLog.length === 0 ? (
+                  <div className="cprof-chat-state">
+                    No verdicts have been recorded for this candidate yet.
+                  </div>
+                ) : (
+                  <ol className="eval-log">
+                    {reviewLog.map((entry, index) => (
+                      <li key={`${entry.at}-${index}`} className={`eval-log-row is-${entry.action}`}>
+                        <div className="eval-log-head">
+                          <strong>{entry.by_user_name || "Unknown user"}</strong>
+                          {entry.by_role && <span className="eval-log-role">{entry.by_role}</span>}
+                          <span className="eval-log-action">
+                            {entry.action === "completed"
+                              ? "completed the review"
+                              : entry.action === "reopened"
+                                ? "reopened the review"
+                                : "recorded a verdict"}
+                          </span>
+                          <time dateTime={entry.at}>
+                            {entry.at ? formatDateFull(new Date(entry.at)) : ""}
+                          </time>
+                        </div>
+                        {(entry.status || entry.score) && (
+                          <div className="eval-log-verdict">
+                            {entry.status && (
+                              <span className={`eval-log-status is-${entry.status}`}>
+                                {entry.status === "callback" && <Phone size={11} aria-hidden="true" />}
+                                {entry.status.replace(/_/g, " ")}
+                              </span>
+                            )}
+                            {entry.score ? (
+                              <span className="eval-log-score">
+                                <Star size={12} fill="currentColor" /> {entry.score} of 5
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                        {entry.remarks && <p className="eval-log-remarks">{entry.remarks}</p>}
+                      </li>
+                    ))}
+                  </ol>
+                )
+              ) : activityModal === "whatsapp" ? (
                 !chatFor ? (
                   <div className="cprof-chat-state" role="status">
                     <Loader2 size={16} className="icon-spin" /> Loading conversation…

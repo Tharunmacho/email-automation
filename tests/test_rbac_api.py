@@ -70,7 +70,7 @@ class ScopedRepo:
         self.viewed.append((candidate_id, staff_id))
         return True
 
-    def save_evaluation(self, candidate_id, staff_id, status, score, notes):
+    def save_evaluation(self, candidate_id, staff_id, status, score, notes, actor=None):
         self.evaluations.append((candidate_id, staff_id, status, score, notes))
         return self.records.get(candidate_id)
 

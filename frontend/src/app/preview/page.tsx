@@ -307,7 +307,6 @@ export default function PreviewPage() {
               <CandidateProfileScreen
                 candidate={PROFILE_CANDIDATE}
                 onBack={noop}
-                onVerify={noop}
                 recruitment={
                   <RecruitmentPanel
                     candidate={PROFILE_CANDIDATE}

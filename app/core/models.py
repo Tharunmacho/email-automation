@@ -772,6 +772,11 @@ class CandidateRecord(BaseModel):
     # When the "call them again" reminder for a callback verdict was raised, so
     # it is raised once per callback rather than on every poll.
     callback_notified_at: Optional[datetime] = None
+    # Every verdict saved and every review completed or reopened, oldest first:
+    # who did it, the status and rating they chose, and their remarks. The
+    # verdict fields above only hold the latest; this is the audit trail the
+    # profile's Logs button shows.
+    evaluation_history: List[Dict[str, Any]] = Field(default_factory=list)
 
     # Recruitment activity after internal review. Each transition is appended
     # to history so submissions and outcomes remain auditable.

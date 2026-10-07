@@ -71,7 +71,7 @@ from app.assignment.balancer import (
 )
 from app.db.mongo import ensure_indexes
 from app.db.notifications import NotificationRepository
-from app.db.repository import CandidateRepository
+from app.db.repository import CandidateRepository, evaluation_log_entry
 from app.db.dedup import normalize_email, normalize_phone
 from app.policy.cv_policy import (
     JOB_CATEGORIES,
@@ -1768,12 +1768,16 @@ def verify_candidate(candidate_id: str, user: dict = Depends(require_page("candi
             detail="Candidate remarks are required before completing the review.",
         )
     repository.update_status(candidate_id, "verified")
+    repository.log_evaluation_event(candidate_id, evaluation_log_entry(
+        "completed", user,
+        status=record.evaluation_status, score=record.evaluation_score, remarks=record.evaluation_notes,
+    ))
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
 
 
 @app.post("/candidates/{candidate_id}/unverify")
-def unverify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
+def unverify_candidate(candidate_id: str, user: dict = Depends(require_admin)) -> dict:
     """Return a verified profile to its pre-verification review state."""
     repository = repo()
     record = repository.get(candidate_id)
@@ -1784,6 +1788,7 @@ def unverify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) 
 
     restored_status = "needs_review" if record.profile.confidence < 0.55 else "ingested"
     repository.update_status(candidate_id, restored_status)
+    repository.log_evaluation_event(candidate_id, evaluation_log_entry("reopened", user))
     updated_record = repository.get(candidate_id)
     return updated_record.model_dump(mode="json")
 
@@ -3002,6 +3007,7 @@ def evaluate_candidate(
         status=payload.status,
         score=payload.score,
         notes=remarks,
+        actor=user,
     )
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")

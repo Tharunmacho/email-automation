@@ -277,6 +277,31 @@ def _scoped(query: Optional[dict], staff_id: Optional[str]) -> dict:
     return scoped
 
 
+
+def evaluation_log_entry(
+    action: str,
+    actor: Optional[dict],
+    *,
+    status: Optional[str] = None,
+    score: Optional[int] = None,
+    remarks: Optional[str] = None,
+    at=None,
+) -> dict:
+    """One row of `evaluation_history`: what was done, by whom, and with what verdict."""
+    from app.core.models import utcnow
+
+    actor = actor or {}
+    return {
+        "at": at or utcnow(),
+        "action": action,
+        "status": status,
+        "score": score,
+        "remarks": remarks,
+        "by_user_id": actor.get("id"),
+        "by_user_name": actor.get("name") or actor.get("email") or "Unknown user",
+        "by_role": actor.get("role"),
+    }
+
 class CandidateRepository:
     def __init__(self, collection=None):
         # `is not None`, not `or`: a real pymongo Collection refuses truth-testing.
@@ -549,6 +574,10 @@ class CandidateRepository:
             existing = self.find_by_passport_key(key)
             return existing.id if existing else None
         return candidate_id if result.matched_count else None
+
+    def log_evaluation_event(self, candidate_id: str, entry: dict) -> None:
+        """Append one entry to the candidate's verdict/review audit trail."""
+        self._coll.update_one(_id_filter(candidate_id), {"$push": {"evaluation_history": entry}})
 
     def update_status(self, candidate_id: str, status: str, duplicate_of: Optional[str] = None) -> None:
         from app.core.models import utcnow
@@ -1453,6 +1482,7 @@ class CandidateRepository:
         status: str,
         score: Optional[int] = None,
         notes: Optional[str] = None,
+        actor: Optional[dict] = None,
     ) -> Optional[CandidateRecord]:
         """Record a verdict, and count it as a view if the profile was never opened.
 
@@ -1471,7 +1501,11 @@ class CandidateRepository:
             "evaluated_by": staff_id,
             "updated_at": now,
         }
-        res = self._coll.update_one(_scoped(_id_filter(candidate_id), staff_id), {"$set": updates})
+        entry = evaluation_log_entry("evaluated", actor, status=status, score=score, remarks=notes, at=now)
+        res = self._coll.update_one(
+            _scoped(_id_filter(candidate_id), staff_id),
+            {"$set": updates, "$push": {"evaluation_history": entry}},
+        )
         if res.matched_count == 0:
             return None
 
