@@ -478,6 +478,9 @@ EVALUATION_STATUSES = (
     "rejected",
     "on_hold",
     "hired",
+    #: Staff phoned the candidate and nobody picked up. Due for another call
+    #: 24 hours after the verdict was recorded — see `/callbacks/due`.
+    "callback",
 )
 
 
@@ -766,6 +769,9 @@ class CandidateRecord(BaseModel):
     evaluation_notes: Optional[str] = None
     evaluated_at: Optional[datetime] = None
     evaluated_by: Optional[str] = None          # staff id that recorded it
+    # When the "call them again" reminder for a callback verdict was raised, so
+    # it is raised once per callback rather than on every poll.
+    callback_notified_at: Optional[datetime] = None
 
     # Recruitment activity after internal review. Each transition is appended
     # to history so submissions and outcomes remain auditable.

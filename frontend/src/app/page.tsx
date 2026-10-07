@@ -1222,7 +1222,9 @@ export default function Home() {
                 verifying={verifying}
                 onBack={closeScreen}
                 onEdit={() => handleEditCandidate(screenCandidate)}
-                onVerify={user?.role === "admin" ? handleVerify : undefined}
+                // Staff complete the review of their own candidates too; only
+                // admins can take a completed review back.
+                onVerify={handleVerify}
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
                 evaluation={{
                   saving: evaluating,

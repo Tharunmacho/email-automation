@@ -13,9 +13,10 @@
  * country by country, and the job list marks which rows a candidate will
  * actually be shown.
  *
- * Four sections cover recruitment data, screening questions, the mobile
- * numbers that must never enter the bot's candidate conversation, and the
- * office branches employees are grouped into.
+ * Five sections cover recruitment data, screening questions, the mobile
+ * numbers that must never enter the bot's candidate conversation, the office
+ * branches employees are grouped into, and the government holidays on which
+ * no attendance is owed.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import {
   AlertTriangle,
   Ban,
   Building2,
+  CalendarDays,
   Check,
   Database,
   FileQuestion,
@@ -38,8 +40,11 @@ import {
 import {
   addBotSuppressionNumberAPI,
   createBranch,
+  createHoliday,
   deleteBranch,
+  deleteHoliday,
   fetchBranches,
+  fetchHolidays,
   deleteBotSuppressionNumberAPI,
   deleteJobQuestionAPI,
   listCountriesAPI,
@@ -53,6 +58,7 @@ import {
   saveJobQuestionAPI,
   type BotSuppressionNumber,
   type CountryRow,
+  type GovernmentHoliday,
   type JobDesignation,
   type JobQuestion,
 } from "@/lib/api";
@@ -70,7 +76,7 @@ import { useModalFocus } from "@/components/ui/useModalFocus";
  */
 const BOT_VISIBLE_ROWS = 9;
 
-type Section = "jobs" | "questions" | "suppression" | "branches";
+type Section = "jobs" | "questions" | "suppression" | "branches" | "holidays";
 
 interface Props {
   onActivity?: (message: string, type?: "info" | "success" | "error") => void;
@@ -338,6 +344,13 @@ export default function DataManagementScreen({ onActivity }: Props) {
               onClick={() => setSection("branches")}
             >
               Branches
+            </button>
+            <button
+              type="button"
+              className={`ds-seg-btn ${section === "holidays" ? "is-on" : ""}`}
+              onClick={() => setSection("holidays")}
+            >
+              Holidays
             </button>
           </div>
 
@@ -742,6 +755,8 @@ export default function DataManagementScreen({ onActivity }: Props) {
       )}
 
       {section === "branches" && <BranchesPanel onActivity={onActivity} />}
+
+      {section === "holidays" && <HolidaysPanel onActivity={onActivity} />}
 
       {section === "suppression" && (
         <section className="db-card dm-panel">
@@ -1442,6 +1457,161 @@ function BranchesPanel({ onActivity }: Props) {
             </tbody>
           </table>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/** "2026-10-20" -> "Tue, 20 Oct 2026", read as a calendar date (no timezone shift). */
+function formatHolidayDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  if (!year || !month || !day) return iso;
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Government holidays. A date added here is a holiday for every employee in
+ * every branch: attendance marks it "H", nobody is absent for it, and payroll
+ * deducts nothing for the day.
+ */
+function HolidaysPanel({ onActivity }: Props) {
+  const [holidays, setHolidays] = useState<GovernmentHoliday[]>([]);
+  const [day, setDay] = useState("");
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetchHolidays()
+      .then((result) => { if (live) setHolidays(result.items); })
+      .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const add = async () => {
+    if (!day || !name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await createHoliday(day, name.trim());
+      setHolidays(result.items);
+      onActivity?.(`${result.holiday.name} declared a holiday`, "success");
+      setDay("");
+      setName("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add the holiday");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (holiday: GovernmentHoliday) => {
+    if (!window.confirm(`Remove ${holiday.name} (${formatHolidayDate(holiday.date)}) as a holiday?`)) return;
+    setError(null);
+    try {
+      const result = await deleteHoliday(holiday.id);
+      setHolidays(result.items);
+      onActivity?.(`${holiday.name} removed from holidays`, "success");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove the holiday");
+    }
+  };
+
+  return (
+    <section className="db-card dm-panel">
+      <div className="db-card-head dm-panel-head">
+        <div className="dm-panel-title">
+          <CalendarDays size={16} />
+          <div>
+            <h3 className="db-card-title">Government holidays</h3>
+            <p>
+              A date added here is a holiday for every employee. No attendance is needed that day
+              and payroll is unchanged — nobody is marked absent or loses pay for it.
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="db-card-body">
+        <div className="dm-suppression-add">
+          <label>
+            <span>Date</span>
+            <input
+              type="date"
+              className="modal-input"
+              value={day}
+              onChange={(event) => setDay(event.target.value)}
+              disabled={saving}
+            />
+          </label>
+          <label>
+            <span>Holiday name</span>
+            <input
+              className="modal-input"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void add(); }}
+              placeholder="Example: Election Day"
+              maxLength={120}
+              disabled={saving}
+            />
+          </label>
+          <button
+            type="button"
+            className="db-btn is-primary"
+            onClick={() => void add()}
+            disabled={!day || !name.trim() || saving}
+          >
+            <Plus size={14} /> {saving ? "Adding…" : "Declare holiday"}
+          </button>
+        </div>
+        {error && <p className="sh-form-error" role="alert">{error}</p>}
+        {loading ? null : holidays.length === 0 ? (
+          <div className="ds-empty-state dm-empty">
+            <CalendarDays size={28} />
+            <h3>No government holidays declared</h3>
+            <p>Built-in festival holidays still apply automatically.</p>
+          </div>
+        ) : (
+          <div className="dm-table-frame">
+            <table className="dm-table is-register">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Holiday</th>
+                  <th className="is-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {holidays.map((holiday) => (
+                  <tr key={holiday.id}>
+                    <td><span className="dm-primary-cell"><strong>{formatHolidayDate(holiday.date)}</strong></span></td>
+                    <td>{holiday.name}</td>
+                    <td className="is-actions">
+                      <button
+                        type="button"
+                        className="db-btn is-danger"
+                        onClick={() => void remove(holiday)}
+                        aria-label={`Remove ${holiday.name} as a holiday`}
+                      >
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   );

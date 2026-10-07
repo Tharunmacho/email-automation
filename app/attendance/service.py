@@ -8,6 +8,7 @@ from app.attendance.engine import AttendancePolicy, calculate_day, local_day, sh
 from app.attendance.models import AttendanceStatus, AdjustmentRequest, CalendarDayRequest, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, Shift, ShiftAssignmentRequest
 from app.attendance.office_calendar import festival_holiday, standard_shift
 from app.attendance.repository import AttendanceRepository
+from app.holidays import government_holiday
 
 #: Permission kinds that take the whole day off, and so may name a cover.
 LEAVE_KINDS = frozenset({"paid_leave", "unpaid_leave"})
@@ -98,7 +99,10 @@ class AttendanceService:
         if shift is None:
             shift = self._shift(employee_id, day, assignment)
         calendar_day = self.repository.calendar_day(employee_id, day)
-        holiday = festival_holiday(day)
+        # Government holidays declared in Data Management come first, then the
+        # built-in festival list. Either way the day is "H": no attendance is
+        # owed and payroll deducts nothing for it.
+        holiday = government_holiday(day) or festival_holiday(day)
         if calendar_day is None and holiday:
             calendar_day = {"status": AttendanceStatus.HOLIDAY, "reason": holiday}
         # One weekly off per Monday-to-Sunday week: Sunday, unless another day

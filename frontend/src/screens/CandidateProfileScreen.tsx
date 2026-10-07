@@ -251,6 +251,8 @@ const STATUS_CHOICES: { value: EvaluationStatus; label: string }[] = [
   { value: "shortlisted", label: "Shortlisted" },
   { value: "interviewing", label: "Interviewing" },
   { value: "rejected", label: "Rejected" },
+  // Rang, no answer. A call icon in the top bar reminds the owner 24 hours on.
+  { value: "callback", label: "Callback" },
 ];
 
 /**
@@ -859,7 +861,7 @@ export default function CandidateProfileScreen({
             </button>
           )}
 
-          {/* Shown when onVerify is passed; hidden in StaffScreen view where staff focus on evaluations */}
+          {/* Shown to admins and to staff; staff can complete reviews of their own candidates. */}
           {onVerify && (
             <button
               type="button"
@@ -1523,10 +1525,18 @@ export default function CandidateProfileScreen({
                     onClick={() => setStatus(choice.value)}
                     disabled={!hasRemarks || evaluation.saving}
                   >
+                    {choice.value === "callback" && <Phone size={13} aria-hidden="true" />}
                     {choice.label}
                   </button>
                 ))}
               </div>
+
+              {status === "callback" && (
+                <p className="eval-callback-hint">
+                  <Phone size={13} aria-hidden="true" /> The candidate did not pick up. You will be
+                  reminded from the call icon in the top bar to ring them again in 24 hours.
+                </p>
+              )}
 
               {candidate.evaluated_at && (
                 <p className="cprof-verdict-stamp">

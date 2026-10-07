@@ -134,6 +134,7 @@ const VERDICT_TONE: Record<string, string> = {
   hired: "ok",
   interviewing: "info",
   on_hold: "warn",
+  callback: "warn",
   rejected: "bad",
 };
 

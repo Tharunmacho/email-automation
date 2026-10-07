@@ -898,6 +898,34 @@ export function deleteBranch(name: string): Promise<{ status: string; items: str
   return request(`/branches/${encodeURIComponent(name)}`, { method: "DELETE" });
 }
 
+// ---- Government holidays ---------------------------------------------------- //
+/** A date declared a holiday for every employee: no attendance owed, no payroll change. */
+export interface GovernmentHoliday {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  name: string;
+}
+
+export function fetchHolidays(): Promise<{ items: GovernmentHoliday[] }> {
+  return request("/holidays", { cache: "no-store" });
+}
+
+export function createHoliday(
+  date: string,
+  name: string,
+): Promise<{ status: string; holiday: GovernmentHoliday; items: GovernmentHoliday[] }> {
+  return request("/holidays", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date, name }),
+  });
+}
+
+export function deleteHoliday(id: string): Promise<{ status: string; items: GovernmentHoliday[] }> {
+  return request(`/holidays/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 // ---- Work timing ------------------------------------------------------------ //
 export interface WorkShift {
   start: string;
@@ -1387,6 +1415,22 @@ export function fetchNotifications(
   limit = 30,
 ): Promise<{ items: NotificationRecord[]; unread: number }> {
   return request(`/notifications?limit=${limit}`, { cache: "no-store" });
+}
+
+/** A candidate marked "callback" whose 24-hour wait is over. */
+export interface DueCallback {
+  candidate_id: string;
+  candidate_name: string;
+  phone?: string | null;
+  remarks?: string | null;
+  callback_marked_at?: string | null;
+  due_at?: string | null;
+  assigned_staff_name?: string | null;
+}
+
+/** Callbacks that are due now — the signed-in staff member's own, or all for admins. */
+export function fetchDueCallbacks(): Promise<{ items: DueCallback[]; count: number }> {
+  return request(`/callbacks/due`, { cache: "no-store" });
 }
 
 /** Mark specific rows read, or the whole feed with `{ all: true }`. */

@@ -615,7 +615,9 @@ export type EvaluationStatus =
   | "interviewing"
   | "rejected"
   | "on_hold"
-  | "hired";
+  | "hired"
+  /** Staff rang and the candidate did not pick up; due again after 24 hours. */
+  | "callback";
 
 export const EVALUATION_STATUSES: EvaluationStatus[] = [
   "pending",
@@ -624,6 +626,7 @@ export const EVALUATION_STATUSES: EvaluationStatus[] = [
   "rejected",
   "on_hold",
   "hired",
+  "callback",
 ];
 
 /** One quick-fill button on the login screen. */

@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Check, Inbox, ShieldAlert, UserPlus } from "lucide-react";
+import { Bell, Check, Inbox, PhoneCall, ShieldAlert, UserPlus } from "lucide-react";
 
 import { timeAgo } from "@/lib/format";
 import { fetchNotifications, markNotificationsRead, type NotificationRecord } from "@/lib/api";
@@ -32,6 +32,7 @@ const POLL_MS = 60000;
 
 function iconFor(type: string) {
   if (type === "sla_alert") return ShieldAlert;
+  if (type === "callback_due") return PhoneCall;
   if (type === "candidate_ingested") return Inbox;
   return UserPlus;
 }

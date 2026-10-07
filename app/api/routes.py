@@ -17,7 +17,8 @@ import threading
 import time
 import uuid
 from collections import OrderedDict
-from datetime import datetime
+from datetime import datetime, timezone
+from datetime import date as date_type
 from typing import Any, Literal
 
 from fastapi import (
@@ -1753,12 +1754,14 @@ def consolidate_legacy_database(
 
 
 @app.post("/candidates/{candidate_id}/verify")
-def verify_candidate(candidate_id: str, _user: dict = Depends(require_admin)) -> dict:
-    """Verify a reviewed profile only after compulsory remarks were saved."""
+def verify_candidate(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
+    """Verify a reviewed profile only after compulsory remarks were saved.
+
+    Staff may complete the review of profiles allocated to them; admins may
+    complete any. Un-verifying stays admin-only.
+    """
     repository = repo()
-    record = repository.get(candidate_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    record = _owned_or_404(candidate_id, user)
     if not (record.evaluation_notes or "").strip():
         raise HTTPException(
             status_code=422,
@@ -3003,6 +3006,90 @@ def evaluate_candidate(
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return record.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+#  Callbacks
+# --------------------------------------------------------------------------- #
+CALLBACK_DELAY_HOURS = 24
+
+
+@app.get("/callbacks/due")
+def list_due_callbacks(user: dict = Depends(require_page("candidates"))) -> dict:
+    """Candidates marked "callback" more than 24 hours ago, for this user.
+
+    Staff see their own queue; admins see everyone's. Computed on read rather
+    than by the beat scheduler so the reminder works wherever the API runs.
+    Each callback raises one bell notification the first time it falls due; a
+    fresh "callback" verdict (another unanswered call) re-arms it.
+    """
+    from datetime import timedelta
+
+    from app.core.models import utcnow
+    from app.db.notifications import CALLBACK_DUE
+
+    now = utcnow()
+    query: dict = {
+        "evaluation_status": "callback",
+        "evaluated_at": {"$lte": now - timedelta(hours=CALLBACK_DELAY_HOURS)},
+    }
+    if user.get("role") == STAFF_ROLE:
+        query["assigned_staff_id"] = user["id"]
+
+    coll = repo()._coll
+    rows = list(coll.find(query, {
+        "profile.full_name": 1,
+        "profile.email": 1,
+        "profile.phone": 1,
+        "evaluated_at": 1,
+        "evaluation_notes": 1,
+        "assigned_staff_id": 1,
+        "assigned_staff_name": 1,
+        "callback_notified_at": 1,
+    }).sort("evaluated_at", 1).limit(200))
+
+    notifications = NotificationRepository()
+    items = []
+    for row in rows:
+        profile = row.get("profile") or {}
+        name = profile.get("full_name") or profile.get("email") or "Unnamed candidate"
+        evaluated_at = row.get("evaluated_at")
+        notified_at = row.get("callback_notified_at")
+        if evaluated_at is not None and evaluated_at.tzinfo is None:
+            evaluated_at = evaluated_at.replace(tzinfo=timezone.utc)
+        if notified_at is not None and notified_at.tzinfo is None:
+            notified_at = notified_at.replace(tzinfo=timezone.utc)
+
+        owner = row.get("assigned_staff_id")
+        if owner and (notified_at is None or (evaluated_at and notified_at < evaluated_at)):
+            # Claim the reminder first, so two tabs polling at once raise one.
+            claimed = coll.update_one(
+                {"_id": row["_id"], "callback_notified_at": row.get("callback_notified_at")},
+                {"$set": {"callback_notified_at": now}},
+            ).modified_count
+            if claimed:
+                try:
+                    notifications.record(
+                        owner,
+                        type=CALLBACK_DUE,
+                        title="Call the candidate again",
+                        message=f"{name} did not pick up 24 hours ago. Time to call again.",
+                        candidate_id=str(row["_id"]),
+                        candidate_name=name,
+                    )
+                except Exception as exc:  # noqa: BLE001 — the list still answers
+                    log.warning("Could not record callback notification: %s", exc)
+
+        items.append({
+            "candidate_id": str(row["_id"]),
+            "candidate_name": name,
+            "phone": profile.get("phone"),
+            "remarks": row.get("evaluation_notes"),
+            "callback_marked_at": evaluated_at,
+            "due_at": evaluated_at + timedelta(hours=CALLBACK_DELAY_HOURS) if evaluated_at else None,
+            "assigned_staff_name": row.get("assigned_staff_name"),
+        })
+    return {"items": items, "count": len(items)}
 
 
 # --------------------------------------------------------------------------- #
@@ -4705,6 +4792,42 @@ def delete_branch(name: str, admin: dict = Depends(require_admin)) -> dict:
         raise HTTPException(status_code=404, detail="Branch not found")
     log.info("Branch %s removed by %s", name, admin.get("email"))
     return {"status": "deleted", "items": all_branches(_branch_db())}
+
+
+class HolidayIn(BaseModel):
+    date: date_type
+    name: str = Field(min_length=1, max_length=120)
+
+
+@app.get("/holidays")
+def list_government_holidays(_user: dict = Depends(current_user)) -> dict:
+    """Government holidays declared from Data Management."""
+    from app.holidays import list_holidays
+
+    return {"items": list_holidays()}
+
+
+@app.post("/holidays", status_code=201)
+def create_government_holiday(payload: HolidayIn, admin: dict = Depends(require_admin)) -> dict:
+    """Declare a date a holiday for everyone: no attendance owed, no payroll change."""
+    from app.holidays import add_holiday, list_holidays
+
+    try:
+        holiday = add_holiday(payload.date, payload.name, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    log.info("Holiday %s (%s) declared by %s", holiday["date"], holiday["name"], admin.get("email"))
+    return {"status": "created", "holiday": holiday, "items": list_holidays()}
+
+
+@app.delete("/holidays/{holiday_id}")
+def delete_government_holiday(holiday_id: str, admin: dict = Depends(require_admin)) -> dict:
+    from app.holidays import list_holidays, remove_holiday
+
+    if not remove_holiday(holiday_id):
+        raise HTTPException(status_code=404, detail="Holiday not found")
+    log.info("Holiday %s removed by %s", holiday_id, admin.get("email"))
+    return {"status": "deleted", "items": list_holidays()}
 
 
 @app.get("/users")

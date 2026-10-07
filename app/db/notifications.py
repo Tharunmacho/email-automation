@@ -42,6 +42,8 @@ SLA_ALERT = "sla_alert"
 CANDIDATE_REJECTED = "candidate_rejected"
 ATTENDANCE_REQUEST = "attendance_request"
 REIMBURSEMENT_REQUEST = "reimbursement_request"
+#: A candidate marked "callback" (rang, no answer) is due another call.
+CALLBACK_DUE = "callback_due"
 
 # A feed nobody has read in a month is noise, and this collection is written on
 # every single ingest. Expiring is a TTL index rather than a cleanup job so it

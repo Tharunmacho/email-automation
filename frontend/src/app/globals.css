@@ -1190,6 +1190,44 @@
   color: var(--success-ink);
 }
 
+.notif-icon.is-callback_due {
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+/* The call reminder sits beside the bell and only lights up when a candidate
+   marked "callback" has waited 24 hours for another call. */
+.callback-btn.has-due {
+  border-color: var(--warning);
+  color: var(--warning-ink);
+  background: var(--warning-fill);
+  animation: callback-ring 2.4s ease-in-out infinite;
+}
+
+.callback-btn.has-due .notif-badge {
+  background: var(--warning);
+}
+
+@keyframes callback-ring {
+  0%, 80%, 100% { transform: rotate(0); }
+  84% { transform: rotate(-12deg); }
+  88% { transform: rotate(12deg); }
+  92% { transform: rotate(-8deg); }
+  96% { transform: rotate(6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .callback-btn.has-due { animation: none; }
+}
+
+.callback-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
 .notif-icon.is-sla_alert {
   background: var(--error-fill);
   color: var(--error-ink);
@@ -12369,6 +12407,38 @@ body {
   border-color: var(--primary);
   background: var(--primary-glow);
   color: var(--primary-deep);
+}
+
+.eval-choice.is-callback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.eval-choice.is-on.is-callback {
+  border-color: var(--warning);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.eval-callback-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: -0.4rem 0 0.9rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--warning-edge);
+  border-radius: var(--radius-md);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.eval-callback-hint svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 .eval-choice.is-on.is-rejected {
