@@ -66,7 +66,11 @@ class ResumeRejected(Exception):
         self.code = code
 
 
-def validate_resume(data: bytes, mime_type: Optional[str]) -> str:
+#: Spellings of an accepted type that clients send but no registry uses.
+_MIME_ALIASES = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg", "text/rtf": "application/rtf"}
+
+
+def validate_resume(data: bytes, mime_type: Optional[str], filename: Optional[str] = None) -> str:
     """Validate upload bytes without writing them and return the media type."""
     if not data:
         raise ResumeRejected("the resume file is empty", "empty_resume")
@@ -78,6 +82,18 @@ def validate_resume(data: bytes, mime_type: Optional[str]) -> str:
         )
 
     content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
+    content_type = _MIME_ALIASES.get(content_type, content_type)
+    if content_type not in ALLOWED_RESUME_TYPES:
+        # The declared type is the sender's guess, and WhatsApp's is often
+        # `application/octet-stream` for a perfectly ordinary PDF. Refusing on
+        # the label alone lost real CVs, so the bytes get the final word — the
+        # same sniff the mailbox pipeline trusts over a declared type.
+        from app.extraction.file_type import detect
+
+        sniffed = detect(data, filename or "").mime
+        sniffed = _MIME_ALIASES.get(sniffed, sniffed)
+        if sniffed in ALLOWED_RESUME_TYPES:
+            return sniffed
     if content_type not in ALLOWED_RESUME_TYPES:
         raise ResumeRejected(
             f"{content_type} is not an accepted resume type", "unsupported_resume_type"
@@ -124,7 +140,7 @@ def store_resume(
     handed over by the bot has been read by nobody here, and claiming a method
     would be a fact about a process that never ran.
     """
-    content_type = validate_resume(data, mime_type)
+    content_type = validate_resume(data, mime_type, filename)
 
     digest = sha256_hex(data)
     key = storage_key_for(candidate_id, filename)

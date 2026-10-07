@@ -331,7 +331,7 @@ def intake_uploaded_candidate(
 
     try:
         if resume:
-            validate_resume(resume.data, resume.mime_type)
+            validate_resume(resume.data, resume.mime_type, resume.filename)
         for upload in [*aadhaar_uploads, *passport_uploads]:
             identity_files.validate_identity(upload.data, upload.mime_type)
     except (ResumeRejected, identity_files.IdentityRejected) as exc:

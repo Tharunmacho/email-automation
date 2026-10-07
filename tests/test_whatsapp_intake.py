@@ -1112,6 +1112,30 @@ def test_an_executable_is_not_a_resume(client):
     assert client.fake_repo.get(candidate_id).resume is None
 
 
+def test_a_pdf_labelled_as_octet_stream_is_still_a_resume(client):
+    # WhatsApp hands documents over as `application/octet-stream` often enough
+    # that refusing on the label lost real CVs. The bytes decide.
+    candidate_id = post_candidate(client).json()["candidate_id"]
+    res = client.post(
+        f"/candidates/{candidate_id}/resume",
+        files={"file": ("cv", PDF_BYTES, "application/octet-stream")},
+        headers={"X-Service-Key": SERVICE_KEY},
+    )
+    assert res.status_code == 200, res.text
+    assert client.fake_repo.get(candidate_id).resume.mime_type == "application/pdf"
+
+
+def test_an_executable_labelled_as_octet_stream_is_still_refused(client):
+    candidate_id = post_candidate(client).json()["candidate_id"]
+    res = client.post(
+        f"/candidates/{candidate_id}/resume",
+        files={"file": ("cv", b"MZ\x90\x00", "application/octet-stream")},
+        headers={"X-Service-Key": SERVICE_KEY},
+    )
+    assert res.status_code == 422
+    assert res.json()["code"] == "unsupported_resume_type"
+
+
 # --------------------------------------------------------------------------- #
 #  The recovery path (§12)
 #
