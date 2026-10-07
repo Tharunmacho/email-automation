@@ -31,6 +31,8 @@ class Site:
         return self.latitude is not None and self.longitude is not None
 
 
+VIJAY_SHANTHI_TEST = "Vijay Shanthi (test)"
+
 # Pins supplied by the user from Google Maps on 2026-10-07.
 SITES: dict[str, Site] = {
     MOUNT_ROAD: Site(
@@ -47,19 +49,28 @@ SITES: dict[str, Site] = {
         longitude=80.264005,
         radius_m=350,
     ),
+    # Temporary test location for the user's own number; remove after testing.
+    VIJAY_SHANTHI_TEST: Site(
+        name=VIJAY_SHANTHI_TEST,
+        address="Vijay Shanthi (test location)",
+        latitude=13.025557,
+        longitude=80.022333,
+        radius_m=300,
+    ),
 }
 
 #: Numbers whose office is fixed regardless of their branch, by the last ten digits.
 PHONE_SITES: dict[str, str] = {
     **dict.fromkeys(
-        # 9994690490 is the user's test number; remove it once testing is done.
-        ("9884447455", "7448337753", "9967926889", "8925726036", "9884949735", "9994690490"),
+        ("9884447455", "7448337753", "9967926889", "8925726036", "9884949735"),
         MOUNT_ROAD,
     ),
     **dict.fromkeys(
         ("7806822702", "8438588507", "8870277929", "9884448455", "6381748354", "7200786679"),
         ROYAPETTAH,
     ),
+    # The user's test number, held to the test location; remove after testing.
+    "9994690490": VIJAY_SHANTHI_TEST,
 }
 
 
