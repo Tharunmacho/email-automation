@@ -31,7 +31,7 @@ class Site:
         return self.latitude is not None and self.longitude is not None
 
 
-VIJAY_SHANTHI_TEST = "Vijay Shanthi (test)"
+VIJAY_SHANTHI = "Vijay Shanthi"
 
 # Pins supplied by the user from Google Maps on 2026-10-07.
 SITES: dict[str, Site] = {
@@ -49,10 +49,9 @@ SITES: dict[str, Site] = {
         longitude=80.264005,
         radius_m=350,
     ),
-    # Temporary test location for the user's own number; remove after testing.
-    VIJAY_SHANTHI_TEST: Site(
-        name=VIJAY_SHANTHI_TEST,
-        address="Vijay Shanthi (test location)",
+    VIJAY_SHANTHI: Site(
+        name=VIJAY_SHANTHI,
+        address="Vijay Shanthi",
         latitude=13.025557,
         longitude=80.022333,
         radius_m=300,
@@ -69,8 +68,7 @@ PHONE_SITES: dict[str, str] = {
         ("7806822702", "8438588507", "8870277929", "9884448455", "6381748354", "7200786679"),
         ROYAPETTAH,
     ),
-    # The user's test number, held to the test location; remove after testing.
-    "9994690490": VIJAY_SHANTHI_TEST,
+    "9994690490": VIJAY_SHANTHI,
 }
 
 
