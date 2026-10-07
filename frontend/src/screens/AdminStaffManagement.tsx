@@ -41,6 +41,7 @@ import {
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { compactNumber, formatInt, initialsOf, timeAgo } from "@/lib/format";
+import { isManagerRole, roleLabel } from "@/lib/roles";
 import SplitDonut from "@/components/dashboard/SplitDonut";
 import {
   assignCandidate,
@@ -915,9 +916,9 @@ export default function AdminStaffManagement({
                           </span>
                           <span className="ds-who-text">
                             <strong>{member.name || member.email}</strong>
-                            {(member.role === "manager" || member.effective_branch) && (
+                            {(isManagerRole(member.role) || member.effective_branch) && (
                               <small className="ds-quiet">
-                                {[member.role === "manager" ? "Manager" : "", member.effective_branch]
+                                {[isManagerRole(member.role) ? roleLabel(member.role) : "", member.effective_branch]
                                   .filter(Boolean)
                                   .join(" · ")}
                               </small>

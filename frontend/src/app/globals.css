@@ -18637,6 +18637,11 @@ a.um-phone:hover {
 .attendance-ledger .ds-table td { vertical-align: middle; }
 .attendance-ledger .ds-empty-state p { color: var(--text-muted); font-size: .76rem; }
 .attendance-decision-reason { display: block; margin-top: .35rem; color: var(--text-light); font-size: .74rem; }
+.attendance-approval-steps { display: flex; flex-wrap: wrap; gap: .3rem .6rem; margin-top: .35rem; }
+.attendance-approval-step { color: var(--text-light); font-size: .72rem; }
+.attendance-approval-step.is-approved { color: var(--success); }
+.attendance-approval-step.is-rejected { color: var(--error); }
+.attendance-approval-step.is-waiting { color: var(--warning); }
 .attendance-permissions .ds-empty-state { min-height: 150px; }
 .attendance-request-center { overflow: hidden; padding: 0; }
 .attendance-request-head { padding: 1.2rem 1.3rem; border-bottom: 1px solid var(--border-main); }

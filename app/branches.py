@@ -21,7 +21,7 @@ import uuid
 from app.assignment.balancer import GENERAL_DESK, SINGAPORE_MALAYSIA_DESK, desk_for_staff
 from app.core.models import utcnow
 from app.db.mongo import get_db
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, normalize_branch
+from app.db.users import ADMIN_ROLE, MANAGER_ROLES, normalize_branch
 
 ROYAPETTAH = "Royapettah"
 MOUNT_ROAD = "Mount Road"
@@ -128,7 +128,7 @@ def branch_managers(employee, users) -> list:
 
 def manages(manager, employee, users) -> bool:
     """Whether this manager may see and decide this employee's requests."""
-    if manager is None or getattr(manager, "role", None) != MANAGER_ROLE:
+    if manager is None or getattr(manager, "role", None) not in MANAGER_ROLES:
         return False
     responsible = branch_managers(employee, users)
     # Nobody on record at all: any manager may act rather than nobody.
@@ -145,4 +145,19 @@ def can_see(manager, employee, users) -> bool:
         return False
     if employee.id == manager.id:
         return True
-    return employee.role != MANAGER_ROLE and manages(manager, employee, users)
+    return employee.role not in MANAGER_ROLES and manages(manager, employee, users)
+
+
+def finance_managers(employee, users) -> list:
+    """The active finance managers who countersign this employee's money requests.
+
+    Finance is not split by branch: Noorul signs for Royapettah and Mount Road
+    alike. Nobody countersigns their own request, so a finance manager's own
+    leave falls to whoever else holds the role — or, if nobody does, to the
+    administrators (see `app.attendance.approvals`).
+    """
+    employee_id = getattr(employee, "id", None)
+    return [
+        manager for manager in getattr(users, "list_finance_managers", lambda: [])()
+        if manager.id != employee_id
+    ]

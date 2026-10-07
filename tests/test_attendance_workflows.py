@@ -45,11 +45,12 @@ from app.attendance.models import (
 )
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceError, AttendanceService
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, User
+from app.db.users import ADMIN_ROLE, FINANCE_MANAGER_ROLE, MANAGER_ROLE, STAFF_ROLE, User
 
 STAFF = {"id": "staff-1", "role": STAFF_ROLE}
 MANAGER = {"id": "manager-1", "role": MANAGER_ROLE}
 ADMIN = {"id": "admin-1", "role": ADMIN_ROLE}
+FINANCE = {"id": "finance-1", "role": FINANCE_MANAGER_ROLE}
 
 
 class FakeUsers:
@@ -61,7 +62,12 @@ class FakeUsers:
                               role=MANAGER_ROLE, staff_code="AE900"),
             "admin-1": User(id="admin-1", email="admin@example.com", name="Admin",
                             role=ADMIN_ROLE),
+            "finance-1": User(id="finance-1", email="finance@example.com", name="Finance",
+                              role=FINANCE_MANAGER_ROLE, staff_code="AE901"),
         }
+
+    def list_finance_managers(self, include_inactive=False):
+        return [self.members["finance-1"]]
 
     def get(self, user_id):
         return self.members.get(user_id)
@@ -82,7 +88,8 @@ def env():
     service = AttendanceService(repository)
     with patch("app.attendance.api.users", FakeUsers()), \
          patch("app.attendance.api.service", return_value=service), \
-         patch("app.attendance.api.AttendanceRepository", return_value=repository),          patch("app.attendance.api.check_on_site", return_value=None):
+         patch("app.attendance.api.AttendanceRepository", return_value=repository), \
+         patch("app.attendance.api.check_on_site", return_value=None):
         # Office radius is covered in test_attendance_sites; these punch from anywhere.
         yield service
 
@@ -165,8 +172,16 @@ def test_a_staff_request_is_approved_by_a_manager(env):
         ExtraOTDecision(approved=True, reason="Approved for payroll"),
         approver=MANAGER,
     )
+    # Extra OT also needs the finance manager.
+    assert decided["request"]["status"] == "pending"
+    decided = decide_extra_ot_route(
+        created["request"]["id"],
+        ExtraOTDecision(approved=True, reason="Approved for payroll"),
+        approver=FINANCE,
+    )
     assert decided["request"]["status"] == "approved"
-    assert decided["request"]["decided_by"] == "manager-1"
+    assert decided["request"]["decided_by"] == "finance-1"
+    assert decided["request"]["approvals"]["manager"]["by"] == "manager-1"
 
 
 def test_a_manager_request_needs_an_administrator(env):
@@ -184,10 +199,15 @@ def test_a_manager_request_needs_an_administrator(env):
         )
     assert refused.value.status_code == 403
 
-    decided = decide_extra_ot_route(
+    decide_extra_ot_route(
         created["request"]["id"],
         ExtraOTDecision(approved=True, reason="Approved"),
         approver=ADMIN,
+    )
+    decided = decide_extra_ot_route(
+        created["request"]["id"],
+        ExtraOTDecision(approved=True, reason="Approved"),
+        approver=FINANCE,
     )
     assert decided["request"]["status"] == "approved"
 
@@ -200,11 +220,12 @@ def test_only_approved_minutes_are_counted_for_payroll(env):
             user=STAFF,
         )
         if decision is not None:
-            decide_extra_ot_route(
-                created["request"]["id"],
-                ExtraOTDecision(approved=decision, reason="Reviewed"),
-                approver=MANAGER,
-            )
+            for approver in (MANAGER, FINANCE) if decision else (MANAGER,):
+                decide_extra_ot_route(
+                    created["request"]["id"],
+                    ExtraOTDecision(approved=decision, reason="Reviewed"),
+                    approver=approver,
+                )
 
     counted = env.repository.approved_extra_ot_minutes(
         "staff-1", date(2026, 10, 1), date(2026, 10, 31),

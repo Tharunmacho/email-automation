@@ -42,6 +42,7 @@ import DatePicker from "@/components/ui/DatePicker";
 import TimePicker from "@/components/ui/TimePicker";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import { initialsOf, timeAgo } from "@/lib/format";
+import { isEmployeeRole, roleLabel } from "@/lib/roles";
 import {
   assignWorkTiming,
   createUserAPI,
@@ -124,7 +125,7 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
   { label: "Support", pages: ["settings"] },
 ];
 
-/** The two roles, with what each one means stated against it rather than after it. */
+/** The roles, with what each one means stated against it rather than after it. */
 const ROLE_OPTIONS = [
   {
     value: "staff",
@@ -135,6 +136,11 @@ const ROLE_OPTIONS = [
     value: "manager",
     label: "Manager",
     hint: "Runs operations, attendance and payroll without account administration.",
+  },
+  {
+    value: "finance_manager",
+    label: "Finance Manager",
+    hint: "A manager for their branch who also co-approves paid leave, LOP and Extra OT for every branch.",
   },
   {
     value: "admin",
@@ -194,6 +200,7 @@ function PasswordInput({
 const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
   manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
+  finance_manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
   staff: ["candidates", "candidate-entry", "attendance", "settings"],
 };
 
@@ -325,7 +332,7 @@ export default function UserManagementScreen({
       const custom = timing && (timing.start !== DEFAULT_TIMING.start
         || timing.end !== DEFAULT_TIMING.end
         || timing.breakMinutes !== DEFAULT_TIMING.breakMinutes);
-      if (custom && (draft.role === "staff" || draft.role === "manager")) {
+      if (custom && isEmployeeRole(draft.role)) {
         try {
           await assignWorkTiming({
             employee_id: created.user.id,
@@ -475,7 +482,7 @@ export default function UserManagementScreen({
                             {user.name || user.email}
                             {!user.active && <em className="staff-flag">deactivated</em>}
                           </strong>
-                          {(user.role === "staff" || user.role === "manager") && (
+                          {isEmployeeRole(user.role) && (
                             <small className="crm-record-id">
                               Staff ID · {user.staff_code || `STF-${user.id.slice(-12).toUpperCase()}`}
                             </small>
@@ -501,7 +508,7 @@ export default function UserManagementScreen({
                     <td>
                       <span className={`ds-status ${user.role === "admin" ? "is-info" : "is-ok"}`}>
                         <i aria-hidden="true" />
-                        {user.role === "admin" ? "Super Admin" : user.role === "manager" ? "Manager" : "Staff"}
+                        {roleLabel(user.role)}
                       </span>
                     </td>
                     <td>{user.effective_branch || user.branch || "—"}</td>
@@ -637,7 +644,7 @@ function CreateUserForm({
   const [crmAccess, setCrmAccess] = useState(true);
   const [timing, setTiming] = useState<TimingDraft>(DEFAULT_TIMING);
   // Payroll-only staff (no CRM access) have no attendance, so no work timing.
-  const employee = (role === "staff" || role === "manager") && crmAccess;
+  const employee = isEmployeeRole(role) && crmAccess;
   const timingInvalid = employee && (!timing.start || !timing.end || timing.start === timing.end);
 
   // Stated once, next to the control it governs, rather than being discovered
@@ -1025,7 +1032,7 @@ function EditUserModal({
             />
           </div>
 
-          {(user.role === "staff" || user.role === "manager") && crmAccess && user.crm_access !== false && <WorkTimingSection user={user} />}
+          {isEmployeeRole(user.role) && crmAccess && user.crm_access !== false && <WorkTimingSection user={user} />}
 
           {locked && (
             <div className="modal-hint">

@@ -10,6 +10,7 @@ import {
   type IngestRules,
   type ManagedUser,
 } from "@/lib/api";
+import { roleLabel } from "@/lib/roles";
 
 interface SettingsScreenProps {
   user: AuthUser;
@@ -119,7 +120,7 @@ export default function SettingsScreen({ user, onSignOut }: SettingsScreenProps)
           </div>
           <div>
             <dt>Access level</dt>
-            <dd><ShieldCheck size={14} /> {isAdmin ? "Administrator" : user.role === "manager" ? "Manager" : "Staff"}</dd>
+            <dd><ShieldCheck size={14} /> {isAdmin ? "Administrator" : roleLabel(user.role)}</dd>
           </div>
         </dl>
 

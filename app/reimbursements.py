@@ -22,7 +22,7 @@ from app.branches import can_see
 from app.config import settings
 from app.db.mongo import ensure_index, get_db
 from app.db.notifications import REIMBURSEMENT_REQUEST, NotificationRepository
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE
+from app.db.users import ADMIN_ROLE, EMPLOYEE_ROLES, MANAGER_ROLES, STAFF_ROLE
 from app.logging_config import get_logger
 from app.storage.factory import get_storage_backend
 
@@ -103,7 +103,7 @@ def approved_claims(employee_id: str, year: int, month: int, db=None) -> list[di
 def _may_view(user: dict, employee_id: str) -> bool:
     if user.get("role") == ADMIN_ROLE or user.get("id") == employee_id:
         return True
-    if user.get("role") == MANAGER_ROLE:
+    if user.get("role") in MANAGER_ROLES:
         employee = users.get(employee_id)
         return employee is not None and can_see(users.get(user["id"]), employee, users)
     return False
@@ -127,7 +127,7 @@ def submit_reimbursement(
     user: dict = Depends(current_user),
 ) -> dict:
     """An employee's own claim, with an optional bill photo or document."""
-    if user.get("role") not in {STAFF_ROLE, MANAGER_ROLE, ADMIN_ROLE}:
+    if user.get("role") not in {*EMPLOYEE_ROLES, ADMIN_ROLE}:
         raise HTTPException(status_code=403, detail="Employees only")
     claim_id = uuid.uuid4().hex
     doc = {

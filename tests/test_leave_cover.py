@@ -25,7 +25,7 @@ from app.attendance.models import CoverNomination, CoverResponse, PermissionDeci
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.db.repository import CandidateRepository
-from app.db.users import MANAGER_ROLE, STAFF_ROLE, User
+from app.db.users import FINANCE_MANAGER_ROLE, MANAGER_ROLE, STAFF_ROLE, User
 
 LEAVE_DAY = date(2026, 10, 5)
 DURING = datetime(2026, 10, 5, 6, 0, tzinfo=timezone.utc)   # 11:30 IST on the day
@@ -33,7 +33,8 @@ AFTER = datetime(2026, 10, 6, 6, 0, tzinfo=timezone.utc)    # next day
 
 ASHA = {"id": "asha", "role": STAFF_ROLE}
 BALA = {"id": "bala", "role": STAFF_ROLE}
-MANAGER = {"id": "mgr", "role": "admin"}
+MANAGER = {"id": "mgr", "role": MANAGER_ROLE}
+FINANCE = {"id": "fin", "role": FINANCE_MANAGER_ROLE}
 
 
 class FakeUsers:
@@ -43,19 +44,23 @@ class FakeUsers:
             "bala": User(id="bala", email="bala@example.com", name="Bala", role=STAFF_ROLE, branch="Mount Road"),
             "ravi": User(id="ravi", email="ravi@example.com", name="Ravi", role=STAFF_ROLE, branch="Royapettah"),
             "mgr": User(id="mgr", email="mgr@example.com", name="Mgr", role=MANAGER_ROLE, branch="Mount Road"),
+            "fin": User(id="fin", email="fin@example.com", name="Fin", role=FINANCE_MANAGER_ROLE, branch="Royapettah"),
         }
 
     def get(self, user_id):
         return self.members.get(user_id)
 
     def list_employees(self, include_inactive=False):
-        return list(self.members.values())
+        return [m for m in self.members.values() if m.id != "fin"]
 
     def list_staff(self, include_inactive=False):
         return [m for m in self.members.values() if m.role == STAFF_ROLE]
 
     def list_managers(self):
-        return [self.members["mgr"]]
+        return [self.members["mgr"], self.members["fin"]]
+
+    def list_finance_managers(self):
+        return [self.members["fin"]]
 
     def list_admins(self):
         return []
@@ -105,6 +110,7 @@ def test_the_whole_cover_day(env):
 
     respond_to_cover(leave["id"], CoverResponse(accepted=True), user=BALA)
     decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=MANAGER)
+    decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=FINANCE)
 
     started = _sweep(env, DURING)["started"]
     assert started == [{"permission_id": leave["id"], "handed_over": 4}]
@@ -134,6 +140,7 @@ def test_everything_completed_means_nothing_comes_back(env):
     leave = _request_leave()
     respond_to_cover(leave["id"], CoverResponse(accepted=True), user=BALA)
     decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=MANAGER)
+    decide_permission(leave["id"], PermissionDecision(approved=True, reason="ok"), admin=FINANCE)
     _sweep(env, DURING)
     env["db"]["candidates"].update_many({"assigned_staff_id": "bala"}, {"$set": {"evaluation_status": "rejected"}})
 

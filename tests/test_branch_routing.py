@@ -3,6 +3,9 @@
 Royapettah is the Singapore and Malaysia desk, managed by Noorul. Mount Road is
 every other destination, managed by Rafi. Each manager is told about, lists and
 decides only their own branch's requests; an administrator can decide any.
+
+Noorul is also the finance manager for both branches, so paid leave, LOP and
+Extra OT from Mount Road need Rafi *and* Noorul.
 """
 from __future__ import annotations
 
@@ -27,9 +30,9 @@ from app.attendance.models import CoverResponse, ExtraOTDecision, ExtraOTRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.branches import MOUNT_ROAD, ROYAPETTAH, branch_of
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, User
+from app.db.users import ADMIN_ROLE, EMPLOYEE_ROLES, FINANCE_MANAGER_ROLE, MANAGER_ROLE, MANAGER_ROLES, STAFF_ROLE, User
 
-NOORUL = User(id="noorul", email="noorul.adira@gmail.com", name="Noorul", role=MANAGER_ROLE)
+NOORUL = User(id="noorul", email="noorul.adira@gmail.com", name="Noorul", role=FINANCE_MANAGER_ROLE)
 RAFI = User(id="rafi", email="hr@findurjob.com", name="Rafi", role=MANAGER_ROLE)
 SREYA = User(id="sreya", email="sreya.adira@gmail.com", name="Sreya", role=STAFF_ROLE)
 RAVI = User(id="ravi", email="ravi@adira.test", name="Ravi", role=STAFF_ROLE)
@@ -42,7 +45,10 @@ class Users:
         return next((u for u in EVERYONE if u.id == user_id), None)
 
     def list_managers(self, include_inactive=False):
-        return [u for u in EVERYONE if u.role == MANAGER_ROLE]
+        return [u for u in EVERYONE if u.role in MANAGER_ROLES]
+
+    def list_finance_managers(self, include_inactive=False):
+        return [u for u in EVERYONE if u.role == FINANCE_MANAGER_ROLE]
 
     def list_admins(self, include_inactive=False):
         return [ADMIN]
@@ -51,7 +57,7 @@ class Users:
         return [u for u in EVERYONE if u.role == STAFF_ROLE]
 
     def list_employees(self, include_inactive=False):
-        return [u for u in EVERYONE if u.role in {STAFF_ROLE, MANAGER_ROLE}]
+        return [u for u in EVERYONE if u.role in EMPLOYEE_ROLES]
 
 
 class Notifications:
@@ -118,15 +124,107 @@ def test_singapore_malaysia_leave_goes_to_noorul(repository):
     assert Notifications.sent == ["noorul"]
 
 
-def test_other_destination_leave_goes_to_rafi(repository):
+def test_other_destination_leave_goes_to_rafi_and_the_finance_manager(repository):
     leave(RAVI)
-    assert Notifications.sent == ["rafi"]
+    assert Notifications.sent == ["rafi", "noorul"]
 
 
-def test_extra_ot_goes_to_the_branch_manager(repository):
+def test_extra_ot_goes_to_the_branch_manager_and_the_finance_manager(repository):
     overtime(SREYA)
     overtime(RAVI)
-    assert Notifications.sent == ["noorul", "rafi"]
+    # Noorul is Sreya's branch manager and the finance manager: told once.
+    assert Notifications.sent == ["noorul", "rafi", "noorul"]
+
+
+def test_a_permission_that_moves_no_money_needs_only_the_branch_manager(repository):
+    late = request_permission(
+        PermissionRequest(attendance_date=date(2030, 10, 10), kind="late", requested_minutes=30, reason="Traffic"),
+        user=as_user(RAVI),
+    )["permission"]
+    assert Notifications.sent == ["rafi"]
+    decided = decide_permission(late["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert decided["status"] == "approved"
+
+
+def test_mount_road_leave_needs_rafi_and_noorul(repository):
+    permission = leave(RAVI)
+    first = decide_permission(permission["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert first["status"] == "pending"
+    assert first["permission"]["awaiting_stages"] == ["finance"]
+    assert first["permission"]["can_decide"] is False
+    assert repository.calendar_day("ravi", date(2026, 10, 10)) is None
+
+    with pytest.raises(HTTPException) as again:
+        decide_permission(permission["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert again.value.status_code == 409
+
+    second = decide_permission(permission["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(NOORUL))
+    assert second["status"] == "approved"
+    assert set(second["permission"]["approvals"]) == {"manager", "finance"}
+    assert repository.calendar_day("ravi", date(2026, 10, 10))["status"] == "PL"
+
+
+def test_the_finance_manager_may_sign_first(repository):
+    request = overtime(RAVI)
+    first = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(NOORUL))
+    assert first["status"] == "pending"
+    assert first["request"]["awaiting_stages"] == ["manager"]
+    second = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(RAFI))
+    assert second["request"]["status"] == "approved"
+
+
+def test_one_rejection_rejects_a_dual_approval_request(repository):
+    request = overtime(RAVI)
+    decided = decide_extra_ot(request["id"], ExtraOTDecision(approved=False, reason="No"), approver=as_user(NOORUL))
+    assert decided["request"]["status"] == "rejected"
+    assert decided["request"]["approvals"]["finance"]["approved"] is False
+
+
+def test_lop_from_another_branch_also_needs_finance(repository):
+    lop = request_permission(
+        PermissionRequest(attendance_date=date(2026, 10, 11), kind="unpaid_leave", reason="Travel",
+                          cover_employee_id="rafi"),
+        user=as_user(RAVI),
+    )["permission"]
+    respond_to_cover(lop["id"], CoverResponse(accepted=True), user=as_user(RAFI))
+    decided = decide_permission(lop["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert decided["status"] == "pending"
+
+
+def test_a_managers_own_request_goes_to_the_admin_and_the_finance_manager(repository):
+    request = overtime(RAFI)
+    assert Notifications.sent == ["admin", "noorul"]
+    first = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(ADMIN))
+    assert first["status"] == "pending"
+    second = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(NOORUL))
+    assert second["request"]["status"] == "approved"
+
+
+def test_the_finance_managers_own_request_is_signed_by_the_admin(repository):
+    request = overtime(NOORUL)
+    assert Notifications.sent == ["admin"]
+    with pytest.raises(HTTPException):
+        decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="Mine"), approver=as_user(NOORUL))
+    decided = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(ADMIN))
+    assert decided["request"]["status"] == "approved"
+
+
+def test_the_finance_manager_lists_money_requests_from_every_branch(repository):
+    leave(SREYA)
+    leave(RAVI)
+    request_permission(
+        PermissionRequest(attendance_date=date(2030, 10, 10), kind="late", requested_minutes=30, reason="Traffic"),
+        user=as_user(RAVI),
+    )
+    overtime(RAVI)
+
+    permissions = list_permissions(2026, 10, employee_id=None, user=as_user(NOORUL))["items"]
+    assert {(row["employee_id"], row["kind"]) for row in permissions} == {("sreya", "paid_leave"), ("ravi", "paid_leave")}
+    ravi = next(row for row in permissions if row["employee_id"] == "ravi")
+    assert ravi["employee_name"] == "Ravi" and ravi["can_decide"] is True
+    # A late permission from Mount Road is for Rafi alone.
+    assert list_permissions(2030, 10, employee_id=None, user=as_user(NOORUL))["items"] == []
+    assert [row["employee_id"] for row in list_extra_ot(2026, 9, employee_id=None, user=as_user(NOORUL))["items"]] == ["ravi"]
 
 
 def test_a_manager_cannot_decide_the_other_branchs_leave(repository):
@@ -140,19 +238,21 @@ def test_a_manager_cannot_decide_the_other_branchs_leave(repository):
 
 
 def test_a_manager_cannot_decide_the_other_branchs_ot(repository):
-    request = overtime(RAVI)
+    request = overtime(SREYA)
     with pytest.raises(HTTPException) as refused:
-        decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(NOORUL))
+        decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(RAFI))
     assert refused.value.status_code == 403
 
-    decided = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(RAFI))
+    decided = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(NOORUL))
     assert decided["request"]["status"] == "approved"
 
 
-def test_an_administrator_can_decide_either_branch(repository):
+def test_an_administrator_can_decide_either_branchs_manager_stage(repository):
     request = overtime(SREYA)
     decided = decide_extra_ot(request["id"], ExtraOTDecision(approved=True, reason="OK"), approver=as_user(ADMIN))
-    assert decided["request"]["status"] == "approved"
+    # The finance manager still has to sign.
+    assert decided["status"] == "pending"
+    assert decided["request"]["awaiting_stages"] == ["finance"]
 
 
 def test_each_manager_lists_only_their_own_branch(repository):
@@ -161,11 +261,11 @@ def test_each_manager_lists_only_their_own_branch(repository):
     overtime(SREYA)
     overtime(RAVI)
 
-    for manager, own in ((NOORUL, "sreya"), (RAFI, "ravi")):
-        permissions = list_permissions(2026, 10, employee_id=None, user=as_user(manager))["items"]
-        extra_ot = list_extra_ot(2026, 9, employee_id=None, user=as_user(manager))["items"]
-        assert {row["employee_id"] for row in permissions} == {own}
-        assert {row["employee_id"] for row in extra_ot} == {own}
+    # Noorul, as finance manager, also sees Mount Road's money requests (above).
+    permissions = list_permissions(2026, 10, employee_id=None, user=as_user(RAFI))["items"]
+    extra_ot = list_extra_ot(2026, 9, employee_id=None, user=as_user(RAFI))["items"]
+    assert {row["employee_id"] for row in permissions} == {"ravi"}
+    assert {row["employee_id"] for row in extra_ot} == {"ravi"}
 
 
 # --------------------------------------------------------------------------- #

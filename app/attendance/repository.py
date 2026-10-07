@@ -138,6 +138,23 @@ class AttendanceRepository:
         )
         return _public(result)
 
+    def record_permission_approvals(self, permission_id: str, stages: dict) -> dict | None:
+        """Save stage approvals on a still-pending request; see `app.attendance.approvals`."""
+        return self._record_approvals(self.permissions, permission_id, stages)
+
+    def record_extra_ot_approvals(self, request_id: str, stages: dict) -> dict | None:
+        return self._record_approvals(self.extra_ot_collection, request_id, stages)
+
+    @staticmethod
+    def _record_approvals(collection, request_id: str, stages: dict) -> dict | None:
+        updates = {f"approvals.{stage}": record for stage, record in stages.items()}
+        updates["updated_at"] = _utcnow()
+        return _public(collection.find_one_and_update(
+            {"_id": request_id, "status": "pending"},
+            {"$set": updates},
+            return_document=ReturnDocument.AFTER,
+        ))
+
     # ---- leave cover ------------------------------------------------------ #
     def nominate_cover(self, permission_id: str, employee_id: str, cover: dict) -> dict | None:
         """Ask a colleague to cover. Only while the leave still awaits a cover."""
@@ -224,10 +241,10 @@ class AttendanceRepository:
     def extra_ot(self, request_id: str) -> dict | None:
         return _public(self.extra_ot_collection.find_one({"_id": request_id}))
 
-    def decide_extra_ot(self, request_id: str, decision: dict) -> dict | None:
+    def decide_extra_ot(self, request_id: str, decision: dict, extra: dict | None = None) -> dict | None:
         updates = {"status": "approved" if decision["approved"] else "rejected",
                    "decision_reason": decision["reason"], "decided_by": decision["decided_by"],
-                   "decided_at": decision["decided_at"], "updated_at": _utcnow()}
+                   "decided_at": decision["decided_at"], "updated_at": _utcnow(), **(extra or {})}
         return _public(self.extra_ot_collection.find_one_and_update(
             {"_id": request_id, "status": "pending"}, {"$set": updates},
             return_document=ReturnDocument.AFTER,

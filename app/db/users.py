@@ -24,7 +24,16 @@ log = get_logger(__name__)
 
 ADMIN_ROLE = "admin"
 MANAGER_ROLE = "manager"
+#: A branch manager who also countersigns money-affecting requests — paid
+#: leave, LOP (unpaid leave) and Extra OT — from every branch. Everywhere a
+#: branch manager is meant, a finance manager is one too (`MANAGER_ROLES`).
+FINANCE_MANAGER_ROLE = "finance_manager"
 STAFF_ROLE = "staff"
+#: Roles that run a branch: they approve its staff and see its attendance.
+MANAGER_ROLES = (MANAGER_ROLE, FINANCE_MANAGER_ROLE)
+#: Roles on attendance and payroll, i.e. everyone except administrators.
+EMPLOYEE_ROLES = (STAFF_ROLE, MANAGER_ROLE, FINANCE_MANAGER_ROLE)
+ROLES = (ADMIN_ROLE, *EMPLOYEE_ROLES)
 USERS_COLLECTION = "users"
 USER_DELETIONS_COLLECTION = "user_deletions"
 LEGACY_DEMO_STAFF_EMAIL = "staff@gmail.com"
@@ -75,6 +84,7 @@ ACTION_PERMISSIONS = (
 ROLE_DEFAULT_PAGES = {
     ADMIN_ROLE: set(PAGES),
     MANAGER_ROLE: set(PAGES) - {"users"},
+    FINANCE_MANAGER_ROLE: set(PAGES) - {"users"},
     STAFF_ROLE: {"candidates", "candidate-entry", "attendance", "payroll", "settings"},
 }
 
@@ -133,7 +143,7 @@ class User:
             "name": self.name,
             "role": self.role,
             "staff_code": self.staff_code or (
-                staff_code(self.id) if self.role in (STAFF_ROLE, MANAGER_ROLE) else None
+                staff_code(self.id) if self.role in EMPLOYEE_ROLES else None
             ),
             "keywords": self.keywords or [],
             "phone": self.phone or "",
@@ -308,7 +318,7 @@ class UserRepository:
             "created_at": utcnow(),
             "last_login_at": None,
         }
-        if role in (STAFF_ROLE, MANAGER_ROLE):
+        if role in EMPLOYEE_ROLES:
             doc["staff_code"] = staff_code(user_id)
         self._coll.insert_one(doc)
         # An administrator explicitly creating this address is an intentional
@@ -347,7 +357,16 @@ class UserRepository:
         return [self._to_user(d) for d in docs]
 
     def list_managers(self, include_inactive: bool = False) -> list[User]:
-        query: dict = {"role": MANAGER_ROLE}
+        """Every branch manager, finance managers included."""
+        query: dict = {"role": {"$in": list(MANAGER_ROLES)}}
+        if not include_inactive:
+            query["active"] = {"$ne": False}
+        docs = list(self._coll.find(query).sort("created_at", ASCENDING))
+        return [self._to_user(d) for d in docs]
+
+    def list_finance_managers(self, include_inactive: bool = False) -> list[User]:
+        """Who countersigns paid leave, LOP and Extra OT, across every branch."""
+        query: dict = {"role": FINANCE_MANAGER_ROLE}
         if not include_inactive:
             query["active"] = {"$ne": False}
         docs = list(self._coll.find(query).sort("created_at", ASCENDING))
@@ -355,7 +374,7 @@ class UserRepository:
 
     def list_employees(self, include_inactive: bool = True) -> list[User]:
         """Staff and managers who participate in attendance and payroll."""
-        query: dict = {"role": {"$in": [STAFF_ROLE, MANAGER_ROLE]}}
+        query: dict = {"role": {"$in": list(EMPLOYEE_ROLES)}}
         if not include_inactive:
             query["active"] = {"$ne": False}
         docs = list(self._coll.find(query).sort("created_at", ASCENDING))
@@ -455,9 +474,9 @@ class UserRepository:
             updates["email"] = normalized_email
         if name is not None:
             updates["name"] = name
-        if role in (ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE):
+        if role in ROLES:
             updates["role"] = role
-            if role in (STAFF_ROLE, MANAGER_ROLE) and not doc.get("staff_code"):
+            if role in EMPLOYEE_ROLES and not doc.get("staff_code"):
                 updates["staff_code"] = staff_code(user_id)
         if active is not None:
             updates["active"] = active
@@ -711,24 +730,28 @@ def ensure_user_indexes() -> None:
     ensure_index(coll, [("role", ASCENDING), ("active", ASCENDING)], "user_role_active_idx")
 
 
-#: The branch managers: Rafi runs Mount Road, Noorul runs Royapettah (the
-#: Singapore and Malaysia desk). Which staff each one approves is decided by
-#: branch in `app.branches`, not here.
+#: The branch managers and the role each one holds: Rafi runs Mount Road;
+#: Noorul runs Royapettah (the Singapore and Malaysia desk) and is also the
+#: finance manager for both branches. Which staff each one approves is decided
+#: by branch in `app.branches`, not here.
 BRANCH_MANAGER_ACCOUNTS = (
-    {"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}},
-    {"email": "noorul.adira@gmail.com"},
+    ({"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}}, MANAGER_ROLE),
+    ({"email": "noorul.adira@gmail.com"}, FINANCE_MANAGER_ROLE),
 )
 
 
 def ensure_rafi_manager() -> bool:
-    """Keep the named branch-manager accounts at their manager role."""
+    """Keep the named branch-manager accounts at their manager roles."""
     coll = get_users_collection()
     modified = 0
-    for account in BRANCH_MANAGER_ACCOUNTS:
+    for account, role in BRANCH_MANAGER_ACCOUNTS:
+        # Never demote an administrator, and never take the finance role away
+        # from somebody who was given it in User Management.
+        keep = [ADMIN_ROLE, role] if role == FINANCE_MANAGER_ROLE else [ADMIN_ROLE, FINANCE_MANAGER_ROLE, role]
         result = coll.update_one(
-            {**account, "role": {"$ne": ADMIN_ROLE}},
+            {**account, "role": {"$nin": keep}},
             {
-                "$set": {"role": MANAGER_ROLE, "updated_at": utcnow()},
+                "$set": {"role": role, "updated_at": utcnow()},
                 "$pull": {"page_grants": "users"},
             },
         )

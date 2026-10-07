@@ -386,7 +386,7 @@ export interface AttendanceMonth {
   salary_preview?: { label: "PROVISIONAL"; attendance_lop: number };
 }
 
-export interface AttendancePermission {
+export interface AttendancePermission extends ApprovalState {
   id: string;
   employee_id: string;
   attendance_date: string;
@@ -434,6 +434,34 @@ export interface AttendancePermission {
   } | null;
   /** Present on `/attendance/cover-requests`: who asked. */
   employee_name?: string;
+}
+
+/**
+ * Where a request stands with its approvers (see `app/attendance/approvals.py`).
+ *
+ * Every request needs the manager stage. Paid leave, LOP and Extra OT also need
+ * the finance stage; both must approve, in either order, and one rejection is
+ * final. Present on list and decision responses.
+ */
+export type ApprovalStage = "manager" | "finance";
+
+export interface ApprovalRecord {
+  approved: boolean;
+  by: string;
+  by_name: string;
+  reason: string;
+  at: string;
+}
+
+export interface ApprovalState {
+  approval_stages?: ApprovalStage[];
+  approvals?: Partial<Record<ApprovalStage, ApprovalRecord>>;
+  /** Stages still to approve while the request is pending. */
+  awaiting_stages?: ApprovalStage[];
+  /** Whether the signed-in user has a stage of this request left to decide. */
+  can_decide?: boolean;
+  employee_name?: string;
+  employee_branch?: string;
 }
 
 export interface CoverColleague {
@@ -570,10 +598,11 @@ export function decideAttendancePermission(
 // --------------------------------------------------------------------------- //
 //  Extra OT
 //
-//  Staff -> manager -> approval, and a manager's own request goes to an
-//  administrator. Only approved minutes reach payroll.
+//  Staff -> manager and finance manager -> approval, and a manager's own
+//  request goes to an administrator and the finance manager. Only approved
+//  minutes reach payroll.
 // --------------------------------------------------------------------------- //
-export interface ExtraOtRequest {
+export interface ExtraOtRequest extends ApprovalState {
   id: string;
   employee_id: string;
   attendance_date: string;

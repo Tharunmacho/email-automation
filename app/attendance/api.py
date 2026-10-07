@@ -15,8 +15,9 @@ from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNo
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import LEAVE_KINDS, WEEKDAYS, AttendanceError, AttendanceService
 from app.attendance.sites import OffSiteError, check_on_site
-from app.branches import branch_managers, branch_of, can_see, manages, same_branch
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, on_attendance
+from app.attendance import approvals
+from app.branches import branch_of, can_see, manages, same_branch
+from app.db.users import ADMIN_ROLE, EMPLOYEE_ROLES, FINANCE_MANAGER_ROLE, MANAGER_ROLES, STAFF_ROLE, on_attendance
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
 from app.db.notifications import ATTENDANCE_REQUEST, NotificationRepository
 from app.logging_config import get_logger
@@ -29,21 +30,25 @@ def service() -> AttendanceService:
     return AttendanceService(AttendanceRepository())
 
 
+#: Roles that see a team's attendance and decide its requests.
+_APPROVER_ROLES = frozenset({ADMIN_ROLE, *MANAGER_ROLES})
+
+
 def require_attendance_manager(user: dict = Depends(current_user)) -> dict:
-    if user.get("role") not in {ADMIN_ROLE, MANAGER_ROLE}:
+    if user.get("role") not in _APPROVER_ROLES:
         raise HTTPException(status_code=403, detail="Manager role required")
     return user
 
 
 def _employee_id(user: dict, requested: str | None = None) -> str:
-    employee_id = requested if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE} and requested else user["id"]
+    employee_id = requested if user.get("role") in _APPROVER_ROLES and requested else user["id"]
     employee = users.get(employee_id)
-    if not employee or not employee.active or employee.role not in {STAFF_ROLE, MANAGER_ROLE}:
+    if not employee or not employee.active or employee.role not in EMPLOYEE_ROLES:
         raise HTTPException(status_code=404, detail="Active employee not found")
     if not on_attendance(employee):
         # Staff without CRM access are on payroll only.
         raise HTTPException(status_code=404, detail="This employee is on payroll only, not attendance")
-    if user.get("role") == MANAGER_ROLE and not can_see(users.get(user["id"]), employee, users):
+    if user.get("role") in MANAGER_ROLES and not can_see(users.get(user["id"]), employee, users):
         # Noorul works Royapettah and Rafi works Mount Road; neither reads nor
         # changes the other branch's attendance.
         raise HTTPException(status_code=404, detail="Active employee not found")
@@ -105,7 +110,7 @@ def record_punch(payload: PunchRequest, user: dict = Depends(current_user)) -> d
         if site:
             payload.evidence.metadata["site"] = site
     attendance = service()
-    event, created = _conflict(lambda: attendance.punch(employee_id, payload, allow_recorded_time=user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}))
+    event, created = _conflict(lambda: attendance.punch(employee_id, payload, allow_recorded_time=user.get("role") in _APPROVER_ROLES))
     event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
     return {
         "status": "recorded" if created else "duplicate",
@@ -351,27 +356,19 @@ def attendance_month(
     return result
 
 
-def _approvers(employee_record) -> tuple[list, str]:
-    """Who decides this employee's requests.
+def _notify_approvers(employee_id: str, request_type: str, row: dict, title: str, what: str) -> None:
+    """Tell everyone with a stage to decide about a new request.
 
-    A manager's own request goes to the administrators. Staff requests go to
-    the manager of their branch: Noorul at Royapettah for the Singapore and
-    Malaysia desk, Rafi at Mount Road for every other destination (see
-    `app.branches`).
+    Staff requests go to the manager of their branch (Noorul at Royapettah,
+    Rafi at Mount Road — see `app.branches`); a manager's own request goes to
+    the administrators. Paid leave, LOP and Extra OT also go to the finance
+    manager (see `app.attendance.approvals`).
     """
-    if employee_record and employee_record.role == MANAGER_ROLE:
-        return getattr(users, "list_admins", lambda: [])(), "administrators"
-    if employee_record is None:
-        return getattr(users, "list_managers", lambda: [])(), "managers"
-    return branch_managers(employee_record, users), f"{branch_of(employee_record)} managers"
-
-
-def _notify_approvers(employee_id: str, request_id, title: str, what: str) -> None:
     employee_record = users.get(employee_id)
-    approvers, recipient_label = _approvers(employee_record)
+    recipients = approvals.approvers_for(request_type, row, employee_record, users)
     try:
-        notification_repo = NotificationRepository() if approvers else None
-        for approver in approvers:
+        notification_repo = NotificationRepository() if recipients else None
+        for approver in recipients:
             notification_repo.record(
                 approver.id,
                 type=ATTENDANCE_REQUEST,
@@ -379,23 +376,91 @@ def _notify_approvers(employee_id: str, request_id, title: str, what: str) -> No
                 message=f"{employee_record.name if employee_record else employee_id} requested {what}.",
             )
     except Exception as exc:  # The request is durable even if its alert cannot be written.
-        log.warning("Attendance request %s could not notify %s: %s", request_id, recipient_label, exc)
+        log.warning("Attendance request %s could not notify its approvers: %s", row.get("id"), exc)
 
 
-def _require_approver(approver: dict, employee_id: str | None) -> None:
-    """Refuse a decision from anyone but the requester's own approvers."""
-    if approver.get("role") == ADMIN_ROLE:
-        return
-    requester = users.get(employee_id) if employee_id else None
-    if requester is None:
-        return
-    if requester.role == MANAGER_ROLE:
-        raise HTTPException(status_code=403, detail="Administrator approval is required for a manager request")
-    if not manages(users.get(approver["id"]), requester, users):
-        raise HTTPException(
-            status_code=403,
-            detail=f"This request belongs to the {branch_of(requester)} branch manager",
+_STAGE_LABELS = {approvals.MANAGER_STAGE: "manager", approvals.FINANCE_STAGE: "finance manager"}
+
+
+def _record_decision(approver: dict, request_type: str, pending: dict, approved: bool, reason: str) -> tuple[dict, dict | None]:
+    """Record this approver's stages of a pending request.
+
+    When the decision settles the request — a rejection (one is final), or the
+    last approval it was waiting for — nothing is written here; the stage
+    records are returned for the caller to store with the final status, so a
+    request can never be left marked approved at every stage yet still pending.
+    Otherwise the approval is saved and ``None`` returned. Refuses anyone who
+    has no stage of this request left to decide.
+    """
+    viewer = users.get(approver["id"])
+    requester = users.get(pending["employee_id"])
+    mine = approvals.stages_for(viewer, request_type, pending, requester, users)
+    if not mine:
+        if requester is not None and requester.role in MANAGER_ROLES:
+            detail = "Administrator approval is required for a manager request"
+        elif requester is not None:
+            detail = f"This request belongs to the {branch_of(requester)} branch manager"
+        else:
+            detail = "You cannot decide this request"
+        raise HTTPException(status_code=403, detail=detail)
+    waiting = [stage for stage in approvals.outstanding(request_type, pending) if stage in mine]
+    if not waiting:
+        others = ", ".join(_STAGE_LABELS[stage] for stage in approvals.outstanding(request_type, pending))
+        raise HTTPException(status_code=409, detail=f"You have already approved this; it is waiting for the {others}")
+    record = approvals.stage_record(viewer, approved, reason)
+    stages = {stage: record for stage in waiting}
+    if not approved or set(approvals.outstanding(request_type, pending)) <= set(waiting):
+        return pending, stages
+    repository = AttendanceRepository()
+    save = (
+        repository.record_permission_approvals
+        if request_type == approvals.PERMISSION
+        else repository.record_extra_ot_approvals
+    )
+    saved = save(pending["id"], stages)
+    if not saved:
+        raise HTTPException(status_code=409, detail="Pending request not found")
+    if approvals.outstanding(request_type, saved):
+        _notify_partial(saved, request_type, viewer)
+        return saved, None
+    # The other approver signed at the same moment: this write completed it.
+    return saved, {}
+
+
+def _notify_partial(row: dict, request_type: str, viewer) -> None:
+    """Tell the requester one approval is in and who still has to sign."""
+    remaining = ", ".join(_STAGE_LABELS[stage] for stage in approvals.outstanding(request_type, row))
+    what = "Extra OT" if request_type == approvals.EXTRA_OT else row.get("kind", "request").replace("_", " ")
+    try:
+        NotificationRepository().record(
+            row["employee_id"], type=ATTENDANCE_REQUEST,
+            title="Request partly approved",
+            message=(
+                f"Your {what} for {row['attendance_date']} was approved by "
+                f"{viewer.name or viewer.email}; it is now waiting for the {remaining}."
+            ),
         )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Partial approval of %s could not notify the requester: %s", row.get("id"), exc)
+
+
+def _for_viewer(user: dict, request_type: str, rows: list[dict], team_ids) -> list[dict]:
+    """Rows this caller may see, each with its approval state for them.
+
+    A finance manager sees their own branch as any manager does, plus the
+    money requests of every other branch — and nothing else from those.
+    """
+    viewer = users.get(user["id"])
+    team = {team_ids} if isinstance(team_ids, str) else set(team_ids)
+    people: dict = {}
+    visible = []
+    for row in rows:
+        if row["employee_id"] not in team and approvals.FINANCE_STAGE not in approvals.required_stages(request_type, row):
+            continue
+        if row["employee_id"] not in people:
+            people[row["employee_id"]] = users.get(row["employee_id"])
+        visible.append(approvals.describe(viewer, request_type, row, people[row["employee_id"]], users))
+    return visible
 
 
 def _branch_staff(user: dict) -> list:
@@ -428,7 +493,7 @@ def _cover_colleagues(employee_id: str) -> list:
         )
         if member.id != employee_id and getattr(member, "active", True) and on_attendance(member)
     ]
-    if me is not None and me.role == MANAGER_ROLE:
+    if me is not None and me.role in MANAGER_ROLES:
         colleagues = [member for member in colleagues if member.role == STAFF_ROLE]
     if me is None:
         return colleagues
@@ -519,7 +584,7 @@ def respond_to_cover(permission_id: str, payload: CoverResponse, user: dict = De
         # Only now does the leave reach the manager (or, for a manager's own
         # leave, the super admins).
         _notify_approvers(
-            result["employee_id"], result["id"], "Attendance request",
+            result["employee_id"], approvals.PERMISSION, result, "Attendance request",
             f"{result['kind'].replace('_', ' ')} for {result['attendance_date']}"
             f" (cover accepted by {result.get('cover_employee_name') or 'a colleague'})",
         )
@@ -568,7 +633,7 @@ def request_permission(payload: PermissionRequest, user: dict = Depends(current_
         _ask_cover(permission)
         return {"status": "awaiting_cover", "permission": permission}
     _notify_approvers(
-        employee, permission.get("id"), "Attendance request",
+        employee, approvals.PERMISSION, permission, "Attendance request",
         f"{payload.kind.replace('_', ' ')} for {payload.attendance_date}",
     )
     return {"status": "pending", "permission": permission}
@@ -579,7 +644,7 @@ def request_extra_ot(payload: ExtraOTRequest, user: dict = Depends(current_user)
     employee = _employee_id(user, payload.employee_id)
     request = _conflict(lambda: service().request_extra_ot(employee, payload))
     _notify_approvers(
-        employee, request.get("id"), "Extra OT request",
+        employee, approvals.EXTRA_OT, request, "Extra OT request",
         f"{payload.requested_minutes} min Extra OT for {payload.attendance_date}",
     )
     return {"status": "pending", "request": request}
@@ -587,9 +652,15 @@ def request_extra_ot(payload: ExtraOTRequest, user: dict = Depends(current_user)
 
 @router.post("/extra-ot/{request_id}/decision")
 def decide_extra_ot(request_id: str, payload: ExtraOTDecision, approver: dict = Depends(require_attendance_manager)) -> dict:
+    """One approver's answer. Extra OT needs the manager and the finance manager."""
     pending = AttendanceRepository().extra_ot(request_id)
-    _require_approver(approver, pending.get("employee_id") if pending else None)
-    return {"status": "decided", "request": _conflict(lambda: service().decide_extra_ot(request_id, payload, approver["id"]))}
+    if not pending or pending.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="pending Extra OT request not found")
+    request, final = _record_decision(approver, approvals.EXTRA_OT, pending, payload.approved, payload.reason)
+    if final is not None:
+        request = _conflict(lambda: service().decide_extra_ot(request_id, payload, approver["id"], approvals=final))
+    _for_viewer(approver, approvals.EXTRA_OT, [request], request["employee_id"])
+    return {"status": "decided" if final is not None else "pending", "request": request}
 
 
 def _period(year: int, month: int) -> tuple[date, date]:
@@ -606,7 +677,7 @@ def _visible_employee_ids(user: dict, employee_id: str | None) -> str | list[str
     that person, and is checked by `_employee_id` so staff cannot name somebody
     else.
     """
-    if user.get("role") in {ADMIN_ROLE, MANAGER_ROLE} and not employee_id:
+    if user.get("role") in _APPROVER_ROLES and not employee_id:
         if user.get("role") == ADMIN_ROLE:
             members = (
                 users.list_employees(include_inactive=False)
@@ -619,6 +690,22 @@ def _visible_employee_ids(user: dict, employee_id: str | None) -> str | list[str
     return _employee_id(user, employee_id)
 
 
+def _finance_scope(user: dict, employee_id: str | None, team):
+    """Whose requests to read: the team, widened to every branch for a finance manager.
+
+    `_for_viewer` then drops the other branches' rows that are not money
+    requests, so the widening never shows a finance manager anything else.
+    """
+    if user.get("role") != FINANCE_MANAGER_ROLE or employee_id:
+        return team
+    everyone = (
+        users.list_employees(include_inactive=False)
+        if hasattr(users, "list_employees")
+        else users.list_assignable_staff()
+    )
+    return [member.id for member in everyone if member.id != user["id"] and on_attendance(member)]
+
+
 @router.get("/permissions")
 def list_permissions(
     year: int,
@@ -628,8 +715,11 @@ def list_permissions(
 ) -> dict:
     """Own history for employees; staff approvals for managers; all for admins."""
     start, end = _period(year, month)
-    items = AttendanceRepository().permissions_for_period(
-        _visible_employee_ids(user, employee_id), start, end
+    team = _visible_employee_ids(user, employee_id)
+    items = _for_viewer(
+        user, approvals.PERMISSION,
+        AttendanceRepository().permissions_for_period(_finance_scope(user, employee_id, team), start, end),
+        team,
     )
     return {"items": items, "count": len(items), "year": year, "month": month}
 
@@ -643,8 +733,11 @@ def list_extra_ot(
 ) -> dict:
     """Extra OT requests for the month, scoped exactly like permissions."""
     start, end = _period(year, month)
-    items = AttendanceRepository().extra_ot_for_period(
-        _visible_employee_ids(user, employee_id), start, end
+    team = _visible_employee_ids(user, employee_id)
+    items = _for_viewer(
+        user, approvals.EXTRA_OT,
+        AttendanceRepository().extra_ot_for_period(_finance_scope(user, employee_id, team), start, end),
+        team,
     )
     return {"items": items, "count": len(items), "year": year, "month": month}
 
@@ -688,10 +781,12 @@ def decide_permission(permission_id: str, payload: PermissionDecision, admin: di
     pending = attendance.repository.permission(permission_id)
     if not pending or pending.get("status") != "pending":
         raise HTTPException(status_code=409, detail="Pending permission not found")
-    _require_approver(admin, pending["employee_id"])
-    permission = _conflict(lambda: attendance.decide_permission(permission_id, payload, admin["id"]))
+    permission, final = _record_decision(admin, approvals.PERMISSION, pending, payload.approved, payload.reason)
+    if final is not None:
+        permission = _conflict(lambda: attendance.decide_permission(permission_id, payload, admin["id"], approvals=final))
     if permission.get("status") == "approved" and permission.get("cover_status") == "accepted":
         _try_start_covers()
+    _for_viewer(admin, approvals.PERMISSION, [permission], permission["employee_id"])
     return {"status": permission["status"], "permission": permission}
 
 

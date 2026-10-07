@@ -28,6 +28,7 @@ import {
   type PayrollMonth,
   type PayrollRow,
 } from "@/lib/api";
+import { isManagerRole } from "@/lib/roles";
 import BranchSwitch, { branchOptions, useBranches } from "@/components/ui/BranchSwitch";
 import DatePicker from "@/components/ui/DatePicker";
 import { IncentiveDialog, NetPayableLogs, NetPayableOverrideForm, PayslipDialog, ReimbursementsPanel } from "@/screens/PayrollExtras";
@@ -71,7 +72,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
   const [incentiveFor, setIncentiveFor] = useState<PayrollRow | null>(null);
   const allBranches = useBranches();
   const [year, month] = period.split("-").map(Number);
-  const canManage = user.role === "admin" || user.role === "manager";
+  const canManage = user.role === "admin" || isManagerRole(user.role);
   const personalView = !canManage || viewMode === "mine";
   const loadRun = useRef(0);
   // A previously loaded month's figures must never appear under a new month.
@@ -172,7 +173,7 @@ export default function PayrollScreen({ user, onToast }: Props) {
           <p>{personalView ? "Your private salary, attendance allowance and deduction breakdown." : "Review attendance deductions, confirm net pay, then mark each employee as paid."}</p>
         </div>
         <div className="payroll-toolbar">
-          {user.role === "manager" && <div className="scope-switch" aria-label="Payroll view">
+          {isManagerRole(user.role) && <div className="scope-switch" aria-label="Payroll view">
             <button type="button" className={viewMode === "mine" ? "is-active" : ""} onClick={() => setViewMode("mine")}>My payroll</button>
             <button type="button" className={viewMode === "team" ? "is-active" : ""} onClick={() => setViewMode("team")}>Team payroll</button>
           </div>}

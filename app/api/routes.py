@@ -86,7 +86,8 @@ from app.services.resume_store import ResumeRejected, store_resume
 from app.db.users import (
     ACTION_PERMISSIONS,
     ADMIN_ROLE,
-    MANAGER_ROLE,
+    EMPLOYEE_ROLES,
+    ROLES,
     STAFF_ROLE,
     UserRepository,
     actions_for,
@@ -2505,7 +2506,7 @@ def reassign_candidate(
     auto_routed = False
     if payload.staff_id:
         member = users.get(payload.staff_id)
-        if not member or member.role not in {STAFF_ROLE, MANAGER_ROLE} or not member.active:
+        if not member or member.role not in EMPLOYEE_ROLES or not member.active:
             raise HTTPException(status_code=400, detail="Target staff member is not active")
     elif not payload.keep_current_owner:
         # Nobody named, so the destination decides. Excluding the current owner
@@ -4854,9 +4855,7 @@ def list_users(_user: dict = Depends(require_page("users"))) -> dict:
 
 @app.post("/users", status_code=201)
 def create_user(payload: UserIn, admin: dict = Depends(require_page("users"))) -> dict:
-    from app.db.users import ADMIN_ROLE as _ADMIN, MANAGER_ROLE as _MANAGER, STAFF_ROLE as _STAFF
-
-    role = payload.role if payload.role in (_ADMIN, _MANAGER, _STAFF) else _STAFF
+    role = payload.role if payload.role in ROLES else STAFF_ROLE
     try:
         user = users.create(
             email=payload.email,

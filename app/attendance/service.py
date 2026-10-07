@@ -40,6 +40,11 @@ def _non_working_status(
     return AttendanceStatus.WEEKLY_OFF if weekly_off else None
 
 
+def _stage_fields(approvals: dict | None) -> dict:
+    """Approval-stage records as dotted Mongo fields; see `app.attendance.approvals`."""
+    return {f"approvals.{stage}": record for stage, record in (approvals or {}).items()}
+
+
 class AttendanceService:
     def __init__(self, repository: AttendanceRepository, policy: AttendancePolicy | None = None):
         self.repository = repository
@@ -175,7 +180,8 @@ class AttendanceService:
         if any(row.get("kind") == "weekly_off" and row.get("status") in {"pending", "approved"} for row in existing):
             raise AttendanceError("a weekly off has already been requested for this week")
 
-    def decide_permission(self, permission_id: str, decision: PermissionDecision, approver_id: str) -> dict:
+    def decide_permission(self, permission_id: str, decision: PermissionDecision, approver_id: str, *, approvals: dict | None = None) -> dict:
+        """Settle a pending request. ``approvals`` are stage records stored with it."""
         pending = self.repository.permission(permission_id)
         if not pending or pending.get("status") != "pending":
             raise AttendanceError("pending permission not found")
@@ -185,7 +191,10 @@ class AttendanceService:
             start, _ = shift_bounds(day, shift, self.policy.timezone_name)
             if datetime.now(timezone.utc) >= start:
                 raise AttendanceError("work-from-home must be approved before shift start")
-        result = self.repository.decide_permission(permission_id, {**decision.model_dump(), "decided_by": approver_id, "decided_at": datetime.now(timezone.utc)})
+        result = self.repository.decide_permission(permission_id, {
+            **decision.model_dump(), "decided_by": approver_id, "decided_at": datetime.now(timezone.utc),
+            **_stage_fields(approvals),
+        })
         if not result:
             raise AttendanceError("pending permission not found")
         if decision.approved and pending.get("kind") == "weekly_off":
@@ -216,10 +225,11 @@ class AttendanceService:
                                                 "attendance_date": request.attendance_date.isoformat(),
                                                 "employee_id": employee_id})
 
-    def decide_extra_ot(self, request_id: str, decision: ExtraOTDecision, approver_id: str) -> dict:
+    def decide_extra_ot(self, request_id: str, decision: ExtraOTDecision, approver_id: str, *, approvals: dict | None = None) -> dict:
         result = self.repository.decide_extra_ot(request_id, {**decision.model_dump(),
                                                                "decided_by": approver_id,
-                                                               "decided_at": datetime.now(timezone.utc)})
+                                                               "decided_at": datetime.now(timezone.utc)},
+                                                 extra=_stage_fields(approvals))
         if not result:
             raise AttendanceError("pending Extra OT request not found")
         return result

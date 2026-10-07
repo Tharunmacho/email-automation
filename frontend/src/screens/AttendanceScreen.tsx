@@ -53,7 +53,10 @@ import {
   nominateLeaveCover,
   respondToCoverRequest,
   type CoverColleague,
+  type ApprovalStage,
+  type ApprovalState,
 } from "@/lib/api";
+import { isManagerRole } from "@/lib/roles";
 
 interface Props {
   user: AuthUser;
@@ -216,6 +219,39 @@ function requestStatusLabel(status: string): string {
   return status === "awaiting_cover" ? "waiting for cover" : status;
 }
 
+const STAGE_LABEL: Record<ApprovalStage, string> = { manager: "Manager", finance: "Finance manager" };
+
+/** Pending, and the signed-in user still has a stage of it to decide. */
+function needsMyDecision(row: ApprovalState & { status: string }): boolean {
+  return row.status === "pending" && row.can_decide !== false;
+}
+
+function waitingFor(row: ApprovalState): string {
+  return (row.awaiting_stages ?? []).map((stage) => STAGE_LABEL[stage].toLowerCase()).join(" and ");
+}
+
+/**
+ * Paid leave, LOP and Extra OT need the manager and the finance manager; this
+ * shows where each of the two stands. Single-stage requests show nothing.
+ */
+function ApprovalSteps({ row }: { row: ApprovalState & { status: string } }) {
+  const stages = row.approval_stages ?? [];
+  if (stages.length < 2) return null;
+  return (
+    <span className="attendance-approval-steps">
+      {stages.map((stage) => {
+        const record = row.approvals?.[stage];
+        const state = record ? (record.approved ? "approved" : "rejected") : row.status === "pending" ? "waiting" : "skipped";
+        return (
+          <small key={stage} className={`attendance-approval-step is-${state}`}>
+            {STAGE_LABEL[stage]}: {record ? `${state} by ${record.by_name}` : state === "waiting" ? "waiting" : "—"}
+          </small>
+        );
+      })}
+    </span>
+  );
+}
+
 export default function AttendanceScreen({ user, onToast }: Props) {
   const today = useMemo(() => kolkataDate(), []);
   const [yearMonth, setYearMonth] = useState(today.slice(0, 7));
@@ -250,7 +286,15 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [tab, setTab] = useState("overview");
   const [requestType, setRequestType] = useState<"permission" | "ot">("permission");
 
-  const canManage = user.role === "admin" || user.role === "manager";
+  const isManager = isManagerRole(user.role);
+  const canManage = user.role === "admin" || isManager;
+  /** Who decides this user's requests; paid leave, LOP and OT add finance. */
+  const approverLabel = isManager ? "the super admin" : "your manager";
+  const approversFor = (money: boolean) => {
+    if (!money) return approverLabel;
+    // Nobody countersigns their own request: the super admin signs for finance.
+    return user.role === "finance_manager" ? "the super admin" : `${approverLabel} and the finance manager`;
+  };
   const isTeamView = canManage && viewMode === "team";
   const [yearText, monthText] = yearMonth.split("-");
   const year = Number(yearText);
@@ -296,7 +340,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         setDutyPlans(dutyResult.items ?? []);
         if (employeeId) setDay(await fetchAttendanceDay(today, employeeId));
       } else {
-        const scope = user.role === "manager" ? user.id : undefined;
+        const scope = isManager ? user.id : undefined;
         const [daily, monthly, permissionResult, otResult, dutyResult] = await Promise.all([
           fetchAttendanceDay(today),
           fetchAttendanceMonth(year, monthNumber),
@@ -315,7 +359,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [employeeId, isTeamView, monthNumber, onToast, staff, today, user.id, user.role, year]);
+  }, [employeeId, isManager, isTeamView, monthNumber, onToast, staff, today, user.id, year]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
@@ -432,7 +476,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       });
       setReason("");
       setCoverId("");
-      const approver = user.role === "manager" ? "the super admin" : "your manager";
+      const approver = approversFor(LEAVE_KINDS.includes(kind));
       onToast(
         needsCover
           ? `Sent to ${coverName || "your colleague"} first. It goes to ${approver} once they accept.`
@@ -450,12 +494,17 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const decidePermission = async (permission: AttendancePermission, approved: boolean) => {
     setBusy(true);
     try {
-      await decideAttendancePermission(
+      const result = await decideAttendancePermission(
         permission.id,
         approved,
         approved ? "Approved by administrator" : "Rejected by administrator",
       );
-      onToast(approved ? "Permission approved" : "Permission rejected", "success");
+      onToast(
+        result.status === "pending"
+          ? `Approved. Still waiting for the ${waitingFor(result.permission) || "other approver"}`
+          : approved ? "Permission approved" : "Permission rejected",
+        "success",
+      );
       await load();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Decision could not be saved", "error");
@@ -478,12 +527,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         reason: otReason.trim(),
       });
       setOtReason("");
-      onToast(
-        user.role === "manager"
-          ? "Extra OT sent to the administrator"
-          : "Extra OT sent to your manager",
-        "success",
-      );
+      onToast(`Extra OT sent to ${approversFor(true)}`, "success");
       await load(false);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Extra OT could not be submitted", "error");
@@ -495,12 +539,17 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const decideOt = async (row: ExtraOtRequest, approved: boolean) => {
     setBusy(true);
     try {
-      await decideExtraOt(
+      const result = await decideExtraOt(
         row.id,
         approved,
         approved ? "Approved for payroll" : "Rejected",
       );
-      onToast(approved ? "Extra OT approved" : "Extra OT rejected", "success");
+      onToast(
+        result.status === "pending"
+          ? `Approved. Still waiting for the ${waitingFor(result.request) || "other approver"}`
+          : approved ? "Extra OT approved" : "Extra OT rejected",
+        "success",
+      );
       await load(false);
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Decision could not be saved", "error");
@@ -556,8 +605,10 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     () => isTeamView ? permissions.filter((permission) => permission.status !== "awaiting_cover") : permissions,
     [isTeamView, permissions],
   );
-  const pendingCount = permissions.filter((permission) => permission.status === "pending").length;
-  const pendingOt = extraOt.filter((row) => row.status === "pending").length;
+  // In the team view these count what the signed-in approver still has to
+  // decide; a request waiting only on somebody else is not theirs to clear.
+  const pendingCount = permissions.filter(needsMyDecision).length;
+  const pendingOt = extraOt.filter(needsMyDecision).length;
   const approvedOtMinutes = extraOt
     .filter((row) => row.status === "approved")
     .reduce((sum, row) => sum + row.requested_minutes, 0);
@@ -615,7 +666,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           </p>
         </div>
         <div className="attendance-toolbar">
-          {user.role === "manager" && <div className="scope-switch" aria-label="Attendance view">
+          {isManager && <div className="scope-switch" aria-label="Attendance view">
             <button type="button" className={viewMode === "mine" ? "is-active" : ""} onClick={() => setViewMode("mine")}>My attendance</button>
             <button type="button" className={viewMode === "team" ? "is-active" : ""} onClick={() => setViewMode("team")}>Team attendance</button>
           </div>}
@@ -755,7 +806,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <div>
                   <h2 className="ds-panel-title">{requestType === "permission" ? "Request permission" : "Request extra OT"}</h2>
                   <p className="ds-panel-sub">
-                    Goes to {user.role === "manager" ? "the super admin" : "your manager"} for approval.
+                    Goes to {approversFor(requestType === "ot" || LEAVE_KINDS.includes(kind))} for approval.
                   </p>
                 </div>
                 <div className="scope-switch" role="group" aria-label="Request type">
@@ -779,7 +830,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                   {kind === "weekly_off" && (
                     <p className="attendance-form-note">
                       Take this day as your weekly off instead of Sunday. Once{" "}
-                      {user.role === "manager" ? "the super admin" : "your manager"} approves, that week&rsquo;s Sunday
+                      {approverLabel} approves, that week&rsquo;s Sunday
                       becomes a working day. No leave is used and no colleague needs to cover.
                     </p>
                   )}
@@ -791,7 +842,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                       </label>
                       <p className="attendance-form-note">
                         Your colleague is asked first. Only after they accept does the request go to{" "}
-                        {user.role === "manager" ? "the super admin" : "your manager"} for approval. On your leave day your
+                        {approversFor(true)} for approval. On your leave day your
                         unfinished candidates move to them; whatever they complete stays done, and anything still pending
                         comes back to you the next day.
                       </p>
@@ -1035,14 +1086,17 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
   colleagues?: CoverColleague[];
   onAskCover?: (permission: AttendancePermission, colleagueId: string) => Promise<void>;
 }) {
-  const nameOf = (employeeId: string) => staff.find((person) => person.id === employeeId)?.name || employeeId;
+  // A finance manager also sees other branches' requests, whose people are not
+  // on their roster; the API names them.
+  const nameOf = (row: AttendancePermission) => staff.find((person) => person.id === row.employee_id)?.name || row.employee_name || row.employee_id;
   const ordered = [...permissions].sort((left, right) => {
+    if (needsMyDecision(left) !== needsMyDecision(right)) return needsMyDecision(left) ? -1 : 1;
     if (left.status === right.status) return right.attendance_date.localeCompare(left.attendance_date);
     return left.status === "pending" ? -1 : 1;
   });
 
   if (admin) {
-    const pending = permissions.filter((permission) => permission.status === "pending").length;
+    const pending = permissions.filter(needsMyDecision).length;
     return (
       <section className="ds-panel attendance-permissions attendance-request-center">
         <div className="ds-panel-head attendance-request-head">
@@ -1063,8 +1117,8 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
                 <article className={`attendance-request-card is-${permission.status}`} key={permission.id}>
                   <header>
                     <div className="attendance-request-person">
-                      <span className="attendance-avatar">{nameOf(permission.employee_id).slice(0, 1).toUpperCase()}</span>
-                      <div><strong>{nameOf(permission.employee_id)}</strong><small>{permission.attendance_date} · {PERMISSION_KIND[permission.kind]}</small></div>
+                      <span className="attendance-avatar">{nameOf(permission).slice(0, 1).toUpperCase()}</span>
+                      <div><strong>{nameOf(permission)}</strong><small>{permission.attendance_date} · {PERMISSION_KIND[permission.kind]}{permission.employee_branch ? ` · ${permission.employee_branch}` : ""}</small></div>
                     </div>
                     <span className={`ds-status ${statusTone(permission.status)}`}><i />{requestStatusLabel(permission.status)}</span>
                   </header>
@@ -1083,7 +1137,8 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
                     </p>
                   )}
                   {permission.decision_reason && <p className="attendance-decision-reason">Decision note: {permission.decision_reason}</p>}
-                  <footer>{permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={15} /> Approve request</button><button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={15} /> Reject</button></div> : <span>Reviewed request</span>}</footer>
+                  <ApprovalSteps row={permission} />
+                  <footer>{permission.status === "pending" && !needsMyDecision(permission) ? <span>Waiting for the {waitingFor(permission) || "other approver"}</span> : permission.status === "pending" ? <div className="attendance-decision-actions"><button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onDecision(permission, true)}><CheckCircle2 size={15} /> Approve request</button><button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onDecision(permission, false)}><XCircle size={15} /> Reject</button></div> : <span>Reviewed request</span>}</footer>
                 </article>
               );
             })}
@@ -1102,7 +1157,7 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
             <td>{permission.attendance_date}</td><td>{PERMISSION_KIND[permission.kind]}</td><td>{permission.requested_minutes || "Full day"}</td>
             <td><span>{permission.reason}</span>{permission.decision_reason && <small className="attendance-decision-reason">{permission.decision_reason}</small>}</td>
             <td><CoverCell permission={permission} colleagues={colleagues} busy={busy} onAskCover={onAskCover} /></td>
-            <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{requestStatusLabel(permission.status)}</span></td>
+            <td><span className={`ds-status ${statusTone(permission.status)}`}><i />{requestStatusLabel(permission.status)}</span><ApprovalSteps row={permission} /></td>
           </tr>)}
         </tbody></table></div>
       )}
@@ -1125,12 +1180,13 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
   approvedMinutes: number;
   onDecision: (row: ExtraOtRequest, approved: boolean) => Promise<void>;
 }) {
-  const nameOf = (employeeId: string) => staff.find((person) => person.id === employeeId)?.name || employeeId;
+  const nameOf = (row: ExtraOtRequest) => staff.find((person) => person.id === row.employee_id)?.name || row.employee_name || row.employee_id;
   const ordered = [...requests].sort((left, right) => {
+    if (needsMyDecision(left) !== needsMyDecision(right)) return needsMyDecision(left) ? -1 : 1;
     if (left.status === right.status) return right.attendance_date.localeCompare(left.attendance_date);
     return left.status === "pending" ? -1 : 1;
   });
-  const pending = requests.filter((row) => row.status === "pending").length;
+  const pending = requests.filter(needsMyDecision).length;
 
   return (
     <section className="ds-panel attendance-permissions">
@@ -1174,7 +1230,7 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
               {ordered.map((row) => (
                 <tr key={row.id}>
                   <td><strong>{row.attendance_date}</strong></td>
-                  {admin && <td>{nameOf(row.employee_id)}</td>}
+                  {admin && <td>{nameOf(row)}</td>}
                   <td>{durationLabel(row.requested_minutes)}</td>
                   {/* Approved duration is the requested duration once approved,
                       and nothing at all until then — a pending request must
@@ -1185,7 +1241,7 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
                     </strong>
                   </td>
                   <td>{row.reason}</td>
-                  <td><span className={`ds-status ${statusTone(row.status)}`}><i />{row.status}</span></td>
+                  <td><span className={`ds-status ${statusTone(row.status)}`}><i />{row.status}</span><ApprovalSteps row={row} /></td>
                   <td>
                     {row.decided_at ? (
                       <span className="ds-who-text">
@@ -1198,7 +1254,9 @@ function ExtraOtSection({ requests, staff, admin, busy, approvedMinutes, onDecis
                   </td>
                   {admin && (
                     <td>
-                      {row.status === "pending" ? (
+                      {row.status === "pending" && !needsMyDecision(row) ? (
+                        <small className="attendance-cell-note">Waiting for the {waitingFor(row) || "other approver"}</small>
+                      ) : row.status === "pending" ? (
                         <div className="attendance-decision-actions">
                           <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onDecision(row, true)}>
                             <CheckCircle2 size={15} /> Approve

@@ -20,7 +20,7 @@ from app.attendance.service import AttendanceService
 from app.config import settings
 from app.db.mongo import ensure_index, get_db
 from app.branches import branch_of, can_see, manages
-from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, normalize_branch, on_attendance
+from app.db.users import ADMIN_ROLE, EMPLOYEE_ROLES, MANAGER_ROLES, STAFF_ROLE, normalize_branch, on_attendance
 from app.logging_config import get_logger
 from app.reimbursements import approved_amount as approved_reimbursements, approved_claims
 
@@ -62,7 +62,7 @@ class NetPayableOverride(BaseModel):
 
 
 def _manager(user: dict = Depends(current_user)) -> dict:
-    if user.get("role") not in {ADMIN_ROLE, MANAGER_ROLE}:
+    if user.get("role") not in {ADMIN_ROLE, *MANAGER_ROLES}:
         raise HTTPException(status_code=403, detail="Manager role required")
     return user
 
@@ -83,7 +83,7 @@ def _visible_employees(user: dict):
         return [employee] if employee and employee.active else []
     if user.get("role") == ADMIN_ROLE:
         return users.list_employees(include_inactive=False)
-    if user.get("role") == MANAGER_ROLE:
+    if user.get("role") in MANAGER_ROLES:
         manager = users.get(user["id"])
         return [
             employee for employee in users.list_employees(include_inactive=False)
@@ -94,7 +94,7 @@ def _visible_employees(user: dict):
 
 def _require_payroll_authority(user: dict, employee) -> None:
     """A manager changes payroll only for the staff of their own branch."""
-    if user.get("role") == MANAGER_ROLE and not manages(users.get(user["id"]), employee, users):
+    if user.get("role") in MANAGER_ROLES and not manages(users.get(user["id"]), employee, users):
         raise HTTPException(status_code=404, detail="Active employee not found")
 
 
@@ -266,7 +266,7 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
 @router.put("/employees/{employee_id}")
 def update_employee_payroll(employee_id: str, payload: EmployeePayrollPolicy, _user: dict = Depends(_manager)) -> dict:
     employee = users.get(employee_id)
-    if not employee or not employee.active or employee.role not in {"staff", "manager"}:
+    if not employee or not employee.active or employee.role not in EMPLOYEE_ROLES:
         raise HTTPException(status_code=404, detail="Active employee not found")
     _require_payroll_authority(_user, employee)
     # Payroll owns salary only. Weekly-off choice belongs to the employee's
@@ -560,7 +560,7 @@ def list_incentives(year: int, month: int, user: dict = Depends(current_user)) -
     """The month's incentives: own for staff, their branch for managers, all for admins."""
     visible = {employee.id for employee in _visible_employees(user)}
     items = [row for row in _incentives(get_db(), year, month) if row["employee_id"] in visible]
-    return {"items": items, "can_manage": user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}}
+    return {"items": items, "can_manage": user.get("role") in {ADMIN_ROLE, *MANAGER_ROLES}}
 
 
 @router.post("/{year}/{month}/incentives", status_code=201)
