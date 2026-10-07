@@ -82,7 +82,8 @@ def env():
     service = AttendanceService(repository)
     with patch("app.attendance.api.users", FakeUsers()), \
          patch("app.attendance.api.service", return_value=service), \
-         patch("app.attendance.api.AttendanceRepository", return_value=repository):
+         patch("app.attendance.api.AttendanceRepository", return_value=repository),          patch("app.attendance.api.check_on_site", return_value=None):
+        # Office radius is covered in test_attendance_sites; these punch from anywhere.
         yield service
 
 

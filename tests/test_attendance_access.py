@@ -407,9 +407,10 @@ def test_private_whatsapp_attendance_matches_phone_and_first_name():
         occurred_at=datetime(2026, 10, 8, 4, 45, tzinfo=timezone.utc),
     )
 
+    # The office radius is covered in test_attendance_sites; this sends no location.
     with patch("app.attendance.api.users", FakeUsers()), patch(
         "app.attendance.api.service", return_value=AttendanceService(repository)
-    ):
+    ), patch("app.attendance.api.check_on_site", return_value=None):
         result = whatsapp_private_attendance(payload)
         duplicate = whatsapp_private_attendance(payload)
 

@@ -14,6 +14,7 @@ from app.attendance.engine import calculate_month, local_day, lop_amount
 from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNomination, CoverResponse, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import LEAVE_KINDS, WEEKDAYS, AttendanceError, AttendanceService
+from app.attendance.sites import OffSiteError, check_on_site
 from app.branches import branch_managers, branch_of, can_see, manages, same_branch
 from app.db.users import ADMIN_ROLE, MANAGER_ROLE, STAFF_ROLE, on_attendance
 from app.whatsapp.groups import GroupIntakeError, resolve_employee
@@ -56,6 +57,14 @@ def _conflict(call):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _on_site(employee, latitude: float | None, longitude: float | None) -> dict | None:
+    """The office-radius check as the HTTP answer the bot relays to the employee."""
+    try:
+        return check_on_site(employee, latitude, longitude)
+    except OffSiteError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 class WhatsAppAttendanceEvent(BaseModel):
     """A private-chat attendance command forwarded by the bot."""
 
@@ -65,6 +74,11 @@ class WhatsAppAttendanceEvent(BaseModel):
     action: Literal["check_in", "check_out"]
     occurred_at: datetime
     chat_type: Literal["private"] = "private"
+    #: The location the employee shared for this command; see `app.attendance.sites`.
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    #: The text command the shared location completes, when it differs from `message_id`.
+    command_message_id: str | None = Field(default=None, max_length=200)
 
 
 def _whatsapp_employee(sender_phone: str, stated_name: str):
@@ -83,6 +97,12 @@ def _whatsapp_employee(sender_phone: str, stated_name: str):
 @router.post("/punch", status_code=201)
 def record_punch(payload: PunchRequest, user: dict = Depends(current_user)) -> dict:
     employee_id = _employee_id(user, payload.employee_id)
+    if employee_id == user["id"]:
+        # A punch for oneself proves presence; a manager recording somebody
+        # else's punch is an administrative entry and is not held to a radius.
+        site = _on_site(users.get(employee_id), payload.evidence.latitude, payload.evidence.longitude)
+        if site:
+            payload.evidence.metadata["site"] = site
     attendance = service()
     event, created = _conflict(lambda: attendance.punch(employee_id, payload, allow_recorded_time=user.get("role") in {ADMIN_ROLE, MANAGER_ROLE}))
     event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
@@ -101,6 +121,9 @@ def whatsapp_punch(payload: PunchRequest, _service: None = Depends(require_servi
     if not employee or not employee.active or not on_attendance(employee):
         raise HTTPException(status_code=404, detail="Active employee not found")
     payload.source = "whatsapp"
+    site = _on_site(employee, payload.evidence.latitude, payload.evidence.longitude)
+    if site:
+        payload.evidence.metadata["site"] = site
     attendance = service()
     event, created = _conflict(
         lambda: attendance.punch(payload.employee_id, payload, allow_recorded_time=True)
@@ -120,6 +143,7 @@ def whatsapp_private_attendance(
 ) -> dict:
     """Record a private staff WhatsApp command; the bot confirms successful records."""
     employee = _whatsapp_employee(payload.sender_phone, payload.stated_name)
+    site = _on_site(employee, payload.latitude, payload.longitude)
     request = PunchRequest(
         action=payload.action,
         idempotency_key=payload.message_id,
@@ -127,10 +151,14 @@ def whatsapp_private_attendance(
         occurred_at=payload.occurred_at,
         source="whatsapp",
         evidence={
+            "latitude": payload.latitude,
+            "longitude": payload.longitude,
             "metadata": {
                 "chat_type": payload.chat_type,
                 "stated_name": payload.stated_name,
-            }
+                "command_message_id": payload.command_message_id,
+                "site": site,
+            },
         },
     )
     attendance = service()
