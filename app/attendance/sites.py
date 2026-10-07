@@ -31,8 +31,6 @@ class Site:
         return self.latitude is not None and self.longitude is not None
 
 
-VIJAY_SHANTHI = "Vijay Shanthi"
-
 # Pins supplied by the user from Google Maps on 2026-10-07.
 SITES: dict[str, Site] = {
     MOUNT_ROAD: Site(
@@ -49,13 +47,6 @@ SITES: dict[str, Site] = {
         longitude=80.264005,
         radius_m=350,
     ),
-    VIJAY_SHANTHI: Site(
-        name=VIJAY_SHANTHI,
-        address="Vijay Shanthi",
-        latitude=13.025557,
-        longitude=80.022333,
-        radius_m=300,
-    ),
 }
 
 #: Numbers whose office is fixed regardless of their branch, by the last ten digits.
@@ -68,7 +59,6 @@ PHONE_SITES: dict[str, str] = {
         ("7806822702", "8438588507", "8870277929", "9884448455", "6381748354", "7200786679"),
         ROYAPETTAH,
     ),
-    "9994690490": VIJAY_SHANTHI,
 }
 
 
