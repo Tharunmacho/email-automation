@@ -154,7 +154,9 @@
 .ds-primary-btn, .ds-ghost-btn, .ds-pill-btn, .db-btn, .cscreen-btn { min-height: 38px; font-size: 14px; padding: 8px 13px; }
 .ds-seg { padding: 2px; border: 1px solid var(--border-main); background: transparent; }
 .ds-seg-btn { font-size: 13px; padding: 7px 12px; }
-.ds-seg-btn.is-on, [data-theme="dark"] .ds-seg-btn.is-on { background: var(--bg-card); color: var(--text-main); box-shadow: 0 1px 3px #0000000b; border-color: var(--border-main); }
+/* The selected segment is filled like a primary button: a white-on-white "selected" state was indistinguishable from its neighbours. */
+.ds-seg-btn.is-on, [data-theme="dark"] .ds-seg-btn.is-on { background: var(--primary); color: var(--on-primary); box-shadow: 0 1px 3px #0000001a; border-color: var(--primary); }
+.ds-seg-btn.is-on:hover { color: var(--on-primary); }
 .modal-input, .modal-textarea, .ui-select-trigger, .ui-date-trigger, .ds-search { border-radius: 6px; border-color: var(--border-control); box-shadow: none; }
 .ds-table-wrap, .ctable-wrap, .rc-table-wrap { border-color: var(--border-main); border-radius: 7px; box-shadow: none; }
 .ds-table thead, .ds-table.is-ruled thead { background: var(--tint-1); }
