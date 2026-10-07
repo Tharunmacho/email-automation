@@ -32,12 +32,30 @@ FESTIVAL_HOLIDAYS = {
 #: already settled by hand and are left exactly as recorded.
 FESTIVAL_HOLIDAYS_FROM = date(2026, 10, 1)
 
+#: This circulated list covers 2026 only. From 2027 onwards every holiday is
+#: declared by an admin from Data Management (see `app.holidays`).
+FESTIVAL_HOLIDAYS_YEAR = 2026
+
 
 def festival_holiday(day: date) -> str | None:
     """The festival this date is a holiday for, if any."""
-    if day < FESTIVAL_HOLIDAYS_FROM:
+    if day.year != FESTIVAL_HOLIDAYS_YEAR or day < FESTIVAL_HOLIDAYS_FROM:
         return None
     return FESTIVAL_HOLIDAYS.get(day)
+
+
+def builtin_holidays() -> list[dict]:
+    """The circulated 2026 list, for display beside the declared holidays."""
+    return [
+        {
+            "date": day.isoformat(),
+            "name": name,
+            # Before October 2026 these were settled by hand, not by the CRM.
+            "applied": day >= FESTIVAL_HOLIDAYS_FROM,
+        }
+        for day, name in sorted(FESTIVAL_HOLIDAYS.items())
+        if day.year == FESTIVAL_HOLIDAYS_YEAR
+    ]
 
 
 #: Royapettah staff who work 9:30 AM to 6:30 PM instead of the default

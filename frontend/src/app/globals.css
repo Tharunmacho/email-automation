@@ -18600,6 +18600,56 @@ a.um-phone:hover {
   }
 }
 
+/* Government holidays: name, (custom name), date, then the action. */
+.dm-holiday-add {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1.2fr) minmax(13rem, 1fr) auto;
+  align-items: end;
+  gap: 0.8rem;
+  margin: 1rem 0 0.75rem;
+}
+
+.dm-holiday-add.has-other {
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr) minmax(13rem, 1fr) auto;
+}
+
+.dm-holiday-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.dm-holiday-add > .db-btn {
+  min-height: 42px;
+}
+
+.dm-holiday-note {
+  margin: 0 0 0.75rem;
+  color: var(--warning-ink);
+  font-size: 0.78rem;
+}
+
+.dm-holiday-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.4rem 0 0.6rem;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+@media (max-width: 900px) {
+  .dm-holiday-add,
+  .dm-holiday-add.has-other {
+    grid-template-columns: 1fr;
+  }
+}
+
 .ds-select-control {
   width: 190px;
 }

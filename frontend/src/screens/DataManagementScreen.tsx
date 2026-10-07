@@ -57,12 +57,14 @@ import {
   saveJobDesignationAPI,
   saveJobQuestionAPI,
   type BotSuppressionNumber,
+  type BuiltinHoliday,
   type CountryRow,
   type GovernmentHoliday,
   type JobDesignation,
   type JobQuestion,
 } from "@/lib/api";
 import { BRANCHES, BRANCHES_CHANGED, sameBranch } from "@/components/ui/BranchSwitch";
+import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 
@@ -1466,7 +1468,7 @@ function BranchesPanel({ onActivity }: Props) {
 function formatHolidayDate(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
   if (!year || !month || !day) return iso;
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+  return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -1475,22 +1477,87 @@ function formatHolidayDate(iso: string): string {
 }
 
 /**
+ * Public holidays observed in India (national, Tamil Nadu and the major
+ * religious festivals). `fixed` is the month/day for holidays that never move,
+ * so picking one can fill the date in; the rest follow the lunar calendar and
+ * the date has to be chosen from that year's government notification.
+ */
+const INDIAN_HOLIDAYS: { name: string; hint: string; fixed?: [number, number] }[] = [
+  { name: "New Year's Day", hint: "1 January", fixed: [1, 1] },
+  { name: "Pongal", hint: "Usually 14–15 January" },
+  { name: "Thiruvalluvar Day", hint: "Usually 15–16 January" },
+  { name: "Uzhavar Thirunal", hint: "Usually 16–17 January" },
+  { name: "Republic Day", hint: "26 January", fixed: [1, 26] },
+  { name: "Thai Poosam", hint: "January / February" },
+  { name: "Maha Shivaratri", hint: "February / March" },
+  { name: "Holi", hint: "March" },
+  { name: "Telugu New Year (Ugadi)", hint: "March / April" },
+  { name: "Ramzan (Idu'l Fitr)", hint: "Varies — lunar calendar" },
+  { name: "Mahavir Jayanthi", hint: "March / April" },
+  { name: "Good Friday", hint: "March / April" },
+  { name: "Tamil New Year", hint: "14 April", fixed: [4, 14] },
+  { name: "Dr. B.R. Ambedkar Jayanthi", hint: "14 April", fixed: [4, 14] },
+  { name: "May Day", hint: "1 May", fixed: [5, 1] },
+  { name: "Buddha Purnima", hint: "April / May" },
+  { name: "Bakrid (Idul Azha)", hint: "Varies — lunar calendar" },
+  { name: "Muharram", hint: "Varies — lunar calendar" },
+  { name: "Independence Day", hint: "15 August", fixed: [8, 15] },
+  { name: "Krishna Jayanthi", hint: "August / September" },
+  { name: "Vinayagar Chathurthi", hint: "August / September" },
+  { name: "Milad-un-Nabi", hint: "Varies — lunar calendar" },
+  { name: "Gandhi Jayanthi", hint: "2 October", fixed: [10, 2] },
+  { name: "Ayudha Pooja", hint: "September / October" },
+  { name: "Vijaya Dasami", hint: "September / October" },
+  { name: "Deepavali", hint: "October / November" },
+  { name: "Guru Nanak Jayanthi", hint: "November" },
+  { name: "Christmas", hint: "25 December", fixed: [12, 25] },
+  { name: "Election Day", hint: "As notified" },
+];
+
+const OTHER_HOLIDAY = "__other__";
+
+const HOLIDAY_OPTIONS = [
+  ...INDIAN_HOLIDAYS.map((holiday) => ({ value: holiday.name, label: holiday.name, hint: holiday.hint })),
+  { value: OTHER_HOLIDAY, label: "Other…", hint: "Type a holiday name that is not listed" },
+];
+
+/** The next occurrence of a fixed month/day, today included, as yyyy-mm-dd. */
+function nextOccurrence([month, day]: [number, number]): string {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let year = now.getFullYear();
+  if (new Date(year, month - 1, day) < today) year += 1;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
  * Government holidays. A date added here is a holiday for every employee in
  * every branch: attendance marks it "H", nobody is absent for it, and payroll
  * deducts nothing for the day.
+ *
+ * The circulated 2026 list is built in and shown read-only underneath. It
+ * covers 2026 only — from 2027 every holiday is declared here.
  */
 function HolidaysPanel({ onActivity }: Props) {
   const [holidays, setHolidays] = useState<GovernmentHoliday[]>([]);
+  const [builtin, setBuiltin] = useState<BuiltinHoliday[]>([]);
   const [day, setDay] = useState("");
-  const [name, setName] = useState("");
+  const [choice, setChoice] = useState("");
+  const [customName, setCustomName] = useState("");
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const name = choice === OTHER_HOLIDAY ? customName.trim() : choice;
+
   useEffect(() => {
     let live = true;
     fetchHolidays()
-      .then((result) => { if (live) setHolidays(result.items); })
+      .then((result) => {
+        if (!live) return;
+        setHolidays(result.items);
+        setBuiltin(result.builtin ?? []);
+      })
       .catch((err) => { if (live) setError(err instanceof Error ? err.message : String(err)); })
       .finally(() => { if (live) setLoading(false); });
     return () => {
@@ -1498,16 +1565,26 @@ function HolidaysPanel({ onActivity }: Props) {
     };
   }, []);
 
+  /** Picking a fixed-date holiday fills in its next date, unless one is already chosen. */
+  const chooseName = (value: string) => {
+    setChoice(value);
+    const fixed = INDIAN_HOLIDAYS.find((holiday) => holiday.name === value)?.fixed;
+    if (fixed && !day) setDay(nextOccurrence(fixed));
+  };
+
+  const clash = day ? holidays.find((holiday) => holiday.date === day) ?? null : null;
+
   const add = async () => {
-    if (!day || !name.trim() || saving) return;
+    if (!day || !name || saving || clash) return;
     setSaving(true);
     setError(null);
     try {
-      const result = await createHoliday(day, name.trim());
+      const result = await createHoliday(day, name);
       setHolidays(result.items);
       onActivity?.(`${result.holiday.name} declared a holiday`, "success");
       setDay("");
-      setName("");
+      setChoice("");
+      setCustomName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add the holiday");
     } finally {
@@ -1542,44 +1619,65 @@ function HolidaysPanel({ onActivity }: Props) {
         </div>
       </div>
       <div className="db-card-body">
-        <div className="dm-suppression-add">
-          <label>
+        <div className={`dm-holiday-add ${choice === OTHER_HOLIDAY ? "has-other" : ""}`}>
+          <div className="dm-holiday-field">
+            <span>Holiday</span>
+            <Select
+              value={choice}
+              options={HOLIDAY_OPTIONS}
+              onChange={chooseName}
+              placeholder="Choose a holiday"
+              ariaLabel="Holiday name"
+              disabled={saving}
+            />
+          </div>
+          {choice === OTHER_HOLIDAY && (
+            <label className="dm-holiday-field">
+              <span>Holiday name</span>
+              <input
+                className="modal-input"
+                value={customName}
+                onChange={(event) => setCustomName(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void add(); }}
+                placeholder="Example: Local body election"
+                maxLength={120}
+                disabled={saving}
+                autoFocus
+              />
+            </label>
+          )}
+          <div className="dm-holiday-field">
             <span>Date</span>
-            <input
-              type="date"
-              className="modal-input"
+            <DatePicker
               value={day}
-              onChange={(event) => setDay(event.target.value)}
+              onChange={setDay}
+              placeholder="Pick the holiday date"
+              ariaLabel="Holiday date"
               disabled={saving}
             />
-          </label>
-          <label>
-            <span>Holiday name</span>
-            <input
-              className="modal-input"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") void add(); }}
-              placeholder="Example: Election Day"
-              maxLength={120}
-              disabled={saving}
-            />
-          </label>
+          </div>
           <button
             type="button"
             className="db-btn is-primary"
             onClick={() => void add()}
-            disabled={!day || !name.trim() || saving}
+            disabled={!day || !name || saving || Boolean(clash)}
           >
             <Plus size={14} /> {saving ? "Adding…" : "Declare holiday"}
           </button>
         </div>
+        {clash && (
+          <p className="dm-holiday-note" role="status">
+            {formatHolidayDate(clash.date)} is already declared as {clash.name}.
+          </p>
+        )}
         {error && <p className="sh-form-error" role="alert">{error}</p>}
+
+        <h4 className="dm-holiday-heading">Declared holidays</h4>
         {loading ? null : holidays.length === 0 ? (
           <div className="ds-empty-state dm-empty">
             <CalendarDays size={28} />
-            <h3>No government holidays declared</h3>
-            <p>Built-in festival holidays still apply automatically.</p>
+            <h3>No government holidays declared yet</h3>
+            <p>From 2027 onwards, every holiday is declared here.</p>
           </div>
         ) : (
           <div className="dm-table-frame">
@@ -1611,6 +1709,42 @@ function HolidaysPanel({ onActivity }: Props) {
               </tbody>
             </table>
           </div>
+        )}
+
+        {builtin.length > 0 && (
+          <>
+            <h4 className="dm-holiday-heading">
+              2026 holiday list <span className="dm-pill is-off">built in · 2026 only</span>
+            </h4>
+            <div className="dm-table-frame">
+              <table className="dm-table is-register">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Holiday</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {builtin.map((holiday) => (
+                    <tr key={holiday.date}>
+                      <td><span className="dm-primary-cell"><strong>{formatHolidayDate(holiday.date)}</strong></span></td>
+                      <td>{holiday.name}</td>
+                      <td>
+                        {holiday.applied ? (
+                          <span className="dm-pill">Applied automatically</span>
+                        ) : (
+                          <span className="dm-pill is-off" title="Months before October 2026 were settled by hand">
+                            Settled by hand
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </section>

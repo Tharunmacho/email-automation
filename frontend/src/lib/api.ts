@@ -907,7 +907,15 @@ export interface GovernmentHoliday {
   name: string;
 }
 
-export function fetchHolidays(): Promise<{ items: GovernmentHoliday[] }> {
+/** One row of the circulated 2026 list, built into the backend. */
+export interface BuiltinHoliday {
+  date: string;
+  name: string;
+  /** False for dates before October 2026, which were settled by hand. */
+  applied: boolean;
+}
+
+export function fetchHolidays(): Promise<{ items: GovernmentHoliday[]; builtin: BuiltinHoliday[] }> {
   return request("/holidays", { cache: "no-store" });
 }
 

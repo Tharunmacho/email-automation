@@ -4802,9 +4802,10 @@ class HolidayIn(BaseModel):
 @app.get("/holidays")
 def list_government_holidays(_user: dict = Depends(current_user)) -> dict:
     """Government holidays declared from Data Management."""
+    from app.attendance.office_calendar import builtin_holidays
     from app.holidays import list_holidays
 
-    return {"items": list_holidays()}
+    return {"items": list_holidays(), "builtin": builtin_holidays()}
 
 
 @app.post("/holidays", status_code=201)

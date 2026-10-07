@@ -76,6 +76,11 @@ def add_holiday(day: date, name: str, actor_id: str, db=None) -> dict:
     if not name:
         raise ValueError("Holiday name is required.")
     iso = day.isoformat()
+    from app.attendance.office_calendar import festival_holiday
+
+    builtin = festival_holiday(day)
+    if builtin:
+        raise ValueError(f"{iso} is already a holiday ({builtin}) on the 2026 list.")
     if _collection(db).find_one({"date": iso}):
         raise ValueError(f"{iso} is already declared as a holiday.")
     row = {"_id": uuid.uuid4().hex, "date": iso, "name": name, "created_by": actor_id, "created_at": utcnow()}
