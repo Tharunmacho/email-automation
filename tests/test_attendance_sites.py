@@ -93,10 +93,11 @@ def test_a_punch_outside_the_radius_is_refused_and_not_recorded(env):
     assert env.repository.events_for_day("listed", datetime(2026, 10, 5).date()) == []
 
 
-def test_the_other_office_does_not_count(env):
-    with pytest.raises(HTTPException) as refused:
-        whatsapp_private_attendance(_event(MOUNT))
-    assert refused.value.status_code == 403
+def test_the_other_office_counts_too(env):
+    # Listed under Royapettah but punching from Mount Road: still at an office.
+    result = whatsapp_private_attendance(_event(MOUNT))
+    assert result["status"] == "recorded"
+    assert result["event"]["evidence"]["metadata"]["site"]["site"] == MOUNT_ROAD
 
 
 def test_a_punch_without_a_location_is_refused(env):
@@ -108,7 +109,7 @@ def test_a_punch_without_a_location_is_refused(env):
 
 def test_a_self_punch_from_the_web_is_held_to_the_office_too(env):
     away = PunchRequest(action="check_in", idempotency_key="web-1",
-                        evidence={"latitude": ROYA[0], "longitude": ROYA[1]})
+                        evidence=dict(zip(("latitude", "longitude"), _north_of(MOUNT, 2000))))
     with pytest.raises(HTTPException) as refused:
         record_punch(away, {"id": "unlisted", "role": STAFF_ROLE})
     assert refused.value.status_code == 403

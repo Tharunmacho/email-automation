@@ -1,9 +1,10 @@
 """Where an employee must be standing for a punch to count.
 
-Each office is a point and a radius. An employee is held to the office their
-phone number is listed under, else to the office of their branch. A punch from
-an employee held to an office must carry a location inside that radius, or it
-is refused and nothing is recorded.
+Each office is a point and a radius. An employee whose phone number or branch
+names an office is held to the offices: a punch must carry a location inside
+the radius of any located office, or it is refused and nothing is recorded.
+Any office counts, not only their own, so staff listed under the wrong office
+(or falling to it by desk) are not locked out while sitting at their desk.
 
 An office without coordinates enforces nothing. That keeps a half-configured
 office from refusing everybody, but it also means an office is not protected
@@ -95,7 +96,7 @@ def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def check_on_site(employee, latitude: float | None, longitude: float | None) -> dict | None:
-    """Refuse a punch made away from the employee's office.
+    """Refuse a punch made away from every office.
 
     Returns what was checked, for the event's evidence, or None when this
     employee has no located office to be held to.
@@ -107,10 +108,13 @@ def check_on_site(employee, latitude: float | None, longitude: float | None) -> 
         raise OffSiteError(
             f"Location is required. Share your current location from the {site.name} office to mark attendance."
         )
-    distance = distance_m(latitude, longitude, site.latitude, site.longitude)
-    if distance > site.radius_m:
-        raise OffSiteError(
-            "Attendance not recorded. You are at the wrong location.",
-            distance_m=round(distance),
-        )
-    return {"site": site.name, "distance_m": round(distance), "radius_m": site.radius_m}
+    # Their own office first, so a punch inside both radii is filed under it.
+    offices = [site, *(other for other in SITES.values() if other.located and other is not site)]
+    distances = [(office, distance_m(latitude, longitude, office.latitude, office.longitude)) for office in offices]
+    for office, distance in distances:
+        if distance <= office.radius_m:
+            return {"site": office.name, "distance_m": round(distance), "radius_m": office.radius_m}
+    raise OffSiteError(
+        "Attendance not recorded. You are at the wrong location.",
+        distance_m=round(min(distance for _, distance in distances)),
+    )
