@@ -651,10 +651,16 @@ class IngestionPipeline:
             # entry points, one of which now answers differently on purpose.
             person_dup = self.repo.find_by_email_or_phone(email_key, phone_key)
             if person_dup:
+                # The person is here, but often without a file: they registered
+                # on WhatsApp first and emailed the CV afterwards. Discarding
+                # the attachment as a "duplicate" left their profile reading
+                # "No resume on file" with the CV sitting in the mailbox.
+                attached = self._adopt_resume(person_dup, att, data, resume_hash, extracted)
                 self.ledger.record(email.message_id, resume_hash, person_dup.id, "duplicate")
                 return AttachmentResult(
                     att.filename, "duplicate", person_dup.id,
-                    "same candidate (email/phone in resume) already exists",
+                    "same candidate (email/phone in resume) already exists"
+                    + ("; resume attached to existing record" if attached else ""),
                 )
 
             # (5) Store original file + insert record.
@@ -684,16 +690,19 @@ class IngestionPipeline:
             # one applicant is exactly what the duplicate was reported as.
             if candidate_id != record.id:
                 # The file was stored immediately before the atomic insert
-                # decision. This request lost that race, so its object is not
-                # referenced by the existing candidate and must be removed.
-                try:
-                    self.storage.delete(record.resume.storage_key)
-                except Exception as exc:  # noqa: BLE001 - best-effort cleanup
-                    log.warning(
-                        "Could not remove duplicate resume object %s: %s",
-                        record.resume.storage_key,
-                        exc,
-                    )
+                # decision. This request lost that race, so its object is
+                # referenced by nobody — unless the candidate it resolved to has
+                # no résumé of its own, in which case this file becomes theirs.
+                existing = self.repo.get(candidate_id)
+                if not self._attach_stored(existing, record.resume):
+                    try:
+                        self.storage.delete(record.resume.storage_key)
+                    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        log.warning(
+                            "Could not remove duplicate resume object %s: %s",
+                            record.resume.storage_key,
+                            exc,
+                        )
                 self.ledger.record(email.message_id, resume_hash, candidate_id, "duplicate")
                 log.info(
                     "Attachment '%s' resolved to existing candidate %s on insert; "
@@ -1059,6 +1068,73 @@ class IngestionPipeline:
         now = datetime.now(timezone.utc)
         safe = filename.replace("/", "_").replace("\\", "_")
         return f"{now:%Y/%m}/{candidate_id}_{safe}"
+
+    @staticmethod
+    def _has_resume(record: Optional[CandidateRecord]) -> bool:
+        return bool(record and record.resume and record.resume.storage_key)
+
+    def _attach_stored(self, existing: Optional[CandidateRecord], stored: StoredResume) -> bool:
+        """Hang an already-stored file on `existing` if it has none.
+
+        Returns True only when the record now points at `stored`. A
+        `DuplicateKeyError` means this exact file is on somebody else, which is
+        a question for a human, not something to resolve here.
+        """
+        from pymongo.errors import DuplicateKeyError
+
+        if existing is None or self._has_resume(existing):
+            return False
+        try:
+            attached = self.repo.attach_resume(existing.id, stored)
+        except DuplicateKeyError:
+            log.warning(
+                "Resume %s is already on another candidate; not attaching to %s",
+                stored.sha256, existing.id,
+            )
+            return False
+        if attached:
+            log.info("Attached emailed resume to existing candidate %s", existing.id)
+        return attached
+
+    def _adopt_resume(
+        self,
+        existing: CandidateRecord,
+        att: Attachment,
+        data: bytes,
+        resume_hash: str,
+        extracted,
+    ) -> bool:
+        """Store this attachment and give it to `existing`, if it has no résumé.
+
+        Best-effort: a failure leaves the candidate exactly as it was, which is
+        what the duplicate path did before, and must not fail the batch.
+        """
+        if self._has_resume(existing):
+            return False
+        stored = StoredResume(
+            original_filename=att.filename,
+            mime_type=att.mime_type,
+            size=len(data),
+            sha256=resume_hash,
+            storage_backend=self.storage.name,
+            storage_key=self._storage_key(existing.id, att.filename),
+            extraction_method=extracted.method,
+            ocr_used=extracted.ocr_used,
+        )
+        try:
+            self.storage.save(stored.storage_key, data, content_type=att.mime_type)
+            if not self.storage.exists(stored.storage_key):
+                log.warning("Resume for %s not readable after save; not attaching", existing.id)
+                return False
+            if self._attach_stored(existing, stored):
+                return True
+        except Exception as exc:  # noqa: BLE001 - never cost the batch
+            log.warning("Could not attach emailed resume to %s: %s", existing.id, exc)
+        try:
+            self.storage.delete(stored.storage_key)
+        except Exception:  # noqa: BLE001
+            pass
+        return False
 
     def _store_file(self, record: CandidateRecord, data: bytes, att: Attachment) -> None:
         """Store the original upload, and confirm it is really there.
