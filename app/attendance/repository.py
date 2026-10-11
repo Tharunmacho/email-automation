@@ -112,6 +112,13 @@ class AttendanceRepository:
         rows = self.adjustments.find({"employee_id": employee_id, "attendance_date": day.isoformat(), "approved": True})
         return [_public(row) for row in rows]
 
+    def status_overrides(self, employee_id: str | None = None, limit: int = 200) -> list[dict]:
+        query: dict = {"kind": "status_override", "approved": True}
+        if employee_id:
+            query["employee_id"] = employee_id
+        rows = self.adjustments.find(query).sort("created_at", DESCENDING).limit(limit)
+        return [_public(row) for row in rows]
+
     def create_permission(self, request: dict) -> dict:
         doc = dict(request)
         doc.setdefault("_id", uuid.uuid4().hex)

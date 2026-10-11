@@ -1020,6 +1020,23 @@ export function overrideAttendanceStatus(payload: {
   });
 }
 
+export interface StatusOverrideRecord {
+  id: string;
+  employee_id: string;
+  employee_name: string;
+  attendance_date: string;
+  status: string | null;
+  previous_status: string | null;
+  reason: string;
+  changed_by: string;
+  changed_at: string | null;
+}
+
+export function fetchStatusOverrides(employeeId?: string): Promise<{ items: StatusOverrideRecord[] }> {
+  const query = employeeId ? `?employee_id=${encodeURIComponent(employeeId)}` : "";
+  return request(`/attendance/status-overrides${query}`, { cache: "no-store" });
+}
+
 /** Fetch the separately stored Aadhaar and passport records for one candidate. */
 export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
   return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {

@@ -243,6 +243,9 @@ class AttendanceService:
             raise AttendanceError("status_override requires status")
         values = request.model_dump(exclude={"approved_by"})
         values["attendance_date"] = request.attendance_date.isoformat()
+        if request.kind == "status_override":
+            # The history shows what the day read before it was changed.
+            values["previous_status"] = self.day(request.employee_id, request.attendance_date).get("status")
         if values.get("occurred_at"):
             timestamp = values["occurred_at"]
             if timestamp.tzinfo is None or timestamp.utcoffset() is None:

@@ -36,7 +36,9 @@ import {
   fetchAttendanceWeeklyOff,
   fetchDutyPlans,
   fetchExtraOtRequests,
+  fetchStatusOverrides,
   overrideAttendanceStatus,
+  type StatusOverrideRecord,
   requestAttendancePermission,
   requestExtraOt,
   updateAttendanceWeeklyOff,
@@ -287,6 +289,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [markDate, setMarkDate] = useState(today);
   const [markStatus, setMarkStatus] = useState("P");
   const [markReason, setMarkReason] = useState("");
+  const [overrideHistory, setOverrideHistory] = useState<StatusOverrideRecord[]>([]);
   const [tab, setTab] = useState("overview");
   const [requestType, setRequestType] = useState<"permission" | "ot">("permission");
 
@@ -587,6 +590,21 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     }
   };
 
+  const loadOverrideHistory = useCallback(async () => {
+    if (user.role !== "admin") return;
+    try {
+      const { items } = await fetchStatusOverrides();
+      setOverrideHistory(items ?? []);
+    } catch {
+      // The history is secondary; the panel still works without it.
+    }
+  }, [user.role]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadOverrideHistory(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadOverrideHistory]);
+
   const saveStatusOverride = async () => {
     if (!employeeId) return onToast("Select an employee first", "info");
     if (!markReason.trim()) return onToast("Enter a reason for the change", "info");
@@ -599,6 +617,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
         reason: markReason.trim(),
       });
       setMarkReason("");
+      await loadOverrideHistory();
       onToast(`${STATUS[markStatus] ?? markStatus} recorded for ${markDate}`, "success");
       await load(false);
     } catch (error) {
@@ -795,7 +814,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <span><small>Unpaid time</small><strong className={selectedUnpaid ? "attendance-unpaid" : ""}>{durationLabel(selectedUnpaid)}</strong></span>
               </div>
             </section>
-            <section className="ds-panel attendance-permissions">
+            {user.role === "admin" && <section className="ds-panel attendance-permissions">
               <div className="ds-panel-head">
                 <div>
                   <span className="attendance-section-kicker">CORRECTION</span>
@@ -811,7 +830,26 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                   <CheckCircle2 size={15} /> Save status
                 </button>
               </div>
-            </section>
+              {overrideHistory.length > 0 && (
+                <div className="ds-table-wrap is-ruled">
+                  <table className="ds-table is-ruled">
+                    <thead><tr><th>Date</th><th>Employee</th><th>Change</th><th>Reason</th><th>Changed by</th><th>When</th></tr></thead>
+                    <tbody>
+                      {overrideHistory.map((row) => (
+                        <tr key={row.id}>
+                          <td><strong>{row.attendance_date}</strong></td>
+                          <td>{row.employee_name}</td>
+                          <td>{row.previous_status ? `${STATUS[row.previous_status] ?? row.previous_status} → ` : ""}{STATUS[row.status ?? ""] ?? row.status}</td>
+                          <td>{row.reason}</td>
+                          <td>{row.changed_by}</td>
+                          <td>{row.changed_at ? new Date(row.changed_at).toLocaleString("en-IN") : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>}
             <MonthTable month={visibleMonth} title="Daily attendance" />
           </>
         )}

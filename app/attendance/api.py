@@ -792,9 +792,41 @@ def decide_permission(permission_id: str, payload: PermissionDecision, admin: di
 
 @router.post("/adjustments", status_code=201)
 def create_adjustment(payload: AdjustmentRequest, admin: dict = Depends(require_attendance_manager)) -> dict:
+    if payload.kind == "status_override" and admin.get("role") != ADMIN_ROLE:
+        raise HTTPException(status_code=403, detail="Super Admin role required")
     _employee_id(admin, payload.employee_id)
     adjustment = _conflict(lambda: service().adjust(payload, admin["id"]))
     return {"status": "recorded", "adjustment": adjustment}
+
+
+@router.get("/status-overrides")
+def status_override_history(employee_id: str | None = None, admin: dict = Depends(require_admin)) -> dict:
+    """Every manual status change, newest first, with who made it."""
+    rows = service().repository.status_overrides(employee_id)
+    names: dict[str, str] = {}
+
+    def name_of(user_id: str | None) -> str:
+        if not user_id:
+            return ""
+        if user_id not in names:
+            person = users.get(user_id)
+            names[user_id] = (getattr(person, "name", None) or getattr(person, "email", None) or user_id) if person else user_id
+        return names[user_id]
+
+    return {"items": [
+        {
+            "id": row["id"],
+            "employee_id": row["employee_id"],
+            "employee_name": name_of(row["employee_id"]),
+            "attendance_date": row["attendance_date"],
+            "status": row.get("status"),
+            "previous_status": row.get("previous_status"),
+            "reason": row.get("reason", ""),
+            "changed_by": name_of(row.get("approved_by")),
+            "changed_at": row.get("approved_at") or row.get("created_at"),
+        }
+        for row in rows
+    ]}
 
 
 @router.post("/shifts", status_code=201)
