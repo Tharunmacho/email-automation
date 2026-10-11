@@ -36,6 +36,7 @@ import {
   fetchAttendanceWeeklyOff,
   fetchDutyPlans,
   fetchExtraOtRequests,
+  overrideAttendanceStatus,
   requestAttendancePermission,
   requestExtraOt,
   updateAttendanceWeeklyOff,
@@ -283,6 +284,9 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [dutyEnd, setDutyEnd] = useState("19:00");
   const [dutyBreak, setDutyBreak] = useState("60");
   const [dutyReason, setDutyReason] = useState("");
+  const [markDate, setMarkDate] = useState(today);
+  const [markStatus, setMarkStatus] = useState("P");
+  const [markReason, setMarkReason] = useState("");
   const [tab, setTab] = useState("overview");
   const [requestType, setRequestType] = useState<"permission" | "ot">("permission");
 
@@ -583,6 +587,27 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     }
   };
 
+  const saveStatusOverride = async () => {
+    if (!employeeId) return onToast("Select an employee first", "info");
+    if (!markReason.trim()) return onToast("Enter a reason for the change", "info");
+    setBusy(true);
+    try {
+      await overrideAttendanceStatus({
+        employee_id: employeeId,
+        attendance_date: markDate,
+        status: markStatus,
+        reason: markReason.trim(),
+      });
+      setMarkReason("");
+      onToast(`${STATUS[markStatus] ?? markStatus} recorded for ${markDate}`, "success");
+      await load(false);
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : "Status could not be saved", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeDutyPlan = async (plan: DutyPlan) => {
     setBusy(true);
     try {
@@ -768,6 +793,23 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <span><small>Days attended</small><strong>{summary.attended} of {summary.scheduled}</strong></span>
                 <span><small>Absent · late · incomplete</small><strong>{summary.absent} · {summary.late} · {summary.missing}</strong></span>
                 <span><small>Unpaid time</small><strong className={selectedUnpaid ? "attendance-unpaid" : ""}>{durationLabel(selectedUnpaid)}</strong></span>
+              </div>
+            </section>
+            <section className="ds-panel attendance-permissions">
+              <div className="ds-panel-head">
+                <div>
+                  <span className="attendance-section-kicker">CORRECTION</span>
+                  <h2 className="ds-panel-title">Mark attendance status</h2>
+                  <p className="ds-panel-sub">Set the status for one date, for example to mark a day present. The change is logged with your name and replaces the calculated result.</p>
+                </div>
+              </div>
+              <div className="attendance-form">
+                <label>Date<DatePicker value={markDate} onChange={setMarkDate} ariaLabel="Date to mark" clearable={false} /></label>
+                <label>Status<Select value={markStatus} onChange={setMarkStatus} ariaLabel="Attendance status" options={Object.entries(STATUS).map(([value, label]) => ({ value, label }))} /></label>
+                <label className="is-wide">Reason<textarea rows={2} value={markReason} onChange={(event) => setMarkReason(event.target.value)} placeholder="Why is this being changed?" /></label>
+                <button type="button" className="ds-primary-btn" disabled={busy || !employeeId} onClick={() => void saveStatusOverride()}>
+                  <CheckCircle2 size={15} /> Save status
+                </button>
               </div>
             </section>
             <MonthTable month={visibleMonth} title="Daily attendance" />

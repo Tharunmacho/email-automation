@@ -1006,6 +1006,20 @@ export function setAttendanceLeave(payload: {
   });
 }
 
+/** An administrator's correction of one employee's status for one date. */
+export function overrideAttendanceStatus(payload: {
+  employee_id: string;
+  attendance_date: string;
+  status: string;
+  reason: string;
+}): Promise<{ status: string }> {
+  return request("/attendance/adjustments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...payload, kind: "status_override" }),
+  });
+}
+
 /** Fetch the separately stored Aadhaar and passport records for one candidate. */
 export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
   return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
