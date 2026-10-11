@@ -21,6 +21,7 @@ import {
   Trash2,
   Users,
   WalletCards,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -289,6 +290,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   const [markDate, setMarkDate] = useState(today);
   const [markStatus, setMarkStatus] = useState("P");
   const [markReason, setMarkReason] = useState("");
+  const [logsOpen, setLogsOpen] = useState(false);
   const [overrideHistory, setOverrideHistory] = useState<StatusOverrideRecord[]>([]);
   const [tab, setTab] = useState("overview");
   const [requestType, setRequestType] = useState<"permission" | "ot">("permission");
@@ -605,6 +607,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     return () => window.clearTimeout(timer);
   }, [loadOverrideHistory]);
 
+  useEffect(() => {
+    if (!logsOpen) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setLogsOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [logsOpen]);
+
   const saveStatusOverride = async () => {
     if (!employeeId) return onToast("Select an employee first", "info");
     if (!markReason.trim()) return onToast("Enter a reason for the change", "info");
@@ -829,24 +838,44 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <button type="button" className="ds-primary-btn" disabled={busy || !employeeId} onClick={() => void saveStatusOverride()}>
                   <CheckCircle2 size={15} /> Save status
                 </button>
+                <button type="button" className="ds-ghost-btn" onClick={() => { void loadOverrideHistory(); setLogsOpen(true); }}>
+                  <History size={15} /> Logs
+                </button>
               </div>
-              {overrideHistory.length > 0 && (
-                <div className="ds-table-wrap is-ruled">
-                  <table className="ds-table is-ruled">
-                    <thead><tr><th>Date</th><th>Employee</th><th>Change</th><th>Reason</th><th>Changed by</th><th>When</th></tr></thead>
-                    <tbody>
-                      {overrideHistory.map((row) => (
-                        <tr key={row.id}>
-                          <td><strong>{row.attendance_date}</strong></td>
-                          <td>{row.employee_name}</td>
-                          <td>{row.previous_status ? `${STATUS[row.previous_status] ?? row.previous_status} → ` : ""}{STATUS[row.status ?? ""] ?? row.status}</td>
-                          <td>{row.reason}</td>
-                          <td>{row.changed_by}</td>
-                          <td>{row.changed_at ? new Date(row.changed_at).toLocaleString("en-IN") : ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {logsOpen && (
+                <div className="modal-overlay active" onClick={() => setLogsOpen(false)}>
+                  <div className="modal-container" role="dialog" aria-modal="true" aria-labelledby="status-logs-title" onClick={(event) => event.stopPropagation()}>
+                    <div className="modal-header">
+                      <div>
+                        <h2 className="modal-title" id="status-logs-title">Attendance status logs</h2>
+                        <p className="modal-subtitle">Every manual status change, newest first.</p>
+                      </div>
+                      <button type="button" className="modal-close" onClick={() => setLogsOpen(false)} aria-label="Close"><X size={16} /></button>
+                    </div>
+                    <div className="modal-body">
+                      {overrideHistory.length === 0 ? (
+                        <div className="ds-empty-state"><History size={28} /><h3>No changes yet</h3></div>
+                      ) : (
+                        <div className="ds-table-wrap is-ruled">
+                          <table className="ds-table is-ruled">
+                            <thead><tr><th>Date</th><th>Employee</th><th>Change</th><th>Reason</th><th>Changed by</th><th>When</th></tr></thead>
+                            <tbody>
+                              {overrideHistory.map((row) => (
+                                <tr key={row.id}>
+                                  <td><strong>{row.attendance_date}</strong></td>
+                                  <td>{row.employee_name}</td>
+                                  <td>{row.previous_status ? `${STATUS[row.previous_status] ?? row.previous_status} → ` : ""}{STATUS[row.status ?? ""] ?? row.status}</td>
+                                  <td>{row.reason}</td>
+                                  <td>{row.changed_by}</td>
+                                  <td>{row.changed_at ? new Date(row.changed_at).toLocaleString("en-IN") : ""}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </section>}
