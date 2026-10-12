@@ -387,7 +387,19 @@ class UserRepository:
         account keeps the work it already holds but receives nothing new, and
         an employee without CRM access could never open what they were given.
         """
-        return [user for user in self.list_staff(include_inactive=False) if user.crm_access]
+        staff = [user for user in self.list_staff(include_inactive=False) if user.crm_access]
+        # Noorul is the finance manager, so his role is not `staff` and the query
+        # above never returns him — yet he sits on the Singapore/Malaysia desk
+        # and takes an equal share. Desk members are pooled whatever their role.
+        in_pool = {user.id for user in staff}
+        for user in self.list_employees(include_inactive=False):
+            if (
+                user.id not in in_pool
+                and user.crm_access
+                and user.email.strip().casefold() in CANDIDATE_OWNER_EMAILS
+            ):
+                staff.append(user)
+        return staff
 
     def create_staff(
         self,
@@ -734,6 +746,10 @@ def ensure_user_indexes() -> None:
 #: Noorul runs Royapettah (the Singapore and Malaysia desk) and is also the
 #: finance manager for both branches. Which staff each one approves is decided
 #: by branch in `app.branches`, not here.
+#: Managers who also take an equal share of new candidates, by email. Only the
+#: Singapore/Malaysia desk lead, who works the desk alongside the staff.
+CANDIDATE_OWNER_EMAILS = frozenset({"noorul.adira@gmail.com"})
+
 BRANCH_MANAGER_ACCOUNTS = (
     ({"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}}, MANAGER_ROLE),
     ({"email": "noorul.adira@gmail.com"}, FINANCE_MANAGER_ROLE),

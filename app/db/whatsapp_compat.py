@@ -297,6 +297,40 @@ def _timestamp(*values: Any) -> Optional[datetime]:
     return None
 
 
+_RESUME_KEYS = {
+    "original_filename": ("original_filename", "originalFilename", "fileName", "filename"),
+    "mime_type": ("mime_type", "mimeType", "contentType"),
+    "size": ("size", "fileSize"),
+    "sha256": ("sha256", "hash"),
+    "storage_backend": ("storage_backend", "storageBackend"),
+    "storage_key": ("storage_key", "storageKey", "key"),
+}
+
+
+def _stored_resume(value: Any) -> Optional[Dict[str, Any]]:
+    """The bot's résumé pointer as a `StoredResume` dict, or None.
+
+    Accepts snake_case or camelCase names. Returns None unless the pointer is
+    complete, so a half-formed one still cannot break the detail read.
+    """
+    if not isinstance(value, dict):
+        return None
+    out: Dict[str, Any] = {}
+    for field, names in _RESUME_KEYS.items():
+        found = _first(*(value.get(name) for name in names))
+        if found is None:
+            return None
+        out[field] = found
+    try:
+        out["size"] = int(out["size"])
+    except (TypeError, ValueError):
+        return None
+    for field in ("extraction_method", "ocr_used"):
+        if field in value:
+            out[field] = value[field]
+    return out
+
+
 def normalize(doc: Dict[str, Any]) -> Dict[str, Any]:
     """One bot-written document, in the CRM's shape.
 
@@ -316,15 +350,22 @@ def normalize(doc: Dict[str, Any]) -> Dict[str, Any]:
     # "Failed to fetch" in the browser. The direct-write bot has not stored a
     # file in this CRM, so retaining its pointer would be misleading even when
     # it happened to validate.
+    resume = _stored_resume(doc.get("resume"))
+    if resume:
+        # A CV the bot stored in this CRM's storage is downloadable like any
+        # other; only a pointer the CRM cannot open is dropped below.
+        out["resume"] = resume
+        out["resume_hash"] = resume["sha256"]
     for incompatible in (
-        "resume",
-        "resume_hash",
+        "resume" if not resume else "",
+        "resume_hash" if not resume else "",
         "source_email",
         "contacts",
         "identity_review",
         "idempotency_key",
     ):
-        out.pop(incompatible, None)
+        if incompatible:
+            out.pop(incompatible, None)
 
     # The bot's fields fill the gaps; anything the CRM already holds wins.
     #

@@ -2342,7 +2342,9 @@ def assign_candidate_route(
     _admin: dict = Depends(require_action("reallocate-candidates")),
 ) -> dict:
     member = users.get(payload.staff_id)
-    if not member or member.role != STAFF_ROLE or not member.active:
+    if not member or not member.active or (
+        member.role != STAFF_ROLE and member.id not in {m.id for m in users.list_assignable_staff()}
+    ):
         raise HTTPException(status_code=400, detail="Target staff member is not active")
 
     repository = repo()

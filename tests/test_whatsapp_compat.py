@@ -320,3 +320,16 @@ def test_a_hex_uuid_that_is_24_characters_is_matched_both_ways():
 
 def test_an_unusable_id_does_not_raise():
     assert _id_filter("not-an-id") == {"_id": "not-an-id"}
+
+
+def test_bot_resume_stored_in_crm_shape_stays_downloadable():
+    from app.core.models import CandidateRecord
+
+    pointer = {
+        "fileName": "cv.pdf", "mimeType": "application/pdf", "size": 12,
+        "sha256": "abc", "storageBackend": "gridfs", "storageKey": "2026/10/cv.pdf",
+    }
+    record = CandidateRecord.from_mongo(whatsapp_compat.normalize(dict(BOT_DOC, resume=pointer)))
+    assert record.resume.storage_key == "2026/10/cv.pdf"
+    assert record.resume.original_filename == "cv.pdf"
+    assert record.resume_hash == "abc"
