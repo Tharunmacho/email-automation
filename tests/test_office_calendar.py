@@ -38,7 +38,7 @@ def test_an_explicit_calendar_entry_or_duty_plan_overrides_the_holiday():
 
 
 def test_royapettah_staff_work_nine_thirty_to_six_thirty():
-    for email in ("sreya.adira@gmail.com", "bakkimamal.adira@gmail.com", "DSharmila.adira@gmail.com"):
+    for email in ("sreya.adira@gmail.com", "bakkiammal.adira@gmail.com", "DSharmila.adira@gmail.com"):
         result = _service(email).day("emp", date(2026, 10, 5))
         assert _ist(result["shift_start"]) == time(9, 30)
         assert _ist(result["shift_end"]) == time(18, 30)

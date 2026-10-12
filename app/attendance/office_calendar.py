@@ -62,7 +62,7 @@ def builtin_holidays() -> list[dict]:
 #: 10:00 AM to 7:00 PM. Keyed by email so it survives account recreation.
 _ROYAPETTAH_EARLY_SHIFT = Shift(start=time(9, 30), end=time(18, 30))
 STANDARD_SHIFTS = {
-    "bakkimamal.adira@gmail.com": _ROYAPETTAH_EARLY_SHIFT,
+    "bakkiammal.adira@gmail.com": _ROYAPETTAH_EARLY_SHIFT,
     "sreya.adira@gmail.com": _ROYAPETTAH_EARLY_SHIFT,
     "dsharmila.adira@gmail.com": _ROYAPETTAH_EARLY_SHIFT,
 }

@@ -7,12 +7,13 @@ pipeline (in a Celery worker) and the admin API.
 collection after the staff roster changes.
 
 Singapore and Malaysia candidates go to their dedicated desk. Every other
-destination goes to the rest of the roster. Within the responsible desk, the
-profile goes to whichever active staff member currently holds the fewest.
+destination goes to the rest of the roster. Within the responsible desk the
+profiles are dealt round-robin: one to each person in turn, then round again.
+Whoever was given a candidate longest ago goes next, and someone never given one
+goes first.
 
 Ties break on staff id rather than arbitrarily, so the same roster and the same
-counts always produce the same choice. Without that a rebalance would not be
-reproducible and nothing about it could be asserted.
+history always produce the same choice.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ log = get_logger(__name__)
 # database migration.
 SINGAPORE_MALAYSIA_DESK_EMAILS = frozenset({
     "sreya.adira@gmail.com",
-    "bakkimamal.adira@gmail.com",
+    "bakkiammal.adira@gmail.com",
     "dsharmila.adira@gmail.com",
     "hajirabegum.adira@gmail.com",
     "jemalisahi.adira@gmail.com",
@@ -99,7 +100,7 @@ class AssignmentResult:
     candidate_id: str
     staff_id: Optional[str] = None
     staff_name: Optional[str] = None
-    # "workload" — placed with the least-loaded staff member
+    # "workload" — placed by rotation within the responsible desk
     # "no_staff"  — there is no active staff member to assign to
     reason: str = "no_staff"
 
@@ -122,6 +123,26 @@ class AssignmentResult:
 def _least_loaded(staff: Sequence[User], workloads: Dict[str, int]) -> User:
     """The staff member holding the fewest profiles, ties broken by id."""
     return min(staff, key=lambda member: (workloads.get(member.id, 0), member.id))
+
+
+def _turns(repo: CandidateRepository) -> Dict[str, float]:
+    """`{staff_id: when they were last dealt a candidate}`; absent = never.
+
+    A repository without the aggregation (a test double) simply has no history,
+    which makes the rotation start from the lowest id.
+    """
+    read = getattr(repo, "last_auto_assignments", None)
+    return dict(read()) if callable(read) else {}
+
+
+def _next_in_rotation(staff: Sequence[User], turns: Dict[str, float]) -> User:
+    """The person whose turn it is: dealt to longest ago, ties broken by id."""
+    return min(staff, key=lambda member: (turns.get(member.id, 0.0), member.id))
+
+
+def _take_turn(member: User, turns: Dict[str, float]) -> None:
+    """Record that `member` was just dealt one, so the next pick moves on."""
+    turns[member.id] = max(turns.values(), default=0.0) + 1.0
 
 
 def _current_workloads(staff: Sequence[User], repo: CandidateRepository) -> Dict[str, int]:
@@ -172,17 +193,13 @@ def assign_candidate(
         )
         return AssignmentResult(candidate_id=candidate_id)
 
-    workloads = _current_workloads(staff, repo)
-    chosen = _least_loaded(staff, workloads)
+    chosen = _next_in_rotation(staff, _turns(repo))
 
     guard = {"assigned_staff_id": None} if only_if_unassigned else None
     if not repo.assign(candidate_id, chosen.id, chosen.name, guard=guard):
         log.info("Candidate %s already has an owner; automatic assignment skipped", candidate_id)
         return AssignmentResult(candidate_id=candidate_id, reason="already_assigned")
-    log.info(
-        "Assigned candidate %s to %s (%s), who was holding %d",
-        candidate_id, chosen.name, chosen.id, workloads.get(chosen.id, 0),
-    )
+    log.info("Assigned candidate %s to %s (%s) by rotation", candidate_id, chosen.name, chosen.id)
     return AssignmentResult(
         candidate_id=candidate_id,
         staff_id=chosen.id,
@@ -222,8 +239,7 @@ def pick_owner_for_destination(
         return None
     without_current = [member for member in staff if member.id != exclude_staff_id]
     candidates_for_ownership = without_current or staff
-    workloads = _current_workloads(candidates_for_ownership, repo)
-    return _least_loaded(candidates_for_ownership, workloads)
+    return _next_in_rotation(candidates_for_ownership, _turns(repo))
 
 
 # --------------------------------------------------------------------------- #
@@ -399,8 +415,12 @@ def _deal(
     reason: str = "",
     remarks: str = "",
     guard=None,
+    turns: Optional[Dict[str, float]] = None,
 ) -> int:
-    """Deal `rows` out one at a time to whoever is holding the fewest.
+    """Deal `rows` out one at a time.
+
+    With `turns` it is a round-robin — whoever was dealt to longest ago — and
+    otherwise to whoever is holding the fewest.
 
     `place(candidate_id, staff_id, staff_name)` does the write, which is the
     only thing that differs between the callers: fresh work is placed with
@@ -413,8 +433,10 @@ def _deal(
         eligible = _eligible_staff(staff, row)
         if not eligible:
             continue
-        chosen = _least_loaded(eligible, workloads)
+        chosen = _next_in_rotation(eligible, turns) if turns is not None else _least_loaded(eligible, workloads)
         workloads[chosen.id] += 1
+        if turns is not None:
+            _take_turn(chosen, turns)
         if row.get("assigned_staff_id") == chosen.id:
             continue
         event = _assignment_event(actor, row, chosen, remarks, reason) if actor else None
@@ -475,6 +497,7 @@ def allocate_unassigned(
     allocated = _deal(
         rows, staff, workloads, repo.assign,
         guard=lambda _row: {"assigned_staff_id": None},
+        turns=_turns(repo),
     )
 
     log.info("Allocated %d previously unowned profile(s) across %d staff", allocated, len(staff))
@@ -534,6 +557,7 @@ def redistribute_from_staff(
         actor=actor,
         reason="staff_account_deleted",
         remarks="Previous staff account removed",
+        turns=_turns(repo),
         # Still on the deleted account and still unread. Hand-placed profiles
         # move too: their chosen owner no longer exists.
         guard=lambda row: {

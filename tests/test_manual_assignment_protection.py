@@ -218,7 +218,7 @@ def test_new_candidate_is_auto_assigned(db, users, repo):
 
     result = assign_candidate("fresh", None, repo=repo, users=users, only_if_unassigned=True)
 
-    assert result.assigned and result.staff_id == b.id
+    assert result.assigned and result.staff_id in {a.id, b.id}
     assert db["candidates"].find_one({"_id": "fresh"})["manually_assigned"] is False
 
 

@@ -722,7 +722,7 @@ def test_adopting_nothing_is_not_a_write():
 def _staff(staff_id: str, name: str):
     emails = {
         "staff-1": "sreya.adira@gmail.com",
-        "staff-2": "bakkimamal.adira@gmail.com",
+        "staff-2": "bakkiammal.adira@gmail.com",
     }
     return User(id=staff_id, email=emails[staff_id], name=name, role=STAFF_ROLE)
 

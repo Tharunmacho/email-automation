@@ -742,14 +742,14 @@ def ensure_user_indexes() -> None:
     ensure_index(coll, [("role", ASCENDING), ("active", ASCENDING)], "user_role_active_idx")
 
 
+#: Accounts that take a share of new candidates whatever their role, by email:
+#: Noorul (finance manager) and Bakkiyammal, both on the Singapore/Malaysia desk.
+CANDIDATE_OWNER_EMAILS = frozenset({"noorul.adira@gmail.com", "bakkiammal.adira@gmail.com"})
+
 #: The branch managers and the role each one holds: Rafi runs Mount Road;
 #: Noorul runs Royapettah (the Singapore and Malaysia desk) and is also the
 #: finance manager for both branches. Which staff each one approves is decided
 #: by branch in `app.branches`, not here.
-#: Managers who also take an equal share of new candidates, by email. Only the
-#: Singapore/Malaysia desk lead, who works the desk alongside the staff.
-CANDIDATE_OWNER_EMAILS = frozenset({"noorul.adira@gmail.com"})
-
 BRANCH_MANAGER_ACCOUNTS = (
     ({"email": "hr@findurjob.com", "name": {"$regex": "^rafi$", "$options": "i"}}, MANAGER_ROLE),
     ({"email": "noorul.adira@gmail.com"}, FINANCE_MANAGER_ROLE),

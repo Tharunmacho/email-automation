@@ -49,6 +49,10 @@ class FakeRepo:
         self._workloads = dict(workloads or {})
         self._rows = list(rows or [])
         self.assignments = []
+        self._turns = {}
+
+    def last_auto_assignments(self):
+        return dict(self._turns)
 
     def workload_counts(self):
         return {sid: {"assigned": n, "evaluated": 0, "unviewed": n} for sid, n in self._workloads.items()}
@@ -61,6 +65,7 @@ class FakeRepo:
         if guard and target is not None and not _matches(target, guard):
             return False
         self.assignments.append((candidate_id, staff_id))
+        self._turns[staff_id] = max(self._turns.values(), default=0.0) + 1.0
         self._workloads[staff_id] = self._workloads.get(staff_id, 0) + 1
         for row in self._rows:
             if row["_id"] == candidate_id:
@@ -122,37 +127,27 @@ def test_candidate_waits_unassigned_when_its_country_desk_has_no_active_staff():
 # --------------------------------------------------------------------------- #
 #  Step-by-step minimum workload
 # --------------------------------------------------------------------------- #
-def test_candidate_goes_to_the_least_loaded_staff_member():
-    """The worked example: A=10, B=7, C=6 sends the next profile to C."""
+def test_candidates_are_dealt_one_to_each_in_turn():
+    """Round-robin: a, b, c, then round again — whatever each already holds."""
     users = FakeUsers([staff("a", "A"), staff("b", "B"), staff("c", "C")])
     repo = FakeRepo({"a": 10, "b": 7, "c": 6})
 
-    result = assign_candidate("cand-1", profile(["python"]), repo=repo, users=users)
+    picks = [assign_candidate(f"cand-{i}", profile(), repo=repo, users=users).staff_id for i in range(6)]
 
-    assert result.staff_id == "c"
-    assert result.reason == "workload"
+    assert picks == ["a", "b", "c", "a", "b", "c"]
 
 
-def test_repeated_assignment_levels_the_roster_one_at_a_time():
-    """A=10, B=7, C=6 → C, then B or C, and so on until the counts converge.
+def test_a_new_staff_member_is_dealt_next_then_joins_the_rotation():
+    users = FakeUsers([staff("a", "A"), staff("b", "B")])
+    repo = FakeRepo()
+    for i in range(4):
+        assign_candidate(f"cand-{i}", profile(), repo=repo, users=users)
+    users._staff.append(staff("c", "C"))
 
-    This is the whole "step-by-step" rule: each placement re-reads the counts,
-    so the sequence self-corrects rather than dealing a fixed round-robin.
-    """
-    users = FakeUsers([staff("a", "A"), staff("b", "B"), staff("c", "C")])
-    repo = FakeRepo({"a": 10, "b": 7, "c": 6})
+    picks = [assign_candidate(f"new-{i}", profile(), repo=repo, users=users).staff_id for i in range(3)]
 
-    picks = []
-    for i in range(6):
-        picks.append(assign_candidate(f"cand-{i}", profile(), repo=repo, users=users).staff_id)
-
-    assert picks[0] == "c"          # 6 is the minimum
-    assert picks[1] in {"b", "c"}   # both sit at 7
-    # Nothing may be handed to the busiest member while anyone trails them.
-    assert "a" not in picks
-    # The two trailing members converge on the leader instead of overshooting.
-    assert repo._workloads == {"a": 10, "b": 10, "c": 9}
-    assert max(repo._workloads.values()) - min(repo._workloads.values()) <= 1
+    assert picks[0] == "c"
+    assert sorted(picks) == ["a", "b", "c"]
 
 
 def test_ties_break_deterministically():
@@ -319,27 +314,18 @@ def test_rebalance_without_staff_reports_an_error():
 # --------------------------------------------------------------------------- #
 #  The end-to-end story the platform is specified around
 # --------------------------------------------------------------------------- #
-def test_spec_walkthrough_five_four_three_equalises_at_five():
-    """The specified worked example, step by step.
+def test_rotation_is_kept_separately_for_each_desk():
+    sg1 = staff("sg1", "Sreya", email="sreya.adira@gmail.com")
+    sg2 = staff("sg2", "Noorul", email="noorul.adira@gmail.com")
+    g1, g2 = staff("g1", "G1"), staff("g2", "G2")
+    users = FakeUsers([sg1, sg2, g1, g2])
+    repo = FakeRepo()
 
-    Roster starts at 5 / 4 / 3. Three candidates arrive one at a time and the
-    roster has to finish level at 5 / 5 / 5 — each placement re-reads the counts,
-    so the third candidate lands on whoever the first two left behind.
-    """
-    users = FakeUsers([staff("s1", "Staff 1"), staff("s2", "Staff 2"), staff("s3", "Staff 3")])
-    repo = FakeRepo({"s1": 5, "s2": 4, "s3": 3})
+    singapore = [assign_candidate(f"s{i}", profile(destination_country="Singapore"), repo=repo, users=users).staff_id for i in range(4)]
+    general = [assign_candidate(f"g{i}", profile(destination_country="Qatar"), repo=repo, users=users).staff_id for i in range(4)]
 
-    first = assign_candidate("cand-1", profile(), repo=repo, users=users)
-    assert first.staff_id == "s3"                      # lowest count: 3
-    assert repo._workloads == {"s1": 5, "s2": 4, "s3": 4}
-
-    second = assign_candidate("cand-2", profile(), repo=repo, users=users)
-    assert second.staff_id in {"s2", "s3"}             # both now sit at 4
-    assert sorted(repo._workloads.values()) == [4, 5, 5]
-
-    third = assign_candidate("cand-3", profile(), repo=repo, users=users)
-    assert third.staff_id != second.staff_id           # the one still on 4
-    assert repo._workloads == {"s1": 5, "s2": 5, "s3": 5}
+    assert singapore == ["sg1", "sg2", "sg1", "sg2"]
+    assert general == ["g1", "g2", "g1", "g2"]
 
 
 def test_new_hire_takes_a_fair_share_of_an_existing_backlog():
@@ -395,28 +381,18 @@ def test_a_new_hire_cannot_be_handed_work_someone_has_already_judged():
     assert result["staff_counts"]["b"]["assigned"] == 2
 
 
-def test_a_new_hire_absorbs_intake_until_they_catch_up():
-    """A staff member created at zero takes every arrival until level.
-
-    This is the rule that makes creating an account self-correcting without any
-    special case for it: the minimum-workload check already sends everything to
-    whoever is furthest behind, and stops the moment they are not.
-    """
+def test_a_new_hire_is_dealt_first_then_alternates_with_the_rest():
+    """A staff member who has never been dealt one goes first, then it is one each."""
     users = FakeUsers([staff("old", "Existing"), staff("new", "New Hire")])
     repo = FakeRepo({"old": 4, "new": 0})
+    repo._turns = {"old": 1.0}
 
     picks = [
         assign_candidate(f"cand-{i}", profile(), repo=repo, users=users).staff_id
         for i in range(4)
     ]
 
-    # Every one of the first four goes to the new hire, who is behind throughout.
-    assert picks == ["new", "new", "new", "new"]
-    assert repo._workloads == {"old": 4, "new": 4}
-
-    # Caught up: the next one is no longer theirs by default.
-    assign_candidate("cand-4", profile(), repo=repo, users=users)
-    assert sorted(repo._workloads.values()) == [4, 5]
+    assert picks == ["new", "old", "new", "old"]
 
 
 def test_ingesting_one_at_a_time_keeps_the_team_level():

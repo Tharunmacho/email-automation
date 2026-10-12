@@ -333,7 +333,7 @@ def test_an_auto_routed_reassignment_is_flagged_manual_too(api):
 
 
 def test_a_manual_assign_is_flagged_and_survives_automatic_passes(api):
-    second = FakeUser("sg-2", "Bakkiam", "bakkimamal.adira@gmail.com")
+    second = FakeUser("sg-2", "Bakkiam", "bakkiammal.adira@gmail.com")
     with patch.dict(STAFF, {"sg-2": second}):
         response = api.post(
             "/candidates/cand-1/assign", json={"staff_id": "sg-2", "remarks": "cover"},

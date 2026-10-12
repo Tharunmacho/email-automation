@@ -126,38 +126,26 @@ def test_a_brand_new_account_reports_zero_rather_than_being_absent(db, users, re
 # --------------------------------------------------------------------------- #
 #  The specified ingestion sequence, end to end
 # --------------------------------------------------------------------------- #
-def test_specified_ingestion_sequence_equalises_at_five(db, users, repo):
-    """Staff 1 = 5, Staff 2 = 4, Staff 3 = 3, then three résumés arrive.
+def test_ingestion_sequence_deals_one_to_each_in_turn(db, users, repo):
+    """Whatever each holds, new résumés go one to each person, then round again.
 
-    Run through the real repository: each `assign_candidate` re-reads the counts
-    with the same aggregation the API uses, and writes with the same update.
+    Run through the real repository: each `assign_candidate` re-reads who was
+    dealt to last with the same aggregation the API uses.
     """
     s1 = make_staff(users, "Staff 1")
     s2 = make_staff(users, "Staff 2")
     s3 = make_staff(users, "Staff 3")
-
     for i in range(5):
         insert_candidate(db, f"s1-{i}", s1.id, s1.name)
-    for i in range(4):
-        insert_candidate(db, f"s2-{i}", s2.id, s2.name)
     for i in range(3):
         insert_candidate(db, f"s3-{i}", s3.id, s3.name)
+    for i in range(6):
+        insert_candidate(db, f"new-{i}")
 
-    insert_candidate(db, "new-1")
-    insert_candidate(db, "new-2")
-    insert_candidate(db, "new-3")
+    picks = [assign_candidate(f"new-{i}", None, repo=repo, users=users).staff_id for i in range(6)]
 
-    first = assign_candidate("new-1", None, repo=repo, users=users)
-    assert first.staff_id == s3.id                       # lowest: 3
-    assert counts_by_name(db, users) == {"Staff 1": 5, "Staff 2": 4, "Staff 3": 4}
-
-    second = assign_candidate("new-2", None, repo=repo, users=users)
-    assert second.staff_id in {s2.id, s3.id}             # both on 4
-    assert sorted(counts_by_name(db, users).values()) == [4, 5, 5]
-
-    third = assign_candidate("new-3", None, repo=repo, users=users)
-    assert third.staff_id != second.staff_id
-    assert counts_by_name(db, users) == {"Staff 1": 5, "Staff 2": 5, "Staff 3": 5}
+    assert set(picks[:3]) == {s1.id, s2.id, s3.id}
+    assert picks[3:] == picks[:3]
 
 
 # --------------------------------------------------------------------------- #
@@ -315,8 +303,8 @@ def test_allocate_unassigned_places_only_the_unowned(db, users, repo):
     result = allocate_unassigned(repo=repo, users=users)
 
     assert result["allocated"] == 2
-    # Both newcomers went to Bob, who was on zero; Alice's six never moved.
-    assert counts_by_name(db, users) == {"Alice": 6, "Bob": 2}
+    # Dealt in turn — Alice then Bob — and Alice's six never moved.
+    assert counts_by_name(db, users) == {"Alice": 7, "Bob": 1}
     assert db["candidates"].count_documents({"assigned_staff_id": None}) == 0
 
 

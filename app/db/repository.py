@@ -1413,6 +1413,30 @@ class CandidateRepository:
             }
         return counts
 
+    def last_auto_assignments(self) -> Dict[str, float]:
+        """`{staff_id: epoch seconds of their latest automatic assignment}`.
+
+        What the round-robin reads to know whose turn it is: whoever was given a
+        candidate longest ago goes next, and someone never given one (a new
+        account) is absent and so goes first. Hand-placed profiles do not count
+        as a turn — an admin choosing an owner must not use up theirs.
+        """
+        pipeline = [
+            {"$match": {
+                "assigned_staff_id": {"$ne": None},
+                "manually_assigned": {"$ne": True},
+                "assigned_at": {"$type": "date"},
+            }},
+            {"$group": {"_id": "$assigned_staff_id", "last": {"$max": "$assigned_at"}}},
+        ]
+        out: Dict[str, float] = {}
+        for row in self._coll.aggregate(pipeline):
+            moment = row["last"]
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=timezone.utc)
+            out[row["_id"]] = moment.timestamp()
+        return out
+
     def list_for_rebalance(self) -> List[dict]:
         """Every candidate, oldest first, projected down to the allocation fields.
 
