@@ -333,3 +333,24 @@ def test_bot_resume_stored_in_crm_shape_stays_downloadable():
     assert record.resume.storage_key == "2026/10/cv.pdf"
     assert record.resume.original_filename == "cv.pdf"
     assert record.resume_hash == "abc"
+
+
+def test_bot_resume_with_only_a_storage_key_still_downloads():
+    from app.core.models import CandidateRecord
+
+    record = CandidateRecord.from_mongo(
+        whatsapp_compat.normalize(dict(BOT_DOC, resume={"storageKey": "2026/10/cv.pdf"}, resume_hash="x"))
+    )
+    assert record.resume.storage_key == "2026/10/cv.pdf"
+    assert record.resume.original_filename == "cv.pdf"
+    assert record.resume.mime_type == "application/pdf"
+    assert record.resume_hash is None
+
+
+def test_bot_resume_without_a_storage_key_is_dropped():
+    from app.core.models import CandidateRecord
+
+    record = CandidateRecord.from_mongo(
+        whatsapp_compat.normalize(dict(BOT_DOC, resume={"fileName": "cv.pdf", "url": "https://bot.invalid/cv.pdf"}))
+    )
+    assert record.resume is None

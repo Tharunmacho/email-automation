@@ -310,21 +310,43 @@ _RESUME_KEYS = {
 def _stored_resume(value: Any) -> Optional[Dict[str, Any]]:
     """The bot's résumé pointer as a `StoredResume` dict, or None.
 
-    Accepts snake_case or camelCase names. Returns None unless the pointer is
-    complete, so a half-formed one still cannot break the detail read.
+    Accepts snake_case or camelCase names. Only the storage key is essential —
+    it is what the download reads. Anything else the bot left out is filled with
+    a harmless default, so a partial pointer still downloads. Without a key
+    there is nothing to open and the pointer is dropped.
     """
+    import mimetypes
+    import posixpath
+
     if not isinstance(value, dict):
         return None
-    out: Dict[str, Any] = {}
-    for field, names in _RESUME_KEYS.items():
-        found = _first(*(value.get(name) for name in names))
-        if found is None:
-            return None
-        out[field] = found
-    try:
-        out["size"] = int(out["size"])
-    except (TypeError, ValueError):
+    found = {
+        field: _first(*(value.get(name) for name in names))
+        for field, names in _RESUME_KEYS.items()
+    }
+    key = found["storage_key"]
+    if not isinstance(key, str) or not key.strip():
         return None
+
+    filename = str(found["original_filename"] or posixpath.basename(key) or "resume")
+    try:
+        size = int(found["size"] or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if not found["storage_backend"]:
+        from app.config import settings
+
+        found["storage_backend"] = settings.storage_backend
+    out: Dict[str, Any] = {
+        "original_filename": filename,
+        "mime_type": str(
+            found["mime_type"] or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        ),
+        "size": size,
+        "sha256": str(found["sha256"] or ""),
+        "storage_backend": str(found["storage_backend"]),
+        "storage_key": key,
+    }
     for field in ("extraction_method", "ocr_used"):
         if field in value:
             out[field] = value[field]
@@ -355,7 +377,10 @@ def normalize(doc: Dict[str, Any]) -> Dict[str, Any]:
         # A CV the bot stored in this CRM's storage is downloadable like any
         # other; only a pointer the CRM cannot open is dropped below.
         out["resume"] = resume
-        out["resume_hash"] = resume["sha256"]
+        if resume["sha256"]:
+            out["resume_hash"] = resume["sha256"]
+        else:
+            out.pop("resume_hash", None)
     for incompatible in (
         "resume" if not resume else "",
         "resume_hash" if not resume else "",
