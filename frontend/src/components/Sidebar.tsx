@@ -14,6 +14,17 @@ interface SidebarProps {
   collapsed: boolean;
   mobileOpen: boolean;
   user: AuthUser;
+  /**
+   * Work waiting behind a destination, per nav id. A zero or missing entry
+   * draws nothing.
+   *
+   * The rail carries no counts as a rule — a number you did not ask for
+   * competes with the one thing the rail must make obvious, which is where you
+   * are. This is the exception, and it earns it by being a deadline rather
+   * than a total: a callback nobody made is a candidate going cold, and a
+   * reviewer should not have to open a page to find that out.
+   */
+  alerts?: Partial<Record<NavId, number>>;
   onNavigate: (id: NavId) => void;
   onToggleCollapse: () => void;
   onCloseMobile: () => void;
@@ -38,7 +49,7 @@ const SECTIONS: { label: string; ids: NavId[] }[] = [
   { label: "Quick access", ids: ["data-management", "users", "settings"] },
 ];
 
-export default function Sidebar({ activeId, collapsed, mobileOpen, user, onNavigate, onToggleCollapse, onCloseMobile }: SidebarProps) {
+export default function Sidebar({ activeId, collapsed, mobileOpen, user, alerts, onNavigate, onToggleCollapse, onCloseMobile }: SidebarProps) {
   const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getThemeServerSnapshot);
   const palette = useSyncExternalStore(subscribeTheme, getPaletteSnapshot, getPaletteServerSnapshot);
   const railRef = useModalFocus<HTMLElement>(mobileOpen, onCloseMobile);
@@ -68,10 +79,15 @@ export default function Sidebar({ activeId, collapsed, mobileOpen, user, onNavig
               {sectionIndex > 0 && <p className="rail-section-label">{section.label}</p>}
               {section.items.map((item) => {
                 const Icon = item.icon;
-                return <Link key={item.id} href={navPath(item.id)} className={`rail-item ${activeId === item.id ? "is-active" : ""}`} aria-current={activeId === item.id ? "page" : undefined} title={collapsed ? item.label : undefined} onClick={(event) => {
+                const alert = alerts?.[item.id] ?? 0;
+                // The collapsed rail has no room for a number, so the count
+                // becomes a dot — the alert still has to survive, because a
+                // collapsed rail is the state people leave it in.
+                const alertLabel = alert > 99 ? "99+" : String(alert);
+                return <Link key={item.id} href={navPath(item.id)} className={`rail-item ${activeId === item.id ? "is-active" : ""}`} aria-current={activeId === item.id ? "page" : undefined} title={collapsed ? (alert ? `${item.label} — ${alert} needing attention` : item.label) : undefined} onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   event.preventDefault(); onNavigate(item.id); onCloseMobile();
-                }}><span className={`rail-nav-icon is-${item.id}`}><Icon size={15} strokeWidth={1.5} /></span><span className="rail-item-label">{item.label}</span></Link>;
+                }}><span className={`rail-nav-icon is-${item.id}`}><Icon size={15} strokeWidth={1.5} />{alert > 0 && <span className="rail-item-dot" aria-hidden="true" />}</span><span className="rail-item-label">{item.label}</span>{alert > 0 && <span className="rail-item-alert" aria-label={`${alert} needing attention`}>{alertLabel}</span>}</Link>;
               })}
             </div>
           ))}

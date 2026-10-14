@@ -147,6 +147,30 @@ def test_the_longest_waiting_call_is_listed_first(staff_client):
     assert [item["candidate_id"] for item in body["items"]] == ["c-overdue", "c-due", "c-fresh"]
 
 
+def test_a_candidate_whose_verdict_moved_off_callback_is_no_longer_a_task(staff_client):
+    """The list is defined by the verdict, so changing it is what clears a task.
+
+    Nothing is ticked off on the Tasks screen. A reviewer who rings the
+    candidate and marks them "shortlisted" has dealt with the callback, and the
+    row must leave on the strength of that alone — otherwise the screen keeps
+    asking for work the record says is done.
+    """
+    before = staff_client.get("/tasks").json()
+    assert "c-due" in {item["candidate_id"] for item in before["items"]}
+
+    # What `save_evaluation` writes when the next verdict is recorded.
+    row = next(entry for entry in ROWS if entry["_id"] == "c-due")
+    row["evaluation_status"] = "shortlisted"
+    try:
+        after = staff_client.get("/tasks").json()
+    finally:
+        row["evaluation_status"] = "callback"
+
+    assert "c-due" not in {item["candidate_id"] for item in after["items"]}
+    assert after["counts"]["total"] == before["counts"]["total"] - 1
+    assert after["counts"]["due"] == before["counts"]["due"] - 1
+
+
 def test_the_remark_that_explains_the_callback_is_carried_through(staff_client):
     body = staff_client.get("/tasks").json()
     overdue = next(item for item in body["items"] if item["candidate_id"] == "c-overdue")

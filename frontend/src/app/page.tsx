@@ -51,6 +51,7 @@ import {
   logout as clearSession,
   deleteCandidateAPI,
   listAllCandidates,
+  listTasksAPI,
   markCandidateViewed,
   runPollCycle,
   updateCandidateProfile,
@@ -209,6 +210,44 @@ export default function Home() {
     [user],
   );
   const canReadCandidates = reachableTabs?.has("candidates") ?? false;
+  const canReadTasks = reachableTabs?.has("tasks") ?? false;
+
+  /**
+   * Callbacks owed right now, for the rail's alert.
+   *
+   * Due and overdue only — a callback that is merely scheduled is not yet work
+   * anybody is late on, and counting it would leave the badge permanently lit
+   * and therefore unreadable. The figure is whatever `/tasks` returns for this
+   * account, so a staff member's badge counts their own desk and an admin's
+   * counts everybody's, with no second rule to keep in step.
+   */
+  const [taskAlerts, setTaskAlerts] = useState(0);
+  /** Bumped whenever something may have changed what is outstanding. */
+  const [taskNonce, setTaskNonce] = useState(0);
+
+  useEffect(() => {
+    // An account with no Tasks destination never reads the count; the badge is
+    // suppressed where it is rendered rather than by zeroing it here, so this
+    // effect only ever starts or stops the poll.
+    if (!canReadTasks) return;
+    let cancelled = false;
+    const read = () => {
+      listTasksAPI()
+        .then((response) => {
+          if (!cancelled) setTaskAlerts(response.counts.due + response.counts.overdue);
+        })
+        .catch(() => {
+          // The rail is navigation. A count that will not load leaves the badge
+          // as it was rather than putting an error in front of the menu.
+        });
+    };
+    read();
+    const timer = window.setInterval(read, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [canReadTasks, taskNonce]);
 
   // The path is the page state. Native history updates keep this large client
   // workspace mounted, while Back/Forward changes `pathname` and therefore the
@@ -1060,6 +1099,10 @@ export default function Home() {
         appendCandidateLog(candidateId, "Verified", "Review completed.", "success", user?.email);
       }
       await refreshCandidates();
+      // The task list is every candidate whose verdict is "callback". This save
+      // may have just moved one off it — or onto it — so the rail's count and
+      // an open Tasks screen are re-read now instead of up to a minute later.
+      setTaskNonce((nonce) => nonce + 1);
 
       if (following) {
         showToast(`Saved. Opening ${candidateNameOf(following)}.`, "success");
@@ -1186,6 +1229,7 @@ export default function Home() {
             collapsed={railCollapsed}
             mobileOpen={mobileOpen}
             user={user}
+            alerts={{ tasks: canReadTasks ? taskAlerts : 0 }}
             onNavigate={handleNavigate}
             onToggleCollapse={() => setRailCollapsed((open) => !open)}
             onCloseMobile={() => setMobileOpen(false)}
@@ -1419,6 +1463,7 @@ export default function Home() {
 
                 {currentTab === "tasks" && (
                   <TasksScreen
+                    refreshNonce={taskNonce}
                     onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
                   />
                 )}

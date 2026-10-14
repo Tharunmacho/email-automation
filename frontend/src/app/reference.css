@@ -99,6 +99,13 @@
 .rail-nav-icon.is-data-management { --nav-icon-color: #3b82f6; }
 .rail-nav-icon.is-users { --nav-icon-color: #16a34a; }
 .rail-nav-icon.is-settings { --nav-icon-color: #ca8a04; }
+/* Work waiting behind a rail item. The expanded rail says how much; the
+   collapsed one has no room for a figure and says only that there is some. */
+.rail-nav-icon { position: relative; }
+.rail-item-alert { margin-left: auto; flex: none; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; line-height: 1.5; text-align: center; }
+.rail-item-dot { display: none; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%; background: #dc2626; box-shadow: 0 0 0 2px var(--bg-sidebar); }
+.rail.is-collapsed .rail-item-alert { display: none; }
+.rail.is-collapsed .rail-item-dot { display: block; }
 [data-theme="dark"] .rail-nav-icon { color: color-mix(in srgb, var(--nav-icon-color) 70%, white); background: color-mix(in srgb, var(--nav-icon-color) 20%, transparent); }
 .rail .rail-item svg, [data-theme="dark"] .rail .rail-item svg { width: 20px; height: 20px; color: inherit; }
 .rail-item:hover, .rail-item.is-active, .rail-item.is-active:hover, [data-theme="dark"] .rail-item:hover, [data-theme="dark"] .rail-item.is-active { background: var(--tint-2); color: var(--text-main); transform: none; box-shadow: none; }
@@ -246,6 +253,8 @@
   .rail.is-collapsed .rail-search { justify-content: flex-start; margin-inline: 10px; padding-inline: 9px; }
   .rail.is-collapsed .rail-item { justify-content: flex-start; gap: 10px; padding-inline: 9px; }
   .rail.is-collapsed .rail-item-label { display: inline; }
+  .rail.is-collapsed .rail-item-alert { display: block; }
+  .rail.is-collapsed .rail-item-dot { display: none; }
   .rail.is-collapsed .theme-switch { display: grid; }
   .rail.is-collapsed .rail-theme-mini { display: none; }
 }

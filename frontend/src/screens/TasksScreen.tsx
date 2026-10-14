@@ -38,6 +38,13 @@ interface TasksScreenProps {
   onOpenCandidate?: (candidateId: string) => void;
   /** How often to re-read, in milliseconds. */
   refreshMs?: number;
+  /**
+   * Bumped by the shell when something may have changed what is outstanding —
+   * a verdict saved elsewhere, most of all. A candidate whose verdict is no
+   * longer "callback" is no longer a task, and this is how that row leaves the
+   * screen at the moment it stops being true rather than at the next poll.
+   */
+  refreshNonce?: number;
 }
 
 const STATE_META: Record<StateKey, { label: string; tone: string; blurb: string }> = {
@@ -75,7 +82,11 @@ function formatSpan(hours: number): string {
   return rest ? `${days}d ${rest}h` : `${days}d`;
 }
 
-export default function TasksScreen({ onOpenCandidate, refreshMs = 60_000 }: TasksScreenProps) {
+export default function TasksScreen({
+  onOpenCandidate,
+  refreshMs = 60_000,
+  refreshNonce = 0,
+}: TasksScreenProps) {
   const [data, setData] = useState<CallbackTasksResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -113,7 +124,7 @@ export default function TasksScreen({ onOpenCandidate, refreshMs = 60_000 }: Tas
         setRefreshing(false);
       });
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, refreshNonce]);
 
   // Re-read on a timer, because a task becomes due and then overdue while the
   // screen is sitting open — the states are the whole point of the list, and a

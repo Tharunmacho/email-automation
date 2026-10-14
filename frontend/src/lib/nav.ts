@@ -190,11 +190,29 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
   const allowed = pages
     ? new Set(pages.map((page) => (page === "my-queue" ? "candidates" : page)))
     : undefined;
+
+  /**
+   * Destinations the account reaches by reaching Candidates, whether or not the
+   * API named them.
+   *
+   * `assigned-candidates` is not in the API's page vocabulary at all, and
+   * `tasks` is newer than any API deployed before it — an older one answers
+   * with a list that has never heard of it, and an admin who may reach every
+   * page would lose the item along with everybody else. Both are the same
+   * candidates seen a different way, so reaching the candidates is the right
+   * test for both, and it is one the API cannot be out of date about.
+   *
+   * Still not the security: `/tasks` is guarded by `require_page("tasks")`, and
+   * it answers a staff member with their own desk and nobody else's.
+   */
+  const impliedByCandidates = new Set<NavId>(["assigned-candidates", "tasks"]);
+
   return NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) =>
       allowed
-        ? allowed.has(item.id) || (item.id === "assigned-candidates" && allowed.has("candidates"))
+        ? allowed.has(item.id) ||
+          (impliedByCandidates.has(item.id) && allowed.has("candidates"))
         : !item.roles || item.roles.includes(role ?? ""),
     ),
   })).filter((group) => group.items.length > 0);
