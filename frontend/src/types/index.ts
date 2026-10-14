@@ -66,6 +66,16 @@ export interface CandidateProfile {
    * Malaysia back for someone living in Tamil Nadu.
    */
   destination_country?: string | null;
+  /**
+   * Every country they would go to, in the order they ranked them.
+   *
+   * Filled when a recruiter captured more than one at candidate entry.
+   * `destination_country` above is the first of these and remains the single
+   * value every rule reads — the CV policy, the allocation balancer and the
+   * job-order matcher each key on one country. This list exists so the other
+   * choices survive the form.
+   */
+  destination_countries?: string[];
   /** What they want to do, in their own words. */
   job_preference?: string | null;
   /** The same, as a controlled value. This is what the CV policy reads. */

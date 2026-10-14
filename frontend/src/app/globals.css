@@ -1121,6 +1121,35 @@
   color: var(--text-main);
 }
 
+/* The way out of the panel and into the Tasks page. Mirrors `.notif-head` so
+   the panel is closed at both ends rather than trailing off. */
+.notif-foot {
+  display: flex;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid var(--border-blue);
+}
+
+.notif-foot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  justify-content: center;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.notif-foot-btn:hover {
+  background: var(--primary-glow);
+}
+
 .notif-mark {
   display: inline-flex;
   align-items: center;
@@ -5680,6 +5709,34 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The name as a route to the candidate. Styled as the heading it replaces and
+   not as a link — a row of blue underlined names would read as navigation
+   furniture rather than as the candidates they are — with the affordance shown
+   on hover and focus, where the pointer already is. */
+.mc-name-link {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.16s ease;
+}
+
+.mc-name-link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.mc-name-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  color: var(--primary);
 }
 
 .mc-badge {
@@ -12816,6 +12873,13 @@ body {
   text-transform: uppercase;
 }
 
+.cupload-field-note {
+  margin-top: -1px;
+  color: var(--text-light);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .cupload-taxonomy-error {
   margin: 12px 0 0;
   color: #b45309;
@@ -15057,6 +15121,84 @@ body {
   padding: 0.7rem 0.6rem;
   font-size: 0.78rem;
   color: var(--text-light);
+}
+
+/* --- multi-select ---------------------------------------------------------- */
+/* The trigger grows with its chips instead of truncating one line of text: the
+   point of the control is seeing everything that is chosen, and "Saudi Arabia,
+   Qatar, …" tells the user the least about the choice they just made. */
+.ui-multiselect .ui-select-trigger {
+  height: auto;
+  align-items: flex-start;
+  padding-block: 0.4rem;
+}
+
+.ui-multiselect-chips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding-block: 0.05rem;
+}
+
+.ui-multiselect-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.14rem 0.24rem 0.14rem 0.45rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.ui-multiselect-chip-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-multiselect-chip-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.ui-multiselect-chip-remove:hover {
+  background: var(--primary-glow);
+  color: var(--primary);
+}
+
+/* A tick alone cannot carry a multi-select list: an unticked row has to show
+   that it is something you can tick, which an empty space does not. */
+.ui-multiselect-box {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--border-hover);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: #fff;
+}
+
+.ui-multiselect-box.is-on {
+  border-color: var(--primary);
+  background: var(--primary);
 }
 
 /* --- date picker ---------------------------------------------------------- */
@@ -21057,3 +21199,132 @@ a.payroll-expand-btn { text-decoration: none; }
 .payroll-payslip-incentives { margin: 0; padding-left: 1.1rem; font-size: .76rem; display: grid; gap: .25rem; }
 .payroll-extras-form select { width: 100%; min-width: 0; background: var(--bg-card); font-size: .73rem; }
 .payroll-incentive-total td { font-weight: 700; }
+
+/* --- tasks (callback follow-ups) ------------------------------------------ */
+/* The screen is built from `.ds-*` like every other list in the product; what
+   follows is only what a follow-up list needs and nothing else has. */
+
+/* Who is sitting on what. A grid of people rather than another table: the
+   admin reads it to pick a name, not to compare six columns. */
+.tasks-owner-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0.6rem;
+}
+
+.tasks-owner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-card);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.tasks-owner:hover {
+  border-color: var(--primary);
+}
+
+.tasks-owner.is-on {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+}
+
+.tasks-owner-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tasks-owner-text strong {
+  font-size: 0.84rem;
+  font-weight: 650;
+  color: var(--text-main);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tasks-owner-text small {
+  font-size: 0.73rem;
+  color: var(--text-muted);
+}
+
+/* One badge per person, and it only shouts when there is something to shout
+   about — "On track" is deliberately the quiet of the two. */
+.tasks-owner-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  background: var(--tint-2);
+  color: var(--text-muted);
+  font-size: 0.71rem;
+  font-weight: 700;
+}
+
+.tasks-owner-flag.is-bad {
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.tasks-owner-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.81rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* The number is the task, so it is dialable from the row rather than being
+   text somebody has to copy into a phone. */
+.tasks-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+.tasks-phone:hover {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tasks-sub {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* The reviewer's own words, capped at two lines: it is the reason the task
+   exists, and an essay in one cell pushes the whole table off the fold. */
+.tasks-remark {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 34ch;
+  font-size: 0.81rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .tasks-owner-grid {
+    grid-template-columns: 1fr;
+  }
+}

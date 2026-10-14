@@ -299,7 +299,7 @@ def intake_uploaded_candidate(
     phone: str | None = None,
     job_id: str | None = None,
     job_title: str | None = None,
-    destination_country: str | None = None,
+    destination_countries: Sequence[str] | None = None,
 ) -> CandidateUploadResult:
     """Create a candidate from any available details or documents.
 
@@ -403,6 +403,7 @@ def intake_uploaded_candidate(
         )
 
     # Recruiter-entered current preferences take precedence over an older CV.
+    countries = [entry.strip() for entry in (destination_countries or []) if entry.strip()]
     manual_overrides = {
         "full_name": full_name,
         "email": email,
@@ -411,7 +412,12 @@ def intake_uploaded_candidate(
         "job_category": job_id,
         "job_title": job_title,
         "job_preference": job_title,
-        "destination_country": destination_country,
+        # The whole list is kept, and the first of it is the one country every
+        # rule downstream reads. A résumé's guess at a destination is replaced
+        # rather than merged with: what the recruiter just asked the candidate
+        # is current, and a CV from last year is not.
+        "destination_country": countries[0] if countries else None,
+        "destination_countries": countries,
     }
     for field, value in manual_overrides.items():
         cleaned = value.strip() if isinstance(value, str) else value

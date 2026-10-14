@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Phone, PhoneCall } from "lucide-react";
+import { ListChecks, Phone, PhoneCall } from "lucide-react";
 
 import { timeAgo } from "@/lib/format";
 import { fetchDueCallbacks, type DueCallback } from "@/lib/api";
@@ -20,11 +20,20 @@ interface CallbackReminderProps {
   /** Bumped by the page whenever a realtime event arrives. */
   nonce: number;
   onOpenCandidate?: (candidateId: string) => void;
+  /**
+   * Open the Tasks screen.
+   *
+   * This panel is the short version — who is due right now, nothing else. The
+   * full list, with what is only scheduled and what has gone overdue, is a
+   * page; without this link the two would be the same work in two places with
+   * no way across.
+   */
+  onOpenTasks?: () => void;
 }
 
 const POLL_MS = 60000;
 
-export default function CallbackReminder({ nonce, onOpenCandidate }: CallbackReminderProps) {
+export default function CallbackReminder({ nonce, onOpenCandidate, onOpenTasks }: CallbackReminderProps) {
   const [items, setItems] = useState<DueCallback[]>([]);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -133,6 +142,22 @@ export default function CallbackReminder({ nonce, onOpenCandidate }: CallbackRem
                 </li>
               ))}
             </ul>
+          )}
+
+          {onOpenTasks && (
+            <footer className="notif-foot">
+              <button
+                type="button"
+                className="notif-foot-btn"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenTasks();
+                }}
+              >
+                <ListChecks size={13} />
+                Open all tasks
+              </button>
+            </footer>
           )}
         </div>
       )}

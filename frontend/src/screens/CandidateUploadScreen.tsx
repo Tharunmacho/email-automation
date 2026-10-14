@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 
+import MultiSelect from "@/components/ui/MultiSelect";
 import Select from "@/components/ui/Select";
 import {
   listCountriesAPI,
@@ -32,7 +33,14 @@ export interface CandidateUploadFiles {
   phone?: string;
   job_id?: string;
   job_title?: string;
-  destination_country?: string;
+  /**
+   * Every country the candidate would go to, in the order they were picked.
+   *
+   * The first is the primary one — it is what the CV policy, the allocation
+   * balancer and the job-order matcher read — and the rest are kept so a
+   * candidate open to three Gulf states is not recorded as open to one.
+   */
+  destination_countries?: string[];
 }
 
 interface CandidateUploadScreenProps {
@@ -150,7 +158,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [jobId, setJobId] = useState("");
-  const [destinationCountry, setDestinationCountry] = useState("");
+  const [destinationCountries, setDestinationCountries] = useState<string[]>([]);
   const [jobs, setJobs] = useState<JobDesignation[]>([]);
   const [countries, setCountries] = useState<CountryRow[]>([]);
   const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
@@ -183,7 +191,7 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
       phone: phone.trim(),
       job_id: jobId,
       job_title: jobs.find((job) => job.id === jobId)?.title,
-      destination_country: destinationCountry,
+      destination_countries: destinationCountries,
     });
   };
 
@@ -248,7 +256,15 @@ export default function CandidateUploadScreen({ saving, error = null, onBack, on
           </div>
           <div className="cupload-field">
             <label htmlFor="candidate-country"><Globe2 size={14} /> Country preference</label>
-            <Select id="candidate-country" value={destinationCountry} options={countries.map((country) => ({ value: country.name, label: country.name }))} onChange={setDestinationCountry} placeholder="Select a country" disabled={saving} />
+            <MultiSelect id="candidate-country" values={destinationCountries} options={countries.map((country) => ({ value: country.name, label: country.name }))} onChange={setDestinationCountries} placeholder="Select one or more countries" disabled={saving} />
+            {/* Order is the answer, not a detail of the control: the first pick
+                is the country every downstream rule reads, so the screen says
+                so rather than leaving the recruiter to guess. */}
+            <small className="cupload-field-note">
+              {destinationCountries.length > 1
+                ? `Pick in order of preference — ${destinationCountries[0]} is the primary country.`
+                : "Pick as many as the candidate is open to. The first is the primary country."}
+            </small>
           </div>
         </div>
         {taxonomyError && <p className="cupload-taxonomy-error">{taxonomyError}</p>}

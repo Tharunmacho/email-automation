@@ -225,6 +225,13 @@ class CandidateProfile(BaseModel):
     # policy that cannot tell Singapore from Malaysia cannot express a rule
     # about either.
     destination_country: Optional[str] = None
+    # Every country they would go to, in the order they ranked them, when a
+    # recruiter captured more than one. `destination_country` above is the first
+    # of these and stays the single value every rule reads: the CV policy, the
+    # allocation balancer and the job-order matcher all key on one country, and
+    # none of them is being taught to reason about a list here. This exists so
+    # the other choices are not thrown away at the point of entry.
+    destination_countries: List[str] = Field(default_factory=list)
     # What they want to do there, in their own words. Free text, for a person to
     # read.
     job_preference: Optional[str] = None

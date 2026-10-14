@@ -83,7 +83,14 @@ export interface EditableState {
   job_title: string;
   job_id: string;
   course_or_trade: string;
-  destination_country: string;
+  /**
+   * Every country they would go to, first-choice first.
+   *
+   * The editor holds the list rather than the single `destination_country`,
+   * which is derived from its head on save. Holding both would let a recruiter
+   * leave the two disagreeing.
+   */
+  destination_countries: string[];
   state_preference: string;
   job_preference: string;
   job_category: string;
@@ -409,7 +416,11 @@ export function toEditableState(profile: CandidateProfile, candidate?: Candidate
     job_title: profile.job_title ?? "",
     job_id: profile.job_id ?? "",
     course_or_trade: profile.course_or_trade ?? "",
-    destination_country: profile.destination_country ?? "",
+    // Records written before the field existed, and every WhatsApp candidate,
+    // carry only the single country — it is the list, of one.
+    destination_countries:
+      profile.destination_countries?.filter(Boolean) ??
+      (profile.destination_country ? [profile.destination_country] : []),
     state_preference: profile.state_preference ?? "",
     job_preference: profile.job_preference ?? "",
     job_category: profile.job_category ?? "",
@@ -479,7 +490,11 @@ export function editableToProfile(base: CandidateProfile, state: EditableState):
     // repoint the record at a different job.
     job_id: state.job_id || base.job_id || null,
     course_or_trade: state.course_or_trade,
-    destination_country: state.destination_country,
+    destination_countries: state.destination_countries,
+    // Derived, never edited beside the list: the first choice is the country
+    // the CV policy and the balancer read, and a value kept independently of
+    // the list is a value that drifts out of it.
+    destination_country: state.destination_countries[0] ?? "",
     state_preference: state.state_preference,
     job_preference: state.job_preference,
     job_category: state.job_category,
@@ -580,7 +595,6 @@ export function summariseProfileChange(
     ["Summary", "resume_summary"],
     ["Job applied for", "job_title"],
     ["Course / trade", "course_or_trade"],
-    ["Destination country", "destination_country"],
     ["State preference", "state_preference"],
     ["Job preference", "job_preference"],
     ["Availability", "available_from"],
@@ -593,6 +607,10 @@ export function summariseProfileChange(
   }
 
   const lists: [string, keyof CandidateProfile][] = [
+    // Reported as the list, not as the single `destination_country` beside it:
+    // that field is this list's head, so logging both said the same change
+    // twice and said nothing at all when a second country was added.
+    ["Country preference", "destination_countries"],
     ["Key skills", "skills"],
     ["Trade skills", "trade_skills"],
     ["Languages", "languages"],

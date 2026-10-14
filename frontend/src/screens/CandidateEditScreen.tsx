@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 
+import MultiSelect from "@/components/ui/MultiSelect";
+import { listCountriesAPI, type CountryRow } from "@/lib/api";
 import {
   editableToProfile,
   renameExtra,
@@ -108,6 +110,40 @@ export default function CandidateEditScreen({
     [candidate.id],
   );
   const [state, setState] = useState<EditableState>(initial);
+
+  /**
+   * The country taxonomy, for the preference picker.
+   *
+   * A failed load leaves the list empty, which is survivable: whatever the
+   * record already holds is added to the options below, so the picker can
+   * still show and remove what is there even when the taxonomy is unreachable.
+   */
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listCountriesAPI()
+      .then((response) => {
+        if (!cancelled) setCountries(response.items.filter((item) => item.active));
+      })
+      .catch(() => {
+        // Silent on purpose — a taxonomy that will not load must not put an
+        // error banner over an editor the user opened to fix a phone number.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Taxonomy rows, plus anything the record already carries that is not one.
+   *
+   * A résumé-read or retired country ("Kuwait" after the row was deactivated)
+   * is still what this candidate said. Dropping it from the options would hide
+   * it behind a control that claims to show the whole answer.
+   */
+  const countryOptions = useMemo(() => {
+    const names = countries.map((country) => country.name);
+    const extra = state.destination_countries.filter((name) => !names.includes(name));
+    return [...names, ...extra].map((name) => ({ value: name, label: name }));
+  }, [countries, state.destination_countries]);
 
   const dirty = useMemo(() => JSON.stringify(state) !== JSON.stringify(initial), [state, initial]);
 
@@ -262,13 +298,13 @@ export default function CandidateEditScreen({
                 onChange={text("course_or_trade")}
               />
             </Field>
-            <Field label="Destination country" hint="where they want to work">
-              <input
-                className="cedit-input"
-                type="text"
-                value={state.destination_country}
-                placeholder="Singapore"
-                onChange={text("destination_country")}
+            <Field label="Country preference" hint="first choice first">
+              <MultiSelect
+                values={state.destination_countries}
+                options={countryOptions}
+                onChange={(values) => set("destination_countries", values)}
+                placeholder="Select one or more countries"
+                ariaLabel="Country preference"
               />
             </Field>
             <Field label="State / district preference">

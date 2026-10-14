@@ -128,7 +128,7 @@ def test_manual_intake_creates_candidate_with_preferences_and_no_resume_or_ocr_k
             email=" meera@example.com ",
             job_id="electrician",
             job_title="Electrician",
-            destination_country="UAE",
+            destination_countries=["UAE", " Qatar "],
         )
 
     candidate = result.candidate
@@ -140,6 +140,9 @@ def test_manual_intake_creates_candidate_with_preferences_and_no_resume_or_ocr_k
     assert candidate.profile.job_id == "electrician"
     assert candidate.profile.job_title == "Electrician"
     assert candidate.profile.job_preference == "Electrician"
+    # Every country the recruiter picked is kept, and the first is the one the
+    # CV policy and the balancer read.
+    assert candidate.profile.destination_countries == ["UAE", "Qatar"]
     assert candidate.profile.destination_country == "UAE"
 
 

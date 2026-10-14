@@ -451,9 +451,21 @@ function ScoreRadialGauge({ score, state }: { score: number; state: "open" | "on
 interface JobOrdersProps {
   candidates?: CandidateRecord[];
   onActivity?: (message: string, type?: LogEntry["type"]) => void;
+  /**
+   * Open a matched candidate's own screen.
+   *
+   * Left undefined where there is nowhere to go — the preview harness, or an
+   * account that cannot reach the candidates page — and the match card then
+   * draws the name as plain text rather than a control that does nothing.
+   */
+  onOpenCandidate?: (candidate: CandidateRecord) => void;
 }
 
-export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDIDATES, onActivity }: JobOrdersProps) {
+export default function JobOrders({
+  candidates: initialCandidates = EMPTY_CANDIDATES,
+  onActivity,
+  onOpenCandidate,
+}: JobOrdersProps) {
   const activity = useCallback(
     (message: string, type: LogEntry["type"] = "info") => onActivity?.(message, type),
     [onActivity],
@@ -1340,9 +1352,24 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
 
             <div className="mc-identity">
               <div className="mc-name-row">
-                <h4 className="mc-name" title={name}>
-                  {name}
-                </h4>
+                {/* The name is the way through to the person. Everything on
+                    this card is a summary of one candidate, and reading the
+                    rest of them used to mean leaving for the directory and
+                    searching for a name that was already on screen. */}
+                {onOpenCandidate ? (
+                  <button
+                    type="button"
+                    className="mc-name mc-name-link"
+                    title={`Open ${name}'s profile`}
+                    onClick={() => onOpenCandidate(res.candidate)}
+                  >
+                    {name}
+                  </button>
+                ) : (
+                  <h4 className="mc-name" title={name}>
+                    {name}
+                  </h4>
+                )}
                 <span className={`mc-badge band-${band.key}`}>{band.label}</span>
                 {res.isSubmitted && (
                   <span className="mc-badge mc-badge-submitted" title={`Submitted to ${order.client} for this order`}>
@@ -1390,6 +1417,18 @@ export default function JobOrders({ candidates: initialCandidates = EMPTY_CANDID
             </div>
 
             <div className="mc-actions" style={{ flexWrap: "wrap", gap: "6px" }}>
+              {/* Spelled out beside the name, because a heading that happens to
+                  be clickable is a route most people never find. */}
+              {onOpenCandidate && (
+                <button
+                  className="mc-btn"
+                  onClick={() => onOpenCandidate(res.candidate)}
+                  title={`Open ${name}'s profile`}
+                >
+                  <UserCheck size={15} />
+                  <span>Profile</span>
+                </button>
+              )}
               {res.isSubmitted ? (
                 <button
                   className="mc-btn mc-btn-reject"

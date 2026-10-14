@@ -21,6 +21,7 @@ import {
   Handshake,
   CalendarCheck2,
   Banknote,
+  ListChecks,
   LayoutDashboard,
   FilePlus2,
   Settings as SettingsIcon,
@@ -36,6 +37,7 @@ export const NAV_IDS = [
   "candidates",
   "candidate-entry",
   "assigned-candidates",
+  "tasks",
   "attendance",
   "payroll",
   "staff",
@@ -117,6 +119,16 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "candidates", label: "All Candidates", icon: Users, roles: ["admin", "manager", "finance_manager", "staff"] },
       { id: "candidate-entry", label: "Candidate Entry", icon: FilePlus2, roles: ["admin", "manager", "finance_manager", "staff"] },
       { id: "assigned-candidates", label: "Assigned Candidates", icon: UserCheck, roles: ["admin", "manager", "finance_manager", "staff"] },
+    ],
+  },
+  {
+    // Its own group rather than a fourth row under Candidates: this is not
+    // another way of listing people, it is the work outstanding on them, and
+    // both roles open it with a different question — "what do I owe today?"
+    // and "who is sitting on what?".
+    label: "Tasks",
+    items: [
+      { id: "tasks", label: "Tasks", icon: ListChecks, roles: ["admin", "manager", "finance_manager", "staff"] },
     ],
   },
   {
@@ -252,6 +264,12 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Support",
     title: "Settings",
     subtitle: "Account details and configured communication channels.",
+  },
+  tasks: {
+    eyebrow: "Tasks",
+    title: "Tasks",
+    subtitle:
+      "Candidates marked for a callback — due after 24 hours, overdue after 48.",
   },
   "candidate-entry": {
     eyebrow: "Candidates",

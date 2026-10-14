@@ -238,7 +238,11 @@ export default function TopBar({
         {onNavigate && (user.pages ? user.pages.includes("sourcing") : user.role !== "staff") && (
           <button type="button" className="topbar-icon-btn topbar-mail" aria-label="Open sourcing hub" onClick={() => onNavigate("sourcing")}><Mail size={17} strokeWidth={1.5} /></button>
         )}
-        <CallbackReminder nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
+        <CallbackReminder
+          nonce={realtimeNonce}
+          onOpenCandidate={onOpenCandidate}
+          onOpenTasks={onNavigate ? () => onNavigate("tasks") : undefined}
+        />
         <NotificationBell nonce={realtimeNonce} onOpenCandidate={onOpenCandidate} />
         <div className="topbar-profile" ref={profileRef}>
           <button ref={profileTriggerRef} type="button" className="topbar-profile-trigger" onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} aria-haspopup="menu" aria-label={`Open profile menu for ${user.name || user.email}`}>

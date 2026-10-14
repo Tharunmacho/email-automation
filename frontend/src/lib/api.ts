@@ -1194,7 +1194,7 @@ export function uploadCandidateDocuments(files: {
   email?: string;
   phone?: string;
   job_id?: string;
-  destination_country?: string;
+  destination_countries?: string[];
 }): Promise<CandidateUploadResponse> {
   const body = new FormData();
   if (files.resume) body.append("resume", files.resume);
@@ -1204,7 +1204,12 @@ export function uploadCandidateDocuments(files: {
   if (files.email) body.append("email", files.email);
   if (files.phone) body.append("phone", files.phone);
   if (files.job_id) body.append("job_id", files.job_id);
-  if (files.destination_country) body.append("destination_country", files.destination_country);
+  // Repeated rather than joined: the backend reads `destination_country` as a
+  // list, and a comma-joined string would be one unmatchable country name the
+  // moment a country has a comma in it.
+  files.destination_countries?.forEach((country) => {
+    if (country) body.append("destination_country", country);
+  });
   return request<CandidateUploadResponse>("/candidates/upload", {
     method: "POST",
     body,
@@ -1845,6 +1850,48 @@ export interface JobDesignation {
   created_at?: string;
   updated_at?: string;
   created_by?: string | null;
+}
+
+/**
+ * One outstanding callback, as the Tasks screen reads it.
+ *
+ * `state` is computed by the API against its own clock rather than in the
+ * browser: a laptop with the wrong time must not be able to decide that
+ * somebody's follow-up is on schedule.
+ */
+export interface CallbackTask {
+  candidate_id: string;
+  candidate_code: string;
+  candidate_name: string;
+  phone: string;
+  email: string;
+  job_title: string;
+  destination_country: string;
+  /** What the reviewer wrote when they marked the callback. */
+  remarks: string;
+  score: number | null;
+  marked_at: string | null;
+  due_at: string | null;
+  overdue_at: string | null;
+  state: "scheduled" | "due" | "overdue";
+  /** Hours since the callback was marked; null when the verdict has no clock. */
+  age_hours: number | null;
+  staff_id: string;
+  staff_name: string;
+}
+
+export interface CallbackTasksResponse {
+  items: CallbackTask[];
+  counts: { total: number; overdue: number; due: number; scheduled: number };
+  due_after_hours: number;
+  overdue_after_hours: number;
+  /** "own" for a staff member's desk, "all" for an admin's view of everyone. */
+  scope: "own" | "all";
+}
+
+/** Every callback outstanding in the caller's scope. */
+export function listTasksAPI(): Promise<CallbackTasksResponse> {
+  return request<CallbackTasksResponse>("/tasks");
 }
 
 export interface CountryRow {

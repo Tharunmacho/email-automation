@@ -642,10 +642,15 @@ export default function CandidateProfileScreen({
     .filter(Boolean);
   const jobAnswers = view.job_answers.filter((entry) => entry.question.trim() || entry.answer.trim());
 
+  // The countries they would go to, first choice first. Shown as one row: a
+  // candidate open to three Gulf states has one preference with three answers,
+  // not three preferences.
+  const destinationCountries = view.destination_countries.join(", ");
+
   const hasJobDetails = Boolean(
     jobTitle ||
       view.course_or_trade ||
-      view.destination_country ||
+      destinationCountries ||
       view.state_preference ||
       view.job_preference ||
       view.available_from ||
@@ -787,6 +792,8 @@ export default function CandidateProfileScreen({
   const originLine = [
     sourceLabel,
     candidate.profile?.country ? `from ${candidate.profile.country}` : null,
+    // The primary country alone in this line. It is a one-line identity strip,
+    // and the full preference list has its own row in the job panel below.
     candidate.profile?.destination_country
       ? `→ ${candidate.profile.destination_country}`
       : null,
@@ -991,7 +998,10 @@ export default function CandidateProfileScreen({
               <Fact label="Job applied for" value={jobTitle} />
               <Fact label="Job category" value={jobCategory} />
               <Fact label="Course / trade" value={view.course_or_trade} />
-              <Fact label="Destination country" value={view.destination_country} />
+              <Fact
+                label={view.destination_countries.length > 1 ? "Country preference" : "Destination country"}
+                value={destinationCountries}
+              />
               <Fact label="State / district preference" value={view.state_preference} />
               <Fact label="Job preference" value={view.job_preference} />
               <Fact label="Available to join" value={view.available_from} />

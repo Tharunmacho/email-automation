@@ -1498,7 +1498,7 @@ def create_candidate_from_uploads(
     email: str = Form(default=""),
     phone: str = Form(default=""),
     job_id: str = Form(default=""),
-    destination_country: str = Form(default=""),
+    destination_country: list[str] = Form(default=[]),
     uploader: dict = Depends(require_page("candidate-entry")),
 ) -> dict:
     """Create a candidate manually, with optional VeriIS document extraction.
@@ -1506,6 +1506,12 @@ def create_candidate_from_uploads(
     Recruiter-entered job and country preferences are resolved against active
     taxonomy rows. Uploaded files remain optional and the response contains
     only curated projections, never VeriIS' raw payload.
+
+    `destination_country` is repeated once per country the recruiter picked —
+    a candidate open to Saudi Arabia and Qatar is one submission with two of
+    them. The field keeps its singular name because a form that sent one value
+    before still sends a valid submission now; the first entry remains the
+    primary country every downstream rule reads.
     """
     from app.services.candidate_upload_intake import (
         CandidateUploadError,
@@ -1537,13 +1543,23 @@ def create_candidate_from_uploads(
         if not chosen_job or not chosen_job.get("active", True):
             raise HTTPException(status_code=422, detail="Select an active job preference.")
 
-    chosen_country = None
-    if destination_country.strip():
-        requested_country = destination_country.strip().casefold()
+    # Resolved in the order they were picked and de-duplicated by name, so the
+    # first one is the primary country and a repeated pick does not produce the
+    # same country twice.
+    chosen_countries: list[str] = []
+    active_countries = (
+        list_countries(active_only=True)
+        if any(entry.strip() for entry in destination_country)
+        else []
+    )
+    for entry in destination_country:
+        requested_country = entry.strip().casefold()
+        if not requested_country:
+            continue
         chosen_country = next(
             (
                 country
-                for country in list_countries(active_only=True)
+                for country in active_countries
                 if requested_country
                 in {
                     str(country.get("id") or "").casefold(),
@@ -1554,6 +1570,9 @@ def create_candidate_from_uploads(
         )
         if not chosen_country:
             raise HTTPException(status_code=422, detail="Select an active country preference.")
+        name = str(chosen_country.get("name") or "")
+        if name and name not in chosen_countries:
+            chosen_countries.append(name)
 
     repository = repo()
     try:
@@ -1568,9 +1587,7 @@ def create_candidate_from_uploads(
             phone=phone,
             job_id=str(chosen_job.get("id") or "") if chosen_job else None,
             job_title=str(chosen_job.get("title") or "") if chosen_job else None,
-            destination_country=(
-                str(chosen_country.get("name") or "") if chosen_country else None
-            ),
+            destination_countries=chosen_countries,
         )
     except CandidateUploadError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
@@ -2576,8 +2593,20 @@ def reassign_candidate(
         "at": now,
     }
 
+    # The new destination leads the preference list, and the countries the
+    # candidate also named are kept behind it. `destination_country` is that
+    # list's head everywhere else, and a reassignment that moved one without the
+    # other would leave the profile screen showing a destination the preference
+    # row contradicts.
+    reassigned_countries = [new_country_name] + [
+        name
+        for name in (record.profile.destination_countries or [])
+        if name and name.casefold() != new_country_name.casefold()
+    ]
+
     updates: dict = {
         "profile.destination_country": new_country_name,
+        "profile.destination_countries": reassigned_countries,
         "office_id": office.get("id") if office else record.office_id,
         "office_name": office.get("name") if office else record.office_name,
         "updated_at": now,
@@ -3099,6 +3128,130 @@ def list_due_callbacks(user: dict = Depends(require_page("candidates"))) -> dict
             "assigned_staff_name": row.get("assigned_staff_name"),
         })
     return {"items": items, "count": len(items)}
+
+
+# --------------------------------------------------------------------------- #
+#  Tasks
+# --------------------------------------------------------------------------- #
+#: When an unanswered call stops being a reminder and starts being a miss.
+#:
+#: The first call is due again after `CALLBACK_DELAY_HOURS`; two days with no
+#: contact is the point at which the candidate is going cold and a supervisor
+#: wants to see it. Separate constants because they answer different questions —
+#: "when should I ring?" and "who has been left?" — and collapsing them into one
+#: would mean a task that is overdue the moment it is due.
+CALLBACK_OVERDUE_HOURS = 48
+
+
+def _callback_state(marked_at: datetime | None, now: datetime) -> tuple[str, float | None]:
+    """A callback's state and its age in hours.
+
+    `scheduled` has not come round yet, `due` is ready to be called, `overdue`
+    has been sitting for two days. A task with no timestamp is treated as due
+    rather than hidden: a verdict with no clock is still work somebody owes.
+    """
+    if marked_at is None:
+        return "due", None
+    age = (now - marked_at).total_seconds() / 3600
+    if age >= CALLBACK_OVERDUE_HOURS:
+        return "overdue", age
+    if age >= CALLBACK_DELAY_HOURS:
+        return "due", age
+    return "scheduled", age
+
+
+@app.get("/tasks")
+def list_tasks(user: dict = Depends(require_page("tasks"))) -> dict:
+    """Every outstanding callback, as the work it represents.
+
+    Scoped the way the rest of the candidate API is scoped: a staff member sees
+    the callbacks on the candidates allocated to them, and an admin or manager
+    sees every staff member's, so one screen answers "what do I owe today?" for
+    one seat and "who is sitting on what?" for the other.
+
+    Read-only on purpose. A callback is cleared by recording the next verdict on
+    the candidate, not by ticking it off here — a task that can be closed
+    without the profile being touched is a task that stops describing the
+    record it came from.
+    """
+    from datetime import timedelta
+
+    from app.core.models import utcnow
+
+    now = utcnow()
+    query: dict = {"evaluation_status": "callback"}
+    if user.get("role") == STAFF_ROLE:
+        query["assigned_staff_id"] = user["id"]
+
+    rows = list(
+        repo()._coll.find(
+            query,
+            {
+                "profile.full_name": 1,
+                "profile.email": 1,
+                "profile.phone": 1,
+                "profile.destination_country": 1,
+                "profile.job_title": 1,
+                "candidate_code": 1,
+                "evaluated_at": 1,
+                "evaluation_notes": 1,
+                "evaluation_score": 1,
+                "assigned_staff_id": 1,
+                "assigned_staff_name": 1,
+            },
+        )
+        # Oldest first: the longest-ignored call is the one that matters most,
+        # and it should not be on page three.
+        .sort("evaluated_at", 1)
+        .limit(500)
+    )
+
+    items = []
+    for row in rows:
+        profile = row.get("profile") or {}
+        marked_at = row.get("evaluated_at")
+        if marked_at is not None and marked_at.tzinfo is None:
+            marked_at = marked_at.replace(tzinfo=timezone.utc)
+        state, age_hours = _callback_state(marked_at, now)
+        items.append(
+            {
+                "candidate_id": str(row["_id"]),
+                "candidate_code": row.get("candidate_code") or "",
+                "candidate_name": profile.get("full_name")
+                or profile.get("email")
+                or "Unnamed candidate",
+                "phone": profile.get("phone") or "",
+                "email": profile.get("email") or "",
+                "job_title": profile.get("job_title") or "",
+                "destination_country": profile.get("destination_country") or "",
+                "remarks": row.get("evaluation_notes") or "",
+                "score": row.get("evaluation_score"),
+                "marked_at": marked_at,
+                "due_at": marked_at + timedelta(hours=CALLBACK_DELAY_HOURS) if marked_at else None,
+                "overdue_at": (
+                    marked_at + timedelta(hours=CALLBACK_OVERDUE_HOURS) if marked_at else None
+                ),
+                "state": state,
+                "age_hours": round(age_hours, 2) if age_hours is not None else None,
+                "staff_id": row.get("assigned_staff_id") or "",
+                "staff_name": row.get("assigned_staff_name") or "",
+            }
+        )
+
+    counts = {"total": len(items), "overdue": 0, "due": 0, "scheduled": 0}
+    for item in items:
+        counts[item["state"]] += 1
+
+    return {
+        "items": items,
+        "counts": counts,
+        # The thresholds the screen renders against, rather than two more
+        # numbers hard-coded in the browser and left to drift from these.
+        "due_after_hours": CALLBACK_DELAY_HOURS,
+        "overdue_after_hours": CALLBACK_OVERDUE_HOURS,
+        #: Whether this response covers the whole agency or one person's desk.
+        "scope": "own" if user.get("role") == STAFF_ROLE else "all",
+    }
 
 
 # --------------------------------------------------------------------------- #

@@ -391,7 +391,49 @@ def test_upload_candidate_allows_manual_entry_without_a_resume(test_client):
     assert sent["resume"] is None
     assert sent["job_id"] == "electrician"
     assert sent["job_title"] == "Electrician"
-    assert sent["destination_country"] == "UAE"
+    assert sent["destination_countries"] == ["UAE"]
+
+
+def test_upload_candidate_keeps_every_country_the_recruiter_picked(test_client):
+    """Several countries arrive as a repeated field and resolve in pick order."""
+    result = _uploaded_candidate_result()
+
+    with patch(
+        "app.services.candidate_upload_intake.intake_uploaded_candidate",
+        return_value=result,
+    ) as intake, patch(
+        "app.db.taxonomy.list_countries",
+        return_value=[
+            {"id": "uae", "name": "UAE", "active": True},
+            {"id": "qatar", "name": "Qatar", "active": True},
+        ],
+    ), patch("app.api.routes.assign_candidate") as assign:
+        assign.return_value = MagicMock(assigned=False)
+        response = test_client.post(
+            "/candidates/upload",
+            data={
+                "full_name": "Meera Nair",
+                # The same country twice: a double-tap in the picker must not
+                # produce a duplicate preference.
+                "destination_country": ["qatar", "uae", "Qatar"],
+            },
+        )
+
+    assert response.status_code == 201
+    assert intake.call_args.kwargs["destination_countries"] == ["Qatar", "UAE"]
+
+
+def test_upload_candidate_refuses_an_inactive_country_among_several(test_client):
+    with patch(
+        "app.db.taxonomy.list_countries",
+        return_value=[{"id": "uae", "name": "UAE", "active": True}],
+    ):
+        response = test_client.post(
+            "/candidates/upload",
+            data={"full_name": "Meera Nair", "destination_country": ["uae", "atlantis"]},
+        )
+
+    assert response.status_code == 422
 
 
 def test_upload_candidate_translates_intake_refusal(test_client):

@@ -195,24 +195,25 @@ def test_an_admin_reaches_every_page():
     assert "users" in pages_for("admin")
 
 
+#: What a staff account reaches before anybody grants it anything. "tasks" is
+#: on this floor rather than being a grant: it lists the callbacks on the
+#: candidates already allocated to them, so an account that reaches its own
+#: queue reaches the follow-ups that queue produced.
+STAFF_FLOOR = ["candidates", "candidate-entry", "tasks", "attendance", "payroll", "settings"]
+
+
 def test_a_staff_member_reaches_their_queue_and_account_settings_by_default():
-    assert pages_for("staff") == ["candidates", "candidate-entry", "attendance", "payroll", "settings"]
+    assert pages_for("staff") == STAFF_FLOOR
 
 
 def test_grants_add_and_never_subtract():
     granted = pages_for("staff", ["candidates", "job-orders"])
     assert "candidates" in granted, "a grant must not cost a staff member their own queue"
-    assert set(granted) == {"candidates", "candidate-entry", "attendance", "payroll", "job-orders", "settings"}
+    assert set(granted) == {*STAFF_FLOOR, "job-orders"}
 
 
 def test_a_grant_for_a_page_that_does_not_exist_is_ignored():
-    assert pages_for("staff", ["nonsense", "candidates"]) == [
-        "candidates",
-        "candidate-entry",
-        "attendance",
-        "payroll",
-        "settings",
-    ]
+    assert pages_for("staff", ["nonsense", "candidates"]) == STAFF_FLOOR
 
 
 def test_an_admins_grants_cannot_reduce_what_they_reach():

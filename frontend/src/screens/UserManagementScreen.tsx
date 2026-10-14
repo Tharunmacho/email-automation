@@ -64,6 +64,7 @@ const PAGE_LABELS: Record<string, string> = {
   overview: "Overview",
   candidates: "Candidates",
   "candidate-entry": "Candidate Entry",
+  tasks: "Tasks",
   attendance: "Attendance",
   payroll: "Payroll",
   staff: "Staff & Allocation",
@@ -79,6 +80,7 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
   overview: "Pipeline summary and performance overview",
   candidates: "Assigned candidate profiles and reviews",
   "candidate-entry": "Upload candidate documents for VeriIS extraction",
+  tasks: "Callbacks outstanding on allocated candidates",
   attendance: "Daily punches, leave, grace time and exceptions",
   payroll: "Monthly salary, attendance deductions and payment status",
   staff: "Staff roster, workload and candidate assignment controls",
@@ -112,7 +114,7 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
  * ungrouped row.
  */
 const PAGE_GROUPS: { label: string; pages: string[] }[] = [
-  { label: "General", pages: ["overview", "candidates", "candidate-entry", "attendance", "payroll", "staff", "users"] },
+  { label: "General", pages: ["overview", "candidates", "candidate-entry", "tasks", "attendance", "payroll", "staff", "users"] },
   {
     label: "Tools",
     pages: [
@@ -201,7 +203,7 @@ const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
   manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
   finance_manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
-  staff: ["candidates", "candidate-entry", "attendance", "settings"],
+  staff: ["candidates", "candidate-entry", "tasks", "attendance", "payroll", "settings"],
 };
 
 type Section = "create" | "manage";

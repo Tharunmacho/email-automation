@@ -15,6 +15,7 @@ import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
+import TasksScreen from "@/screens/TasksScreen";
 import CandidateEditScreen from "@/screens/CandidateEditScreen";
 import CandidateUploadScreen, { type CandidateUploadFiles } from "@/screens/CandidateUploadScreen";
 import LoginScreen from "@/screens/LoginScreen";
@@ -1416,6 +1417,12 @@ export default function Home() {
                   )
                 )}
 
+                {currentTab === "tasks" && (
+                  <TasksScreen
+                    onOpenCandidate={canReadCandidates ? handleOpenCandidateById : undefined}
+                  />
+                )}
+
                 {currentTab === "attendance" && (
                   <AttendanceScreen user={user} onToast={showToast} />
                 )}
@@ -1423,7 +1430,20 @@ export default function Home() {
                 {currentTab === "payroll" && <PayrollScreen user={user} onToast={showToast} />}
 
                 {currentTab === "job-orders" && (
-                  <JobOrders candidates={candidates} onActivity={announceActivity} />
+                  <JobOrders
+                    candidates={candidates}
+                    onActivity={announceActivity}
+                    // Same route in as the directory and the bell: one entry
+                    // point decides where a candidate opens for each role, so
+                    // a staff member lands in their queue and an admin on the
+                    // profile screen. Withheld from an account that cannot
+                    // reach candidates at all, rather than offered and refused.
+                    onOpenCandidate={
+                      canReadCandidates
+                        ? (candidate) => handleOpenCandidateById(candidate.id)
+                        : undefined
+                    }
+                  />
                 )}
 
                 {currentTab === "settings" && (
