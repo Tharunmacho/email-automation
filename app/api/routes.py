@@ -1195,6 +1195,28 @@ def ocr_review_queue(limit: int = 100, _user: dict = Depends(require_admin)) -> 
         raise HTTPException(status_code=503, detail=f"Ingestion state unavailable: {exc}")
 
 
+@app.get("/ingest/checkpoints/review")
+def intake_review_queue(limit: int = 100, _user: dict = Depends(require_admin)) -> dict:
+    """Candidate-write failures whose automatic intake retries were stopped."""
+    from app.db.ingestion_checkpoints import IngestionCheckpointStore
+
+    try:
+        return {"items": IngestionCheckpointStore().review_queue(limit)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Intake checkpoints unavailable: {exc}")
+
+
+@app.post("/ingest/checkpoints/{checkpoint_id}/retry")
+def retry_intake_checkpoint(checkpoint_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Resume quarantined intake, reusing any unexpired saved extraction."""
+    from app.db.ingestion_checkpoints import IngestionCheckpointStore
+
+    store = IngestionCheckpointStore()
+    if not store.reset_for_retry(checkpoint_id):
+        raise HTTPException(status_code=404, detail="No quarantined intake checkpoint with that id.")
+    return {"checkpoint_id": checkpoint_id, "status": "retry"}
+
+
 @app.post("/ingest/ocr-state/reconcile")
 def run_reconciler(limit: int | None = None, _user: dict = Depends(require_admin)) -> dict:
     """Run a reconciler sweep now, inline, instead of waiting for beat.

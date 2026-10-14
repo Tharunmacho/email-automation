@@ -439,6 +439,13 @@ class ResumeParser:
         # can start on page 1 or on page 15.
         extracted = extract_text(file_data, filename)
 
+        from app.extraction.jobs import current_job_context
+
+        context = current_job_context()
+        recorder = context.recorder if context else None
+        if recorder is not None and getattr(recorder, "pending_jobs", None):
+            raise AIParseError("An accepted OCR job is still processing; waiting for its result")
+
         # The filename claimed a résumé; the content decides. An invoice or a
         # hall ticket named `cv.pdf` stops here, before Veris, before the LLM,
         # before a record is created.
@@ -531,13 +538,21 @@ class ResumeParser:
                         idempotency_key = ctx.key_for("resume_parse", digest) if ctx else digest
 
                         with AsyncOCRJobClient() as job_client:
+                            run_kwargs = {}
+                            if recorder is not None:
+                                run_kwargs["on_submitted"] = lambda h: recorder.on_submitted(
+                                    "resume", h.job_id, idempotency_key,
+                                )
                             handle, outcome = job_client.run(
                                 parse_data,
                                 parse_name,
                                 mode="resume",
                                 idempotency_key=idempotency_key,
-                                budget_seconds=settings.veris_timeout_seconds
+                                budget_seconds=settings.veris_timeout_seconds,
+                                **run_kwargs,
                             )
+                            if recorder is not None:
+                                recorder.on_finished("resume", handle.job_id, outcome.status, outcome.error)
 
                             if outcome.timed_out:
                                 raise TimeoutError(f"Veris OCR async job timed out after {settings.veris_timeout_seconds}s")
@@ -564,6 +579,8 @@ class ResumeParser:
                         log.info("Veris Resume API successfully parsed profile for %s (%s)", profile.full_name, profile.email)
                         return profile, veris_extracted
                 except Exception as exc:
+                    if recorder is not None and isinstance(exc, OCRJobError) and not exc.retryable:
+                        recorder.on_finished("resume", "", "failed", str(exc))
                     # This used to be a quiet warning, so a Veris outage looked
                     # identical to a successful parse — the record just silently
                     # came back with heuristic-grade (often wrong) data.

@@ -54,6 +54,7 @@ class IngestionStateRecorder:
         self._state = state
         #: mode → row id, so `on_finished` does not have to re-derive the key.
         self.rows: dict[str, str] = {}
+        self.pending_jobs: set[str] = set()
 
     @property
     def account_id(self) -> str:
@@ -85,6 +86,7 @@ class IngestionStateRecorder:
 
     # ---- JobRecorder ------------------------------------------------------ #
     def on_submitted(self, mode: str, job_id: str, idempotency_key: str) -> None:
+        self.pending_jobs.add(mode)
         try:
             row = self.state.open_row(
                 self.provider,
@@ -108,6 +110,10 @@ class IngestionStateRecorder:
             log.warning("Could not record %s job %s on the ingestion ledger: %s", mode, job_id, exc)
 
     def on_finished(self, mode: str, job_id: str, status: str, error: str = "") -> None:
+        if status in ("queued", "running"):
+            self.pending_jobs.add(mode)
+        else:
+            self.pending_jobs.discard(mode)
         row_id = self.rows.get(mode)
         if not row_id:
             return

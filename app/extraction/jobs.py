@@ -524,11 +524,14 @@ class AsyncOCRJobClient:
         *,
         budget_seconds: Optional[float] = None,
         lang: Optional[str] = None,
+        on_submitted: Optional[Callable[[JobHandle], None]] = None,
     ) -> tuple[JobHandle, JobOutcome]:
         """Submit and wait. The handle is returned even when the wait times out,
         because the job id is the only thing that makes the work recoverable."""
         started = time.monotonic()
         handle = self.submit(data, filename, mode, idempotency_key, lang=lang)
+        if on_submitted is not None:
+            on_submitted(handle)
         outcome = self.wait(handle.job_id, mode, budget_seconds)
         # The other half of the endpoint line: what came back, and how long the
         # round trip took. Submitted-but-never-reported was the shape of the
