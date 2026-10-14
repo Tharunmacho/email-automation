@@ -523,10 +523,9 @@ class ResumeParser:
                         )
                         res = ResumeResult.from_dict(already)
                     else:
-                        # The digest of what is actually being uploaded, always:
-                        # the résumé pages are carved out of the bundle here, and
-                        # two carves of the same page are not byte-identical, so a
-                        # key without it is a promise this call cannot keep.
+                        # Key the actual upload: rebuilding the same résumé
+                        # pages is stable, while a different selection or scan
+                        # must remain a separate job.
                         ctx = current_job_context()
                         digest = content_key(parse_data)
                         idempotency_key = ctx.key_for("resume_parse", digest) if ctx else digest

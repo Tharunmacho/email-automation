@@ -94,17 +94,11 @@ class JobContext:
         same upload, and rejects a second submission that breaks it —
         ``Idempotency-Key was already used for a different OCR upload``.
 
-        A message-scoped key alone could not keep that promise: the pages sent
-        for a résumé are carved out of the bundle at submission time, and
-        PyMuPDF writes a fresh document id and timestamp into every carve, so
-        the identical page produces different bytes on every attempt. Two runs
-        over one email — a scheduled poll overlapping a manual sync, or a plain
-        retry — therefore collided, the submission was refused, and the pipeline
-        fell back to the heuristic parser and stored a far poorer profile.
-
-        With the digest in the key, identical bytes still re-attach to the
-        running job (nothing is billed twice) and different bytes are simply a
-        different job (nothing is refused).
+        A message can produce several uploads in one mode: unread pages,
+        selected résumé pages, or a compacted scan. Including the upload digest
+        keeps those distinct. PDF subsets and compacted scans suppress fresh
+        document IDs, so rebuilding the same pages produces the same bytes and
+        a retry re-attaches to its existing job. Changed uploads get a new key.
         """
         digest = (fallback_digest or "")[:32]
         if self.message_id:
