@@ -19,8 +19,21 @@ interface SidebarProps {
   onCloseMobile: () => void;
 }
 
+/**
+ * The rail's own grouping, and the gate on what reaches it.
+ *
+ * An id absent from every section here is dropped, whatever `nav.ts` says and
+ * whatever the account is permitted — so a new destination has to be listed
+ * here as well as in `NAV_GROUPS`, or it is invisible for a reason no
+ * permission screen can explain.
+ */
 const SECTIONS: { label: string; ids: NavId[] }[] = [
   { label: "Workspace", ids: ["overview", "assigned-candidates", "candidates", "candidate-entry", "job-orders", "sourcing", "b2b-enquiries"] },
+  // A section of its own rather than a row under Workspace: this is the work
+  // outstanding on candidates, not another way of listing them, and both roles
+  // open it with a different question — "what do I owe today?" for a staff
+  // member, "who is sitting on what?" for an admin.
+  { label: "Tasks", ids: ["tasks"] },
   { label: "Team & operations", ids: ["staff", "attendance", "payroll"] },
   { label: "Quick access", ids: ["data-management", "users", "settings"] },
 ];

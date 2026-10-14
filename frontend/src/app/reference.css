@@ -89,6 +89,7 @@
 .rail-nav-icon.is-assigned-candidates { --nav-icon-color: #0d9488; }
 .rail-nav-icon.is-candidates { --nav-icon-color: #2563eb; }
 .rail-nav-icon.is-candidate-entry { --nav-icon-color: #9333ea; }
+.rail-nav-icon.is-tasks { --nav-icon-color: #e11d48; }
 .rail-nav-icon.is-job-orders { --nav-icon-color: #d97706; }
 .rail-nav-icon.is-sourcing { --nav-icon-color: #0891b2; }
 .rail-nav-icon.is-b2b-enquiries { --nav-icon-color: #db2777; }
