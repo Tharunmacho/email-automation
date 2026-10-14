@@ -23,6 +23,7 @@ missed because the CV was found on page three.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from app.config import settings
 from app.core.exceptions import TextExtractionError, UnsupportedFileTypeError
@@ -87,9 +88,25 @@ def _page_layout_text(page) -> str:
 _SPACED_CHARS = re.compile(r"\b[A-Za-z]\s[A-Za-z]\s[A-Za-z]\s[A-Za-z]\b")
 
 
+def _corrupt_text_layer(text: str) -> bool:
+    """Detect broken font mappings without treating multilingual text as noise."""
+    visible = [char for char in text if not char.isspace()]
+    damaged = sum(
+        char == "\ufffd" or unicodedata.category(char) in {"Cc", "Cs", "Co", "Cn"}
+        for char in visible
+    )
+    # A few private-use icons or missing glyphs are normal on otherwise good
+    # CVs. A substantial run is not readable text, however long the layer is.
+    return damaged >= 5 and damaged / max(len(visible), 1) >= 0.05
+
+
 def _needs_ocr(text: str) -> bool:
     """A page whose text layer is missing, or is per-character garbage."""
-    return len(text.strip()) < settings.ocr_min_text_chars or bool(_SPACED_CHARS.search(text))
+    return (
+        len(text.strip()) < settings.ocr_min_text_chars
+        or bool(_SPACED_CHARS.search(text))
+        or _corrupt_text_layer(text)
+    )
 
 
 def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
@@ -104,10 +121,18 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
     import fitz  # PyMuPDF
 
     page_texts: list[str] = []
+    corrupt_pages: set[int] = set()
     with fitz.open(stream=data, filetype="pdf") as doc:
         page_count = doc.page_count
-        for page in doc:
-            page_texts.append(_page_layout_text(page))
+        for number, page in enumerate(doc, start=1):
+            text = _page_layout_text(page)
+            # Do not retain an unusable layer as fallback if OCR also fails.
+            # An unreadable document must be retried, never permanently
+            # classified as a non-resume merely because it contained glyphs.
+            if _corrupt_text_layer(text):
+                corrupt_pages.add(number)
+                text = ""
+            page_texts.append(text)
 
     method = "pdf_text"
 
@@ -210,6 +235,17 @@ def _extract_pdf(data: bytes, filename: str = "") -> ExtractedDocument:
             method = "pdf_ocr"
     else:
         ocr_pages = set()
+
+    unread_corrupt = sorted(number for number in corrupt_pages if not page_texts[number - 1].strip())
+    if unread_corrupt and not pc.classify_document(page_texts).is_resume:
+        # A readable certificate beside the lost CV makes the whole bundle
+        # nonempty, but does not prove that the unread page was not a resume.
+        # A CV already found elsewhere may still ingest with its supporting
+        # page unread; only the otherwise permanent non-resume decision retries.
+        raise TextExtractionError(
+            f"No text could be extracted from damaged PDF page(s) {unread_corrupt}; "
+            "the remaining pages do not establish a resume. Retry extraction."
+        )
 
     return _classified(
         page_texts,

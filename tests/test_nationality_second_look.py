@@ -141,3 +141,110 @@ def test_the_evidence_builder_labels_the_fields_it_found():
 def test_nothing_to_read_is_not_a_refusal():
     assert rn.evidence_from_service({}, "") == ""
     assert _reconsider_nationality(_undetermined(), {}, "").nationality_accepted is True
+
+
+def test_passport_label_misread_as_nationality_does_not_reject_on_second_look():
+    result = {
+        "personal_info": {"nationality": "رقم الجوازU1234567"},
+        "pages": [],
+    }
+    out = _reconsider_nationality(_undetermined(), result, "Mumbai\nSaudi Arabia")
+
+    assert out.nationality_accepted is True
+
+
+def test_indian_service_nationality_is_not_overruled_by_foreign_employer_text():
+    result = {"personal_info": {"nationality": "Indian"}, "pages": []}
+    out = _reconsider_nationality(
+        _undetermined(), result,
+        "Nationality: Indian  Employer: Pakistani Trading Co\nKarachi\n+92 300 1234567",
+    )
+
+    assert out.nationality_accepted is True
+
+
+def test_service_cannot_discard_an_explicit_indian_local_read():
+    local_text = "Nationality: Indian\nSpray painter with 8 years experience."
+    local = _undetermined().model_copy(update={
+        "text": local_text,
+        "nationality": rn.detect_resume_nationality(local_text).as_dict(),
+    })
+    result = {
+        "personal_info": {"nationality": "Pakistani", "place_of_birth": "Lahore"},
+        "pages": [],
+    }
+
+    out = _reconsider_nationality(local, result, "Nationality: Pakistani\n+92 300 1234567")
+
+    assert out.nationality_accepted is True
+    assert out.nationality["verdict"] == rn.UNDETERMINED
+    assert "conflicting" in " ".join(out.nationality["evidence"])
+
+
+def test_service_keeps_indian_passport_evidence_from_pages_outside_the_cv():
+    from app.core.models import PageText
+    from app.extraction import page_classifier as pc
+    from tests.test_passport_nationality import INDIAN_PASSPORT
+
+    local = _undetermined().model_copy(update={
+        # parse_file keeps the local pages but its text field contains only the
+        # CV by this stage. The passport can be recovered only from pages.
+        "pages": [
+            PageText(page_number=1, text="Experienced painter", kind=pc.RESUME),
+            PageText(page_number=4, text=INDIAN_PASSPORT, kind=pc.PASSPORT),
+        ],
+        "nationality": {"verdict": rn.INDIAN, "country_code": "IND"},
+    })
+
+    out = _reconsider_nationality(
+        local, {"personal_info": {"nationality": "Pakistani"}}, "Experienced painter",
+    )
+
+    assert out.nationality_accepted is True
+
+
+def test_cached_indian_label_without_underlying_evidence_does_not_override_service():
+    local = _undetermined().model_copy(update={
+        "nationality": {"verdict": rn.INDIAN, "country_code": "IND"},
+    })
+
+    out = _reconsider_nationality(
+        local, {"personal_info": {"nationality": "Pakistani"}}, "Experienced painter",
+    )
+
+    assert out.nationality_accepted is False
+    assert out.nationality["country_code"] == "PAK"
+
+
+def test_foreign_service_read_still_decides_when_local_india_is_only_a_workplace():
+    local = _undetermined().model_copy(update={
+        "text": "Experienced painter\nEmployer: Indian Trading Company, Chennai",
+    })
+
+    out = _reconsider_nationality(
+        local, {"personal_info": {"nationality": "Pakistani"}}, "Experienced painter",
+    )
+
+    assert out.nationality_accepted is False
+    assert out.nationality["country_code"] == "PAK"
+
+
+def test_service_duplicate_birthplace_cannot_overrule_retained_indian_mrz():
+    from app.core.models import PageText
+    from app.extraction import page_classifier as pc
+
+    local = _undetermined().model_copy(update={
+        "pages": [PageText(
+            page_number=2, text="P<INDKUMAR<<RAJESH<<<<<<<<<<<<<<<<<<<<<<<<<<", kind=pc.PASSPORT,
+        )],
+        "nationality": {"verdict": rn.INDIAN, "country_code": "IND"},
+    })
+    result = {"personal_info": {"nationality": "Pakistani", "place_of_birth": "Lahore"}}
+
+    out = _reconsider_nationality(
+        local, result,
+        "Nationality: Pakistani\nPlace of Birth: Lahore;\n" * 3 + "Mobile: +92 300 1234567",
+    )
+
+    assert out.nationality_accepted is True
+    assert out.nationality["verdict"] == rn.INDIAN

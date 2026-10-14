@@ -40,13 +40,13 @@ reader accepts an unreadable booklet rather than throwing it away.
 
 What counts as evidence
 -----------------------
-Strongest first, and the weights are the whole policy:
+Strongest first, with passport decisions taking precedence over soft scores:
 
   1. **A passport in the same bundle** (`PASSPORT_EVIDENCE`). The classifier has
      already read every page and run `passport_nationality` over the ones that
      are booklets, so an MRZ reading `P<PAK` is sitting there for free. It is
      the best identity evidence a bundle can carry and it outranks everything
-     printed on the CV.
+     printed on the CV. Conflicting passport countries remain undetermined.
   2. **A stated nationality** (`STATED_EVIDENCE`) — "Nationality: Pakistani",
      "Citizenship / Nationality : Nepali". Unambiguous when present.
   3. **A place of birth** (`BIRTHPLACE_EVIDENCE`). Birthplace is not
@@ -58,6 +58,11 @@ Strongest first, and the weights are the whole policy:
      together still fall short of `min_score`; they can corroborate a stated
      nationality, and they cannot overrule one.
 
+Foreign citizenship requires a recognised stated nationality or a passport.
+Birthplace, addresses and phones only corroborate it, regardless of their sum.
+Unrecognised field text remains undetermined, including damaged OCR and labels
+from neighbouring fields.
+
 Every signal scores *a country*, not "foreign". That matters: a CV listing a
 Dubai employer and an Indian home town scores both, and a verdict needs to beat
 the runner-up by `margin` before it is a verdict at all. Contradiction produces
@@ -66,6 +71,7 @@ UNDETERMINED — which is accepted — rather than a coin flip.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -182,43 +188,30 @@ _DEMONYM_ALTERNATION = "|".join(
     re.escape(word) for word in sorted(_DEMONYMS, key=len, reverse=True)
 )
 
-#: A sentinel for "this CV states a nationality, it is not Indian, and the word
-#: is not one we can name". A CV saying "Nationality: Zimbabwean" is refused on
-#: exactly the same footing as one saying "Pakistani": the demonym table decides
-#: how well the refusal reads, never whether it happens.
+#: Kept for rendering historical verdicts. Unrecognised field text must never
+#: produce this code: a passport label or an OCR error is not a nationality.
 OTHER_CODE = "OTH"
 OTHER_NAME = "another country"
 
 #: "Nationality: Indian", "Citizenship / Nationality : Pakistani", "Nationality- Nepali".
 #:
-#: The value is free text rather than an alternation of known demonyms. Matching
-#: only known words meant an unlisted country read as *no answer at all*, and no
-#: answer is accepted — so the filter silently passed every nationality nobody
-#: had thought to write down. `_resolve_stated` classifies the value instead.
-#:
-#: The character class excludes newlines, so a bare "Nationality:" heading in a
-#: table cannot reach down and adopt the next field's value.
+#: Both the separators and the value exclude newlines. Otherwise a blank label
+#: can capture the next field, such as an Arabic passport-number label. Colon
+#: splits from PDF text layers are handled explicitly by `_joined_labels`.
 _STATED_RE = re.compile(
-    r"(?:nationality|citizenship|nationaliy|natonality|nationalty)"
-    r"\s*(?:/\s*[A-Za-z]+)?\s*[:\-–—]?[ \t]*"
-    r"(?P<rest>[^\n]{0,60})",
+    r"(?:\b(?:nationality|citizenship|nationaliy|natonality|nationalty)\b"
+    r"|(?<![\u0600-\u06ff])الجنسية(?![\u0600-\u06ff]))"
+    r"[ \t]*(?:/[ \t]*(?:nationality\b|citizenship\b|الجنسية))?[ \t]*[:\-–—]?[ \t]*"
+    r"(?P<rest>[^\r\n]{0,60})",
     re.IGNORECASE,
 )
 
-#: Words that begin a sentence *about* nationality rather than an answer to it.
-#:
-#: "Nationality and religion: Indian, Hindu" and "Nationality proof enclosed"
-#: are both prose, and reading their first words as a country is how a filter
-#: rejects the candidates it was built to keep. A value opening with one of
-#: these is not an answer unless a country is named further along the line.
-_PROSE_OPENERS = frozenset({
-    "and", "or", "of", "is", "are", "was", "were", "the", "a", "an", "for",
-    "in", "by", "with", "as", "to", "from", "at", "on", "if", "any", "all",
-    "details", "detail", "proof", "document", "documents", "certificate",
-    "copy", "copies", "attached", "enclosed", "status", "information",
-    "particulars", "verification", "card", "number", "no", "id", "identity",
-    "spouse", "father", "mother", "wife", "husband", "parent", "parents",
-})
+#: Explicit extensions of the nationality label, not arbitrary prose or a
+#: different person's nationality. Read the answer immediately after these.
+_STATED_LABEL_EXTENSION = re.compile(
+    r"^(?:(?:and|&)\s+religion\b|of\s+(?:the\s+)?(?:applicant|candidate)\b|is\b)"
+    r"\s*[:\-–—]?\s*"
+)
 
 #: A nationality field left blank. Refusing on these would turn "the applicant
 #: did not fill this in" into "the applicant is a foreigner", which is the
@@ -339,15 +332,10 @@ _DEMONYMS_BY_LENGTH: Tuple[Tuple[str, str], ...] = tuple(
 )
 
 
-def _named_country(line: str) -> Optional[Tuple[str, str]]:
-    """The first country named anywhere on this line, and the word that named it.
-
-    Scanned across the whole line rather than only the field's value, because
-    "Nationality and religion: Indian, Hindu" answers the question — just not in
-    the first word after the label.
-    """
+def _named_country(value: str) -> Optional[Tuple[str, str]]:
+    """Read a country at the start of the field, without scanning other fields."""
     for word, code in _DEMONYMS_BY_LENGTH:
-        if re.search(rf"\b{re.escape(word)}\b", line):
+        if re.match(rf"{re.escape(word)}\b", value):
             return code, word
     return None
 
@@ -355,29 +343,18 @@ def _named_country(line: str) -> Optional[Tuple[str, str]]:
 def _resolve_stated(rest: str) -> Optional[Tuple[str, str]]:
     """Read what a nationality field actually answers, as ``(code, wording)``.
 
-    Three outcomes, and the third is the one that makes this filter cover more
-    than the countries somebody remembered to list:
-
-      * a country code, when a country is named on the line;
-      * ``OTHER_CODE``, when the field gives a plain answer that is not Indian
-        and not a word we know — an unlisted country is still a foreign one;
-      * ``None``, when the line is blank, holds a placeholder, or is prose
-        *about* nationality rather than an answer to it.
-
-    The order is what keeps it safe. A named country is looked for across the
-    whole line first, so "Indian by birth" and "Indian, Hindu" resolve to India
-    however they are punctuated. Only when no country is named at all does the
-    unrecognised-answer path open, and it is fenced: one to three words, no
-    prose opener, no placeholder. Without those fences "Nationality proof
-    enclosed" reads as a foreign nationality and an Indian candidate is thrown
-    away over a filing note.
-
-    The Indian near-miss check sits between the two. It runs after the exact
-    table — so "Indonesian", a real entry, can never be mistaken for a badly
-    scanned "Indian" — and before the unrecognised path, so a genuine "lndian"
-    with the lowercase L that Tesseract makes of a capital I still gets home.
+    Only a recognised answer establishes nationality. Unknown words, document
+    labels and OCR damage remain undetermined; they cannot prove that somebody
+    is foreign. Match the value itself so "Indian  Employer: Pakistani Trading"
+    cannot adopt the employer's country. Preserve common combined labels and
+    OCR spellings of Indian without searching the rest of the line.
     """
     line = " ".join(rest.casefold().replace("/", " ").split())
+    line = _STATED_LABEL_EXTENSION.sub("", line, count=1)
+    # Form values may be quoted, bracketed or preceded by a dash. Remove only
+    # those leading wrappers; country matching must still start at the answer,
+    # never search past an unrelated label elsewhere on the line.
+    line = line.lstrip(" \t\"'“‘([{:–—-")
     if not line:
         return None
 
@@ -391,26 +368,13 @@ def _resolve_stated(rest: str) -> Optional[Tuple[str, str]]:
         return None
 
     words = value.split()
-    if words[0] in _PROSE_OPENERS:
-        return None
-
     from difflib import SequenceMatcher
 
     for indian in _INDIAN_WORDS:
         if SequenceMatcher(None, words[0], indian).ratio() >= 0.82:
             return INDIA_CODE, words[0]
 
-    # A nationality runs to three words at most — "Papua New Guinean" is the
-    # long case, and it is a real one. Beyond that it is a sentence, and a
-    # sentence this module cannot parse is not evidence of a foreign national.
-    #
-    # The count is a backstop, not the defence: prose is stopped by its opening
-    # word above, which catches "details are attached separately" at the first
-    # token rather than the fourth.
-    if len(words) > 3 or len("".join(c for c in value if c.isalpha())) < 3:
-        return None
-
-    return OTHER_CODE, value
+    return None
 
 
 #: A field label, its colon and its value, split across lines by the PDF's own
@@ -441,30 +405,54 @@ def _joined_labels(text: str) -> str:
 
 def _stated_nationality(text: str, scores: Dict[str, float], evidence: List[str]) -> None:
     """A nationality the CV states outright."""
+    stated: Dict[str, str] = {}
     for match in _STATED_RE.finditer(text):
+        # Family and sponsor details can appear beside the candidate's own
+        # particulars. Their nationality is not another vote about the owner
+        # of the CV.
+        prefix = text[text.rfind("\n", 0, match.start()) + 1:match.start()]
+        if re.search(
+            r"\b(?:father|mother|spouse|wife|husband|parent|employer|sponsor)"
+            r"(?:['’]s)?[ \t:/\-]*$", prefix, re.IGNORECASE,
+        ):
+            continue
         resolved = _resolve_stated(match.group("rest"))
         if resolved:
             code, wording = resolved
-            _award(scores, evidence, code, STATED_EVIDENCE,
-                   f"stated nationality '{wording}'")
+            stated.setdefault(code, wording)
+
+    # The same field can occur in the PDF text, OCR text and structured result.
+    # Repetition is not independent evidence. Contradictory readings need to
+    # stay uncertain; overseas addresses must not break a citizenship tie.
+    if len(stated) > 1:
+        evidence.append("conflicting stated nationalities: " + ", ".join(stated.values()))
+        return
+    for code, wording in stated.items():
+        _award(scores, evidence, code, STATED_EVIDENCE,
+               f"stated nationality '{wording}'")
 
 
 def _birthplace(text: str, scores: Dict[str, float], evidence: List[str]) -> None:
     """A place of birth, matched against the country place tables."""
     markers = pn.place_markers()
+    seen: set[str] = set()
     for match in _BIRTHPLACE_RE.finditer(text):
         value = match.group("value").strip()
         for code, patterns in markers.items():
             if any(p.search(value) for p in patterns):
-                _award(scores, evidence, code, BIRTHPLACE_EVIDENCE,
-                       f"place of birth '{value}'")
+                if code not in seen:
+                    seen.add(code)
+                    _award(scores, evidence, code, BIRTHPLACE_EVIDENCE,
+                           f"place of birth '{value}'")
                 break
         else:
             # The place may be a country or a demonym rather than a city.
             for word, code in _DEMONYMS.items():
                 if re.search(rf"\b{re.escape(word)}\b", value, re.IGNORECASE):
-                    _award(scores, evidence, code, BIRTHPLACE_EVIDENCE,
-                           f"place of birth '{value}'")
+                    if code not in seen:
+                        seen.add(code)
+                        _award(scores, evidence, code, BIRTHPLACE_EVIDENCE,
+                               f"place of birth '{value}'")
                     break
 
 
@@ -549,7 +537,10 @@ def detect_resume_nationality(
     different answer from FOREIGN and is treated differently downstream.
     """
     result = ResumeNationality()
-    text = _joined_labels(text or "")
+    # Bilingual PDFs use Arabic presentation forms and can glue the Arabic
+    # nationality label directly to "India", with "Nationality" at the end
+    # of the row. Normalise those glyphs before matching either field label.
+    text = _joined_labels(unicodedata.normalize("NFKC", text or ""))
     if not text.strip() and not passport_verdicts:
         return result
 
@@ -557,7 +548,9 @@ def detect_resume_nationality(
     evidence: List[str] = []
 
     _passports(passport_verdicts or {}, scores, evidence)
+    passport_countries = set(scores)
     _stated_nationality(text, scores, evidence)
+    identity_countries = set(scores)
     _birthplace(text, scores, evidence)
     _places(text, scores, evidence)
     _dialling(text, scores, evidence)
@@ -566,18 +559,38 @@ def detect_resume_nationality(
     if not scores:
         return result
 
-    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-    top_code, top_score = ranked[0]
-    runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
-
-    min_score = float(settings.resume_nationality_min_score)
-    margin = float(settings.resume_nationality_margin)
-
-    # Not enough to name anybody, or too close to call. Both are UNDETERMINED,
-    # and UNDETERMINED is accepted — a contradictory CV is not a foreign one.
-    if top_score < min_score or (top_score - runner_up) < margin:
-        result.evidence = [e for e in evidence][:4]
+    if len(passport_countries) > 1:
+        # A bundle can contain different people's documents. More pages from
+        # one passport do not settle whose citizenship belongs to this CV.
+        result.evidence = [
+            "conflicting passport nationalities: "
+            + ", ".join(pn.country_name(code) for code in sorted(passport_countries))
+        ] + evidence[:3]
         return result
+
+    if passport_countries:
+        # A country already established by the passport reader outranks soft
+        # hints in the CV. An overseas birthplace, address and phone may sum
+        # higher numerically without changing the passport holder's citizenship.
+        top_code = next(iter(passport_countries))
+        top_score = scores[top_code]
+    else:
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        top_code, top_score = ranked[0]
+        runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+
+        min_score = float(settings.resume_nationality_min_score)
+        margin = float(settings.resume_nationality_margin)
+
+        # Birthplace, an overseas address and a phone can add up to the score
+        # threshold. They still do not establish foreign citizenship.
+        if (
+            top_score < min_score
+            or (top_score - runner_up) < margin
+            or (top_code != INDIA_CODE and top_code not in identity_countries)
+        ):
+            result.evidence = evidence[:4]
+            return result
 
     result.country_code = top_code
     result.verdict = INDIAN if top_code == INDIA_CODE else FOREIGN

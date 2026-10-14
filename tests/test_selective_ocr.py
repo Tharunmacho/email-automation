@@ -100,6 +100,77 @@ def test_every_page_of_a_scan_is_read_locally(scanned):
     )
 
 
+@pytest.mark.parametrize("glyph", ["\ufffd", "\x00", "\ue000", "\ufffe"])
+def test_a_long_broken_font_mapping_requires_ocr(glyph):
+    assert tx._needs_ocr(glyph * 500) is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Nationality Indian and employment experience. " * 20,
+     "الجنسية الهندية والخبرة العملية " * 30,
+     "இந்திய குடியுரிமை வேலை அனுபவம் " * 30,
+     "Nationality Indian and employment experience. " * 20 + "\ue000\ufffd"],
+)
+def test_readable_multilingual_text_and_isolated_icons_do_not_need_ocr(text):
+    assert tx._needs_ocr(text) is False
+
+
+def test_broken_embedded_text_is_recovered_before_resume_classification(scanned, monkeypatch):
+    read_locally, _uploaded = scanned
+    monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "\ufffd" * 500)
+
+    result = tx.extract_text(make_pdf([RESUME_PAGE]), "candidate.pdf")
+
+    assert read_locally == [1]
+    assert result.is_resume is True
+    assert result.ocr_used is True
+    assert "\ufffd" not in result.text
+
+
+def test_failed_recovery_of_broken_text_is_retryable_not_a_permanent_rejection(monkeypatch):
+    from app.core.exceptions import TextExtractionError
+
+    monkeypatch.setattr(tx, "_page_layout_text", lambda _page: "\ufffd" * 500)
+    monkeypatch.setattr(local_ocr, "ocr_pdf_page_reads", lambda *args, **kwargs: {})
+    monkeypatch.setattr(tx, "_recover_unread_pages", lambda data, name, texts, unread, degraded: (texts, set()))
+    monkeypatch.setattr(settings, "ocr_triage_enabled", False)
+
+    with pytest.raises(TextExtractionError, match="No text could be extracted"):
+        tx.extract_text(make_pdf([RESUME_PAGE]), "candidate.pdf")
+
+
+def test_unread_corrupt_cv_beside_readable_certificate_is_retryable(monkeypatch):
+    from app.core.exceptions import TextExtractionError
+
+    monkeypatch.setattr(
+        tx, "_page_layout_text",
+        lambda page: RESUME_PAGE + "\ufffd" * 100 if page.number == 0 else CERTIFICATE_PAGE,
+    )
+    monkeypatch.setattr(local_ocr, "ocr_pdf_page_reads", lambda *args, **kwargs: {})
+    monkeypatch.setattr(tx, "_recover_unread_pages", lambda data, name, texts, unread, degraded: (texts, set()))
+    monkeypatch.setattr(settings, "ocr_triage_enabled", False)
+
+    with pytest.raises(TextExtractionError, match=r"damaged PDF page\(s\) \[1\]"):
+        tx.extract_text(make_pdf([RESUME_PAGE, CERTIFICATE_PAGE]), "candidate-bundle.pdf")
+
+
+def test_readable_cv_still_ingests_when_corrupt_supporting_page_cannot_be_read(monkeypatch):
+    monkeypatch.setattr(
+        tx, "_page_layout_text",
+        lambda page: RESUME_PAGE if page.number == 0 else "\ufffd" * 500,
+    )
+    monkeypatch.setattr(local_ocr, "ocr_pdf_page_reads", lambda *args, **kwargs: {})
+    monkeypatch.setattr(tx, "_recover_unread_pages", lambda data, name, texts, unread, degraded: (texts, set()))
+    monkeypatch.setattr(settings, "ocr_triage_enabled", False)
+
+    result = tx.extract_text(make_pdf([RESUME_PAGE, CERTIFICATE_PAGE]), "candidate-bundle.pdf")
+
+    assert result.is_resume is True
+    assert result.resume_pages == [1]
+    assert result.pages[1].text == ""
+
+
 def test_only_the_resume_pages_are_uploaded(scanned):
     """The bundle is 30 pages; exactly the 2 that hold the CV leave the host."""
     _read_locally, uploaded = scanned

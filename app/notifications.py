@@ -163,6 +163,7 @@ def notify_candidate_rejected(
     filename: str = "",
     from_addr: str = "",
     country: str = "",
+    title: str = "",
     repo: NotificationRepository | None = None,
     users: UserRepository | None = None,
 ) -> int:
@@ -184,7 +185,7 @@ def notify_candidate_rejected(
 
     who = from_addr or "an unknown sender"
     label = filename or "a CV"
-    title = "Candidate rejected — other nationality" if country else "Candidate rejected"
+    title = title or ("Candidate rejected — other nationality" if country else "Candidate rejected")
     message = f"{label} from {who} was not ingested: {reason}"
     notified = 0
 

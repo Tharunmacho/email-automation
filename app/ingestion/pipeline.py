@@ -47,6 +47,7 @@ from app.extraction import page_classifier as pc
 from app.extraction.jobs import JobContext, use_job_context
 from app.ingestion.detector import detect
 from app.ingestion.job_recorder import IngestionStateRecorder
+from app.ingestion.rejection_reason import not_resume_reason
 from app.logging_config import get_logger
 from app.assignment import assign_candidate
 from app.notifications import notify_candidate_assigned, notify_candidate_rejected
@@ -509,6 +510,22 @@ class IngestionPipeline:
             overall = "error"
         else:
             overall = "skipped"
+
+        # Supporting documents successfully filed with a sibling CV are not
+        # rejected. If the message will retry, its unread attachment could
+        # still be the CV that lets these documents be filed on the next pass.
+        if overall != "error":
+            for result in results:
+                if result.status == "not_resume":
+                    try:
+                        notify_candidate_rejected(
+                            reason=result.detail,
+                            filename=result.filename,
+                            from_addr=email.from_addr or "",
+                            title="Attachment not ingested",
+                        )
+                    except Exception as exc:  # noqa: BLE001 — notifications cannot fail intake
+                        log.debug("Could not announce skipped attachment %s: %s", result.filename, exc)
         return ProcessResult(email.message_id, overall, detection.reason, results)
 
     # ---------------------------------------------------------------- #
@@ -594,17 +611,16 @@ class IngestionPipeline:
                     hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                     profile = self.parser.parse(extracted.resume_text, hint=hint)
 
-            # The parser-supplied branch above extracts and structures in one
-            # call, so its refusal lands here. Re-asking a decision already made
-            # and carried on `extracted` — never recomputed, so the answer
-            # cannot drift between the two places it is enforced.
-            _refuse_foreign_candidate(att.filename, extracted)
-
             if not profile.is_resume:
                 reason = (profile.additional_info or {}).get("rejection_reason") \
                     or getattr(extracted, "classification_reason", "") \
                     or "content is not a resume"
                 raise NotAResumeError(f"Attachment '{att.filename}' is not a resume: {reason}")
+
+            # Apply the candidate policy only after establishing this is a CV.
+            # A visa or another supporting document must not produce a
+            # "candidate rejected" alert from incidental nationality text.
+            _refuse_foreign_candidate(att.filename, extracted)
 
             if not profile.email and not profile.phone:
                 raise NotAResumeError(
@@ -776,7 +792,7 @@ class IngestionPipeline:
             log.info("Skipping attachment: %s", exc)
             has_pages = bool(getattr(extracted, "pages", None))
             return AttachmentResult(
-                att.filename, "not_resume", detail=str(exc),
+                att.filename, "not_resume", detail=not_resume_reason(extracted, str(exc)),
                 source=att if has_pages else None,
                 extracted=extracted if has_pages else None,
                 data=data if has_pages else None,

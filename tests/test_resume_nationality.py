@@ -240,13 +240,8 @@ def test_a_tabled_foreign_nationality_is_refused(stated):
     ["Zimbabwean", "Bolivian", "Icelandic", "Namibian", "Papua New Guinean",
      "Trinidadian", "Luxembourgish", "Seychellois", "Malagasy"],
 )
-def test_a_country_nobody_tabled_is_still_refused(stated):
-    """The demonym table decides how the refusal *reads*, never whether it happens.
-
-    Before this, an unlisted country resolved to "no answer at all", and no
-    answer is accepted — so the filter passed every nationality nobody had
-    thought to write down.
-    """
+def test_less_common_recognised_nationalities_are_still_refused(stated):
+    """Requiring a recognised nationality must preserve the wider country list."""
     verdict = _field(f"Nationality: {stated}")
     assert verdict.verdict == rn.FOREIGN
     assert rn.should_ingest(verdict)[0] is False
@@ -409,3 +404,171 @@ def test_an_ordinary_indian_cv_is_untouched_by_the_line_joining():
 
     assert accept is True
     assert verdict.verdict == rn.INDIAN
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "Nationality رقم الجوازU1234567",
+        "Nationality: رقم الجوازU1234567",
+        "Nationality\nرقم الجوازU1234567",
+        "Nationality\n: \nرقم الجوازU1234567",
+    ],
+)
+def test_passport_label_in_nationality_field_is_not_a_foreign_national(field):
+    # The reported rejection assigned OTH 4.0 and confidence 0.83 to an
+    # Arabic passport-number label. The identifier here is synthetic.
+    verdict = rn.detect_resume_nationality(f"{field}\nMumbai\nSaudi")
+
+    assert verdict.verdict == rn.UNDETERMINED
+    assert rn.OTHER_CODE not in verdict.scores
+    assert rn.should_ingest(verdict)[0] is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["Unreadable", "Not available", "Unknown nationality", "U1234567",
+     "Passport Number", "Date of expiry", "الجنسية", "رقم الجواز", "???"],
+)
+def test_unrecognised_nationality_is_not_proof_of_a_foreign_country(value):
+    verdict = _field(f"Nationality: {value}")
+
+    assert verdict.verdict == rn.UNDETERMINED
+    assert rn.should_ingest(verdict)[0] is True
+
+
+@pytest.mark.parametrize("label", ["Nationality", "Nationality:", "Citizenship"])
+@pytest.mark.parametrize("next_line", ["Pakistani employer", "Nepal", "Saudi Arabia"])
+def test_blank_nationality_does_not_capture_an_unrelated_next_line(label, next_line):
+    verdict = rn.detect_resume_nationality(f"{label}\n{next_line}\n")
+
+    assert verdict.verdict == rn.UNDETERMINED
+    assert rn.should_ingest(verdict)[0] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "Nationality: Indian    Employer: Pakistani Trading Co",
+        "Nationality: Indian | Place of Birth: Bangladesh",
+        "Nationality: Indian / Current location: United Arab Emirates",
+        "Nationality: lndian    Work location: Pakistan",
+    ],
+)
+def test_nationality_value_is_not_overruled_by_another_field_on_the_same_line(field):
+    verdict = rn.detect_resume_nationality(field)
+
+    assert verdict.verdict == rn.INDIAN
+    assert rn.should_ingest(verdict)[0] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "Nationality: Passport issued in Nepal",
+        "Nationality:    Employer: Pakistani Trading Co",
+        "Nationality proof enclosed from Pakistan",
+    ],
+)
+def test_country_in_an_unrelated_field_is_not_a_stated_nationality(field):
+    verdict = rn.detect_resume_nationality(field)
+
+    assert verdict.verdict == rn.UNDETERMINED
+    assert rn.should_ingest(verdict)[0] is True
+
+
+def test_birthplace_address_and_phone_cannot_prove_foreign_citizenship():
+    verdict = rn.detect_resume_nationality(
+        "Place of Birth: Lahore\nAddress: Karachi\nMobile: +92 300 1234567\n"
+    )
+
+    assert verdict.verdict == rn.UNDETERMINED
+    assert rn.should_ingest(verdict)[0] is True
+
+
+def test_unknown_passport_text_reaches_extraction_and_database_gates(no_uploads):
+    cv = INDIAN_CV_SILENT + "\nNationality: رقم الجوازU1234567\nSaudi Arabia\n"
+    extracted = tx._classified(
+        [cv], method="pdf_ocr", ocr_pages={1}, data=b"pdf", filename="cv.pdf",
+    )
+
+    assert extracted.nationality_accepted is True
+    assert no_uploads == ["cv.pdf"]
+    _refuse_foreign_candidate("cv.pdf", extracted)
+
+
+@pytest.mark.parametrize(
+    "stated, code, native", [("India", "IND", "ﺍﻟﻬﻨﺪ"), ("Pakistan", "PAK", "باكستان")],
+)
+def test_bilingual_visa_row_reads_nationality_before_the_trailing_english_label(stated, code, native):
+    # The original PDF uses Arabic presentation forms, no gap before the
+    # country value, and the English label at the end of the extracted row.
+    text = (
+        f"ﺍﻟﺠﻨﺴﻴﺔ{stated}\u00a0‐\u00a0{native}Nationality\n"
+        "ﺭﻗﻢ\u00a0ﺍﻟﺠﻮﺍﺯU1234567\nPassport\u00a0No.\n"
+        "Saudi Mission In Mumbai\n"
+    )
+    verdict = rn.detect_resume_nationality(text)
+
+    assert verdict.country_code == code
+    assert rn.should_ingest(verdict)[0] is (code == "IND")
+
+
+@pytest.mark.parametrize("stated", ["Pakistani", "Indonesian", "Filipino"])
+def test_explicit_foreign_nationality_is_not_replaced_by_indian_employer(stated):
+    verdict = _field(f"Nationality: {stated}    Employer: Indian Trading Co")
+
+    assert verdict.verdict == rn.FOREIGN
+    assert rn.should_ingest(verdict)[0] is False
+
+
+def test_indian_resume_with_bilingual_visa_passes_both_gates(no_uploads):
+    visa = (
+        "KINGDOM OF SAUDI ARABIA\nWork Visa\nSaudi Mission in Mumbai\n"
+        "ﺍﻟﺠﻨﺴﻴﺔIndia ‐ ﺍﻟﻬﻨﺪNationality\n"
+        "ﺭﻗﻢ ﺍﻟﺠﻮﺍﺯU1234567\nPassport No.\n"
+    )
+    extracted = tx._classified(
+        [INDIAN_CV_SILENT, visa], method="pdf_ocr", ocr_pages={1},
+        data=b"pdf", filename="cv-and-visa.pdf",
+    )
+
+    assert extracted.nationality["verdict"] == rn.INDIAN
+    assert extracted.nationality_accepted is True
+    assert extracted.resume_pages == [1]
+    assert no_uploads == ["cv-and-visa.pdf"]
+    _refuse_foreign_candidate("cv-and-visa.pdf", extracted)
+
+
+@pytest.mark.parametrize(
+    "is_resume, expected_status", [(False, "not_resume"), (True, "rejected_nationality")],
+)
+def test_only_a_resume_can_emit_a_candidate_nationality_rejection(monkeypatch, is_resume, expected_status):
+    from app.core.models import Attachment, CandidateProfile, EmailMessage, ExtractedDocument
+    from app.ingestion.pipeline import IngestionPipeline
+    from tests.test_pipeline_redelivery import FakeLedger, FakeRepo, FakeStorage
+
+    class Parser:
+        def parse_file(self, _data, _filename):
+            return CandidateProfile(is_resume=is_resume), ExtractedDocument(
+                text="KINGDOM OF SAUDI ARABIA\nVisa", method="pdf_text", char_count=31,
+                is_resume=is_resume, classification_reason="identity document",
+                nationality_accepted=False, nationality_reason="rejected: other nationality",
+            )
+
+    repo, storage = FakeRepo(), FakeStorage()
+    pipeline = IngestionPipeline(repo, storage, Parser(), FakeLedger())
+    rejections = []
+    monkeypatch.setattr(pipeline, "_announce_rejection", lambda *args: rejections.append(args))
+    attachment = Attachment(
+        filename="attachment.pdf", mime_type="application/pdf", size=3,
+        attachment_id="attachment-1", data=b"pdf",
+    )
+    email = EmailMessage(message_id="visa-1", thread_id="visa-1", from_addr="sender@example.com")
+
+    result = pipeline._process_attachment(email, attachment, None)
+
+    assert result.status == expected_status
+    assert bool(rejections) is is_resume
+    assert repo.records == {}
+    assert storage.saved == {}

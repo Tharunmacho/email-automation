@@ -1191,11 +1191,11 @@ def _reconsider_nationality(extracted, res, veris_text: str):
     with the columns pulled apart so labels and values are back on one line.
     None of it was being looked at.
 
-    This can only ever make the answer *stricter*. It runs at all only because
-    the local read already accepted: a local refusal is raised before Veris is
-    called, so nothing that reaches here was refused earlier and there is no
-    verdict to soften. An UNDETERMINED second look leaves the first answer
-    exactly as it was.
+    Keep the local identity evidence in that second look. The service receives
+    only the CV pages, so it cannot see an Indian passport behind them, and a
+    contradictory OCR reading must not silently discard that passport. Re-read
+    the underlying page text rather than treating a cached INDIAN label as proof.
+    A local refusal has already stopped processing before this point.
     """
     from app.extraction import resume_nationality as rn
 
@@ -1212,10 +1212,30 @@ def _reconsider_nationality(extracted, res, veris_text: str):
         if not evidence.strip():
             return extracted
 
-        verdict = rn.detect_resume_nationality(evidence)
+        local_pages = getattr(extracted, "pages", None) or []
+        local_text = "\n\n".join(p.text for p in local_pages if p.text) \
+            or getattr(extracted, "text", "") or ""
+        # Page numbers need not be contiguous in an older cached extraction.
+        # Construct a matching text/kind map instead of assuming list order.
+        page_texts = [""] * max((p.page_number for p in local_pages), default=0)
+        page_kinds = {}
+        for page in local_pages:
+            if page.page_number > 0:
+                page_texts[page.page_number - 1] = page.text
+                page_kinds[page.page_number] = page.kind
+        verdict = rn.detect_resume_nationality(
+            "\n\n".join(part for part in (local_text, evidence) if part),
+            passport_verdicts=rn.passport_verdicts_from(page_texts, page_kinds),
+        )
         if verdict.verdict != rn.FOREIGN:
-            # INDIAN confirms what was already assumed; UNDETERMINED says the
-            # better evidence still cannot tell, which is not a reason to refuse.
+            # Keep a conflicting second read visible as uncertainty instead of
+            # continuing to label it with the first read's nationality.
+            previous = getattr(extracted, "nationality", None) or {}
+            if previous and verdict.verdict == rn.UNDETERMINED:
+                return extracted.model_copy(update={
+                    "nationality": verdict.as_dict(),
+                    "nationality_reason": rn.should_ingest(verdict, allow_undetermined=True)[1],
+                })
             return extracted
 
         accepted, reason = rn.should_ingest(verdict)
