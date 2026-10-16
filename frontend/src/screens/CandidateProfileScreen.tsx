@@ -45,6 +45,7 @@ import {
   resumeDownloadUrl,
   type AadhaarRecord,
   type CandidateRecord,
+  type CandidateReadContext,
   type EvaluationStatus,
   type IdentityDocuments,
   type PassportRecord,
@@ -159,10 +160,12 @@ function ScanDownload({
   candidateId,
   documentType,
   recordId,
+  readContext,
 }: {
   candidateId: string;
   documentType: "aadhaar" | "passport";
   recordId: string;
+  readContext?: CandidateReadContext;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -172,7 +175,7 @@ function ScanDownload({
     setBusy(true);
     try {
       await saveFile(
-        identityFileUrl(candidateId, documentType, recordId),
+        identityFileUrl(candidateId, documentType, recordId, readContext),
         `${documentType}.pdf`,
       );
     } catch (err) {
@@ -231,6 +234,8 @@ interface CandidateProfileScreenProps {
   candidate: CandidateRecord;
   verifying?: boolean;
   onBack?: () => void;
+  backLabel?: string;
+  readContext?: CandidateReadContext;
   /** Opens the separate edit screen; the profile itself remains read-only. */
   onEdit?: () => void;
   /** Return an admin-verified profile to the review queue. */
@@ -481,6 +486,8 @@ export default function CandidateProfileScreen({
   candidate,
   verifying = false,
   onBack,
+  backLabel = "Back to candidates",
+  readContext,
   onEdit,
   onUnverify,
   evaluation,
@@ -543,7 +550,7 @@ export default function CandidateProfileScreen({
     let cancelled = false;
     const candidateId = candidate.id;
 
-    getCandidateIdentity(candidateId)
+    getCandidateIdentity(candidateId, readContext)
       .then((documents) => {
         if (!cancelled) setIdentityState({ candidateId, documents, error: null });
       })
@@ -563,13 +570,13 @@ export default function CandidateProfileScreen({
     return () => {
       cancelled = true;
     };
-  }, [candidate.id]);
+  }, [candidate.id, readContext]);
 
   useEffect(() => {
     if (!fromWhatsApp || activityModal !== "whatsapp") return;
     let cancelled = false;
     const candidateId = candidate.id;
-    getCandidateWhatsAppChat(candidateId)
+    getCandidateWhatsAppChat(candidateId, readContext)
       .then((chat) => {
         if (!cancelled) setChatState({ candidateId, chat, error: null });
       })
@@ -585,7 +592,7 @@ export default function CandidateProfileScreen({
     return () => {
       cancelled = true;
     };
-  }, [activityModal, candidate.id, fromWhatsApp]);
+  }, [activityModal, candidate.id, fromWhatsApp, readContext]);
 
   /** Only this candidate's answer counts; an older one is still in flight. */
   const identityFor = identityState?.candidateId === candidate.id ? identityState : null;
@@ -755,7 +762,7 @@ export default function CandidateProfileScreen({
     setDownloading(true);
     try {
       await saveFile(
-        resumeDownloadUrl(candidate.id),
+        resumeDownloadUrl(candidate.id, readContext),
         candidate.resume?.original_filename || "resume.pdf",
       );
     } catch (err) {
@@ -815,8 +822,8 @@ export default function CandidateProfileScreen({
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
       <div className="cscreen-topbar">
         {onBack && (
-          <button type="button" className="jod-back" onClick={onBack} title="Back to the candidates list">
-            <ArrowLeft size={15} /> Back to candidates
+          <button type="button" className="jod-back" onClick={onBack} title={backLabel}>
+            <ArrowLeft size={15} /> {backLabel}
           </button>
         )}
 
@@ -1079,6 +1086,7 @@ export default function CandidateProfileScreen({
                             candidateId={candidate.id}
                             documentType="passport"
                             recordId={passport._id}
+                            readContext={readContext}
                           />
                         ) : (
                           <span className="cprof-doc-badge" title="The details were read, but no scan file is stored for this passport.">
@@ -1158,6 +1166,7 @@ export default function CandidateProfileScreen({
                         candidateId={candidate.id}
                         documentType="aadhaar"
                         recordId={aadhaar._id}
+                        readContext={readContext}
                       />
                     ) : (
                       <span className="cprof-doc-badge" title="Aadhaar scans download for administrators, and only when a scan file is stored.">

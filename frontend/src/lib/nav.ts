@@ -182,9 +182,8 @@ export const NAV_GROUPS: NavGroup[] = [
  * the user yet — the `roles` on each item decide, exactly as before.
  *
  * Neither is the security. Every screen behind these is guarded by the API, and
- * a granted page does not widen what its data endpoints will return: a staff
- * member on the Candidates page still sees only the candidates allocated to
- * them, because that scoping lives in the API and not in this menu.
+ * the API decides the scope: All Candidates permits shared profile reads,
+ * while Assigned Candidates and review actions stay tied to allocation.
  */
 export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
   const allowed = pages
@@ -227,6 +226,7 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
 export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
   const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
   if ((role === "admin" || role === "manager" || role === "finance_manager") && visible.includes("overview")) return "overview";
+  if (role === "staff" && visible.includes("assigned-candidates")) return "assigned-candidates";
   if (visible.includes("candidates")) return "candidates";
   return visible[0] ?? "settings";
 }

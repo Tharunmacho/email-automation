@@ -47,7 +47,7 @@ import Select from "@/components/ui/Select";
 import { formatInt, initialsOf, timeAgo } from "@/lib/format";
 
 interface StaffDashboardProps {
-  /** Already scoped to this user — the API only ever returns their own. */
+  /** Only the signed-in staff member's allocated candidates. */
   candidates: CandidateRecord[];
   /** Ids that arrived over the socket this session, marked NEW in the queue. */
   arrivedIds?: Set<string>;

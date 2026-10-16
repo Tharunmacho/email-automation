@@ -368,16 +368,26 @@ def _staff_scope(user: dict) -> str | None:
 
 
 def _owned_or_404(candidate_id: str, user: dict):
-    """The record, or 404 if it does not exist *or* belongs to someone else.
-
-    404 rather than 403 on purpose: 403 confirms the record exists, which is the
-    fact the isolation rule is there to withhold. Another staff member's id has
-    to be indistinguishable from one that was never issued.
-    """
+    """Require allocation ownership for staff review and modification actions."""
     record = repo().get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
     if user.get("role") == STAFF_ROLE and record.assigned_staff_id != user["id"]:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record
+
+
+def _readable_or_404(candidate_id: str, user: dict, context: str | None = None):
+    """Page grants permit profile reads regardless of allocation.
+
+    The context is only a request to use that page's permission, never a grant
+    in itself. Mutating routes continue to use `_owned_or_404`.
+    """
+    page = "job-orders" if context == "job-orders" else "candidates"
+    if not _has_page(user, page):
+        raise HTTPException(status_code=404, detail="Not found")
+    record = repo().get(candidate_id)
+    if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return record
 
@@ -498,6 +508,9 @@ def list_candidates(
         description="False skips counting the collection. A client fetching "
                     "pages in parallel already has the total from its first page.",
     ),
+    scope: Literal["mine", "all"] = Query(
+        "mine", description="Owner's queue by default; 'all' browses every profile.",
+    ),
     user: dict = Depends(require_page("candidates")),
 ) -> dict:
     """A page of candidates, projected in the database and scoped to the caller.
@@ -508,10 +521,11 @@ def list_candidates(
     profiles come from `GET /candidates/{id}`, one candidate at a time, when
     something actually opens one.
 
-    A staff member sees only what is allocated to them; an admin sees the lot.
+    Staff can browse every profile with `scope=all`, while the default keeps
+    their allocated review queue. Reading never changes a candidate's owner.
     """
     repository = repo()
-    staff_id = _staff_scope(user)
+    staff_id = _staff_scope(user) if scope == "mine" else None
     items = repository.list_summaries(
         limit=limit, skip=skip, minimal=view == "minimal", staff_id=staff_id
     )
@@ -535,19 +549,24 @@ def list_candidates(
 
 
 @app.get("/candidates/{candidate_id}")
-def get_candidate(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
+def get_candidate(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> dict:
     """The whole record, OCR payload included. The only place that serves it."""
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     return record.model_dump(mode="json")
 
 
 @app.get("/candidates/{candidate_id}/whatsapp-chat")
 def get_candidate_whatsapp_chat(
     candidate_id: str,
-    user: dict = Depends(require_page("candidates")),
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
 ) -> dict:
     """Proxy the candidate's protected bot transcript into the CRM."""
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     key_parts = str(record.idempotency_key or "").split("/")
     wa_id = key_parts[2] if len(key_parts) >= 3 and key_parts[0] == "whatsapp" else ""
     if not wa_id and record.source == "whatsapp":
@@ -594,10 +613,14 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
 
 
 @app.get("/candidates/{candidate_id}/resume")
-def download_resume(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> Response:
+def download_resume(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> Response:
     from app.services.resume_recovery import recover_from_email
 
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
@@ -1225,7 +1248,11 @@ def retry_ocr_row(row_id: str, _user: dict = Depends(require_admin)) -> dict:
 
 
 @app.get("/candidates/{candidate_id}/identity")
-def candidate_identity_documents(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
+def candidate_identity_documents(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> dict:
     """The Aadhaar and passport read out of this candidate's application.
 
     Numbers are masked unless the caller is an administrator. A recruiter needs
@@ -1236,10 +1263,8 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
     from app.extraction import ocr_notes
     from app.services import identity_files
 
-    # 404s a record that belongs to another staff member, exactly as the
-    # candidate endpoints do — an identity document must not be the thing that
-    # confirms a candidate id exists.
-    record = _owned_or_404(candidate_id, user)
+    # Use the same read permission as the profile; masking still applies below.
+    record = _readable_or_404(candidate_id, user, context)
 
     try:
         found = find_for_candidate(candidate_id)
@@ -1309,7 +1334,8 @@ def download_identity_document(
     candidate_id: str,
     document_type: str,
     record_id: str,
-    user: dict = Depends(require_page("candidates")),
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
 ) -> Response:
     """The Aadhaar or passport scan itself, as a download.
 
@@ -1330,7 +1356,7 @@ def download_identity_document(
             detail=f"'{document_type}' is not an identity document type",
         )
 
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
 
     if document_type == "aadhaar" and user.get("role") != ADMIN_ROLE:
         raise HTTPException(
@@ -1859,7 +1885,7 @@ def list_job_order_candidate_pool(
 ) -> dict:
     """Candidates available for requisitions, regardless of current owner.
 
-    A staff member's Candidates page remains scoped to their own review queue.
+    A staff member's assigned review queue remains scoped to their allocation.
     Job Orders is a separately granted collaboration surface: someone filling
     a requisition must be able to shortlist a suitable candidate even when a
     different staff member currently owns that candidate's review.
@@ -2756,7 +2782,7 @@ class CandidateOfferRequest(BaseModel):
 
 
 def _recruitment_or_404(candidate_id: str, user: dict):
-    """The record, under the same candidate-scope rules as every other read."""
+    """Require ownership for staff pipeline changes, independently of reads."""
     _owned_or_404(candidate_id, user)
     record = repo().get(candidate_id)
     if not record:
