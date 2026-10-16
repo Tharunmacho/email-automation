@@ -41,6 +41,7 @@ from app.core.models import (
 from app.ai.reply_generator import generate_contextual_reply
 from app.config import settings
 from app.db.dedup import normalize_email, normalize_phone, sha256_hex
+from app.db.ingestion_checkpoints import IngestionCheckpointStore
 from app.db.ledger import NOT_A_RESUME_SENTINEL, IngestLedger
 from app.db.repository import CandidateRepository
 from app.extraction import page_classifier as pc
@@ -428,11 +429,19 @@ class IngestionPipeline:
         storage: Optional[StorageBackend] = None,
         parser: Optional[ResumeParser] = None,
         ledger: Optional[IngestLedger] = None,
+        checkpoints: Optional[IngestionCheckpointStore] = None,
     ):
         self.repo = repository or CandidateRepository()
         self.storage = storage or get_storage_backend()
         self.parser = parser or ResumeParser()
         self.ledger = ledger or IngestLedger()
+        self._checkpoints = checkpoints
+
+    @property
+    def checkpoints(self) -> IngestionCheckpointStore:
+        if self._checkpoints is None:
+            self._checkpoints = IngestionCheckpointStore()
+        return self._checkpoints
 
     # ---------------------------------------------------------------- #
     def process_email(self, email: EmailMessage, gmail=None) -> ProcessResult:
@@ -530,6 +539,29 @@ class IngestionPipeline:
 
     # ---------------------------------------------------------------- #
     def _process_attachment(self, email: EmailMessage, att: Attachment, gmail) -> AttachmentResult:
+        attempt: dict = {}
+        result = self._ingest_attachment(email, att, gmail, attempt)
+        claim = attempt.get("claim")
+        if claim is not None:
+            try:
+                if result.status == "error":
+                    recorder = attempt.get("recorder")
+                    status = self.checkpoints.fail(
+                        claim, result.detail,
+                        pending_ocr=bool(recorder and recorder.pending_jobs),
+                    )
+                    if status == "quarantined":
+                        log.error("Intake checkpoint %s quarantined after repeated failures (%s): %s",
+                                  claim.id, att.filename, result.detail)
+                        result.detail = f"Needs operator review (checkpoint {claim.id}): {result.detail}"
+                else:
+                    self.checkpoints.finish(claim, result)
+            except Exception as exc:  # noqa: BLE001 — result already decided; lease bounds recovery
+                log.error("Could not settle intake checkpoint %s: %s", claim.id, exc)
+        return result
+
+    def _ingest_attachment(self, email: EmailMessage, att: Attachment, gmail,
+                           attempt: dict) -> AttachmentResult:
         # The moment this résumé entered the system. Taken before any of the
         # expensive work rather than after it, because OCR on a scanned bundle
         # can run for minutes and the SLA clock is measuring how long a
@@ -584,6 +616,32 @@ class IngestionPipeline:
                 filename=att.filename,
                 sha256=resume_hash,
             )
+            # This durable gate precedes any paid parse. If the database is
+            # unavailable, fail here rather than buy an answer we cannot keep.
+            claim = self.checkpoints.begin(
+                recorder.account_id, email.message_id, att.attachment_id,
+                resume_hash, att.filename,
+                lease_seconds=max(1800, settings.ocr_document_budget_seconds
+                                  + settings.ocr_job_wait_seconds
+                                  + 4 * settings.veris_timeout_seconds),
+            )
+            if not claim.acquired:
+                row = claim.row or {}
+                if row.get("status") == "complete":
+                    result = AttachmentResult(att.filename, row.get("outcome", "duplicate"),
+                                              row.get("candidate_id"), row.get("detail", ""))
+                    if result.status == "not_resume":
+                        cached_read = self.checkpoints.load_extraction(claim, resume_hash)
+                        if cached_read and cached_read[1].pages:
+                            result.source, result.extracted = att, cached_read[1]
+                            result.data, result.sha256 = data, resume_hash
+                    return result
+                detail = (f"Needs operator review (checkpoint {claim.id}): {row.get('last_error', '')}"
+                          if row.get("status") == "quarantined"
+                          else f"Intake deferred (checkpoint {claim.id}); retry after {row.get('next_retry_at')}")
+                return AttachmentResult(att.filename, "error", detail=detail)
+            attempt.update(claim=claim, recorder=recorder)
+            cached = self.checkpoints.load_extraction(claim, resume_hash)
             context = JobContext(
                 account_id=recorder.account_id,
                 message_id=email.message_id,
@@ -591,7 +649,11 @@ class IngestionPipeline:
                 recorder=recorder,
             )
             with use_job_context(context):
-                if hasattr(self.parser, "parse_file"):
+                if cached is not None:
+                    profile, extracted = cached
+                    log.info("Reusing successful extraction for intake checkpoint %s (%s)",
+                             claim.id, att.filename)
+                elif hasattr(self.parser, "parse_file"):
                     profile, extracted = self.parser.parse_file(data, att.filename)
                 else:
                     extracted = extract_text(data, att.filename)
@@ -610,6 +672,11 @@ class IngestionPipeline:
                     #     thirty.
                     hint = f"Subject: {email.subject}; From: {email.from_name or email.from_addr}"
                     profile = self.parser.parse(extracted.resume_text, hint=hint)
+
+            # A completed parser output is checkpointed before later gates and
+            # candidate writes. Gate decisions are evaluated again on a retry.
+            if cached is None:
+                self.checkpoints.save_extraction(claim, resume_hash, profile, extracted)
 
             if not profile.is_resume:
                 reason = (profile.additional_info or {}).get("rejection_reason") \

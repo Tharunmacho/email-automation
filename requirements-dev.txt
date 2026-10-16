@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# Test fixtures require an isolated Mongo implementation; no live database.
+pytest>=8.0
+mongomock>=4.1

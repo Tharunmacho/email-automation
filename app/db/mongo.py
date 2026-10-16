@@ -460,6 +460,7 @@ def ensure_indexes() -> None:
     from app.db.bot_suppression_numbers import ensure_bot_suppression_indexes
     from app.db.identity_records import ensure_identity_indexes
     from app.db.ingestion_state import ensure_ingestion_state_indexes
+    from app.db.ingestion_checkpoints import ensure_ingestion_checkpoint_indexes
     from app.db.ledger import ensure_ledger_indexes
     from app.db.notifications import ensure_notification_indexes
     from app.db.repository import ensure_candidate_deletion_indexes
@@ -492,6 +493,7 @@ def ensure_indexes() -> None:
     # The compound unique index is what stops a redelivered email queueing a
     # second Aadhaar job for a card that has already been read.
     ensure_ingestion_state_indexes()
+    ensure_ingestion_checkpoint_indexes()
     ensure_identity_indexes()
 
     log.info(

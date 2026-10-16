@@ -217,16 +217,16 @@ def _veris_read_via_job(file_data: bytes, filename: str) -> "VerisRead | None":
             return VerisRead(page_texts, outcome.result or None)
 
         if outcome.pending:
-            # Still running, and the job id is recorded. Reading the file
-            # locally now would spend Tesseract on work that is already paid
-            # for — but returning nothing would reject a real resume, so the
-            # local read is the lesser evil and the next poll of this
-            # (still unlabelled) mail collects the job's own answer.
+            # An accepted job is still doing this work. Returning None would
+            # call the synchronous paid endpoint for the very same upload.
+            # An empty read leaves the classifier's original local text in
+            # place; the intake parser sees the recorder's pending state and
+            # defers instead of buying another extraction.
             log.warning(
                 "Veris job %s for %s is still %s after %.0fs; using the local read this pass",
                 handle.job_id, filename, outcome.status, settings.ocr_job_wait_seconds,
             )
-            return None
+            return VerisRead([])
 
         log.warning("Veris job %s failed for %s: %s", handle.job_id, filename, outcome.error)
         return None
