@@ -55,7 +55,9 @@ interface CandidatesViewProps {
   onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
-  onDeleteCandidate: (candidateId: string) => void;
+  /** Shared profiles can be read while edits remain limited to their owner. */
+  canEditCandidate?: (candidate: CandidateRecord) => boolean;
+  onDeleteCandidate?: (candidateId: string) => void;
   onAssignmentChanged?: () => void;
   onToast?: (message: string, type?: "info" | "success" | "error") => void;
 }
@@ -285,6 +287,7 @@ export default function CandidatesView({
   onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
+  canEditCandidate,
   onDeleteCandidate,
   onAssignmentChanged,
   onToast,
@@ -524,16 +527,17 @@ export default function CandidatesView({
    */
   const rowActions = (candidate: CandidateRecord) => {
     const reviewed = candidate.status === "verified";
+    const canEdit = canEditCandidate?.(candidate) ?? true;
     return (
       <>
         <button
           type="button"
           className={`ds-review-action ${reviewed ? "is-done" : ""}`}
-          title={reviewed ? "Open the completed review" : "Review this candidate"}
+          title={!canEdit ? "View this profile" : reviewed ? "Open the completed review" : "Review this candidate"}
           onClick={() => onOpenCandidate(candidate)}
         >
           {reviewed ? <CheckCircle2 size={14} /> : <FileSearch size={14} />}
-          <span>{reviewed ? "Reviewed" : "Review"}</span>
+          <span>{!canEdit ? "View profile" : reviewed ? "Reviewed" : "Review"}</span>
         </button>
         {canReallocate && (
           <button
@@ -546,22 +550,26 @@ export default function CandidatesView({
             <span>Assign</span>
           </button>
         )}
-        <button
-          type="button"
-          className="ds-act"
-          title="Edit this profile"
-          onClick={() => onEditCandidate(candidate)}
-        >
-          <Edit3 size={15} />
-        </button>
-        <button
-          type="button"
-          className="ds-act is-danger"
-          title="Delete this profile"
-          onClick={() => setDeleteConfirm(candidate.id)}
-        >
-          <Trash2 size={15} />
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            className="ds-act"
+            title="Edit this profile"
+            onClick={() => onEditCandidate(candidate)}
+          >
+            <Edit3 size={15} />
+          </button>
+        )}
+        {onDeleteCandidate && (
+          <button
+            type="button"
+            className="ds-act is-danger"
+            title="Delete this profile"
+            onClick={() => setDeleteConfirm(candidate.id)}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
       </>
     );
   };
@@ -575,7 +583,7 @@ export default function CandidatesView({
         className="ds-act is-danger is-solid"
         title="Yes, delete it"
         onClick={() => {
-          onDeleteCandidate(candidateId);
+          onDeleteCandidate?.(candidateId);
           setDeleteConfirm(null);
         }}
       >

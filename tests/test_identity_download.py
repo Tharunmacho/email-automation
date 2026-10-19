@@ -279,10 +279,13 @@ def test_an_administrator_is_served_the_aadhaar_scan(api):
     assert text_of(response.content) == ["PAGE 54"]
 
 
-def test_another_staff_members_candidate_is_a_404(api):
-    """404 rather than 403, exactly as every other candidate route: a 403 would
-    confirm the record exists, which is the fact the isolation rule withholds."""
+def test_staff_can_download_a_passport_before_matching_a_shared_profile(api):
     api.sign_in_as("staff", "staff-1")
+    api.rows["passport"].append(passport_row(_id="rec-theirs", candidate_id="cand-theirs"))
+    response = api.get(url("passport", "rec-theirs", "cand-theirs"))
+    assert response.status_code == 200
+    assert text_of(response.content) == ["PAGE 55"]
+    # The scan must still belong to the requested candidate.
     assert api.get(url("passport", "rec-passport", "cand-theirs")).status_code == 404
 
 

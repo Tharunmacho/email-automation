@@ -23,6 +23,7 @@ interface CandidateEditScreenProps {
   saving: boolean;
   verifying?: boolean;
   onBack: () => void;
+  backLabel?: string;
   onSave: (candidateId: string, profile: CandidateProfile) => void;
   /**
    * Sign the record off without leaving the editor.
@@ -95,6 +96,7 @@ export default function CandidateEditScreen({
   saving,
   verifying = false,
   onBack,
+  backLabel = "Back to candidates",
   onSave,
   onVerify,
   onUnverify,
@@ -182,8 +184,8 @@ export default function CandidateEditScreen({
   return (
     <div className="cscreen" style={{ animation: "fadeIn 0.3s ease" }}>
       <div className="cscreen-topbar">
-        <button type="button" className="jod-back" onClick={handleBack} title="Back to the candidates list">
-          <ArrowLeft size={15} /> Back to candidates
+        <button type="button" className="jod-back" onClick={handleBack} title={backLabel}>
+          <ArrowLeft size={15} /> {backLabel}
         </button>
 
         <div className="cscreen-topbar-actions">
