@@ -20,6 +20,19 @@ class RealDatabaseUsedInTests(RuntimeError):
 
 
 @pytest.fixture(autouse=True)
+def isolated_ingestion_checkpoints(monkeypatch):
+    """Intake now requires durable checkpoints; fake that collaborator per test."""
+    import mongomock
+    from app.db import ingestion_checkpoints
+
+    database = mongomock.MongoClient(tz_aware=True)["intake_checkpoints_test"]
+    monkeypatch.setattr(ingestion_checkpoints, "get_checkpoint_collection",
+                        lambda: database[ingestion_checkpoints.CHECKPOINT_COLLECTION])
+    monkeypatch.setattr(ingestion_checkpoints, "get_extraction_collection",
+                        lambda: database[ingestion_checkpoints.EXTRACTION_COLLECTION])
+
+
+@pytest.fixture(autouse=True)
 def no_real_database(monkeypatch, request):
     """Fail any test that opens a Mongo connection.
 
