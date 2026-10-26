@@ -198,8 +198,12 @@ def test_an_admin_reaches_every_page():
 #: What a staff account reaches before anybody grants it anything. "tasks" is
 #: on this floor rather than being a grant: it lists the callbacks on the
 #: candidates already allocated to them, so an account that reaches its own
-#: queue reaches the follow-ups that queue produced.
-STAFF_FLOOR = ["candidates", "candidate-entry", "tasks", "attendance", "payroll", "settings"]
+#: queue reaches the follow-ups that queue produced. "mapping-candidates" is
+#: there for the same reason: the job-order steps of their own candidates.
+STAFF_FLOOR = [
+    "candidates", "candidate-entry", "tasks", "attendance", "payroll",
+    "mapping-candidates", "settings",
+]
 
 
 def test_a_staff_member_reaches_their_queue_and_account_settings_by_default():

@@ -988,6 +988,7 @@ class CandidateRepository:
         minimal: bool = False,
         query: Optional[dict] = None,
         staff_id: Optional[str] = None,
+        extra_projection: Optional[dict] = None,
     ) -> List[dict]:
         """A page of list rows, projected in the database.
 
@@ -1000,8 +1001,13 @@ class CandidateRepository:
 
         `staff_id` narrows the page to that person's own candidates; None is an
         administrator and sees everything.
+
+        `extra_projection` adds fields one screen needs and the shared list
+        row does not carry, without widening the row for every other caller.
         """
         projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
+        if extra_projection and not minimal:
+            projection = {**projection, **extra_projection}
         cursor = (
             self._coll.find(_scoped(query, staff_id), projection)
             .sort("created_at", -1)
@@ -1026,6 +1032,15 @@ class CandidateRepository:
                 resume.pop("storage_key", None)
             rows.append(doc)
         return rows
+
+    def get_summary(
+        self, candidate_id: str, extra_projection: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """One candidate as a list row, for a screen refreshing a single line."""
+        rows = self.list_summaries(
+            limit=1, query=_id_filter(candidate_id), extra_projection=extra_projection,
+        )
+        return rows[0] if rows else None
 
     def get(self, candidate_id: str) -> Optional[CandidateRecord]:
         doc = self._coll.find_one(_id_filter(candidate_id))

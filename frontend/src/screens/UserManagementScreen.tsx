@@ -69,6 +69,7 @@ const PAGE_LABELS: Record<string, string> = {
   payroll: "Payroll",
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
+  "mapping-candidates": "Mapping Candidates",
   sourcing: "Sourcing Hub",
   "b2b-enquiries": "B2B Enquiries",
   "data-management": "Data Management",
@@ -85,6 +86,7 @@ const PAGE_DESCRIPTIONS: Record<string, string> = {
   payroll: "Monthly salary, attendance deductions and payment status",
   staff: "Staff roster, workload and candidate assignment controls",
   "job-orders": "View and manage client job orders",
+  "mapping-candidates": "Job-order steps for mapped candidates — staff see their own",
   sourcing: "View and manage sourcing clients",
   "b2b-enquiries": "View and manage incoming business enquiries",
   "data-management": "Manage jobs, countries and screening questions",
@@ -119,6 +121,7 @@ const PAGE_GROUPS: { label: string; pages: string[] }[] = [
     label: "Tools",
     pages: [
       "job-orders",
+      "mapping-candidates",
       "sourcing",
       "b2b-enquiries",
       "data-management",
@@ -203,7 +206,7 @@ const ROLE_FLOOR: Record<string, string[]> = {
   admin: Object.keys(PAGE_LABELS),
   manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
   finance_manager: Object.keys(PAGE_LABELS).filter((page) => page !== "users"),
-  staff: ["candidates", "candidate-entry", "tasks", "attendance", "payroll", "settings"],
+  staff: ["candidates", "candidate-entry", "tasks", "mapping-candidates", "attendance", "payroll", "settings"],
 };
 
 type Section = "create" | "manage";

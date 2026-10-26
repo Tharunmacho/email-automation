@@ -23,6 +23,7 @@ import {
   Banknote,
   ListChecks,
   LayoutDashboard,
+  Route,
   FilePlus2,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -42,6 +43,7 @@ export const NAV_IDS = [
   "payroll",
   "staff",
   "job-orders",
+  "mapping-candidates",
   "sourcing",
   "b2b-enquiries",
   "data-management",
@@ -151,6 +153,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Recruitment",
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin", "manager", "finance_manager"] },
+      // Every candidate mapped to a job order, and the steps from résumé to
+      // travel. Staff reach it too: the API scopes them to the candidates
+      // allocated to them, exactly as their own review queue is scoped.
+      { id: "mapping-candidates", label: "Mapping Candidates", icon: Route, roles: ["admin", "manager", "finance_manager", "staff"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin", "manager", "finance_manager"] },
       // Sits under the hub rather than beside it: the parties are the address
       // book and these are the requirements they raise, so a recruiter reads
@@ -255,6 +261,11 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Recruitment",
     title: "Job Orders",
     subtitle: "Client requisitions and the candidate matching pipeline.",
+  },
+  "mapping-candidates": {
+    eyebrow: "Recruitment",
+    title: "Mapping Candidates",
+    subtitle: "Candidates mapped to job orders, and each one's steps from résumé to travel.",
   },
   sourcing: {
     eyebrow: "Recruitment",

@@ -826,6 +826,11 @@ class CandidateRecord(BaseModel):
     #: decision may change it — see `record_recruitment_event`.
     placement_locked: bool = False
     recruitment_history: List[Dict[str, Any]] = Field(default_factory=list)
+    #: The gated steps after a candidate is mapped to a job order — resume,
+    #: interview, selection, offer, visa, travel. Shape and rules live in
+    #: `app.mapping_pipeline`; the history of every answer is appended to
+    #: `recruitment_history` alongside the rest of the pipeline.
+    mapping_pipeline: Optional[Dict[str, Any]] = None
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

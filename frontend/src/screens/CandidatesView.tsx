@@ -87,7 +87,10 @@ function nameFromAddress(addr: string): string {
     .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-function getDisplayName(candidate: CandidateRecord): string {
+// The row readings below are exported so Mapping Candidates searches and filters
+// its rows by exactly the same rules as this screen — one definition of a
+// candidate's role, industry and experience band, not two that drift.
+export function getDisplayName(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const parsed = profile.full_name ?? "";
   if (isUsableName(parsed)) return parsed.trim();
@@ -100,7 +103,7 @@ function getDisplayName(candidate: CandidateRecord): string {
   return derived || "Candidate Profile";
 }
 
-function getDesignation(candidate: CandidateRecord): string {
+export function getDesignation(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const exps = profile.work_experience ?? [];
   const job = candidate.job ?? null;
@@ -119,7 +122,7 @@ function getDesignation(candidate: CandidateRecord): string {
   );
 }
 
-function getIndustry(candidate: CandidateRecord): string {
+export function getIndustry(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const skills = profile.skills ?? [];
   const lowerSkills = skills.map((s) => s.toLowerCase()).join(" ");
@@ -154,12 +157,12 @@ function getIndustry(candidate: CandidateRecord): string {
   return "General";
 }
 
-function getExperienceYears(candidate: CandidateRecord): number | null {
+export function getExperienceYears(candidate: CandidateRecord): number | null {
   const years = candidate.profile?.total_experience_years;
   return years === null || years === undefined ? null : years;
 }
 
-function formatExperience(years: number | null): string {
+export function formatExperience(years: number | null): string {
   if (years === null) return "—";
   if (years <= 0) return "Fresher";
   if (years < 1) {
@@ -176,15 +179,15 @@ function formatContact(raw: string): string {
   return value;
 }
 
-function getContact(candidate: CandidateRecord): string {
+export function getContact(candidate: CandidateRecord): string {
   return formatContact(candidate.profile?.phone || candidate.phone_key || "");
 }
 
-function getEmail(candidate: CandidateRecord): string {
+export function getEmail(candidate: CandidateRecord): string {
   return candidate.profile?.email || candidate.email_key || candidate.source_email?.from_addr || "";
 }
 
-function getReference(candidate: CandidateRecord): string {
+export function getReference(candidate: CandidateRecord): string {
   return candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`;
 }
 

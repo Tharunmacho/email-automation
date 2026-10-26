@@ -13,6 +13,7 @@ import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
+import MappingCandidatesScreen from "@/screens/MappingCandidatesScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import TasksScreen from "@/screens/TasksScreen";
@@ -1175,7 +1176,7 @@ export default function Home() {
   // controls.
   const ownsItsHeader =
     !screen &&
-    ["overview", "candidates", "assigned-candidates", "candidate-entry", "attendance", "payroll", "staff", "users", "data-management"].includes(
+    ["overview", "candidates", "assigned-candidates", "candidate-entry", "attendance", "payroll", "staff", "users", "data-management", "mapping-candidates"].includes(
       currentTab,
     );
 
@@ -1491,6 +1492,19 @@ export default function Home() {
                   refreshKey={detailNonce}
                   onActivity={announceActivity}
                   onOpenCandidate={(candidate) => handleOpenCandidate(candidate, "job-orders")}
+                />
+              </div>
+            )}
+
+            {/* Kept mounted behind an open profile for the same reason: Back
+                returns to the same filters, page and open job-order group. */}
+            {currentTab === "mapping-candidates" && (
+              <div hidden={Boolean(screen)}>
+                <MappingCandidatesScreen
+                  role={user.role}
+                  refreshKey={realtimeNonce}
+                  onToast={showToast}
+                  onOpenProfile={canReadCandidates ? handleOpenCandidateById : undefined}
                 />
               </div>
             )}

@@ -39,7 +39,7 @@ interface SidebarProps {
  * permission screen can explain.
  */
 const SECTIONS: { label: string; ids: NavId[] }[] = [
-  { label: "Workspace", ids: ["overview", "assigned-candidates", "candidates", "candidate-entry", "job-orders", "sourcing", "b2b-enquiries"] },
+  { label: "Workspace", ids: ["overview", "assigned-candidates", "candidates", "candidate-entry", "job-orders", "mapping-candidates", "sourcing", "b2b-enquiries"] },
   // A section of its own rather than a row under Workspace: this is the work
   // outstanding on candidates, not another way of listing them, and both roles
   // open it with a different question — "what do I owe today?" for a staff

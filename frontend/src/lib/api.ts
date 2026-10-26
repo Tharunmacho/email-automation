@@ -42,6 +42,14 @@ import type {
   StaffWorkloadResponse,
   InterviewOutcome,
   InterviewStatus,
+  MappedCandidateRow,
+  MappedJobOrder,
+  MappingStageEntry,
+  MappingStageKey,
+  MappingStagePayload,
+  MappingStageState,
+  MappingStageView,
+  MappingView,
   Office,
   OfferStatus,
   RecruitmentEvent,
@@ -89,6 +97,14 @@ export type {
   InterviewOutcome,
   OfferStatus,
   Office,
+  MappedCandidateRow,
+  MappedJobOrder,
+  MappingStageEntry,
+  MappingStageKey,
+  MappingStagePayload,
+  MappingStageState,
+  MappingStageView,
+  MappingView,
   RebalanceResult,
   RehomeResult,
   DeleteStaffResult,
@@ -1600,6 +1616,34 @@ export function updateCandidateOffer(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+// --------------------------------------------------------------------------- //
+//  Mapping Candidates
+//
+//    resume -> interview -> selection -> offer -> visa -> travel
+//
+//  The backend scopes the list to the caller (staff see their own allocated
+//  candidates) and refuses any step whose turn has not come.
+// --------------------------------------------------------------------------- //
+export function listMappedCandidates(): Promise<{ total: number; count: number; items: MappedCandidateRow[] }> {
+  return request("/mapping/candidates", { cache: "no-store" });
+}
+
+/** Answer or skip one step; resolves to the candidate's refreshed row. */
+export function recordMappingStage(
+  candidateId: string,
+  stage: MappingStageKey,
+  payload: MappingStagePayload,
+): Promise<MappedCandidateRow> {
+  return request<MappedCandidateRow>(
+    `/mapping/candidates/${encodeURIComponent(candidateId)}/stages/${stage}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 // --------------------------------------------------------------------------- //
