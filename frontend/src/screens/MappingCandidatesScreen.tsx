@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Mapping Candidates: every candidate mapped to a job order, and where each
+ * Mapped Candidates: every candidate mapped to a job order, and where each
  * one is in the steps from résumé to travel.
  *
  * Laid out like All Candidates on purpose — four readings that are also the
@@ -304,7 +304,7 @@ export default function MappingCandidatesScreen({ role, onToast, onOpenProfile, 
     <div className="ds-page map-page">
       <header className="ds-head">
         <div>
-          <h1 className="ds-head-title">Mapping Candidates</h1>
+          <h1 className="ds-head-title">Mapped Candidates</h1>
           <p className="ds-head-sub">
             {isStaff
               ? "Your allocated candidates mapped to job orders, and the step each one is on"
@@ -384,7 +384,7 @@ export default function MappingCandidatesScreen({ role, onToast, onOpenProfile, 
           </div>
         </div>
 
-        <div className="ds-filterbar" aria-label="Mapping options">
+        <div className="ds-filterbar" aria-label="Mapped candidate options">
           <span className="ds-filterbar-label">Filters{activeOptionFilters ? ` (${activeOptionFilters})` : ""}</span>
           <Select
             size="sm"

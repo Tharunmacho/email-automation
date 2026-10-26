@@ -1,4 +1,4 @@
-"""Mapping Candidates: the steps a candidate walks once mapped to a job order.
+"""Mapped Candidates: the steps a candidate walks once mapped to a job order.
 
     resume -> interview -> selection -> offer -> visa -> travel
 
@@ -110,7 +110,7 @@ def mapped_job_order(doc: dict) -> Optional[str]:
 
 
 def row_job_order(doc: dict) -> Optional[str]:
-    """The job order a Mapping Candidates row is about.
+    """The job order a Mapped Candidates row is about.
 
     The live mapping when there is one; otherwise the order a closed mapping
     was against, so a rejected candidate still appears under the order they

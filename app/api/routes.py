@@ -2900,7 +2900,7 @@ def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, use
         "interview_status": "pending",
         "job_order_id": payload.job_order_id,
     }
-    # A new engagement starts the Mapping Candidates steps afresh. Answers kept
+    # A new engagement starts the Mapped Candidates steps afresh. Answers kept
     # for this same order (a second target on one order) carry on; a closed
     # mapping or one for a different order is history, not a head start.
     pipeline = record.mapping_pipeline or {}
@@ -3023,7 +3023,7 @@ def update_candidate_outcome(candidate_id: str, payload: CandidateOutcomeRequest
 def _outcome_updates(record, status: str, now: datetime, user: dict) -> dict:
     """The projection a client's decision writes, wherever it is recorded.
 
-    Shared by the outcome endpoint and Mapping Candidates' selection step, so
+    Shared by the outcome endpoint and Mapped Candidates' selection step, so
     the two cannot release a candidate to the pool by different rules.
     """
     returns_to_pool = status in OUTCOMES_RETURNING_TO_POOL
@@ -3108,7 +3108,7 @@ def update_candidate_offer(candidate_id: str, payload: CandidateOfferRequest, us
 
 
 # --------------------------------------------------------------------------- #
-#  Mapping Candidates
+#  Mapped Candidates
 #
 #  The job-order steps after a candidate is mapped: resume submitted, interview
 #  scheduled, selection, offer, visa (stamping and medical) and travel. The
@@ -3130,7 +3130,7 @@ class MappingStageRequest(BaseModel):
     airline: str | None = Field(default=None, max_length=80)
 
 
-#: A candidate on Mapping Candidates: mapped to an order right now, or the
+#: A candidate on Mapped Candidates: mapped to an order right now, or the
 #: closed mapping a rejection left behind.
 _MAPPED_QUERY = {
     "$or": [
@@ -3155,7 +3155,7 @@ def _job_order_summaries(order_ids) -> dict:
     """The orders a page of rows refers to, by id.
 
     Joined here rather than in the browser because a staff member reaching
-    Mapping Candidates has no grant on `/job-orders` — they see the orders
+    Mapped Candidates has no grant on `/job-orders` — they see the orders
     their own candidates are mapped to, and nothing else about the book.
     """
     from app.db.mongo import get_db

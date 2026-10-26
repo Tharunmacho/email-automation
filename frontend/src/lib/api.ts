@@ -1619,7 +1619,7 @@ export function updateCandidateOffer(
 }
 
 // --------------------------------------------------------------------------- //
-//  Mapping Candidates
+//  Mapped Candidates
 //
 //    resume -> interview -> selection -> offer -> visa -> travel
 //

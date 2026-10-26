@@ -156,7 +156,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // Every candidate mapped to a job order, and the steps from résumé to
       // travel. Staff reach it too: the API scopes them to the candidates
       // allocated to them, exactly as their own review queue is scoped.
-      { id: "mapping-candidates", label: "Mapping Candidates", icon: Route, roles: ["admin", "manager", "finance_manager", "staff"] },
+      { id: "mapping-candidates", label: "Mapped Candidates", icon: Route, roles: ["admin", "manager", "finance_manager", "staff"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin", "manager", "finance_manager"] },
       // Sits under the hub rather than beside it: the parties are the address
       // book and these are the requirements they raise, so a recruiter reads
@@ -264,7 +264,7 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
   },
   "mapping-candidates": {
     eyebrow: "Recruitment",
-    title: "Mapping Candidates",
+    title: "Mapped Candidates",
     subtitle: "Candidates mapped to job orders, and each one's steps from résumé to travel.",
   },
   sourcing: {

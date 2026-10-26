@@ -608,7 +608,7 @@ export type OfferStatus = "issued" | "accepted" | "declined";
 export type InterviewOutcome = "selected" | "on_hold" | "rejected" | "offer_declined";
 
 /**
- * Mapping Candidates: the gated steps after a candidate is mapped to a job
+ * Mapped Candidates: the gated steps after a candidate is mapped to a job
  * order. Mirrors `STAGES` in `app/mapping_pipeline.py`; the two must be changed
  * together, and the backend is the authority on which step may be answered.
  */

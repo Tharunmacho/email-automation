@@ -87,7 +87,7 @@ function nameFromAddress(addr: string): string {
     .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-// The row readings below are exported so Mapping Candidates searches and filters
+// The row readings below are exported so Mapped Candidates searches and filters
 // its rows by exactly the same rules as this screen — one definition of a
 // candidate's role, industry and experience band, not two that drift.
 export function getDisplayName(candidate: CandidateRecord): string {

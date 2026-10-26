@@ -69,7 +69,7 @@ const PAGE_LABELS: Record<string, string> = {
   payroll: "Payroll",
   staff: "Staff & Allocation",
   "job-orders": "Job Orders",
-  "mapping-candidates": "Mapping Candidates",
+  "mapping-candidates": "Mapped Candidates",
   sourcing: "Sourcing Hub",
   "b2b-enquiries": "B2B Enquiries",
   "data-management": "Data Management",

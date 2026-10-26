@@ -1,5 +1,5 @@
 /**
- * The Mapping Candidates steps, as the console names and draws them.
+ * The Mapped Candidates steps, as the console names and draws them.
  *
  *   resume -> interview -> selection -> offer -> visa -> travel
  *

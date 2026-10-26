@@ -142,7 +142,7 @@ function eventTitle(event: RecruitmentEvent): string {
     case "outcome":
       return `${OUTCOME_LABEL[(event.status ?? "selected") as InterviewOutcome] ?? event.status}${event.returned_to_pool ? " · returned to pool" : ""}`;
     case "mapping": {
-      // A step answered on Mapping Candidates. The event carries the answer as
+      // A step answered on Mapped Candidates. The event carries the answer as
       // `status` and the step's own fields (stamping, medical) beside it.
       const stage = event.stage ?? "resume";
       const entry = { ...(event as MappingStageEntry), answer: event.status ?? undefined, skipped: event.status === "skipped" };

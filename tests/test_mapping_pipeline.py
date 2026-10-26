@@ -1,4 +1,4 @@
-"""Mapping Candidates: the gated steps after a candidate is mapped to a job order.
+"""Mapped Candidates: the gated steps after a candidate is mapped to a job order.
 
     resume -> interview -> selection -> offer -> visa -> travel
 
