@@ -1005,6 +1005,8 @@ class CandidateRepository:
         minimal: bool = False,
         query: Optional[dict] = None,
         staff_id: Optional[str] = None,
+        projection: Optional[dict] = None,
+        extra_projection: Optional[dict] = None,
     ) -> List[dict]:
         """A page of list rows, projected in the database.
 
@@ -1017,10 +1019,17 @@ class CandidateRepository:
 
         `staff_id` narrows the page to that person's own candidates; None is an
         administrator and sees everything.
+
+        `projection` replaces the row's fields outright, for a caller that reads
+        a different set of them — the job-order matcher scores on evidence no
+        list row carries. `extra_projection` adds fields one screen needs on top
+        of the shared row, without widening it for every other caller.
         """
-        projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
+        fields = MINIMAL_PROJECTION if minimal else (projection or LIST_PROJECTION)
+        if extra_projection and not minimal:
+            fields = {**fields, **extra_projection}
         cursor = (
-            self._coll.find(_scoped(query, staff_id), projection)
+            self._coll.find(_scoped(query, staff_id), fields)
             .sort("created_at", -1)
             .skip(skip)
             .limit(limit)
