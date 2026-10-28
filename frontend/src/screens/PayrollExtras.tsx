@@ -490,24 +490,28 @@ export function IncentiveDialog({ row, year, month, onClose, onChanged, onToast 
           ) : !items.length ? (
             <p className="payroll-extras-sub">No incentives yet. Add as many as needed above.</p>
           ) : (
-            <table className="payroll-table">
-              <thead>
-                <tr><th>Date</th><th className="is-num">Amount</th><th>Remarks</th><th className="is-actions" /></tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.incentive_date}</td>
-                    <td className="is-num">{money.format(item.amount)}</td>
-                    <td>{item.remarks || "—"}<small className="payroll-extras-sub">Added by {item.created_by_name || "—"}</small></td>
-                    <td className="is-actions">
-                      <button type="button" className="payroll-reopen-btn" onClick={() => void remove(item)} disabled={busy} aria-label="Remove incentive"><Trash2 size={14} /></button>
-                    </td>
-                  </tr>
-                ))}
-                <tr className="payroll-incentive-total"><td>Total</td><td className="is-num">{money.format(total)}</td><td colSpan={2} /></tr>
-              </tbody>
-            </table>
+            /* Framed like every other payroll table: its 860px minimum would
+               otherwise push the panel wider than a phone screen. */
+            <div className="payroll-table-wrap">
+              <table className="payroll-table">
+                <thead>
+                  <tr><th>Date</th><th className="is-num">Amount</th><th>Remarks</th><th className="is-actions" /></tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.incentive_date}</td>
+                      <td className="is-num">{money.format(item.amount)}</td>
+                      <td>{item.remarks || "—"}<small className="payroll-extras-sub">Added by {item.created_by_name || "—"}</small></td>
+                      <td className="is-actions">
+                        <button type="button" className="payroll-reopen-btn" onClick={() => void remove(item)} disabled={busy} aria-label="Remove incentive"><Trash2 size={14} /></button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="payroll-incentive-total"><td>Total</td><td className="is-num">{money.format(total)}</td><td colSpan={2} /></tr>
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
         <div className="modal-footer">

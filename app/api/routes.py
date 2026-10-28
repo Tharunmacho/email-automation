@@ -1865,9 +1865,14 @@ def list_job_order_candidate_pool(
     different staff member currently owns that candidate's review.
     """
     repository = repo()
+    # The matcher scores on skills, languages, the summary and the work history,
+    # which an ordinary list row no longer carries.
+    from app.db.repository import MATCH_PROJECTION
+
     items = repository.list_summaries(
         limit=limit, skip=skip, staff_id=None,
         query={"placement_locked": {"$ne": True}},
+        projection=MATCH_PROJECTION,
     )
     total = len(items) if skip == 0 and len(items) < limit else repository.count()
     return {"total": total, "count": len(items), "items": items}

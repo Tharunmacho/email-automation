@@ -86,7 +86,7 @@ class MockRepository:
             return [r for r in records if getattr(r, "assigned_staff_id", None) == staff_id]
         return records
 
-    def list_summaries(self, limit=50, skip=0, minimal=False, query=None, staff_id=None):
+    def list_summaries(self, limit=50, skip=0, minimal=False, query=None, staff_id=None, projection=None):
         """Rows, not records — the same shape the projection produces.
 
         What the projection actually leaves out is pinned in

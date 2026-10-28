@@ -221,13 +221,24 @@ def name_key(value: str) -> str:
     return " ".join((value or "").casefold().split())
 
 
-def resolve_employee(users, sender_phone: str, stated_name: str):
+def resolve_employee(users, sender_phone: str, stated_name: str | None, *, require_name: bool = True):
     """The one employee this sender is, or a refusal explaining why not.
 
     Shared with the private-chat attendance route rather than reimplemented:
     a WhatsApp number proves a handset, so the written name is checked against
     the CRM account as a second factor, and both paths have to agree on what
     counts as a match.
+
+    ``require_name`` is what differs between the two chats, and only that. In a
+    *group*, the number proves nothing about who the message is about — anybody
+    in the group could post "Asha check in" — so the name is the whole of the
+    claim and is mandatory. In a staff member's own *one-to-one* chat on the
+    attendance line the number is already the identity: exactly one active
+    employee holds it, and this resolved them before the name was looked at. So
+    a name written there is still verified, and a command sent without one is
+    the sender's own. Requiring it there bought nothing and cost everything —
+    "check in" on its own was not a command at all, so it fell through to the
+    candidate pipeline and was silenced, and the employee was told nothing.
     """
     from app.db.dedup import normalize_phone
 
@@ -245,9 +256,12 @@ def resolve_employee(users, sender_phone: str, stated_name: str):
             code="unknown_sender",
         )
     employee = matches[0]
+    written = name_key(stated_name or "")
+    if not written and not require_name:
+        return employee
     full_name = name_key(employee.name)
     allowed = {full_name, full_name.split(" ", 1)[0], name_key(employee.staff_code)}
-    if name_key(stated_name) not in allowed:
+    if written not in allowed:
         raise GroupIntakeError(
             "The written name does not match the sender's CRM employee account",
             code="name_mismatch",

@@ -122,8 +122,10 @@ LIST_PROJECTION = {
     "profile.confidence": 1,
     "profile.location": 1,
     "profile.skills": 1,
-    "profile.technical_skills": 1,
-    "profile.languages": 1,
+    # `technical_skills` is the same list again — the Veris mapper assigns one
+    # to both — and `languages` and `resume_summary` are read by the job-order
+    # matcher alone, which has `MATCH_PROJECTION` below. None of them is on a
+    # list row, and together they were a fifth of every page.
     "profile.current_designation": 1,
     "profile.current_company": 1,
     # The job a WhatsApp candidate picked. A fresher has no designation, so
@@ -135,8 +137,11 @@ LIST_PROJECTION = {
     "job.job_category": 1,
     "job.job_category_title": 1,
     "profile.total_experience_years": 1,
-    "profile.work_experience": 1,
-    "profile.resume_summary": 1,
+    # The list reads one thing from the career: the most recent designation,
+    # as the fallback for a candidate whose profile has no `current_designation`.
+    # The whole array — every employer, every description — was the single
+    # heaviest field on the row at ~1.2 KB, for one string.
+    "profile.work_experience": {"$slice": 1},
     # Enough of the attachment to name it and report how it was read.
     "resume.original_filename": 1,
     # Read only long enough to derive `resume_available`. The pointer itself is
@@ -185,6 +190,18 @@ LIST_PROJECTION = {
     # `whatsapp_compat.normalize` ever saw the document, and the row would
     # render as the empty placeholder it used to.
     **whatsapp_compat.LIST_PROJECTION,
+}
+
+# A list row plus the evidence the job-order matcher scores against. Skills,
+# languages, the summary and the full work history are what
+# `calculateCandidateMatch` reads; nothing else needs them, so nothing else is
+# served them.
+MATCH_PROJECTION = {
+    **LIST_PROJECTION,
+    "profile.technical_skills": 1,
+    "profile.languages": 1,
+    "profile.resume_summary": 1,
+    "profile.work_experience": 1,
 }
 
 # The narrowest useful row: identity, state, and when it arrived. For callers
@@ -988,6 +1005,7 @@ class CandidateRepository:
         minimal: bool = False,
         query: Optional[dict] = None,
         staff_id: Optional[str] = None,
+        projection: Optional[dict] = None,
     ) -> List[dict]:
         """A page of list rows, projected in the database.
 
@@ -1000,8 +1018,13 @@ class CandidateRepository:
 
         `staff_id` narrows the page to that person's own candidates; None is an
         administrator and sees everything.
+
+        `projection` overrides the default for a caller that needs a different
+        shape of row — `MATCH_PROJECTION` for the job-order pool, which scores
+        against fields the directory does not carry.
         """
-        projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
+        if projection is None:
+            projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
         cursor = (
             self._coll.find(_scoped(query, staff_id), projection)
             .sort("created_at", -1)

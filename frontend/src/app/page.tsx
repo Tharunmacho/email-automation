@@ -644,7 +644,13 @@ export default function Home() {
       // Any ordinary navigation clears the create-user request below, so only
       // the click that made it opens User Management on its form.
       setUsersOpenCreate(false);
-      if (next === "candidates") void refreshCandidates();
+      // Only when what is held has gone stale, on the same rule the
+      // visibility handler above uses. Every click on Candidates used to
+      // re-download the whole directory — megabytes of it on a real pool —
+      // while the background timer was already keeping it current.
+      if (next === "candidates" && Date.now() - lastRefreshRef.current >= BACKGROUND_REFRESH_MS) {
+        void refreshCandidates();
+      }
     },
     [pathname, reachableTabs, refreshCandidates],
   );

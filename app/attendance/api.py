@@ -6,7 +6,9 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
@@ -62,13 +64,52 @@ def _conflict(call):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+def _log_placement(employee, latitude, longitude, placement: dict | None) -> None:
+    """Record where a punch was made, not only how far off it was.
+
+    The distance alone was never enough to act on. "412 m away" does not say
+    whether an employee is in the building with a bad WiFi fix or at home in
+    Tambaram, and without the coordinates nobody could tell the two apart after
+    the fact — which is precisely the question that gets asked when somebody
+    says attendance refused them while they were sitting at their desk.
+    """
+    if placement is None:
+        return
+    log.info(
+        "Attendance placed for %s: %s at %s,%s (%s m from %s, radius %s)",
+        employee.id,
+        placement.get("status"),
+        latitude,
+        longitude,
+        placement.get("distance_m"),
+        placement.get("site"),
+        placement.get("radius_m"),
+    )
+
+
 def _on_site(employee, latitude: float | None, longitude: float | None) -> dict | None:
-    """The office-radius check as the HTTP answer the bot relays to the employee."""
+    """Place a punch for the console, as the HTTP answer the caller sees.
+
+    A punch away from the offices is recorded and flagged, not refused. The one
+    refusal left is `location_required`, raised when nothing was sent and the
+    caller has not said why.
+    """
     try:
-        return check_on_site(employee, latitude, longitude)
+        placement = check_on_site(employee, latitude, longitude)
     except OffSiteError as exc:
-        log.info("Attendance refused off-site for %s: %s m away", employee.id, exc.distance_m)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    _log_placement(employee, latitude, longitude, placement)
+    return placement
+
+
+def _office_time(occurred_at: datetime, timezone_name: str) -> str:
+    """`occurred_at` as the office wall clock, e.g. "09:42".
+
+    Mongo hands back naive UTC, so an unqualified value is read as UTC rather
+    than as local time of whichever machine is running.
+    """
+    moment = occurred_at if occurred_at.tzinfo else occurred_at.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(timezone_name)).strftime("%H:%M")
 
 
 class WhatsAppAttendanceEvent(BaseModel):
@@ -76,7 +117,11 @@ class WhatsAppAttendanceEvent(BaseModel):
 
     message_id: str = Field(min_length=1, max_length=200)
     sender_phone: str = Field(min_length=5, max_length=50)
-    stated_name: str = Field(min_length=1, max_length=150)
+    #: The name written with the command, when the employee wrote one. Optional
+    #: because this is the employee's own one-to-one chat and `sender_phone` has
+    #: already identified them; a name that *is* written is still verified. See
+    #: `app.whatsapp.groups.resolve_employee`.
+    stated_name: str | None = Field(default=None, max_length=150)
     action: Literal["check_in", "check_out"]
     occurred_at: datetime
     chat_type: Literal["private"] = "private"
@@ -85,19 +130,12 @@ class WhatsAppAttendanceEvent(BaseModel):
     longitude: float | None = Field(default=None, ge=-180, le=180)
     #: The text command the shared location completes, when it differs from `message_id`.
     command_message_id: str | None = Field(default=None, max_length=200)
-
-
-def _whatsapp_employee(sender_phone: str, stated_name: str):
-    """Authenticate attendance by CRM phone and verify the written name.
-
-    The rule itself lives in `app.whatsapp.groups.resolve_employee`, shared with
-    group intake so a number and a name mean the same thing in both chats. This
-    only turns the refusal into the HTTP answer the bot expects.
-    """
-    try:
-        return resolve_employee(users, sender_phone, stated_name)
-    except GroupIntakeError as exc:
-        raise HTTPException(status_code=422, detail=exc.reason) from exc
+    #: Set when the bot asked for a location and the reply carried none it could
+    #: use — in practice a live location, which the Cloud API delivers as an
+    #: `unsupported` message with no coordinates at all. Without this the punch
+    #: would come back as `location_required` and the employee would be asked
+    #: for the same thing again, forever. See `app.attendance.sites`.
+    location_unavailable: bool = False
 
 
 @router.post("/punch", status_code=201)
@@ -142,14 +180,60 @@ def whatsapp_punch(payload: PunchRequest, _service: None = Depends(require_servi
     }
 
 
+def _attendance_refusal(status: int, code: str, detail: str) -> JSONResponse:
+    """Why a private attendance command was not recorded, as a stable token.
+
+    The bot has to *act* differently on each of these — ask for a location, say
+    the location was wrong, relay a conflict, correct a name, or stay silent —
+    and reading that out of the prose would mean matching on wording that is
+    free to change. Same contract as the candidate routes, which already answer
+    ``{"code": ..., "detail": ...}`` (see ``CV_REQUIRED``).
+
+    The codes are ``location_required``, ``off_site``, ``conflict``,
+    ``name_mismatch`` and ``unknown_sender``.
+    """
+    return JSONResponse(status_code=status, content={"code": code, "detail": detail})
+
+
 @router.post("/events", status_code=201)
 def whatsapp_private_attendance(
     payload: WhatsAppAttendanceEvent,
     _service: None = Depends(require_service_key),
-) -> dict:
-    """Record a private staff WhatsApp command; the bot confirms successful records."""
-    employee = _whatsapp_employee(payload.sender_phone, payload.stated_name)
-    site = _on_site(employee, payload.latitude, payload.longitude)
+) -> Response:
+    """Record a private staff WhatsApp command; the bot confirms successful records.
+
+    Every refusal carries a `code` so the bot can answer the employee instead of
+    leaving them in silence. Silence was the whole of the reported fault: a
+    command the CRM declined — already checked in, no check-in to check out of,
+    a name that did not match — came back as an uncoded 4xx the bot had no
+    branch for, and nothing was ever sent back to the person holding the phone.
+    """
+    try:
+        employee = resolve_employee(
+            users, payload.sender_phone, payload.stated_name, require_name=False
+        )
+    except GroupIntakeError as exc:
+        # `unknown_sender` stays deliberately uninformative to the sender: the
+        # bot does not reply to it at all, so a stranger cannot use the
+        # attendance line to find out who works here. The code is what lets the
+        # bot tell that case from `name_mismatch`, which is a real employee who
+        # should be told what went wrong.
+        return _attendance_refusal(422, exc.code, exc.reason)
+
+    try:
+        site = check_on_site(
+            employee,
+            payload.latitude,
+            payload.longitude,
+            location_unavailable=payload.location_unavailable,
+        )
+    except OffSiteError as exc:
+        # Only `location_required` reaches here now: the bare command that opens
+        # a punch, which the bot answers by going and asking for a location.
+        log.info("Attendance needs a location from %s (%s)", employee.id, exc.code)
+        return _attendance_refusal(403, exc.code, str(exc))
+    _log_placement(employee, payload.latitude, payload.longitude, site)
+
     request = PunchRequest(
         action=payload.action,
         idempotency_key=payload.message_id,
@@ -164,19 +248,38 @@ def whatsapp_private_attendance(
                 "stated_name": payload.stated_name,
                 "command_message_id": payload.command_message_id,
                 "site": site,
+                "location_status": (site or {}).get("status"),
             },
         },
     )
     attendance = service()
-    event, created = _conflict(
-        lambda: attendance.punch(employee.id, request, allow_recorded_time=True)
-    )
+    try:
+        event, created = attendance.punch(employee.id, request, allow_recorded_time=True)
+    except AttendanceError as exc:
+        # A business conflict, not a malformed request: "check-in already
+        # recorded", "check-in is required before check-out". The employee is
+        # authenticated and on site, so this is theirs to hear.
+        return _attendance_refusal(409, "conflict", str(exc))
     event_day = local_day(event["occurred_at"], attendance.policy.timezone_name)
-    return {
-        "status": "recorded" if created else "duplicate",
-        "event": event,
-        "attendance": attendance.day(employee.id, event_day),
-    }
+    return JSONResponse(
+        status_code=201,
+        content=jsonable_encoder({
+            "status": "recorded" if created else "duplicate",
+            # What the bot reads back to the employee, so the confirmation is
+            # evidence rather than an assurance: the time the CRM actually
+            # filed, in office time, and which office it was filed against.
+            "employee_name": (employee.name or "").strip(),
+            "recorded_date": event_day.isoformat(),
+            "recorded_time": _office_time(event["occurred_at"], attendance.policy.timezone_name),
+            "site": (site or {}).get("site"),
+            # What was established about the location, so the bot can confirm
+            # the punch and still say it is going for review.
+            "location_status": (site or {}).get("status"),
+            "distance_m": (site or {}).get("distance_m"),
+            "event": event,
+            "attendance": attendance.day(employee.id, event_day),
+        }),
+    )
 
 
 @router.get("/directory")

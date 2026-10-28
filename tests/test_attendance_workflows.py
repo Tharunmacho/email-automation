@@ -110,19 +110,26 @@ def test_an_early_punch_is_recorded_without_an_approved_request(env):
 
 def test_the_full_early_check_in_workflow(env):
     """Request -> approve -> punch early -> credited as coverage."""
-    permission = env.request_permission("staff-1", PermissionRequest(
-        attendance_date=date(2026, 10, 5),
-        kind="early_check_in",
-        requested_minutes=60,
-        reason="Client interview at 09:00",
-    ))
-    assert permission["status"] == "pending"
-    # The minutes survive: `early_check_in` is a timed permission, not a full day.
-    assert permission["requested_minutes"] == 60
+    # Asked and approved before the shift starts, which is the rule under test
+    # in `test_an_early_check_in_must_be_requested_before_the_shift_starts`.
+    # The clock is pinned for the same reason it is pinned there: left on the
+    # real one, this read "before 10:00 IST on 2026-10-05", which stopped being
+    # true the day after it was written and failed every run since.
+    with patch("app.attendance.service.datetime") as clock:
+        clock.now.return_value = datetime(2026, 10, 5, 2, 0, tzinfo=timezone.utc)  # 07:30 IST
+        permission = env.request_permission("staff-1", PermissionRequest(
+            attendance_date=date(2026, 10, 5),
+            kind="early_check_in",
+            requested_minutes=60,
+            reason="Client interview at 09:00",
+        ))
+        assert permission["status"] == "pending"
+        # The minutes survive: `early_check_in` is a timed permission, not a full day.
+        assert permission["requested_minutes"] == 60
 
-    decided = env.decide_permission(
-        permission["id"], PermissionDecision(approved=True, reason="Approved"), "manager-1",
-    )
+        decided = env.decide_permission(
+            permission["id"], PermissionDecision(approved=True, reason="Approved"), "manager-1",
+        )
     assert decided["status"] == "approved"
 
     event, created = env.punch(

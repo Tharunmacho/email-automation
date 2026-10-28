@@ -140,13 +140,32 @@ def _declared(value: Any) -> Any:
     return value
 
 
+# Facts about the *candidate* that VeriIS resolves into `additional_info`
+# because `CandidateProfile` has no column for them, and that the profile
+# screen shows in rows of its own. Everything else in that dict is provider or
+# audit payload and is dropped below.
+_EXTRACTED_FACTS = ("industry", "highest_qualification")
+
+
 def _curated_profile(profile: CandidateProfile) -> CandidateProfile:
     data = _declared(profile)
-    # These are audit/provider payloads, not candidate facts.  Keeping them out
+    # Provider and audit payloads are not candidate facts.  Keeping them out
     # also prevents the generic "Additional information" editor from surfacing
     # fields the user never asked to store.
+    #
+    # The facts named above are kept, because emptying the whole dict threw
+    # away what VeriIS had actually read. The profile screen then fell back to
+    # guessing a qualification from the education list and reported "Secondary
+    # School Certificate (Class 10)" for a candidate VeriIS had read as holding
+    # a B.Sc. Nursing, and left the industry row blank for one it had read as
+    # Healthcare.
+    extracted = data.get("additional_info") or {}
     data["raw_ocr"] = None
-    data["additional_info"] = {}
+    data["additional_info"] = {
+        key: extracted[key].strip()
+        for key in _EXTRACTED_FACTS
+        if isinstance(extracted.get(key), str) and extracted[key].strip()
+    }
     data["full_name"] = str(data.get("full_name") or "").strip() or None
     data["email"] = str(data.get("email") or "").strip() or None
     data["phone"] = str(data.get("phone") or "").strip() or None

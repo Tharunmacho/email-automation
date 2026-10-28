@@ -60,7 +60,7 @@ class ScopedRepo:
     def count(self, query=None, staff_id=None):
         return len(self._scope(staff_id))
 
-    def list_summaries(self, limit=50, skip=0, minimal=False, query=None, staff_id=None):
+    def list_summaries(self, limit=50, skip=0, minimal=False, query=None, staff_id=None, projection=None):
         return [
             {"id": r.id, "profile": {"full_name": r.profile.full_name}, "assigned_staff_id": r.assigned_staff_id}
             for r in self._scope(staff_id)[skip : skip + limit]

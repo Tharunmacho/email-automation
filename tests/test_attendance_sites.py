@@ -1,6 +1,7 @@
-"""A punch only counts when it is made from the employee's office."""
+"""Where a punch was made is recorded as evidence, and never costs the punch."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -59,14 +60,24 @@ def env():
         yield service
 
 
-def _event(location, message_id="loc-1"):
+def _event(location, message_id="loc-1", location_unavailable=False):
     return WhatsAppAttendanceEvent(
         message_id=message_id, sender_phone="917806822702", stated_name="Listed",
         action="check_in", occurred_at=datetime(2026, 10, 5, 4, 0, tzinfo=timezone.utc),
         latitude=location[0] if location else None,
         longitude=location[1] if location else None,
         command_message_id="cmd-1",
+        location_unavailable=location_unavailable,
     )
+
+
+def answered(response) -> tuple[int, dict]:
+    """A private-attendance reply as (status, payload).
+
+    The route answers with a `Response` rather than raising, because every
+    refusal now carries a machine-readable `code` the bot branches on.
+    """
+    return response.status_code, json.loads(response.body)
 
 
 def test_a_listed_number_is_held_to_its_listed_office():
@@ -77,48 +88,99 @@ def test_a_listed_number_is_held_to_its_listed_office():
 
 
 def test_a_punch_inside_the_radius_is_recorded_with_where_it_was_made(env):
-    result = whatsapp_private_attendance(_event(_north_of(ROYA, 340)))
+    status, result = answered(whatsapp_private_attendance(_event(_north_of(ROYA, 340))))
+    assert status == 201
     assert result["status"] == "recorded"
     evidence = result["event"]["evidence"]
     assert evidence["metadata"]["site"]["site"] == ROYAPETTAH
     assert evidence["metadata"]["site"]["distance_m"] <= 350
     assert evidence["latitude"] is not None
+    # What the bot reads back to the employee: office time, not UTC, and where.
+    assert result["recorded_time"] == "09:30"
+    assert result["recorded_date"] == "2026-10-05"
+    assert result["site"] == ROYAPETTAH
 
 
-def test_a_punch_outside_the_radius_is_refused_and_not_recorded(env):
-    with pytest.raises(HTTPException) as refused:
-        whatsapp_private_attendance(_event(_north_of(ROYA, 400)))
-    assert refused.value.status_code == 403
-    assert refused.value.detail == "Attendance not recorded. You are at the wrong location."
-    assert env.repository.events_for_day("listed", datetime(2026, 10, 5).date()) == []
+def test_a_punch_outside_the_radius_is_recorded_and_flagged(env):
+    """It used to be refused, and that was the fault being reported.
+
+    The coordinate WhatsApp sends carries no accuracy figure, so a pin 400 m
+    out is indistinguishable here from an employee at their desk with a bad
+    indoor fix. Losing them the day on that evidence is the worse mistake, so
+    the punch stands and the distance goes on the record for a manager.
+    """
+    status, result = answered(whatsapp_private_attendance(_event(_north_of(ROYA, 500))))
+    assert status == 201
+    assert result["status"] == "recorded"
+    assert result["location_status"] == sites.OFF_SITE
+    assert result["distance_m"] >= 350
+    assert env.repository.events_for_day("listed", datetime(2026, 10, 5).date()) != []
+
+
+def test_a_live_location_is_recorded_as_unverified(env):
+    """WhatsApp never delivers live location, so it can never be placed.
+
+    It reaches the bot as an `unsupported` message with no coordinates at all.
+    The bot says so with `location_unavailable` rather than asking again for
+    something the employee has already tried to send, and the punch is filed
+    with nothing established about where it was made.
+    """
+    status, result = answered(
+        whatsapp_private_attendance(_event(None, location_unavailable=True))
+    )
+    assert status == 201
+    assert result["status"] == "recorded"
+    assert result["location_status"] == sites.UNVERIFIED
+    assert result["distance_m"] is None
 
 
 def test_the_other_office_counts_too(env):
     # Listed under Royapettah but punching from Mount Road: still at an office.
-    result = whatsapp_private_attendance(_event(MOUNT))
+    status, result = answered(whatsapp_private_attendance(_event(MOUNT)))
+    assert status == 201
     assert result["status"] == "recorded"
     assert result["event"]["evidence"]["metadata"]["site"]["site"] == MOUNT_ROAD
 
 
 def test_a_punch_without_a_location_is_refused(env):
-    with pytest.raises(HTTPException) as refused:
-        whatsapp_private_attendance(_event(None))
-    assert refused.value.status_code == 403
-    assert "Location is required" in refused.value.detail
+    """And says so under its own code, so the bot asks for one.
+
+    This is the first step of every punch, not an error path: "Listed - check
+    in" arrives with no location and has to come back as a request for one.
+    `off_site` would have the bot tell them they were in the wrong place.
+    """
+    status, refused = answered(whatsapp_private_attendance(_event(None)))
+    assert status == 403
+    assert refused["code"] == "location_required"
+    assert "Location is required" in refused["detail"]
 
 
-def test_a_self_punch_from_the_web_is_held_to_the_office_too(env):
+def test_a_self_punch_from_the_web_is_placed_the_same_way(env):
     away = PunchRequest(action="check_in", idempotency_key="web-1",
                         evidence=dict(zip(("latitude", "longitude"), _north_of(MOUNT, 2000))))
-    with pytest.raises(HTTPException) as refused:
-        record_punch(away, {"id": "unlisted", "role": STAFF_ROLE})
-    assert refused.value.status_code == 403
-    here = PunchRequest(action="check_in", idempotency_key="web-2",
+    recorded = record_punch(away, {"id": "unlisted", "role": STAFF_ROLE})
+    assert recorded["status"] == "recorded"
+    assert recorded["event"]["evidence"]["metadata"]["site"]["status"] == sites.OFF_SITE
+    here = PunchRequest(action="check_out", idempotency_key="web-2",
                         evidence={"latitude": MOUNT[0], "longitude": MOUNT[1]})
-    assert record_punch(here, {"id": "unlisted", "role": STAFF_ROLE})["status"] == "recorded"
+    out = record_punch(here, {"id": "unlisted", "role": STAFF_ROLE})
+    assert out["event"]["evidence"]["metadata"]["site"]["status"] == sites.ON_SITE
+
+
+def test_the_opening_command_still_goes_back_for_a_location(env):
+    """The one refusal left, and the reason `location_unavailable` exists.
+
+    Without it the bot would file an unverified punch the moment somebody typed
+    "check in", and nobody would ever be asked for a location again.
+    """
+    status, refused = answered(whatsapp_private_attendance(_event(None)))
+    assert status == 403
+    assert refused["code"] == "location_required"
 
 
 def test_an_office_without_a_pin_enforces_nothing(env):
     unpinned = {**TEST_SITES, ROYAPETTAH: sites.Site(ROYAPETTAH, "Royapettah", None, None, 350)}
     with patch.object(sites, "SITES", unpinned):
-        assert whatsapp_private_attendance(_event(None))["status"] == "recorded"
+        status, result = answered(whatsapp_private_attendance(_event(None)))
+    assert status == 201
+    assert result["status"] == "recorded"

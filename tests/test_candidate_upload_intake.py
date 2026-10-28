@@ -54,7 +54,15 @@ class ParsedResume:
             work_experience=[
                 WorkExperience(company="Acme", designation="Electrician", provider_noise="drop me")
             ],
-            additional_info={"extraction_source": self.source, "unwanted": "drop me"},
+            additional_info={
+                "extraction_source": self.source,
+                "unwanted": "drop me",
+                # Candidate facts Veris resolves but the profile schema has no
+                # column for. These are what the profile screen shows as the
+                # industry and highest-qualification rows.
+                "industry": "Healthcare",
+                "highest_qualification": " B.Sc. Nursing ",
+            },
             raw_ocr={"pages": [{"text": "sensitive provider text"}]},
             provider_only_field="drop me",
         )
@@ -249,7 +257,14 @@ def test_upload_intake_routes_each_identity_file_to_veris_and_keeps_only_declare
     ]
     assert result.candidate.profile.full_name == "Meera Nair"
     assert result.candidate.profile.raw_ocr is None
-    assert result.candidate.profile.additional_info == {}
+    # Curation drops the provider and audit payload and keeps the candidate's
+    # own facts. Emptying the dict wholesale lost the qualification Veris had
+    # read, and the profile screen fell back to guessing one from the education
+    # list — reporting a Class 10 certificate for a B.Sc. Nursing candidate.
+    assert result.candidate.profile.additional_info == {
+        "industry": "Healthcare",
+        "highest_qualification": "B.Sc. Nursing",
+    }
     assert "provider_only_field" not in (result.candidate.profile.model_extra or {})
     assert "provider_noise" not in (result.candidate.profile.work_experience[0].model_extra or {})
     assert result.candidate.profile.passport_number == "Z1234567"

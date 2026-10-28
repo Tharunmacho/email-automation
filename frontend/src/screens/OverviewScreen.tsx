@@ -65,7 +65,7 @@ function MiniChart({ points, label, kind = "line", max }: { points: Point[]; lab
   const hasData = points.some((point) => point.value > 0);
   const selected = hovered === null ? (hasData ? points.length - 2 : null) : hovered;
   return <div className={styles.chart}>
-    <svg viewBox="0 0 242 156" role="img" aria-label={`${label}. ${points.map((point) => `${point.label}: ${point.value}`).join(", ")}`}>
+    <svg viewBox="-6 0 254 156" role="img" aria-label={`${label}. ${points.map((point) => `${point.label}: ${point.value}`).join(", ")}`}>
       {[0, 1, 2, 3, 4].map((tick) => <g key={tick}><line x1="32" x2="230" y1={126 - tick * 26} y2={126 - tick * 26} className={styles.gridline} /><text x="24" y={130 - tick * 26} textAnchor="end" className={styles.axis}>{Math.round(ceiling * tick / 4)}{max === 100 ? "%" : ""}</text></g>)}
       {points.map((point, index) => <g key={index}><line x1={x(index)} x2={x(index)} y1="22" y2="126" className={styles.gridline} />{(index % 2 === 0 || index === points.length - 1) && <text x={x(index)} y="147" textAnchor="middle" className={styles.axis}>{point.label}</text>}</g>)}
       {kind === "area" && <path d={`${line} L230,126 L32,126 Z`} fill={ORANGE} fillOpacity=".16" />}

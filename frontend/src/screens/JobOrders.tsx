@@ -236,13 +236,123 @@ function normaliseMatchText(value: string): string {
   return ` ${value.toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").replace(/\s+/g, " ").trim()} `;
 }
 
-function containsTerm(text: string, term: string): boolean {
-  return text.includes(normaliseMatchText(term));
+/**
+ * Normalised forms of the short strings the matcher compares against — skills,
+ * concept aliases, role tokens. There are a few dozen distinct ones and they
+ * are asked for hundreds of thousands of times, once per candidate per order.
+ */
+const TERM_CACHE = new Map<string, string>();
+
+function normalisedTerm(term: string): string {
+  let cached = TERM_CACHE.get(term);
+  if (cached === undefined) {
+    cached = normaliseMatchText(term);
+    TERM_CACHE.set(term, cached);
+  }
+  return cached;
 }
 
+function containsTerm(text: string, term: string): boolean {
+  return text.includes(normalisedTerm(term));
+}
+
+/** Per concept table, the aliases already worked out for a given term. */
+const CONCEPT_CACHE = new WeakMap<string[][], Map<string, string[]>>();
+
 function conceptTerms(term: string, concepts: string[][]): string[] {
-  const normalised = normaliseMatchText(term).trim();
-  return concepts.find((group) => group.some((alias) => normaliseMatchText(alias).trim() === normalised)) ?? [term];
+  let table = CONCEPT_CACHE.get(concepts);
+  if (!table) {
+    table = new Map();
+    CONCEPT_CACHE.set(concepts, table);
+  }
+  const cached = table.get(term);
+  if (cached) return cached;
+
+  const normalised = normalisedTerm(term).trim();
+  const found =
+    concepts.find((group) => group.some((alias) => normalisedTerm(alias).trim() === normalised)) ?? [term];
+  table.set(term, found);
+  return found;
+}
+
+/* Allocated once, not once per scored candidate. */
+const ROLE_STOP_WORDS = new Set([
+  "and", "for", "the", "in", "with", "or", "of", "a", "an", "at", "to",
+  "senior", "junior", "lead", "intern", "developer", "engineer", "technician",
+  "executive", "manager", "specialist", "officer", "assistant",
+]);
+
+/** What scoring reads off a candidate, which does not change with the order. */
+interface CandidateEvidence {
+  skillEvidence: string;
+  roleEvidence: string;
+  years: number;
+}
+
+/* Keyed by the record itself: a refresh replaces the objects, so a stale entry
+   cannot outlive the data it was derived from. */
+const EVIDENCE_CACHE = new WeakMap<CandidateRecord, CandidateEvidence>();
+
+function evidenceOf(candidate: CandidateRecord): CandidateEvidence {
+  const cached = EVIDENCE_CACHE.get(candidate);
+  if (cached) return cached;
+
+  const profile = candidate.profile || {};
+  const candSkills = [
+    ...(profile.skills || []),
+    ...(profile.technical_skills || []),
+    ...(profile.languages || []),
+  ];
+  const candSummary = profile.resume_summary || "";
+  const role = profile.current_designation || "";
+  const workExpText = (profile.work_experience || [])
+    .map((w) => `${w.designation || ""} ${w.company || ""} ${w.description || ""}`)
+    .join(" ");
+  const roleLower = role.toLowerCase();
+
+  const evidence: CandidateEvidence = {
+    skillEvidence: normaliseMatchText(`${candSkills.join(" ")} ${candSummary} ${workExpText}`),
+    roleEvidence: normaliseMatchText(`${role} ${workExpText} ${candSummary}`),
+    years:
+      profile.total_experience_years ??
+      (roleLower.includes("intern") || roleLower.includes("fresher") ? 0 : 1),
+  };
+  EVIDENCE_CACHE.set(candidate, evidence);
+  return evidence;
+}
+
+/** What scoring reads off an order, which does not change with the candidate. */
+interface OrderCriteria {
+  reqSkills: string[];
+  skillAliases: string[][];
+  targetRole: string;
+  roleTokens: string[];
+  roleConcept: string[] | undefined;
+  reqExpYears: number;
+}
+
+const CRITERIA_CACHE = new WeakMap<JobOrderRecord, OrderCriteria>();
+
+function criteriaOf(order: JobOrderRecord): OrderCriteria {
+  const cached = CRITERIA_CACHE.get(order);
+  if (cached) return cached;
+
+  const reqSkills = order.skills || [];
+  const targetRole = order.designation || order.title || "";
+  const normalisedRole = normalisedTerm(targetRole);
+  const criteria: OrderCriteria = {
+    reqSkills,
+    skillAliases: reqSkills.map((skill) => conceptTerms(skill, SKILL_CONCEPTS)),
+    targetRole,
+    roleTokens: normalisedRole
+      .trim()
+      .split(" ")
+      .filter((token) => token.length > 2 && !ROLE_STOP_WORDS.has(token)),
+    roleConcept: ROLE_CONCEPTS.find((group) => group.some((alias) => normalisedRole.includes(normalisedTerm(alias)))),
+    reqExpYears: parseMinExperienceYears(order.minExperience),
+  };
+  CRITERIA_CACHE.set(order, criteria);
+  return criteria;
 }
 
 /**
@@ -260,28 +370,16 @@ export function calculateCandidateMatch(
   order: JobOrderRecord,
   candidate: CandidateRecord,
 ): MatchResult {
-  const profile = candidate.profile || {};
-  const candSkills = [
-    ...(profile.skills || []),
-    ...(profile.technical_skills || []),
-    ...(profile.languages || []),
-  ];
+  const { skillEvidence: candidateSkillEvidence, roleEvidence: candidateRoleEvidence,
+          years: candExpYears } = evidenceOf(candidate);
+  const { reqSkills, skillAliases, targetRole, roleTokens,
+          roleConcept: targetRoleConcept, reqExpYears } = criteriaOf(order);
 
-  const candSummary = profile.resume_summary || "";
-  const candRole = profile.current_designation || "";
-  const workExpText = (profile.work_experience || [])
-    .map((w) => `${w.designation || ""} ${w.company || ""} ${w.description || ""}`)
-    .join(" ");
-  const candidateSkillEvidence = normaliseMatchText(`${candSkills.join(" ")} ${candSummary} ${workExpText}`);
-  const candidateRoleEvidence = normaliseMatchText(`${candRole} ${workExpText} ${candSummary}`);
-
-  const reqSkills = order.skills || [];
   const matchedSkills: string[] = [];
   const missingSkills: string[] = [];
 
-  reqSkills.forEach((skill) => {
-    const aliases = conceptTerms(skill, SKILL_CONCEPTS);
-    const isMatched = aliases.some((alias) => containsTerm(candidateSkillEvidence, alias));
+  reqSkills.forEach((skill, index) => {
+    const isMatched = skillAliases[index].some((alias) => containsTerm(candidateSkillEvidence, alias));
 
     if (isMatched) {
       matchedSkills.push(skill);
@@ -293,15 +391,7 @@ export function calculateCandidateMatch(
   const skillRatio = reqSkills.length > 0 ? matchedSkills.length / reqSkills.length : 1;
   const skillScore = Math.round(skillRatio * 45);
 
-  const targetRole = order.designation || order.title || "";
-  const STOP_WORDS = new Set([
-    "and", "for", "the", "in", "with", "or", "of", "a", "an", "at", "to",
-    "senior", "junior", "lead", "intern", "developer", "engineer", "technician",
-    "executive", "manager", "specialist", "officer", "assistant",
-  ]);
-  const roleTokens = normaliseMatchText(targetRole).trim().split(" ").filter((token) => token.length > 2 && !STOP_WORDS.has(token));
   const directRoleHits = roleTokens.filter((token) => containsTerm(candidateRoleEvidence, token));
-  const targetRoleConcept = ROLE_CONCEPTS.find((group) => group.some((alias) => containsTerm(normaliseMatchText(targetRole), alias)));
   const contextualRoleMatch = Boolean(targetRoleConcept?.some((alias) => containsTerm(candidateRoleEvidence, alias)));
   const roleMatched = !targetRole || contextualRoleMatch || (roleTokens.length > 0 && directRoleHits.length / roleTokens.length >= 0.5);
   const roleScore = roleMatched
@@ -313,10 +403,6 @@ export function calculateCandidateMatch(
   // in an unrelated occupation is not a partial match for this role.
   const skillsMatched = reqSkills.length === 0 || matchedSkills.length > 0;
   const eligibleForExperience = roleMatched && skillsMatched;
-
-  const reqExpYears = parseMinExperienceYears(order.minExperience);
-  const candRoleLower = candRole.toLowerCase();
-  const candExpYears = profile.total_experience_years ?? (candRoleLower.includes("intern") || candRoleLower.includes("fresher") ? 0 : 1);
 
   let expScore = 0;
   let expMatched = false;

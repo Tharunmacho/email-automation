@@ -1,6 +1,8 @@
 """Role boundaries and permission history for attendance."""
 from __future__ import annotations
 
+import json
+
 from datetime import date, datetime, timezone
 from unittest.mock import patch
 
@@ -399,28 +401,36 @@ def test_approved_leave_request_updates_calendar_and_second_paid_leave_becomes_u
 
 def test_private_whatsapp_attendance_matches_phone_and_first_name():
     repository = AttendanceRepository(mongomock.MongoClient()["whatsapp-attendance"])
+    # Today, because `provisional` below is a fact about the regularisation
+    # window still being open. Pinned to a past date this assertion passed on
+    # the day it was written and failed every day after it.
+    today = datetime.now(timezone.utc).date()
     payload = WhatsAppAttendanceEvent(
         message_id="wamid.check-in-1",
         sender_phone="919876543210",
         stated_name="One",
         action="check_in",
-        occurred_at=datetime(2026, 10, 8, 4, 45, tzinfo=timezone.utc),
+        occurred_at=datetime(today.year, today.month, today.day, 4, 45, tzinfo=timezone.utc),
     )
 
     # The office radius is covered in test_attendance_sites; this sends no location.
     with patch("app.attendance.api.users", FakeUsers()), patch(
         "app.attendance.api.service", return_value=AttendanceService(repository)
     ), patch("app.attendance.api.check_on_site", return_value=None):
-        result = whatsapp_private_attendance(payload)
-        duplicate = whatsapp_private_attendance(payload)
+        recorded = whatsapp_private_attendance(payload)
+        redelivered = whatsapp_private_attendance(payload)
 
+    assert recorded.status_code == 201
+    result = json.loads(recorded.body)
     assert result["status"] == "recorded"
     assert result["event"]["employee_id"] == "staff-1"
     assert result["event"]["source"] == "whatsapp"
-    assert result["event"]["occurred_at"] == payload.occurred_at
-    assert result["attendance"]["check_in"] == payload.occurred_at
+    assert result["event"]["occurred_at"] == payload.occurred_at.isoformat()
+    assert result["attendance"]["check_in"] == payload.occurred_at.isoformat()
     assert result["attendance"]["provisional"] is True
-    assert duplicate["status"] == "duplicate"
+    # Meta redelivers; the same message id must not become a second punch, and
+    # must still answer so the bot can confirm rather than fall silent.
+    assert json.loads(redelivered.body)["status"] == "duplicate"
 
 
 def test_private_whatsapp_attendance_rejects_wrong_name():
@@ -433,12 +443,58 @@ def test_private_whatsapp_attendance_rejects_wrong_name():
     )
 
     with patch("app.attendance.api.users", FakeUsers()):
-        try:
-            whatsapp_private_attendance(payload)
-        except HTTPException as exc:
-            assert exc.status_code == 422
-        else:
-            raise AssertionError("mismatched employee name must be rejected")
+        refused = whatsapp_private_attendance(payload)
+
+    assert refused.status_code == 422
+    # Coded, so the bot can tell a real employee who mistyped their name (tell
+    # them) from a stranger's number (stay silent).
+    assert json.loads(refused.body)["code"] == "name_mismatch"
+
+
+def test_private_whatsapp_attendance_accepts_a_command_with_no_name():
+    """"check in" on its own is the sender's own punch.
+
+    The number is already the identity: it resolved to exactly one active
+    employee before any name was looked at. Demanding a name as well meant the
+    plainest possible command was not a command, which is how staff ended up
+    sending attendance into silence.
+    """
+    repository = AttendanceRepository(mongomock.MongoClient()["whatsapp-attendance-noname"])
+    payload = WhatsAppAttendanceEvent(
+        message_id="wamid.no-name",
+        sender_phone="919876543210",
+        action="check_in",
+        occurred_at=datetime(2026, 10, 8, 4, 45, tzinfo=timezone.utc),
+    )
+
+    with patch("app.attendance.api.users", FakeUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ), patch("app.attendance.api.check_on_site", return_value=None):
+        recorded = whatsapp_private_attendance(payload)
+
+    assert recorded.status_code == 201
+    assert json.loads(recorded.body)["event"]["employee_id"] == "staff-1"
+
+
+def test_private_whatsapp_attendance_reports_a_conflict_under_its_own_code():
+    """A second check-in is the employee's to hear about, not a silent 4xx."""
+    repository = AttendanceRepository(mongomock.MongoClient()["whatsapp-attendance-conflict"])
+    first = WhatsAppAttendanceEvent(
+        message_id="wamid.first", sender_phone="919876543210", stated_name="One",
+        action="check_in", occurred_at=datetime(2026, 10, 8, 4, 45, tzinfo=timezone.utc),
+    )
+    again = first.model_copy(update={"message_id": "wamid.second"})
+
+    with patch("app.attendance.api.users", FakeUsers()), patch(
+        "app.attendance.api.service", return_value=AttendanceService(repository)
+    ), patch("app.attendance.api.check_on_site", return_value=None):
+        assert whatsapp_private_attendance(first).status_code == 201
+        conflict = whatsapp_private_attendance(again)
+
+    assert conflict.status_code == 409
+    body = json.loads(conflict.body)
+    assert body["code"] == "conflict"
+    assert "already recorded" in body["detail"]
 
 
 def test_whatsapp_attendance_directory_returns_active_employee_phones():

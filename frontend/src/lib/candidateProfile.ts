@@ -534,19 +534,67 @@ export function editableToProfile(base: CandidateProfile, state: EditableState):
 }
 
 /**
- * Prefer what the extractor concluded. Falling back to `education[0]` alone
- * reported "10th Grade" for a candidate holding a B.E., because the list is in
- * chronological order and the first entry is the earliest schooling — so the
- * last entry, not the first, is the closest local guess.
+ * How senior a qualification is, most senior first so the first pattern that
+ * matches wins — "Diploma in Nursing" must not rank as a degree on the word
+ * it shares with one.
+ *
+ * Levels are spaced by ten so unrecognised wording can sit between two of
+ * them; see `UNRECOGNISED_LEVEL`.
+ */
+const QUALIFICATION_LEVELS: ReadonlyArray<readonly [number, RegExp]> = [
+  [60, /\bph\.?\s*d\b|doctorate|doctoral|\bd\.?\s*phil\b/i],
+  [50, /\bmaster|\bm\.?\s*(sc|tech|e|a|com|ed|phil|s)\b|\bmba\b|\bm\.?\s*d\b|post[\s-]*grad/i],
+  [40, /\bbachelor|\bb\.?\s*(sc|tech|e|a|com|ed|pharm|s)\b|\bmbbs\b|\bbds\b|\bdegree\b/i],
+  [30, /\bdiploma\b|\biti\b|\bgnm\b|\bpolytechnic\b|\bd\.?\s*pharm\b/i],
+  [20, /\b(12th|xii|hsc|intermediate|higher secondary|senior secondary|pre[\s-]*university|puc)\b/i],
+  [10, /\b(10th|sslc|ssc|matric(?:ulation)?|secondary school)\b|\bclass\s*x\b/i],
+];
+
+/**
+ * Wording we do not recognise ranks above a school certificate and below a
+ * diploma. A row we cannot read is far more likely to be a trade or
+ * professional qualification than it is schooling, which is named in a handful
+ * of standard ways that the patterns above already cover.
+ */
+const UNRECOGNISED_LEVEL = 25;
+
+function qualificationLevel(degree: string): number {
+  for (const [level, pattern] of QUALIFICATION_LEVELS) {
+    if (pattern.test(degree)) return level;
+  }
+  return UNRECOGNISED_LEVEL;
+}
+
+/**
+ * Prefer what the extractor concluded: Veris reads the qualification off the
+ * résumé, and that answer is the one this screen is meant to show.
+ *
+ * A local guess is made only when that is missing, and position in the list is
+ * a bad one. `education[0]` reported "10th Grade" for a candidate holding a
+ * B.E. because that list ran oldest-first; `education[length - 1]` then
+ * reported "Secondary School Certificate (Class 10)" for a candidate holding a
+ * B.Sc. Nursing, because that one ran newest-first. Neither order is
+ * guaranteed, so rank the entries by what the qualification is and take the
+ * highest.
  */
 export function highestQualificationOf(profile: CandidateProfile): string {
   const extra = (profile.additional_info ?? {}) as Record<string, unknown>;
-  return (
-    (typeof extra.highest_qualification === "string" && extra.highest_qualification) ||
-    profile.education?.[profile.education.length - 1]?.degree ||
-    profile.education?.[0]?.degree ||
-    ""
-  );
+  if (typeof extra.highest_qualification === "string" && extra.highest_qualification.trim()) {
+    return extra.highest_qualification;
+  }
+
+  let best = "";
+  let bestLevel = -1;
+  for (const edu of profile.education ?? []) {
+    const degree = (edu.degree ?? "").trim();
+    if (!degree) continue;
+    const level = qualificationLevel(degree);
+    if (level > bestLevel) {
+      best = degree;
+      bestLevel = level;
+    }
+  }
+  return best;
 }
 
 /** Veris returns this, but `CandidateProfile` has no field for it. */
