@@ -1103,6 +1103,10 @@ export interface MatchRun {
   cap: number | null;
   /** Held back by an automatic run because Jev failed on them recently. */
   deferred?: number;
+  /** Decided by the free check without a Jev call (different trade, or below the minimum). */
+  screened?: number;
+  /** False for "Check with Jev": nobody is skipped by the free check. */
+  screen?: boolean;
   processed: number;
   scored: number;
   cached: number;
@@ -1137,6 +1141,8 @@ export interface MatchingState {
   coverage: {
     pool: number;
     evaluated: number;
+    /** Of `evaluated`, decided by the free check without a Jev call. */
+    screened: number;
     failed: number;
     not_evaluated: number;
     skipped_by_cap: number;
@@ -1154,7 +1160,9 @@ export interface MatchResultRow {
   experience_years: number | null;
   experience_band: string;
   candidate_missing: boolean;
-  status: "scored" | "failed";
+  /** `screened`: decided by the free check, not sent to Jev, so there is no score. */
+  status: "scored" | "failed" | "screened";
+  screen: { rule: "different_trade" | "below_experience"; reason: string; version: string } | null;
   score: number | null;
   category: MatchCategory | null;
   category_label: string;

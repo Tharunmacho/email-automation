@@ -1,6 +1,6 @@
 """What matching decided, kept so it is not paid for twice.
 
-Three collections, each with one job:
+Four collections, each with one job:
 
     candidate_matches         one evaluation of one candidate against one
                               version of one order. Never a copy of the
@@ -14,6 +14,9 @@ Three collections, each with one job:
     candidate_match_runs      one matching job: its progress, its cost, and
                               the lock that stops two of them running on the
                               same order at once.
+    candidate_match_activity  when each order was last opened or edited, so
+                              the background sweep spends only on orders
+                              somebody is working on.
 
 **The cache key** is everything that can change a score:
 
@@ -47,8 +50,12 @@ log = get_logger(__name__)
 MATCHES = "candidate_matches"
 REVIEWS = "candidate_match_reviews"
 RUNS = "candidate_match_runs"
+ACTIVITY = "candidate_match_activity"
 
-SCORED, FAILED = "scored", "failed"
+#: `screened`: decided by the free check in `app.matching.screen`, never sent
+#: to Jev. Stored under the same cache key a Jev result would use, so a later
+#: "Check with Jev" simply overwrites it.
+SCORED, FAILED, SCREENED = "scored", "failed", "screened"
 
 RUN_QUEUED, RUN_RUNNING = "queued", "running"
 RUN_COMPLETED, RUN_PARTIAL, RUN_FAILED, RUN_CANCELLED = "completed", "partial", "failed", "cancelled"
@@ -105,6 +112,9 @@ def ensure_indexes() -> None:
     ensure_index(runs, [("active_lock", ASCENDING)], "match_run_active_lock_unique",
                  unique=True, sparse=True)
 
+    ensure_index(db[ACTIVITY], [("job_order_id", ASCENDING)], "match_activity_order_unique",
+                 unique=True)
+
 
 # --------------------------------------------------------------------------- #
 #  Results
@@ -121,13 +131,17 @@ def find_scored(job_order_id: str, candidate_id: str, key: str) -> Optional[Dict
     )
 
 
-def save_scored(doc: Dict[str, Any]) -> None:
-    """Store a successful evaluation and make it the current one for its pair."""
+def save_scored(doc: Dict[str, Any], status: str = SCORED) -> None:
+    """Store a successful evaluation and make it the current one for its pair.
+
+    `status=SCREENED` stores the free check's verdict the same way: it is the
+    current result for its pair until the inputs change or Jev is asked.
+    """
     coll = _db()[MATCHES]
     now = _now()
     key = {"job_order_id": doc["job_order_id"], "candidate_id": doc["candidate_id"],
            "cache_key": doc["cache_key"]}
-    body = {**doc, "status": SCORED, "is_current": True, "error": None,
+    body = {**doc, "status": status, "is_current": True, "error": None,
             "last_failure": None, "updated_at": now}
     body.pop("created_at", None)
     coll.update_one(key, {"$set": body, "$setOnInsert": {"created_at": now}}, upsert=True)
@@ -189,7 +203,7 @@ def save_failed(doc: Dict[str, Any]) -> None:
 #: the whole document; everything else leaves out the per-question answers,
 #: which are most of its size, so a shortlist of thousands opens quickly.
 LIST_FIELDS = {"_id": 0, "evaluation": 0, "reasons": 0, "baseline": 0, "usage": 0}
-COUNT_FIELDS = {"_id": 0, "candidate_id": 1, "category": 1, "evaluated_at": 1,
+COUNT_FIELDS = {"_id": 0, "candidate_id": 1, "category": 1, "evaluated_at": 1, "status": 1,
                 "last_failure": 1, "error": 1, "updated_at": 1, "run_id": 1}
 
 
@@ -204,7 +218,7 @@ def current_keys(job_order_id: str) -> Dict[str, Dict[str, Any]]:
         doc["candidate_id"]: doc
         for doc in _db()[MATCHES].find(
             {"job_order_id": job_order_id, "is_current": True},
-            {"_id": 0, "candidate_id": 1, "cache_key": 1, "evaluated_at": 1},
+            {"_id": 0, "candidate_id": 1, "cache_key": 1, "evaluated_at": 1, "status": 1},
         )
     }
 
@@ -310,6 +324,30 @@ def save_review(job_order_id: str, candidate_id: str, status: str, note: str, us
 
 
 # --------------------------------------------------------------------------- #
+#  Activity: which orders somebody is working on
+# --------------------------------------------------------------------------- #
+VIEWED, EDITED = "viewed_at", "edited_at"
+
+
+def touch(job_order_id: str, what: str) -> None:
+    """Record that an order was just opened (`VIEWED`) or saved (`EDITED`)."""
+    now = _now()
+    _db()[ACTIVITY].update_one(
+        {"job_order_id": job_order_id},
+        {"$set": {what: now, "updated_at": now}, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+
+
+def activity(job_order_ids: Optional[Iterable[str]] = None) -> Dict[str, Dict[str, Any]]:
+    query: Dict[str, Any] = {}
+    if job_order_ids is not None:
+        query["job_order_id"] = {"$in": list(job_order_ids)}
+    return {doc["job_order_id"]: {key: _aware(value) for key, value in doc.items()}
+            for doc in _db()[ACTIVITY].find(query, {"_id": 0})}
+
+
+# --------------------------------------------------------------------------- #
 #  Runs
 # --------------------------------------------------------------------------- #
 class RunConflict(RuntimeError):
@@ -345,8 +383,8 @@ def create_run(job_order_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         "job_order_id": job_order_id,
         "active_lock": job_order_id,
         "status": RUN_QUEUED,
-        "retrieved": 0, "considered": 0, "skipped": 0, "deferred": 0, "processed": 0,
-        "scored": 0, "cached": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
+        "retrieved": 0, "considered": 0, "skipped": 0, "deferred": 0, "screened": 0,
+        "processed": 0, "scored": 0, "cached": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
         "cancel_requested": False, "error": None,
         "created_at": now, "updated_at": now, "started_at": None, "finished_at": None,
         **fields,

@@ -21401,6 +21401,12 @@ a.payroll-expand-btn { text-decoration: none; }
   color: var(--warning-ink);
 }
 
+.aim-notice.is-info {
+  border-color: var(--border-blue-strong);
+  background: var(--primary-glow);
+  color: var(--text-main);
+}
+
 .aim-progress {
   display: flex;
   flex-direction: column;

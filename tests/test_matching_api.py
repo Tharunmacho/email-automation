@@ -139,6 +139,8 @@ def api():
          patch("app.db.mongo.get_db", return_value=database), \
          patch.object(settings, "jev_api_key", "test-key"), \
          patch("app.matching.jev.system_one", client.fake), \
+         patch.object(settings, "jev_auto_match_active_days", 0), \
+         patch.object(settings, "jev_auto_match_edit_delay_seconds", 0), \
          patch("app.matching.runner._spawn", side_effect=lambda work: work()):
         store.ensure_indexes()
         yield client
@@ -166,9 +168,12 @@ def test_a_run_ranks_by_category_then_score(api):
     assert response.status_code == 202, response.text
     run = api.get(f"/job-orders/JO-7/matching/runs/{response.json()['id']}").json()
     assert run["status"] == "completed"
-    assert run["retrieved"] == 4 and run["scored"] == 4 and run["failed"] == 0
-    assert run["input_tokens"] == 4 * 1500
-    assert run["cost_usd"] == pytest.approx(4 * 1500 / 1e6 * 0.042)
+    # "short" has one year on record against a three-year minimum: the free
+    # check marks them ineligible and Jev is not paid to say the same.
+    assert run["retrieved"] == 4 and run["scored"] == 3 and run["screened"] == 1
+    assert run["failed"] == 0
+    assert run["input_tokens"] == 3 * 1500
+    assert run["cost_usd"] == pytest.approx(3 * 1500 / 1e6 * 0.042)
 
     items = results(api)["items"]
     order = [item["candidate_id"] for item in items]
@@ -195,6 +200,8 @@ def test_strong_skills_but_too_little_mandatory_experience_is_ineligible(api):
     assert short["category"] == "ineligible"
     assert short["eligibility"] == "not_met"
     assert short["failed_requirements"] == ["At least 3 years of relevant experience"]
+    assert short["status"] == "screened" and short["score"] is None
+    assert "1 years on record" in short["screen"]["reason"]
 
 
 def test_unverifiable_experience_goes_to_manual_review(api):
@@ -559,7 +566,7 @@ def test_a_duplicate_copy_is_not_analysed_twice(api):
 # --------------------------------------------------------------------------- #
 #  Preloading: every open order kept current without anybody pressing a button
 # --------------------------------------------------------------------------- #
-from datetime import timedelta  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
 
 from app.matching import autorun, runner  # noqa: E402
 
@@ -715,3 +722,117 @@ def test_a_repeat_run_writes_nothing_for_current_results(api):
     after = {doc["candidate_id"]: doc["updated_at"]
              for doc in api.db[store.MATCHES].find({"job_order_id": "JO-7"})}
     assert after == before
+
+
+# --------------------------------------------------------------------------- #
+#  Cost: the free check, smaller requests, sweeping only orders in use
+# --------------------------------------------------------------------------- #
+from app.matching import questions as question_schema  # noqa: E402
+from app.matching.spec import normalize_job_order  # noqa: E402
+
+COOK = make_record("cook", designation="Commis Chef", summary="COOK tandoori and grill, 8 years.",
+                   skills=["Tandoor", "Food hygiene"], years=8)
+
+
+def sent_summaries(client):
+    return [call["state"]["candidate"].get("resume_summary", "") for call in client.fake.calls]
+
+
+def test_a_clearly_different_trade_is_not_sent_to_jev(api):
+    api.db["candidates"].insert_one(COOK.to_mongo())
+    run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["screened"] == 2  # the cook, and "short" below the minimum
+    assert not any(summary.startswith("COOK") for summary in sent_summaries(api))
+
+    cook = by_id(results(api))["cook"]
+    assert cook["status"] == "screened" and cook["category"] == "low_match"
+    assert "different trade from Welder" in cook["screen"]["reason"]
+    coverage = api.get("/job-orders/JO-7/matching").json()["coverage"]
+    assert coverage["screened"] == 2 and coverage["not_evaluated"] == 0
+
+
+def test_a_related_trade_is_still_sent_to_jev(api):
+    api.db["candidates"].insert_one(NO_KEYWORDS.to_mongo())  # a boilermaker
+    run_match(api)
+    assert any(summary.startswith("NOKW") for summary in sent_summaries(api))
+    assert by_id(results(api))["nokw"]["status"] == "scored"
+
+
+def test_check_with_jev_sends_the_skipped_candidates(api):
+    api.db["candidates"].insert_one(COOK.to_mongo())
+    run_match(api)
+    calls = len(api.fake.calls)
+    run = run_match(api, screen=False).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["scored"] == 2 and stored["screened"] == 0 and stored["cached"] == 3
+    assert len(api.fake.calls) == calls + 2
+    assert by_id(results(api))["cook"]["status"] == "scored"
+
+    # And a later automatic pass leaves Jev's answer in place.
+    calls = len(api.fake.calls)
+    assert autorun.sweep()["runs"] == 0 and len(api.fake.calls) == calls
+
+
+def test_re_checking_one_skipped_candidate_asks_jev(api):
+    run_match(api)
+    calls = len(api.fake.calls)
+    response = api.post("/job-orders/JO-7/matching/results/short/refresh", params={"force": "true"})
+    assert response.status_code == 202
+    assert len(api.fake.calls) == calls + 1
+    assert by_id(results(api))["short"]["status"] == "scored"
+
+
+def test_unused_questions_are_not_sent():
+    spec = normalize_job_order(ORDER)  # skills, minimum and destination; no salary or licence
+    asked = set(question_schema.build_questions(spec))
+    assert {"salary_fit", "equivalent_title", "qualifications_match"}.isdisjoint(asked)
+    assert {"role_relevance", "skills_match", "experience_match", "destination_fit",
+            "availability_fit", "document_readiness"} <= asked
+
+    bare = normalize_job_order({"id": "JO-1", "title": "Helper", "status": "OPEN"})
+    asked = set(question_schema.build_questions(bare))
+    assert {"skills_match", "destination_fit", "availability_fit"}.isdisjoint(asked)
+
+    licensed = normalize_job_order({**ORDER, "requiredLicences": ["MOM welder"]})
+    assert "qualifications_match" in question_schema.build_questions(licensed)
+
+
+def test_empty_order_fields_are_not_sent(api):
+    run_match(api)
+    order_state = api.fake.calls[0]["state"]["job_order"]
+    assert "salary_offered" not in order_state and "required_licences" not in order_state
+    assert order_state["required_skills"] == ["TIG Welding"]
+
+
+def test_results_do_not_expire_by_default(api):
+    run_match(api)
+    api.db[store.MATCHES].update_many({}, {"$set": {"evaluated_at": datetime(2020, 1, 1)}})
+    calls = len(api.fake.calls)
+    run_match(api)
+    assert len(api.fake.calls) == calls
+
+
+def test_the_sweep_skips_orders_nobody_has_opened(api):
+    add_order(api, id="JO-8", title="Pipe fitter", designation="Pipe Fitter", skills=["Pipe fitting"])
+    with patch.object(settings, "jev_auto_match_active_days", 7):
+        assert autorun.sweep()["orders"] == 0
+        api.post("/job-orders/JO-8/matching/preload")  # somebody opens JO-8
+        calls = len(api.fake.calls)
+        summary = autorun.sweep()
+    assert summary["orders"] == 1 and summary["runs"] == 0  # JO-8 was matched as it opened
+    assert len(api.fake.calls) == calls and runs_on(api, "JO-7") == []
+
+
+def test_edits_settle_before_an_order_is_rematched(api):
+    with patch.object(autorun, "enabled", return_value=True), \
+         patch.object(settings, "jev_auto_match_edit_delay_seconds", 600):
+        for skills in (["TIG Welding"], ["TIG Welding", "Pipe fitting"], ["Pipe fitting"]):
+            api.put("/job-orders/JO-7", json={**ORDER, "skills": skills})
+        assert runs_on(api) == []  # nothing yet: still inside the settle window
+        assert autorun.sweep()["orders"] == 0  # and the sweep leaves it alone too
+        assert list(autorun._pending_saves) == ["JO-7"]  # one pending run, not three
+        timer = autorun._pending_saves["JO-7"]
+        timer.cancel()
+        timer.function()  # the window closes
+    assert len(runs_on(api)) == 1

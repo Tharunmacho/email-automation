@@ -47,6 +47,9 @@ class StartRunRequest(BaseModel):
     #: Re-ask Jev even where a stored result is still valid. Costs money; the
     #: default reuses every result whose inputs have not changed.
     force: bool = False
+    #: Let the free check skip clear non-matches. False is "Check with Jev":
+    #: candidates it skipped are sent too.
+    screen: bool = True
 
 
 class ReviewRequest(BaseModel):
@@ -122,7 +125,7 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
     # Counted over the pool only. Somebody scored and then submitted is no
     # longer a match to act on, and must not keep inflating "Strong matches".
     pool_ids = _ids_in_pool(store.candidate_ids(entries))
-    evaluated = 0
+    evaluated = screened = 0
     for entry in entries:
         if entry["candidate_id"] not in pool_ids:
             continue
@@ -130,6 +133,8 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
         if result:
             counts[result.get("category", scoring.LOW)] = counts.get(result.get("category"), 0) + 1
             evaluated += 1
+            if result.get("status") == store.SCREENED:
+                screened += 1
         elif entry["failure"]:
             failed += 1
 
@@ -143,6 +148,8 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
     coverage = {
         "pool": pool,
         "evaluated": evaluated,
+        # Of `evaluated`, decided by the free check without a Jev call.
+        "screened": screened,
         "failed": failed,
         "not_evaluated": max(0, pool - evaluated - failed),
         # What a configured cap left out of the last full run. Zero by default.
@@ -175,6 +182,8 @@ def preload_matching(order_id: str, user: dict = Depends(_job_orders)) -> dict:
     A run already in progress is returned as it is, not refused.
     """
     order = _order_or_404(order_id)
+    # Opening an order is what keeps it in the background sweep.
+    store.touch(order_id, store.VIEWED)
     try:
         outcome = autorun.catch_up(order, user=user, trigger=runner.TRIGGER_OPEN)
     except jev.JevNotConfigured as exc:
@@ -194,7 +203,7 @@ def latest_matching_run(order_id: str, _user: dict = Depends(_job_orders)) -> di
 @router.post("/{order_id}/matching/runs", status_code=202)
 def start_matching(order_id: str, payload: StartRunRequest, user: dict = Depends(_job_orders)) -> dict:
     order = _order_or_404(order_id)
-    return _start(order, user, mode=payload.mode, force=payload.force)
+    return _start(order, user, mode=payload.mode, force=payload.force, screen=payload.screen)
 
 
 @router.get("/{order_id}/matching/runs/{run_id}")
@@ -218,7 +227,7 @@ def retry_matching(order_id: str, run_id: str, user: dict = Depends(_job_orders)
         raise HTTPException(status_code=409, detail="This run is still in progress")
     order = _order_or_404(order_id)
     return _start(order, user, mode=previous.get("mode") or runner.MODE_MATCH,
-                  candidate_ids=previous.get("candidate_ids"))
+                  candidate_ids=previous.get("candidate_ids"), screen=previous.get("screen", True))
 
 
 # --------------------------------------------------------------------------- #
@@ -292,7 +301,8 @@ def _row_view(
         "experience_years": experience_years(candidate or {}),
         "experience_band": profile.get("total_experience_band") or "",
         "candidate_missing": candidate is None,
-        "status": "scored" if result else "failed",
+        "status": (result.get("status") or store.SCORED) if result else "failed",
+        "screen": (result or {}).get("screen"),
         "score": (result or {}).get("score"),
         "category": (result or {}).get("category"),
         "category_label": scoring.CATEGORY_LABELS.get((result or {}).get("category"), "Not evaluated"),
@@ -433,7 +443,10 @@ def refresh_match(
     force: bool = Query(default=False),
     user: dict = Depends(_job_orders),
 ) -> dict:
-    """Re-evaluate one candidate. A no-op cache hit if nothing it depends on changed."""
+    """Re-evaluate one candidate. A no-op cache hit if nothing it depends on changed.
+
+    `force` re-asks Jev, and also sends a candidate the free check skipped.
+    """
     order = _order_or_404(order_id)
     if candidate_id not in _ids_in_pool([candidate_id]):
         raise HTTPException(
@@ -442,7 +455,7 @@ def refresh_match(
         )
     spec = normalize_job_order(order)
     return _start(order, user, mode=runner.MODE_REMATCH if not spec.is_active else runner.MODE_REFRESH,
-                  candidate_ids=[candidate_id], force=force)
+                  candidate_ids=[candidate_id], force=force, screen=not force)
 
 
 @router.put("/{order_id}/matching/results/{candidate_id}/review")

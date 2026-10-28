@@ -42,9 +42,11 @@ skipped in memory — no Jev call and no database write.
 | `JEV_RETRY_BACKOFF_SECONDS` | `0.5` | Base backoff |
 | `JEV_MAX_CONCURRENCY` | `4` | Requests in flight, process-wide |
 | `JEV_MAX_CANDIDATES_PER_RUN` | `0` | Optional ceiling per run. `0` = every eligible candidate is sent to Jev. A cap is reported on the run (`skipped`) and on screen. |
-| `JEV_RESULT_TTL_HOURS` | `336` | Re-ask after this long even if nothing changed (picks up a moved alias) |
+| `JEV_RESULT_TTL_HOURS` | `0` | Re-ask after this long even if nothing changed. `0` = never: only a changed order or CV is re-sent |
 | `JEV_AUTO_MATCH` | `true` | Keep every open order analysed in the background. `false` = only when a recruiter presses the button |
 | `JEV_AUTO_MATCH_INTERVAL_SECONDS` | `300` | How often the background sweep looks for new or changed candidates |
+| `JEV_AUTO_MATCH_ACTIVE_DAYS` | `7` | The sweep covers only orders opened or edited in this many days. `0` = every open order |
+| `JEV_AUTO_MATCH_EDIT_DELAY_SECONDS` | `600` | After an order is saved, wait this long for further edits before re-matching it |
 
 ## MongoDB
 
@@ -114,9 +116,18 @@ One result row:
 | Question | Type | Notes |
 |---|---|---|
 | `role_relevance`, `skills_match`, `experience_match`, `qualifications_match`, `document_readiness`, `evidence_quality` | score, 5 levels | level 0 is always "the record does not say" and is treated as *no evidence*, not a low mark |
-| `salary_fit`, `destination_fit`, `availability_fit` | choice | each has `not_stated` |
-| `equivalent_title`, `conflicting_evidence` | noul | conflict ≥ 0.5 → manual review |
+| `destination_fit`, `availability_fit` | choice | each has `not_stated` |
+| `conflicting_evidence` | noul | conflict ≥ 0.5 → manual review |
 | `requirement__{n}` (one per mandatory requirement) | choice: `satisfied` / `not_satisfied` / `unknown` | `satisfied` below 0.6 confidence counts as `unknown` |
+
+**Only what the score uses is asked.** The questions are most of each request's tokens and
+repeat for every candidate, so a question is sent only when its answer can reach the score:
+`skills_match` when the order lists skills, `qualifications_match` when it names a licence or
+certification, `destination_fit` / `availability_fit` when it states a destination / date.
+`salary_fit` (candidates carry no pay data, so it was always "not stated") and
+`equivalent_title` (used by no score) are not sent. Empty order fields are left out of the
+state. None of this changes a score, so the schema version is unchanged and nothing is
+re-bought. About 20–25% fewer tokens per request.
 
 Never sent: name, email, phone(s), passport number, licence numbers, addresses, profile
 URLs, raw OCR. Passport is sent as "on file" + expiry date only. Enforced on every request
@@ -176,6 +187,34 @@ candidate**: about **$0.09 per 1,000 candidates** on a first run. Larger profile
 work histories) cost proportionally more; re-runs with unchanged inputs cost nothing, so
 after the first run only new or changed candidates are paid for.
 
+What keeps it down:
+
+| Lever | Saves |
+|---|---|
+| Free check before Jev (below) | every clear non-match: no call at all |
+| Only used questions, no empty fields | ~20–25% of every request |
+| Sweep only orders opened/edited in 7 days | everything for orders nobody is working on |
+| Edits settle 10 min before a re-match | one full-pool re-run per burst of edits, not one per save |
+| No age-based expiry (`JEV_RESULT_TTL_HOURS=0`) | the fortnightly full re-run of every open order |
+
+## The free check before Jev (`app/matching/screen.py`)
+
+Two rules decide a candidate without a call, each only where Jev could not have shortlisted
+them either:
+
+| Rule | When | Stored as |
+|---|---|---|
+| `below_experience` | the order sets a minimum, the record states fewer years (a figure, or a band whose top is below it), and the dated work history does not show more | `ineligible`, the minimum listed as not met |
+| `different_trade` | the record names a trade that is neither the order's nor a related one, and nothing on record mentions the order's trade, a related trade, a role word or a skill | `low_match` |
+
+Always sent to Jev: a record with no recognisable title, a generic one ("helper"), an order
+whose trade is not in the table, anyone with any overlap. A fabricator for a welder order is
+a *related* trade and is read by Jev.
+
+Skipped candidates stay on the shortlist with the reason, are counted ("Checked: X of Y · N by
+the free check"), and **Check them with Jev** (`POST …/runs` with `"screen": false`) or a
+candidate's **Check with Jev** sends them anyway; Jev's answer then stays.
+
 ## Preloading (`app/matching/autorun.py`)
 
 Nobody has to ask for an analysis. Three things start one, each recorded on the run as
@@ -183,7 +222,7 @@ its `trigger`:
 
 | Trigger | When | |
 |---|---|---|
-| `auto` | every `JEV_AUTO_MATCH_INTERVAL_SECONDS` (5 min), and as soon as a job order is created or saved | the sweep walks the open orders newest first, one at a time |
+| `auto` | every `JEV_AUTO_MATCH_INTERVAL_SECONDS` (5 min), and 10 min after a job order is created or saved (each further save restarts the wait) | the sweep walks the open orders opened or edited in the last 7 days, newest first, one at a time |
 | `open` | a recruiter opens the order's panel | catches up whatever the sweep has not reached yet |
 | `user` | a recruiter presses Re-run / Retry / Re-check | as before |
 
@@ -200,10 +239,10 @@ non-retryable one, so a broken record is not re-sent every five minutes. They sh
 The panel follows a background run as it goes (one small read every 30 seconds while
 idle) and only announces runs a recruiter started.
 
-**Cost.** Preloading pays for every open order, opened or not: roughly $0.09 per 1,000
-candidates per order on the first pass, then only for what changes. Twenty open orders
-over a pool of 3,000 is about $5.40 once. Set `JEV_AUTO_MATCH=false` to go back to
-on-demand matching.
+**Cost.** Preloading pays only for orders in use — opened or edited in the last
+`JEV_AUTO_MATCH_ACTIVE_DAYS` — and, within them, only for candidates the free check does
+not decide. Opening an untouched order brings it up to date and puts it back in the sweep.
+Set `JEV_AUTO_MATCH=false` to go back to on-demand matching.
 
 **Never in tests.** The sweep and the save hook check `_under_test()`, so the suite can
 never reach the vendor.
@@ -223,9 +262,10 @@ Nothing else. Candidates a recruiter entered without a CV are analysed (a thin r
 lands in manual review). A candidate released back to `available` (rejected, offer
 declined) rejoins the pool and is analysed again.
 
-Every candidate in the pool is sent to Jev; the keyword baseline only decides the *order*
-they are evaluated in (best first, so useful rows appear early in a long run). It never
-decides *whether*.
+Every candidate in the pool is considered. The free check (above) decides clear
+non-matches without a call; everyone else is sent to Jev. The keyword baseline only decides
+the *order* they are evaluated in (best first, so useful rows appear early in a long run),
+never *whether*.
 
 The shortlist, its category counts and its coverage show pool candidates only: someone
 scored and then submitted leaves the AI list at once (the keyword section's "Submitted"

@@ -1945,11 +1945,11 @@ def list_job_order_candidate_pool(
 
 
 def _match_saved_order(order_id: str | None) -> None:
-    """Analyse a new or edited order now rather than at the next sweep."""
+    """Re-match a new or edited order once its edits have settled."""
     try:
         from app.matching import autorun
 
-        autorun.nudge(order_id)
+        autorun.order_saved(order_id)
     except Exception as exc:  # noqa: BLE001 — saving the order is what was asked
         log.warning("Could not start matching for job order %s: %s", order_id, exc)
 

@@ -263,11 +263,14 @@ class Settings(BaseSettings):
     #: to bound the duration of a first run on a very large pool; whatever it
     #: leaves out is reported on the run and on the screen, never hidden.
     jev_max_candidates_per_run: int = 0
-    #: Evaluations older than this are recomputed even when nothing else
-    #: changed, so a model alias that moved underneath us is eventually picked
-    #: up. Everything that changes a score deliberately — the order, the
-    #: profile, the weights, the schema — is already in the cache key.
-    jev_result_ttl_hours: int = 24 * 14
+    #: Re-ask Jev about a result this old even when nothing changed. 0, the
+    #: default, never does: everything that changes a score — the order, the
+    #: profile, the weights, the schema, the model setting — is already in the
+    #: cache key, so an age limit only ever re-bought the same answer. (It used
+    #: to be 14 days, which re-sent the whole pool for every open order twice
+    #: a month.) The one thing it caught is `jev-latest` moving to a new model;
+    #: that now reaches a candidate when their record or the order changes.
+    jev_result_ttl_hours: int = 0
     #: Keep every open job order's shortlist up to date in the background, so
     #: a recruiter opening an order finds it already analysed instead of
     #: pressing a button and waiting. A sweep over the open orders sends only
@@ -275,9 +278,16 @@ class Settings(BaseSettings):
     #: order — and an order with nothing new costs one Mongo read and no Jev
     #: call. Off means matching runs only when somebody presses the button.
     jev_auto_match: bool = True
-    #: How often that sweep runs. Saving a job order does not wait for it:
-    #: the order is brought up to date straight away.
+    #: How often that sweep runs.
     jev_auto_match_interval_seconds: int = 300
+    #: The sweep covers only orders somebody opened or edited in this many
+    #: days. An order nobody is working on costs nothing; it is brought up to
+    #: date the moment its panel is opened again. 0 sweeps every open order.
+    jev_auto_match_active_days: int = 7
+    #: After a job order is saved, wait this long for the edits to settle
+    #: before re-matching it. Five quick edits are one run, not five — each
+    #: run re-sends the whole pool for that order.
+    jev_auto_match_edit_delay_seconds: int = 600
 
 
 

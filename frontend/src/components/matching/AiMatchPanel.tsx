@@ -295,11 +295,11 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
     };
   }, [configured, loadAll, orderId, runActive, runId, runStatus]);
 
-  const begin = async (mode: "match" | "rematch" = "match", force = false) => {
+  const begin = async (mode: "match" | "rematch" = "match", force = false, screen = true) => {
     setStarting(true);
     setError("");
     try {
-      const next = await startMatching(orderId, { mode, force });
+      const next = await startMatching(orderId, { mode, force, screen });
       setRun(next);
       say(`Started ${mode === "rematch" ? "a historical rematch" : "AI matching"} for ${order.title}.`, "info");
     } catch (err) {
@@ -342,7 +342,7 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
   const evaluated = counts ? Object.values(counts).reduce((sum, value) => sum + value, 0) : 0;
   // Measured over what is actually being sent: results that were already
   // current are counted as cached from the start and are not "progress".
-  const toCheck = run ? Math.max(0, run.considered - run.cached) : 0;
+  const toCheck = run ? Math.max(0, run.considered - run.cached - (run.screened ?? 0)) : 0;
   const checked = run ? run.scored + run.failed : 0;
   const progress = toCheck ? Math.min(100, Math.round((checked / toCheck) * 100)) : 0;
   const pageCount = page ? Math.max(1, Math.ceil(page.total / (page.page_size || PAGE_SIZE))) : 1;
@@ -427,6 +427,7 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
             </span>
             <span className="aim-quiet">
               {`${formatInt(run.retrieved)} not yet submitted · ${formatInt(run.cached)} already up to date`}
+              {(run.screened ?? 0) > 0 && ` · ${formatInt(run.screened ?? 0)} skipped by the free check`}
               {run.skipped > 0 && ` · ${formatInt(run.skipped)} left out by the configured cap`}
               {run.trigger && run.trigger !== "user" && " · started automatically"}
             </span>
@@ -468,6 +469,25 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
         </div>
       )}
 
+      {/* Skipped by the free check is not the same as checked by Jev, and
+          the recruiter can always overrule it. */}
+      {coverage && coverage.screened > 0 && !runActive && (
+        <div className="aim-notice is-info">
+          <FileCheck2 size={16} />
+          <span>
+            {formatInt(coverage.screened)} candidate{coverage.screened === 1 ? " was" : "s were"} not sent to Jev: the
+            free check found a different trade, or experience on record below this order&apos;s minimum. They are in
+            the list as low match or ineligible, with the reason.
+          </span>
+          {state?.configured && (
+            <button type="button" className="ds-ghost-btn aim-notice-action" disabled={starting}
+              onClick={() => begin(state.active ? "match" : "rematch", false, false)}>
+              <Sparkles size={14} /> Check them with Jev
+            </button>
+          )}
+        </div>
+      )}
+
       {counts && evaluated > 0 && (
         <div className="stat-tiles">
           <StatTile tone="green" icon={BadgeCheck} label="Strong matches" value={formatInt(counts.strong_match)}
@@ -477,11 +497,13 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
           <StatTile tone="red" icon={CircleX} label="Ineligible" value={formatInt(counts.ineligible)}
             note="Verified mandatory requirement not met" />
           <StatTile tone={coverage && coverage.not_evaluated > 0 ? "yellow" : "slate"} icon={FileCheck2}
-            label="Checked by Jev"
+            label="Checked"
             value={coverage ? `${formatInt(coverage.evaluated)} of ${formatInt(coverage.pool)}` : formatInt(evaluated)}
-            note={coverage && coverage.not_evaluated === 0
-              ? "Everyone not yet submitted"
-              : run ? `Last run ${formatWhen(run.finished_at || run.created_at)} · $${(run.cost_usd || 0).toFixed(4)}` : "—"} />
+            note={coverage && coverage.screened > 0
+              ? `${formatInt(coverage.evaluated - coverage.screened)} by Jev · ${formatInt(coverage.screened)} by the free check`
+              : coverage && coverage.not_evaluated === 0
+                ? "Everyone not yet submitted"
+                : run ? `Last run ${formatWhen(run.finished_at || run.created_at)} · $${(run.cost_usd || 0).toFixed(4)}` : "—"} />
         </div>
       )}
 
@@ -559,7 +581,7 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
               </thead>
               <tbody>
                 {page.items.map((row) => {
-                  const gaps = [...row.failed_requirements, ...row.unverified_requirements,
+                  const gaps = row.screen ? [row.screen.reason] : [...row.failed_requirements, ...row.unverified_requirements,
                     ...row.skills_without_evidence.map((skill) => `${skill} (no evidence)`)];
                   return (
                     <tr key={row.candidate_id} className="is-clickable" tabIndex={0}
@@ -585,6 +607,8 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
                       <td data-label="Matching score" title={SCORE_HINT}>
                         {row.status === "failed" ? (
                           <Pill tone="bad">Not evaluated</Pill>
+                        ) : row.status === "screened" ? (
+                          <Pill tone="quiet">Free check</Pill>
                         ) : (
                           <span className={`aim-score ${row.category === "ineligible" ? "is-struck" : ""}`}>
                             {row.score?.toFixed(0)}
@@ -767,6 +791,12 @@ function MatchExplanationDialog({
                       {detail.status === "scored" ? " The score shown is from the previous successful evaluation." : ""}
                     </p>
                   )}
+                  {detail.status === "screened" && detail.screen && (
+                    <p className="aim-inline-warn">
+                      <FileCheck2 size={13} /> Not sent to Jev — {detail.screen.reason}. Use &ldquo;Check with
+                      Jev&rdquo; below to have this candidate read anyway.
+                    </p>
+                  )}
                   {(detail.stale.order_changed || detail.stale.candidate_changed) && (
                     <p className="aim-inline-warn">
                       <History size={13} /> {detail.stale.order_changed ? "The job order" : "This candidate's profile"} changed
@@ -785,7 +815,11 @@ function MatchExplanationDialog({
               <section>
                 <h3 className="aim-h3">Mandatory requirements</h3>
                 {detail.requirements.length === 0 ? (
-                  <p className="aim-quiet">This order states no mandatory requirement.</p>
+                  <p className="aim-quiet">
+                    {detail.status === "screened"
+                      ? "Not checked one by one: the free check decided this candidate without Jev."
+                      : "This order states no mandatory requirement."}
+                  </p>
                 ) : (
                   <ul className="aim-list">
                     {detail.requirements.map((item) => (
@@ -801,23 +835,24 @@ function MatchExplanationDialog({
                 )}
               </section>
 
-              <section>
-                <h3 className="aim-h3">How the score was built</h3>
-                <table className="aim-components">
-                  <tbody>
-                    {detail.components.map((component) => (
-                      <tr key={component.key}>
-                        <th scope="row">{COMPONENT_LABEL[component.key] ?? component.key}</th>
-                        <td className="aim-quiet">{Math.round(component.weight * 100)}%</td>
-                        <td>
-                          {!component.applicable ? (
-                            <span className="aim-quiet">Not asked by this order</span>
-                          ) : component.unknown ? (
-                            <Pill tone="warn">No evidence on file</Pill>
-                          ) : (
-                            <span className="aim-bar" aria-label={`${Math.round((component.value ?? 0) * 100)} of 100`}>
-                              <span style={{ width: `${Math.round((component.value ?? 0) * 100)}%` }} />
-                            </span>
+              {detail.components.length > 0 && (
+                <section>
+                  <h3 className="aim-h3">How the score was built</h3>
+                  <table className="aim-components">
+                    <tbody>
+                      {detail.components.map((component) => (
+                        <tr key={component.key}>
+                          <th scope="row">{COMPONENT_LABEL[component.key] ?? component.key}</th>
+                          <td className="aim-quiet">{Math.round(component.weight * 100)}%</td>
+                          <td>
+                            {!component.applicable ? (
+                              <span className="aim-quiet">Not asked by this order</span>
+                            ) : component.unknown ? (
+                              <Pill tone="warn">No evidence on file</Pill>
+                            ) : (
+                              <span className="aim-bar" aria-label={`${Math.round((component.value ?? 0) * 100)} of 100`}>
+                                <span style={{ width: `${Math.round((component.value ?? 0) * 100)}%` }} />
+                              </span>
                           )}
                         </td>
                       </tr>
@@ -825,6 +860,7 @@ function MatchExplanationDialog({
                   </tbody>
                 </table>
               </section>
+              )}
 
               <section>
                 <h3 className="aim-h3">Evidence from the candidate record</h3>
@@ -889,7 +925,7 @@ function MatchExplanationDialog({
             </button>
           )}
           <button type="button" className="modal-cancel-btn" onClick={recheck} disabled={busy}>
-            <RefreshCw size={14} /> Re-check with Jev
+            <RefreshCw size={14} /> {detail?.status === "screened" ? "Check with Jev" : "Re-check with Jev"}
           </button>
           <button type="button" className="modal-cancel-btn" onClick={onClose} disabled={busy}>Close</button>
         </div>

@@ -22,6 +22,16 @@ options: `satisfied`, `not_satisfied`, `unknown`. That triple is the whole
 eligibility rule — a requirement the record cannot answer comes back `unknown`
 and sends the candidate to manual review. It never passes.
 
+**Only what the score uses is asked.** Questions repeat on every request and
+are most of its tokens, so a question whose answer cannot reach the score is
+not sent: qualifications when the order names no licence or certification,
+skills when it lists none, destination and start date when it states neither,
+salary always (no candidate record carries pay, so the answer was always "not
+stated" — exactly what an absent answer already means to scoring), and the
+equivalent-title signal (shown in no score or category). Leaving them out
+changes no stored or future score, so the schema version is unchanged and no
+result is re-bought.
+
 Every instruction says, in the words the vendor's docs use for rubrics, that
 the answer must rest on what the record states. A model cannot be prevented
 from being wrong, but it can be denied the invitation to fill a gap: that is
@@ -76,33 +86,38 @@ def build_state(spec: MatchSpec, candidate: Dict[str, Any]) -> Dict[str, Any]:
 
     Structured rather than prose: the questions below name `job_order.skills`
     and `candidate.work_experience`, and a field name is only worth anything if
-    it survives into the thing being read.
+    it survives into the thing being read. Empty order fields are left out:
+    they are tokens on every request that tell the model nothing.
     """
+    job_order = {
+        "role": spec.designation or spec.title,
+        "title": spec.title,
+        "industry": spec.industry,
+        "destination_country": spec.destination_country,
+        "required_skills": list(spec.required_skills),
+        "preferred_skills": list(spec.preferred_skills),
+        "minimum_experience_years": spec.min_experience_years,
+        "minimum_experience_text": spec.min_experience_text,
+        "salary_offered": spec.salary_text,
+        "currency": spec.currency,
+        "required_licences": list(spec.required_licences),
+        "required_certifications": list(spec.required_certifications),
+        "required_documents": list(spec.required_documents),
+        "work_eligibility": spec.work_eligibility,
+        "availability_needed_by": spec.availability_by or spec.due_date,
+        "description": spec.description,
+    }
     return {
-        "job_order": {
-            "role": spec.designation or spec.title,
-            "title": spec.title,
-            "industry": spec.industry,
-            "destination_country": spec.destination_country,
-            "required_skills": list(spec.required_skills),
-            "preferred_skills": list(spec.preferred_skills),
-            "minimum_experience_years": spec.min_experience_years,
-            "minimum_experience_text": spec.min_experience_text,
-            "salary_offered": spec.salary_text,
-            "currency": spec.currency,
-            "required_licences": list(spec.required_licences),
-            "required_certifications": list(spec.required_certifications),
-            "required_documents": list(spec.required_documents),
-            "work_eligibility": spec.work_eligibility,
-            "availability_needed_by": spec.availability_by or spec.due_date,
-            "description": spec.description,
-        },
+        "job_order": {key: value for key, value in job_order.items() if value not in (None, "", [], {})},
         "candidate": candidate,
     }
 
 
 def build_questions(spec: MatchSpec) -> Dict[str, Any]:
-    """Every question asked about this pair, keyed by the id answers come back under."""
+    """Every question asked about this pair, keyed by the id answers come back under.
+
+    Only the ones this order's score can use; see the module docstring.
+    """
     questions: Dict[str, Any] = {
         "role_relevance": _score_question(
             "How relevant the candidate's occupational history in `candidate` is to "
@@ -224,6 +239,19 @@ def build_questions(spec: MatchSpec) -> Dict[str, Any]:
             "does not support.",
         ),
     }
+
+    # Not sent when nothing in the score reads the answer.
+    unused = {"salary_fit", "equivalent_title"}
+    if not spec.required_skills:
+        unused.add("skills_match")
+    if not (spec.required_licences or spec.required_certifications):
+        unused.add("qualifications_match")
+    if not spec.destination_country:
+        unused.add("destination_fit")
+    if not (spec.availability_by or spec.due_date):
+        unused.add("availability_fit")
+    for key in unused:
+        questions.pop(key, None)
 
     for index, requirement in enumerate(spec.mandatory_requirements):
         questions[f"{REQUIREMENT_PREFIX}{index}"] = _choice_question(

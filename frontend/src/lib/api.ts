@@ -1685,12 +1685,17 @@ export function fetchMatchingState(orderId: string): Promise<MatchingState> {
 
 export function startMatching(
   orderId: string,
-  options: { mode?: "match" | "rematch"; force?: boolean } = {},
+  options: { mode?: "match" | "rematch"; force?: boolean; screen?: boolean } = {},
 ): Promise<MatchRun> {
   return request(`${matchingBase(orderId)}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode: options.mode ?? "match", force: options.force ?? false }),
+    body: JSON.stringify({
+      mode: options.mode ?? "match",
+      force: options.force ?? false,
+      // false sends the candidates the free check would skip as well.
+      screen: options.screen ?? true,
+    }),
   });
 }
 

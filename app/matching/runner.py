@@ -1,8 +1,9 @@
 """The matching job: from "Find Matching Candidates" to a stored shortlist.
 
     start_run       validate the order, take the per-order lock, queue the job
-    plan            which candidates are already current, which need Jev
-    execute         retrieve -> plan -> evaluate each -> score -> store
+    plan            which candidates are already current, which the free
+                    check can decide, which need Jev
+    execute         retrieve -> plan -> screen / evaluate each -> score -> store
 
 Runs start three ways, recorded as the run's `trigger`: a recruiter pressing
 a button (`user`), the panel opening on an order with something new to check
@@ -37,13 +38,13 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.logging_config import get_logger
-from app.matching import jev, prefilter, scoring, store
+from app.matching import jev, prefilter, scoring, screen as screening, store
 from app.matching.evidence import (
     assert_no_identifiers,
     candidate_state,
@@ -51,7 +52,13 @@ from app.matching.evidence import (
     excerpt_for,
 )
 from app.matching.prefilter import Baseline
-from app.matching.questions import DECISION_SCHEMA_VERSION, build_questions, build_state, read_answers
+from app.matching.questions import (
+    DECISION_SCHEMA_VERSION,
+    NOT_SATISFIED,
+    build_questions,
+    build_state,
+    read_answers,
+)
 from app.matching.spec import MatchSpec, normalize_job_order, spec_fingerprint
 
 log = get_logger(__name__)
@@ -105,11 +112,14 @@ def start_run(
     force: bool = False,
     trigger: str = TRIGGER_USER,
     wait: bool = False,
+    screen: bool = True,
 ) -> Dict[str, Any]:
     """Validate, lock and queue a run. Returns the run document.
 
     `wait` executes it on the calling thread instead of a new one — the
     background sweep, which works through the open orders one at a time.
+    `screen=False` sends everybody to Jev, including candidates the free
+    check would skip ("Check with Jev").
 
     Raises `jev.JevNotConfigured`, `OrderInactive`, or `store.RunConflict`; the
     API turns each into its own status code and explanation.
@@ -127,6 +137,7 @@ def start_run(
     run = store.create_run(spec.order_id, {
         "mode": mode,
         "trigger": trigger,
+        "screen": bool(screen),
         "historical": not spec.is_active,
         "force": bool(force),
         "candidate_ids": list(candidate_ids or []) or None,
@@ -142,7 +153,8 @@ def start_run(
     run.pop("active_lock", None)
 
     def work() -> None:
-        execute(run_id, order, candidate_ids=candidate_ids, force=force, auto=trigger != TRIGGER_USER)
+        execute(run_id, order, candidate_ids=candidate_ids, force=force,
+                auto=trigger != TRIGGER_USER, screen=screen)
 
     if wait:
         work()
@@ -152,6 +164,9 @@ def start_run(
 
 
 def _expired(result: Dict[str, Any]) -> bool:
+    """Past `jev_result_ttl_hours`. Never, when that is 0 (the default)."""
+    if settings.jev_result_ttl_hours <= 0:
+        return False
     evaluated = result.get("evaluated_at")
     if not isinstance(evaluated, datetime):
         return True
@@ -180,6 +195,12 @@ class Plan:
     skipped: int
     #: Held back by an automatic run because Jev has just failed on them.
     deferred: int
+    #: Not current, but decided by the free check — stored without a Jev call.
+    screened: List[Tuple[Dict[str, Any], Baseline, screening.Screened]] = field(default_factory=list)
+
+    @property
+    def needs_run(self) -> bool:
+        return bool(self.pending or self.screened)
 
 
 def plan(
@@ -189,13 +210,18 @@ def plan(
     *,
     force: bool = False,
     auto: bool = False,
+    screen: bool = True,
 ) -> Plan:
-    """Split the pool into what is already current and what needs Jev.
+    """Split the pool into what is current, what the free check decides, and
+    what needs Jev.
 
     Two reads for the whole order — the current keys and the failures — and
     the rest in memory. This is what makes the background sweep cheap: an
     order where nothing changed comes back with nothing pending, and no run
     is made for it at all.
+
+    With `screen=False` a candidate the free check skipped earlier is not
+    current any more: they are what "Check with Jev" is asking about.
     """
     spec_fp = spec_fingerprint(spec)
     current = {} if force else store.current_keys(spec.order_id)
@@ -205,7 +231,9 @@ def plan(
 
     def is_current(candidate_id: str) -> bool:
         mine = current.get(candidate_id)
-        return bool(mine) and mine.get("cache_key") == keys[candidate_id] and not _expired(mine)
+        if not mine or mine.get("cache_key") != keys[candidate_id] or _expired(mine):
+            return False
+        return screen or mine.get("status") != store.SCREENED
 
     def held_back(candidate_id: str) -> bool:
         failure = failures.get((candidate_id, keys[candidate_id]))
@@ -215,9 +243,63 @@ def plan(
 
     eligible = [row for row in rows if not held_back(str(row.get("id") or ""))]
     shortlist = prefilter.shortlist_for_jev(spec, eligible, settings.jev_max_candidates_per_run)
-    pending = [(row, base) for row, base in shortlist if not is_current(str(row["id"]))]
-    return Plan(shortlist=shortlist, pending=pending, reused=len(shortlist) - len(pending),
-                skipped=len(eligible) - len(shortlist), deferred=len(rows) - len(eligible))
+    stale = [(row, base) for row, base in shortlist if not is_current(str(row["id"]))]
+    pending, screened = screening.screen_all(spec, stale) if screen else (stale, [])
+    return Plan(shortlist=shortlist, pending=pending, reused=len(shortlist) - len(stale),
+                skipped=len(eligible) - len(shortlist), deferred=len(rows) - len(eligible),
+                screened=screened)
+
+
+def save_screened(
+    spec: MatchSpec,
+    config: scoring.ScoringConfig,
+    row: Dict[str, Any],
+    base: Baseline,
+    verdict: screening.Screened,
+    *,
+    run_id: str,
+    spec_fp: str,
+) -> None:
+    """Store the free check's verdict as the candidate's current result.
+
+    Shaped like a Jev result so the shortlist, filters and counts treat it the
+    same — but with no score, because no score was computed, and with the
+    reason in place of an evaluation.
+    """
+    failed = [verdict.failed_requirement] if verdict.failed_requirement else []
+    requirements = [
+        {"key": item.key, "label": item.label, "status": NOT_SATISFIED, "confidence": 1.0,
+         "source": item.source}
+        for item in spec.mandatory_requirements if item.label in failed
+    ]
+    store.save_scored({
+        "job_order_id": spec.order_id,
+        "candidate_id": str(row["id"]),
+        "cache_key": _key(spec_fp, config, row),
+        "run_id": run_id,
+        "spec_fingerprint": spec_fp,
+        "evidence_fingerprint": evidence_fingerprint(row),
+        "scoring_version": config.version,
+        "schema_version": DECISION_SCHEMA_VERSION,
+        "model_requested": settings.jev_model,
+        "model": None,
+        "historical": not spec.is_active,
+        "baseline": base.as_dict(),
+        "screen": verdict.as_dict(),
+        "score": None,
+        "category": verdict.category,
+        "category_label": scoring.CATEGORY_LABELS[verdict.category],
+        "components": [],
+        "matched_requirements": [],
+        "unverified_requirements": [],
+        "failed_requirements": failed,
+        "reasons": [verdict.reason, "Not sent to Jev: decided by the free check. "
+                                    "\"Check with Jev\" sends this candidate anyway."],
+        "evaluation": {"dimensions": {}, "requirements": requirements},
+        "evidence": _supporting_evidence(spec, row),
+        "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+        "evaluated_at": datetime.now(timezone.utc),
+    }, status=store.SCREENED)
 
 
 def _supporting_evidence(spec: MatchSpec, row: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -330,6 +412,7 @@ def execute(
     candidate_ids: Optional[List[str]] = None,
     force: bool = False,
     auto: bool = False,
+    screen: bool = True,
 ) -> None:
     """Drive one run to a terminal state. Never raises — the run records why."""
     from app.api import routes  # late: routes imports this package's router
@@ -341,19 +424,24 @@ def execute(
 
     try:
         rows = prefilter.retrieve(routes.repo(), spec, candidate_ids=candidate_ids)
-        work_plan = plan(spec, config, rows, force=force, auto=auto)
+        work_plan = plan(spec, config, rows, force=force, auto=auto, screen=screen)
         pool = work_plan.pending
+        # The free check's verdicts cost nothing and are stored first, so the
+        # shortlist is complete before the first Jev answer lands.
+        for row, base, verdict in work_plan.screened:
+            save_screened(spec, config, row, base, verdict, run_id=run_id, spec_fp=spec_fp)
         # `skipped` is what a configured cap left out. Zero unless an operator
         # set one, and recorded either way so the screen can say so. Results
         # that are already current count as processed from the start, so what
         # is left on the progress bar is only what is actually being sent.
         store.update_run(run_id, retrieved=len(rows), considered=len(work_plan.shortlist),
                          skipped=work_plan.skipped, deferred=work_plan.deferred,
-                         cached=work_plan.reused, processed=work_plan.reused)
-        log.info("Matching run %s on %s: %d retrieved, %d current, %d to evaluate, "
-                 "%d left out by the cap, %d held back after a recent failure",
-                 run_id, spec.order_id, len(rows), work_plan.reused, len(pool),
-                 work_plan.skipped, work_plan.deferred)
+                         screened=len(work_plan.screened), cached=work_plan.reused,
+                         processed=work_plan.reused + len(work_plan.screened))
+        log.info("Matching run %s on %s: %d retrieved, %d current, %d skipped by the free check, "
+                 "%d to evaluate, %d left out by the cap, %d held back after a recent failure",
+                 run_id, spec.order_id, len(rows), work_plan.reused, len(work_plan.screened),
+                 len(pool), work_plan.skipped, work_plan.deferred)
 
         if not pool:
             store.finish_run(run_id, store.RUN_COMPLETED)
