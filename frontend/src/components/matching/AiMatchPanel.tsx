@@ -1,8 +1,13 @@
 "use client";
 
 /**
- * AI matching for one job order: "Find Matching Candidates", the ranked
- * shortlist it produces, and the explanation behind each score.
+ * AI matching for one job order: the ranked shortlist, the explanation behind
+ * each score, and the controls to re-run it.
+ *
+ * Preloaded, not requested. The server keeps every open order current in the
+ * background (`app/matching/autorun.py`), and opening this panel catches up
+ * whatever the sweep has not reached yet — so the list is simply there, and
+ * the button is for a re-check, not the way in.
  *
  * Sits on the job-order detail screen above the keyword matches, which stay
  * exactly as they were — this is a second, explainable reading of the same
@@ -37,9 +42,11 @@ import { formatInt, initialsOf } from "@/lib/format";
 import {
   cancelMatchRun,
   fetchMatchExplanation,
+  fetchLatestMatchRun,
   fetchMatchingState,
   fetchMatchResults,
   fetchMatchRun,
+  preloadMatching,
   refreshMatch,
   retryMatchRun,
   reviewMatch,
@@ -108,6 +115,10 @@ const COMPONENT_LABEL: Record<string, string> = {
 
 const ACTIVE_RUN = new Set(["queued", "running"]);
 const POLL_MS = 2000;
+/** How often an idle panel looks for a run the background sweep started. */
+const IDLE_CHECK_MS = 30000;
+/** How often the list is re-read while a run is adding to it. */
+const LIVE_RELOAD_MS = 15000;
 const PAGE_SIZE = 15;
 
 const SCORE_HINT =
@@ -198,24 +209,38 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
     };
   }, [filters, orderId]);
 
-  // Poll the run while it is working. One small document every two seconds;
-  // the shortlist itself is re-read once, when the run reaches an end.
+  // Poll the run while it is working: one small document every two seconds.
+  // The shortlist is re-read every quarter minute while new scores are
+  // landing — a first analysis of a large pool takes a while, and the best
+  // keyword matches are scored first — and once more when the run ends.
   const runId = run?.id;
   const runActive = run ? ACTIVE_RUN.has(run.status) : false;
   useEffect(() => {
     if (!runId || !runActive) return;
     let alive = true;
+    let shownDone = 0;
+    let shownAt = Date.now();
     const timer = window.setInterval(async () => {
       try {
         const next = await fetchMatchRun(orderId, runId);
         if (!alive) return;
         setRun(next);
+        const done = next.scored + next.failed;
+        if (ACTIVE_RUN.has(next.status) && done > shownDone && Date.now() - shownAt >= LIVE_RELOAD_MS) {
+          shownDone = done;
+          shownAt = Date.now();
+          await loadAll();
+        }
         if (!ACTIVE_RUN.has(next.status)) {
           window.clearInterval(timer);
           await loadAll();
-          const failed = next.failed ? ` · ${formatInt(next.failed)} could not be evaluated` : "";
-          say(`Matching ${next.status} for ${order.title}: ${formatInt(next.scored + next.cached)} evaluated${failed}.`,
-            next.status === "completed" ? "success" : "warn");
+          // Announced only when somebody asked for it. A run that started on
+          // its own just updates the list in place.
+          if (!next.trigger || next.trigger === "user") {
+            const failed = next.failed ? ` · ${formatInt(next.failed)} could not be evaluated` : "";
+            say(`Matching ${next.status} for ${order.title}: ${formatInt(next.scored + next.cached)} evaluated${failed}.`,
+              next.status === "completed" ? "success" : "warn");
+          }
         }
       } catch {
         // A missed poll is not a failed run; the next tick tries again.
@@ -226,6 +251,49 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
       window.clearInterval(timer);
     };
   }, [loadAll, order.title, orderId, runActive, runId, say]);
+
+  // Opening the panel brings the order up to date: anything the background
+  // sweep has not reached yet — a candidate added a minute ago, an order just
+  // edited — is sent now, and only that. Once per order, and never while a
+  // run is already going.
+  const preloaded = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state || state.spec.order_id !== orderId || preloaded.current === orderId) return;
+    preloaded.current = orderId;
+    if (!state.configured || !state.active) return;
+    if (state.latest_run && ACTIVE_RUN.has(state.latest_run.status)) return;
+    preloadMatching(orderId)
+      .then(({ run: started }) => {
+        if (started && preloaded.current === orderId) setRun(started);
+      })
+      .catch(() => {
+        // Not fatal: the stored list is still on screen, and the coverage
+        // notice offers to check whatever is missing.
+      });
+  }, [orderId, state]);
+
+  // A panel left open notices a run the sweep started, follows it, and
+  // re-reads the list when it ends. One small read every half minute.
+  const runStatus = run?.status;
+  const configured = Boolean(state?.configured);
+  useEffect(() => {
+    if (runActive || !configured) return;
+    let alive = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const latest = await fetchLatestMatchRun(orderId);
+        if (!alive || !latest || (latest.id === runId && latest.status === runStatus)) return;
+        setRun(latest);
+        if (!ACTIVE_RUN.has(latest.status)) await loadAll();
+      } catch {
+        // A missed check is not an error; the next tick tries again.
+      }
+    }, IDLE_CHECK_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [configured, loadAll, orderId, runActive, runId, runStatus]);
 
   const begin = async (mode: "match" | "rematch" = "match", force = false) => {
     setStarting(true);
@@ -272,7 +340,11 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
   const counts = state?.counts;
   const coverage = state?.coverage;
   const evaluated = counts ? Object.values(counts).reduce((sum, value) => sum + value, 0) : 0;
-  const progress = run && run.considered ? Math.min(100, Math.round((run.processed / run.considered) * 100)) : 0;
+  // Measured over what is actually being sent: results that were already
+  // current are counted as cached from the start and are not "progress".
+  const toCheck = run ? Math.max(0, run.considered - run.cached) : 0;
+  const checked = run ? run.scored + run.failed : 0;
+  const progress = toCheck ? Math.min(100, Math.round((checked / toCheck) * 100)) : 0;
   const pageCount = page ? Math.max(1, Math.ceil(page.total / (page.page_size || PAGE_SIZE))) : 1;
   const activeFilters = ["category", "eligibility", "documents", "review", "skill", "min_experience"]
     .filter((key) => filters[key as keyof MatchResultFilters] !== undefined).length;
@@ -350,15 +422,13 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
               {run.status === "queued"
                 ? "Queued…"
                 : run.considered
-                  ? `Evaluating ${formatInt(run.processed)} of ${formatInt(run.considered)} shortlisted candidates`
+                  ? `Analysing ${formatInt(checked)} of ${formatInt(toCheck)} new or changed candidate${toCheck === 1 ? "" : "s"}`
                   : "Retrieving candidates…"}
             </span>
             <span className="aim-quiet">
-              {run.considered && run.skipped === 0
-                ? `All ${formatInt(run.retrieved)} candidates not yet submitted are being checked`
-                : `${formatInt(run.retrieved)} not yet submitted`}
+              {`${formatInt(run.retrieved)} not yet submitted · ${formatInt(run.cached)} already up to date`}
               {run.skipped > 0 && ` · ${formatInt(run.skipped)} left out by the configured cap`}
-              {` · ${formatInt(run.cached)} reused`}
+              {run.trigger && run.trigger !== "user" && " · started automatically"}
             </span>
           </div>
           <div className="ds-meter-track">
@@ -455,11 +525,13 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
       ) : !page || page.unfiltered_total === 0 ? (
         <div className="ds-empty-state">
           <Sparkles size={28} />
-          <h3>{run && ACTIVE_RUN.has(run.status) ? "Matching in progress" : "No AI matches yet"}</h3>
+          <h3>{run && ACTIVE_RUN.has(run.status) ? "Analysing candidates…" : "No AI matches yet"}</h3>
           <p>
-            {state?.configured
-              ? "Find Matching Candidates reads every candidate not yet submitted against this order's requirements and ranks them, with the reasons for every score."
-              : "Configure JEV_API_KEY on the server to enable AI matching."}
+            {!state?.configured
+              ? "Configure JEV_API_KEY on the server to enable AI matching."
+              : !state.active
+                ? "Closed and filled orders are not analysed automatically. Run a historical rematch to analyse this one."
+                : "Open job orders are analysed automatically: every candidate not yet submitted is read against this order's requirements and ranked, with the reasons for every score. The list appears here as it is ready."}
           </p>
         </div>
       ) : page.items.length === 0 ? (

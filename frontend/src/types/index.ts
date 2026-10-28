@@ -1092,6 +1092,8 @@ export interface MatchRun {
   job_order_id: string;
   status: MatchRunStatus;
   mode: "match" | "rematch" | "refresh";
+  /** Who started it: a recruiter's button, the panel opening, or the background sweep. */
+  trigger?: "user" | "open" | "auto";
   historical: boolean;
   retrieved: number;
   considered: number;
@@ -1099,6 +1101,8 @@ export interface MatchRun {
   skipped: number;
   /** The cap in force for this run; null when every eligible candidate is sent. */
   cap: number | null;
+  /** Held back by an automatic run because Jev failed on them recently. */
+  deferred?: number;
   processed: number;
   scored: number;
   cached: number;

@@ -268,6 +268,16 @@ class Settings(BaseSettings):
     #: up. Everything that changes a score deliberately — the order, the
     #: profile, the weights, the schema — is already in the cache key.
     jev_result_ttl_hours: int = 24 * 14
+    #: Keep every open job order's shortlist up to date in the background, so
+    #: a recruiter opening an order finds it already analysed instead of
+    #: pressing a button and waiting. A sweep over the open orders sends only
+    #: what is new or changed — a new candidate, an edited CV, an edited
+    #: order — and an order with nothing new costs one Mongo read and no Jev
+    #: call. Off means matching runs only when somebody presses the button.
+    jev_auto_match: bool = True
+    #: How often that sweep runs. Saving a job order does not wait for it:
+    #: the order is brought up to date straight away.
+    jev_auto_match_interval_seconds: int = 300
 
 
 

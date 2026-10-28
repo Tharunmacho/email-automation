@@ -1,11 +1,19 @@
 """The matching job: from "Find Matching Candidates" to a stored shortlist.
 
     start_run       validate the order, take the per-order lock, queue the job
-    execute         retrieve -> prefilter -> evaluate each -> score -> store
+    plan            which candidates are already current, which need Jev
+    execute         retrieve -> plan -> evaluate each -> score -> store
 
-A run is a background thread, not a request. A pool of a few thousand with a
-cap of 150 evaluations is a minute or two of Jev calls at the configured
-concurrency, and no HTTP request should be held open for that. Progress is
+Runs start three ways, recorded as the run's `trigger`: a recruiter pressing
+a button (`user`), the panel opening on an order with something new to check
+(`open`), and the background sweep that keeps every open order current
+(`auto`, see `app.matching.autorun`). They are the same run; only an
+automatic one holds back a candidate that has just failed, so a broken record
+is not re-sent on every sweep.
+
+A run is a background thread, not a request. A first run over a pool of a
+few thousand is many minutes of Jev calls at the configured concurrency, and
+no HTTP request should be held open for that. Progress is
 written to the run document as it goes, so the screen polls one small record.
 
 A thread rather than a Celery task because matching must work in every
@@ -29,8 +37,9 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.config import settings
 from app.logging_config import get_logger
@@ -48,6 +57,13 @@ from app.matching.spec import MatchSpec, normalize_job_order, spec_fingerprint
 log = get_logger(__name__)
 
 MODE_MATCH, MODE_REMATCH, MODE_REFRESH = "match", "rematch", "refresh"
+TRIGGER_USER, TRIGGER_OPEN, TRIGGER_AUTO = "user", "open", "auto"
+
+#: An automatic run leaves a candidate alone for this long after Jev failed
+#: on them with a retryable error (timeouts, rate limits), and indefinitely
+#: after a non-retryable one, until their record or the order changes. A
+#: recruiter's "Retry remaining" always re-sends them.
+AUTO_RETRY_FAILED_AFTER = timedelta(hours=1)
 
 
 class OrderNotFound(LookupError):
@@ -87,8 +103,13 @@ def start_run(
     mode: str = MODE_MATCH,
     candidate_ids: Optional[List[str]] = None,
     force: bool = False,
+    trigger: str = TRIGGER_USER,
+    wait: bool = False,
 ) -> Dict[str, Any]:
     """Validate, lock and queue a run. Returns the run document.
+
+    `wait` executes it on the calling thread instead of a new one — the
+    background sweep, which works through the open orders one at a time.
 
     Raises `jev.JevNotConfigured`, `OrderInactive`, or `store.RunConflict`; the
     API turns each into its own status code and explanation.
@@ -105,6 +126,7 @@ def start_run(
     config = scoring.config_for(order)
     run = store.create_run(spec.order_id, {
         "mode": mode,
+        "trigger": trigger,
         "historical": not spec.is_active,
         "force": bool(force),
         "candidate_ids": list(candidate_ids or []) or None,
@@ -117,8 +139,15 @@ def start_run(
         "created_by": {"id": user.get("id"), "name": user.get("name") or user.get("email")},
     })
     run_id = run["id"]
-    _spawn(lambda: execute(run_id, order, candidate_ids=candidate_ids, force=force))
     run.pop("active_lock", None)
+
+    def work() -> None:
+        execute(run_id, order, candidate_ids=candidate_ids, force=force, auto=trigger != TRIGGER_USER)
+
+    if wait:
+        work()
+        return store.get_run(run_id) or run
+    _spawn(work)
     return run
 
 
@@ -129,6 +158,66 @@ def _expired(result: Dict[str, Any]) -> bool:
     if evaluated.tzinfo is None:
         evaluated = evaluated.replace(tzinfo=timezone.utc)
     return datetime.now(timezone.utc) - evaluated > timedelta(hours=settings.jev_result_ttl_hours)
+
+
+def _key(spec_fp: str, config: scoring.ScoringConfig, row: Dict[str, Any]) -> str:
+    return store.cache_key(spec_fp, evidence_fingerprint(row), config.version,
+                           DECISION_SCHEMA_VERSION, settings.jev_model)
+
+
+@dataclass
+class Plan:
+    """What a run over these rows would do, decided before any Jev call."""
+
+    #: The candidates the run covers, best keyword baseline first, after any cap.
+    shortlist: List[Tuple[Dict[str, Any], Baseline]]
+    #: Of those, the ones that need Jev: no current result, or one whose order,
+    #: profile, weights, schema or model has changed since, or one past its TTL.
+    pending: List[Tuple[Dict[str, Any], Baseline]]
+    #: Already current: nothing to send.
+    reused: int
+    #: Left out by a configured cap.
+    skipped: int
+    #: Held back by an automatic run because Jev has just failed on them.
+    deferred: int
+
+
+def plan(
+    spec: MatchSpec,
+    config: scoring.ScoringConfig,
+    rows: List[Dict[str, Any]],
+    *,
+    force: bool = False,
+    auto: bool = False,
+) -> Plan:
+    """Split the pool into what is already current and what needs Jev.
+
+    Two reads for the whole order — the current keys and the failures — and
+    the rest in memory. This is what makes the background sweep cheap: an
+    order where nothing changed comes back with nothing pending, and no run
+    is made for it at all.
+    """
+    spec_fp = spec_fingerprint(spec)
+    current = {} if force else store.current_keys(spec.order_id)
+    failures = store.failed_keys(spec.order_id) if auto and not force else {}
+    cutoff = datetime.now(timezone.utc) - AUTO_RETRY_FAILED_AFTER
+    keys = {str(row.get("id") or ""): _key(spec_fp, config, row) for row in rows}
+
+    def is_current(candidate_id: str) -> bool:
+        mine = current.get(candidate_id)
+        return bool(mine) and mine.get("cache_key") == keys[candidate_id] and not _expired(mine)
+
+    def held_back(candidate_id: str) -> bool:
+        failure = failures.get((candidate_id, keys[candidate_id]))
+        if not failure or is_current(candidate_id):
+            return False
+        return not failure["retryable"] or (failure["at"] is not None and failure["at"] > cutoff)
+
+    eligible = [row for row in rows if not held_back(str(row.get("id") or ""))]
+    shortlist = prefilter.shortlist_for_jev(spec, eligible, settings.jev_max_candidates_per_run)
+    pending = [(row, base) for row, base in shortlist if not is_current(str(row["id"]))]
+    return Plan(shortlist=shortlist, pending=pending, reused=len(shortlist) - len(pending),
+                skipped=len(eligible) - len(shortlist), deferred=len(rows) - len(eligible))
 
 
 def _supporting_evidence(spec: MatchSpec, row: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -171,7 +260,7 @@ def evaluate_one(
     state = candidate_state(row)
     assert_no_identifiers(state)
     evidence_fp = evidence_fingerprint(row)
-    key = store.cache_key(spec_fp, evidence_fp, config.version, DECISION_SCHEMA_VERSION, settings.jev_model)
+    key = _key(spec_fp, config, row)
 
     if not force:
         cached = store.find_scored(spec.order_id, candidate_id, key)
@@ -240,6 +329,7 @@ def execute(
     *,
     candidate_ids: Optional[List[str]] = None,
     force: bool = False,
+    auto: bool = False,
 ) -> None:
     """Drive one run to a terminal state. Never raises — the run records why."""
     from app.api import routes  # late: routes imports this package's router
@@ -250,24 +340,27 @@ def execute(
     store.update_run(run_id, status=store.RUN_RUNNING, started_at=datetime.now(timezone.utc))
 
     try:
-        rows = prefilter.retrieve(routes.repo(), spec)
-        if candidate_ids:
-            wanted = set(candidate_ids)
-            rows = [row for row in rows if str(row.get("id")) in wanted]
-        pool = prefilter.shortlist_for_jev(spec, rows, settings.jev_max_candidates_per_run)
+        rows = prefilter.retrieve(routes.repo(), spec, candidate_ids=candidate_ids)
+        work_plan = plan(spec, config, rows, force=force, auto=auto)
+        pool = work_plan.pending
         # `skipped` is what a configured cap left out. Zero unless an operator
-        # set one, and recorded either way so the screen can say so.
-        store.update_run(run_id, retrieved=len(rows), considered=len(pool),
-                         skipped=len(rows) - len(pool))
-        log.info("Matching run %s on %s: %d retrieved, %d to evaluate, %d left out by the cap",
-                 run_id, spec.order_id, len(rows), len(pool), len(rows) - len(pool))
+        # set one, and recorded either way so the screen can say so. Results
+        # that are already current count as processed from the start, so what
+        # is left on the progress bar is only what is actually being sent.
+        store.update_run(run_id, retrieved=len(rows), considered=len(work_plan.shortlist),
+                         skipped=work_plan.skipped, deferred=work_plan.deferred,
+                         cached=work_plan.reused, processed=work_plan.reused)
+        log.info("Matching run %s on %s: %d retrieved, %d current, %d to evaluate, "
+                 "%d left out by the cap, %d held back after a recent failure",
+                 run_id, spec.order_id, len(rows), work_plan.reused, len(pool),
+                 work_plan.skipped, work_plan.deferred)
 
         if not pool:
             store.finish_run(run_id, store.RUN_COMPLETED)
             return
 
         questions = build_questions(spec)
-        outcomes = {"cached": 0, "scored": 0, "failed": 0}
+        outcomes = {"cached": work_plan.reused, "scored": 0, "failed": 0}
         cancelled = False
 
         def work(row: Dict[str, Any], base: Baseline) -> Optional[str]:

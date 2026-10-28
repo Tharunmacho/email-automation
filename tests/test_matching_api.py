@@ -554,3 +554,164 @@ def test_a_duplicate_copy_is_not_analysed_twice(api):
     assert not any(call["state"]["candidate"].get("resume_summary", "").startswith("DUP")
                    for call in api.fake.calls)
     assert "exact" in by_id(results(api))
+
+
+# --------------------------------------------------------------------------- #
+#  Preloading: every open order kept current without anybody pressing a button
+# --------------------------------------------------------------------------- #
+from datetime import timedelta  # noqa: E402
+
+from app.matching import autorun, runner  # noqa: E402
+
+
+def add_order(client, **overrides):
+    order = {**ORDER, **overrides}
+    client.db["job_orders"].insert_one(dict(order))
+    return order
+
+
+def runs_on(client, order_id="JO-7"):
+    return list(client.db[store.RUNS].find({"job_order_id": order_id}, {"_id": 0}))
+
+
+def test_a_sweep_analyses_every_open_order_and_no_closed_one(api):
+    add_order(api, id="JO-8", title="Pipe fitter", designation="Pipe Fitter", skills=["Pipe fitting"])
+    add_order(api, id="JO-9", status="CLOSED")
+    summary = autorun.sweep()
+    assert summary["orders"] == 2 and summary["runs"] == 2
+    assert len(results(api, "JO-7")["items"]) == 4
+    assert len(results(api, "JO-8")["items"]) == 4
+    assert runs_on(api, "JO-9") == []
+    assert {run["trigger"] for run in runs_on(api, "JO-7") + runs_on(api, "JO-8")} == {"auto"}
+
+
+def test_a_sweep_with_nothing_new_makes_no_run_and_no_call(api):
+    autorun.sweep()
+    calls, runs = len(api.fake.calls), len(runs_on(api))
+    assert autorun.sweep()["runs"] == 0
+    assert len(api.fake.calls) == calls and len(runs_on(api)) == runs
+
+
+def test_a_sweep_sends_only_the_new_candidate(api):
+    autorun.sweep()
+    calls = len(api.fake.calls)
+    api.db["candidates"].insert_one(make_record(
+        "fresh", designation="TIG Welder", summary="FRESH welder, 4 years.", skills=["TIG Welding"], years=4,
+    ).to_mongo())
+    assert autorun.sweep()["runs"] == 1
+    assert len(api.fake.calls) == calls + 1
+    run = max(runs_on(api), key=lambda item: item["created_at"])
+    assert run["scored"] == 1 and run["cached"] == 4 and run["processed"] == 5
+    assert "fresh" in by_id(results(api))
+
+
+def test_a_sweep_picks_up_a_changed_cv(api):
+    autorun.sweep()
+    api.db["candidates"].update_one({"_id": "equiv"}, {"$set": {"profile.skills": ["TIG Welding", "MIG"]}})
+    calls = len(api.fake.calls)
+    autorun.sweep()
+    assert len(api.fake.calls) == calls + 1
+
+
+def test_saving_an_order_matches_it_straight_away(api):
+    with patch.object(autorun, "enabled", return_value=True):
+        response = api.put("/job-orders/JO-7", json={**ORDER, "skills": ["TIG Welding", "Pipe fitting"]})
+    assert response.status_code == 200
+    assert [run["trigger"] for run in runs_on(api)] == ["auto"]
+    stale = [item for item in results(api)["items"] if item["stale"]["order_changed"]]
+    assert len(results(api)["items"]) == 4 and stale == []
+
+
+def test_saving_a_closed_order_does_not_match_it(api):
+    with patch.object(autorun, "enabled", return_value=True):
+        api.put("/job-orders/JO-7", json={**ORDER, "status": "CLOSED"})
+    assert runs_on(api) == [] and api.fake.calls == []
+
+
+def test_an_automatic_run_holds_back_a_recent_failure(api):
+    api.fake.behaviours["EXACT"] = JevError("Jev returned 529: overloaded", status=529, retryable=True)
+    autorun.sweep()
+    calls = len(api.fake.calls)
+    # Within the hour: nothing else is pending, so no run and no call at all.
+    assert autorun.sweep()["runs"] == 0 and len(api.fake.calls) == calls
+    state = api.get("/job-orders/JO-7/matching").json()
+    assert state["coverage"]["failed"] == 1 and state["coverage"]["not_evaluated"] == 0
+
+    # After the hold-back window, the sweep tries again by itself.
+    api.fake.behaviours["EXACT"] = {}
+    with patch.object(runner, "AUTO_RETRY_FAILED_AFTER", timedelta(0)):
+        assert autorun.sweep()["runs"] == 1
+    assert by_id(results(api))["exact"]["status"] == "scored"
+
+
+def test_a_non_retryable_failure_is_not_resent_automatically_but_a_recruiter_can(api):
+    api.fake.behaviours["EXACT"] = JevError("Jev returned 400: bad request", status=400, retryable=False)
+    autorun.sweep()
+    calls = len(api.fake.calls)
+    with patch.object(runner, "AUTO_RETRY_FAILED_AFTER", timedelta(0)):
+        autorun.sweep()
+    assert len(api.fake.calls) == calls
+
+    api.fake.behaviours["EXACT"] = {}
+    run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["scored"] == 1 and stored["deferred"] == 0
+    assert by_id(results(api))["exact"]["status"] == "scored"
+
+
+def test_opening_the_panel_runs_only_what_is_not_current(api):
+    first = api.post("/job-orders/JO-7/matching/preload")
+    assert first.status_code == 200
+    body = first.json()
+    assert body["pending"] == 4 and body["run"]["trigger"] == "open"
+    assert body["run"]["created_by"]["id"] == ADMIN["id"]
+
+    calls = len(api.fake.calls)
+    again = api.post("/job-orders/JO-7/matching/preload").json()
+    assert again == {"pending": 0, "run": None}
+    assert len(api.fake.calls) == calls and len(runs_on(api)) == 1
+
+
+def test_opening_a_closed_order_starts_nothing(api):
+    api.db["job_orders"].update_one({"id": "JO-7"}, {"$set": {"status": "FILLED"}})
+    assert api.post("/job-orders/JO-7/matching/preload").json() == {"pending": 0, "run": None}
+    assert runs_on(api) == []
+
+
+def test_opening_the_panel_during_a_run_returns_that_run(api):
+    with patch("app.matching.runner._spawn"):  # the first run never starts executing
+        started = run_match(api).json()
+    response = api.post("/job-orders/JO-7/matching/preload")
+    assert response.status_code == 200
+    assert response.json()["run"]["id"] == started["id"]
+    assert "active_lock" not in response.json()["run"]
+
+
+def test_opening_the_panel_without_a_key_is_unconfigured(api):
+    with patch.object(settings, "jev_api_key", ""):
+        assert api.post("/job-orders/JO-7/matching/preload").status_code == 503
+
+
+def test_the_latest_run_is_readable_for_a_screen_left_open(api):
+    assert api.get("/job-orders/JO-7/matching/latest-run").json() == {"run": None}
+    autorun.sweep()
+    latest = api.get("/job-orders/JO-7/matching/latest-run").json()["run"]
+    assert latest["status"] == "completed" and latest["trigger"] == "auto"
+    assert "active_lock" not in latest
+    assert api.get("/job-orders/JO-404/matching/latest-run").status_code == 404
+
+
+def test_automatic_matching_never_starts_inside_the_test_suite(api):
+    assert autorun.enabled() is False
+    api.put("/job-orders/JO-7", json={**ORDER, "skills": ["Pipe fitting"]})
+    assert runs_on(api) == [] and api.fake.calls == []
+
+
+def test_a_repeat_run_writes_nothing_for_current_results(api):
+    run_match(api)
+    before = {doc["candidate_id"]: doc["updated_at"]
+              for doc in api.db[store.MATCHES].find({"job_order_id": "JO-7"})}
+    run_match(api)
+    after = {doc["candidate_id"]: doc["updated_at"]
+             for doc in api.db[store.MATCHES].find({"job_order_id": "JO-7"})}
+    assert after == before

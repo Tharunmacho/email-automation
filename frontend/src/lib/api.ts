@@ -1698,6 +1698,21 @@ export function fetchMatchRun(orderId: string, runId: string): Promise<MatchRun>
   return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
 }
 
+/**
+ * Brings an order up to date as its panel opens. The server starts a run only
+ * when something in the pool is not current yet, and sends only that; most of
+ * the time the background sweep got there first and `run` is null.
+ */
+export function preloadMatching(orderId: string): Promise<{ pending: number | null; run: MatchRun | null }> {
+  return request(`${matchingBase(orderId)}/preload`, { method: "POST" });
+}
+
+/** The newest run on an order, so a screen left open notices a background one. */
+export async function fetchLatestMatchRun(orderId: string): Promise<MatchRun | null> {
+  const body = await request<{ run: MatchRun | null }>(`${matchingBase(orderId)}/latest-run`, { cache: "no-store" });
+  return body.run;
+}
+
 export function cancelMatchRun(orderId: string, runId: string): Promise<MatchRun> {
   return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
 }

@@ -251,6 +251,14 @@ async def _startup() -> None:
 
         asyncio.create_task(autopoll.run_forever())
 
+    # AI matching keeps every open job order's shortlist current on its own,
+    # so a recruiter opens an order to a list that is already there. The loop
+    # checks for a key on every tick; without one it does nothing.
+    if settings.jev_auto_match and not _under_test():
+        from app.matching import autorun
+
+        asyncio.create_task(autorun.run_forever())
+
     try:
         from app.tasks.locks import INLINE_POLL_LOCK, get_redis
         client = get_redis()
@@ -1936,6 +1944,16 @@ def list_job_order_candidate_pool(
     return {"total": total, "count": len(items), "items": items}
 
 
+def _match_saved_order(order_id: str | None) -> None:
+    """Analyse a new or edited order now rather than at the next sweep."""
+    try:
+        from app.matching import autorun
+
+        autorun.nudge(order_id)
+    except Exception as exc:  # noqa: BLE001 — saving the order is what was asked
+        log.warning("Could not start matching for job order %s: %s", order_id, exc)
+
+
 @app.post("/job-orders")
 def create_job_order(order_data: dict, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
@@ -1945,6 +1963,7 @@ def create_job_order(order_data: dict, _user: dict = Depends(require_page("job-o
         coll.replace_one({"id": order_id}, order_data, upsert=True)
     else:
         coll.insert_one(order_data)
+    _match_saved_order(order_id)
     return {"status": "ok", "record": order_data}
 
 
@@ -1953,6 +1972,7 @@ def update_job_order(order_id: str, order_data: dict, _user: dict = Depends(requ
     from app.db.mongo import get_db
     coll = get_db()["job_orders"]
     coll.replace_one({"id": order_id}, order_data, upsert=True)
+    _match_saved_order(order_id)
     return {"status": "updated", "record": order_data}
 
 

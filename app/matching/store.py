@@ -185,18 +185,65 @@ def save_failed(doc: Dict[str, Any]) -> None:
         coll.update_one({**key, "status": SCORED}, {"$set": {"last_failure": note}})
 
 
-def results_for_order(job_order_id: str) -> List[Dict[str, Any]]:
+#: What a list row or a count needs from a result. The explanation route reads
+#: the whole document; everything else leaves out the per-question answers,
+#: which are most of its size, so a shortlist of thousands opens quickly.
+LIST_FIELDS = {"_id": 0, "evaluation": 0, "reasons": 0, "baseline": 0, "usage": 0}
+COUNT_FIELDS = {"_id": 0, "candidate_id": 1, "category": 1, "evaluated_at": 1,
+                "last_failure": 1, "error": 1, "updated_at": 1, "run_id": 1}
+
+
+def current_keys(job_order_id: str) -> Dict[str, Dict[str, Any]]:
+    """Each candidate's current result for an order: its cache key and age.
+
+    One read for a whole run, so a candidate whose result is already current
+    is recognised in memory instead of with a query and two writes apiece —
+    which is what lets the background sweep look at every open order often.
+    """
+    return {
+        doc["candidate_id"]: doc
+        for doc in _db()[MATCHES].find(
+            {"job_order_id": job_order_id, "is_current": True},
+            {"_id": 0, "candidate_id": 1, "cache_key": 1, "evaluated_at": 1},
+        )
+    }
+
+
+def failed_keys(job_order_id: str) -> Dict[tuple, Dict[str, Any]]:
+    """Failed attempts for an order, by (candidate, cache key)."""
+    out: Dict[tuple, Dict[str, Any]] = {}
+    for doc in _db()[MATCHES].find(
+        {"job_order_id": job_order_id, "status": FAILED},
+        {"_id": 0, "candidate_id": 1, "cache_key": 1, "updated_at": 1, "error": 1},
+    ):
+        out[(doc["candidate_id"], doc.get("cache_key"))] = {
+            "at": _aware(doc.get("updated_at")),
+            "retryable": bool((doc.get("error") or {}).get("retryable")),
+        }
+    return out
+
+
+def results_for_order(
+    job_order_id: str,
+    fields: Optional[Dict[str, int]] = None,
+    candidate_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Every current result for an order, with the newest failure beside each.
 
-    Bounded by the per-run cap times the number of times the order has been
-    re-scored, so it is read whole and grouped here rather than paginated in
-    Mongo — the sort is category-then-score, which is not an index order.
+    Read whole and grouped here rather than paginated in Mongo — the sort is
+    category-then-score, which is not an index order. `fields` narrows what
+    is read (`LIST_FIELDS`, `COUNT_FIELDS`); the default is everything.
+    `candidate_id` reads one candidate's entry only.
     """
     coll = _db()[MATCHES]
+    projection = fields or {"_id": 0}
+    scope: Dict[str, Any] = {"job_order_id": job_order_id}
+    if candidate_id is not None:
+        scope["candidate_id"] = candidate_id
     current = {doc["candidate_id"]: doc
-               for doc in coll.find({"job_order_id": job_order_id, "is_current": True}, {"_id": 0})}
+               for doc in coll.find({**scope, "is_current": True}, projection)}
     failures: Dict[str, Dict[str, Any]] = {}
-    for doc in coll.find({"job_order_id": job_order_id, "status": FAILED}, {"_id": 0}).sort("updated_at", ASCENDING):
+    for doc in coll.find({**scope, "status": FAILED}, projection).sort("updated_at", ASCENDING):
         failures[doc["candidate_id"]] = doc
 
     for candidate_id, result in current.items():
@@ -298,8 +345,8 @@ def create_run(job_order_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         "job_order_id": job_order_id,
         "active_lock": job_order_id,
         "status": RUN_QUEUED,
-        "retrieved": 0, "considered": 0, "skipped": 0, "processed": 0, "scored": 0,
-        "cached": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
+        "retrieved": 0, "considered": 0, "skipped": 0, "deferred": 0, "processed": 0,
+        "scored": 0, "cached": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
         "cancel_requested": False, "error": None,
         "created_at": now, "updated_at": now, "started_at": None, "finished_at": None,
         **fields,

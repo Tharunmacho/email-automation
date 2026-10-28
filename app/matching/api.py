@@ -9,6 +9,8 @@ recruiter could not already open from the same screen.
 
     GET   /job-orders/matching/health                          admin: counters, cost
     GET   /job-orders/{id}/matching                            state of matching for an order
+    POST  /job-orders/{id}/matching/preload                    run only what is not current yet
+    GET   /job-orders/{id}/matching/latest-run                 the newest run, for a screen left open
     POST  /job-orders/{id}/matching/runs                       start a run
     GET   /job-orders/{id}/matching/runs/{run_id}              progress
     POST  /job-orders/{id}/matching/runs/{run_id}/cancel
@@ -27,9 +29,10 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field
 
 from app.api.routes import repo, require_admin, require_page
-from app.matching import jev, runner, scoring, store
+from app.matching import autorun, jev, runner, scoring, store
 from app.matching.evidence import evidence_fingerprint, experience_years
 from app.matching.prefilter import EVIDENCE_PROJECTION, retrieval_query
+from app.matching.prefilter import id_values as _id_values
 from app.matching.spec import normalize_job_order, spec_fingerprint
 
 router = APIRouter(prefix="/job-orders", tags=["matching"])
@@ -49,23 +52,6 @@ class StartRunRequest(BaseModel):
 class ReviewRequest(BaseModel):
     status: Literal["pending", "shortlisted", "rejected", "manual_review"]
     note: str = Field(default="", max_length=1000)
-
-
-def _id_values(candidate_ids: List[str]) -> List[Any]:
-    """Ids in every form `_id` is stored in.
-
-    The CRM keys candidates on hex-string ids and the WhatsApp bot on
-    ObjectIds (see `repository._id_filter`); a result stores `str(_id)` for
-    both, so an `$in` over strings alone would miss every bot-written record.
-    """
-    from bson import ObjectId
-
-    values: List[Any] = []
-    for candidate_id in candidate_ids:
-        values.append(candidate_id)
-        if len(candidate_id) == 24 and ObjectId.is_valid(candidate_id):
-            values.append(ObjectId(candidate_id))
-    return values
 
 
 def _ids_in_pool(candidate_ids: List[str]) -> set:
@@ -101,9 +87,15 @@ def _start(order: Dict[str, Any], user: Dict[str, Any], **kwargs: Any) -> Dict[s
         raise HTTPException(status_code=409, detail=str(exc))
     except store.RunConflict as exc:
         raise HTTPException(status_code=409, detail={
-            "message": str(exc), "run": jsonable_encoder(exc.run or {}),
+            "message": str(exc), "run": jsonable_encoder(_public_run(exc.run) or {}),
         })
     return jsonable_encoder(run)
+
+
+def _public_run(run: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if run:
+        run = {key: value for key, value in run.items() if key not in ("_id", "active_lock")}
+    return run
 
 
 def _run_or_404(order_id: str, run_id: str) -> Dict[str, Any]:
@@ -126,7 +118,7 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
     spec = normalize_job_order(order)
     counts: Dict[str, int] = {key: 0 for key in scoring.CATEGORY_RANK}
     failed = 0
-    entries = store.results_for_order(order_id)
+    entries = store.results_for_order(order_id, store.COUNT_FIELDS)
     # Counted over the pool only. Somebody scored and then submitted is no
     # longer a match to act on, and must not keep inflating "Strong matches".
     pool_ids = _ids_in_pool(store.candidate_ids(entries))
@@ -170,6 +162,33 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
         "coverage": coverage,
         "category_labels": scoring.CATEGORY_LABELS,
     })
+
+
+@router.post("/{order_id}/matching/preload")
+def preload_matching(order_id: str, user: dict = Depends(_job_orders)) -> dict:
+    """Bring this order up to date, if it is not already.
+
+    Called by the panel as it opens, so the recruiter never has to ask: it
+    starts a run only when something in the pool is not current — a new
+    candidate, a changed CV, an edited order — and sends only that. Usually
+    the background sweep got there first and this returns `run: null`.
+    A run already in progress is returned as it is, not refused.
+    """
+    order = _order_or_404(order_id)
+    try:
+        outcome = autorun.catch_up(order, user=user, trigger=runner.TRIGGER_OPEN)
+    except jev.JevNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except store.RunConflict as exc:
+        return jsonable_encoder({"pending": None, "run": _public_run(exc.run)})
+    return jsonable_encoder(outcome)
+
+
+@router.get("/{order_id}/matching/latest-run")
+def latest_matching_run(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
+    """The newest run on this order, so a screen left open notices a background one."""
+    _order_or_404(order_id)
+    return jsonable_encoder({"run": store.latest_run(order_id)})
 
 
 @router.post("/{order_id}/matching/runs", status_code=202)
@@ -322,7 +341,7 @@ def matching_results(
     order = _order_or_404(order_id)
     spec = normalize_job_order(order)
     spec_fp = spec_fingerprint(spec)
-    entries = store.results_for_order(order_id)
+    entries = store.results_for_order(order_id, store.LIST_FIELDS)
     # The shortlist is of people who can still be submitted. Anyone submitted
     # since they were scored leaves it; the order's own submissions are where
     # the keyword section's "Submitted" filter already shows them.
@@ -373,7 +392,7 @@ def matching_explanation(order_id: str, candidate_id: str, _user: dict = Depends
     """Everything behind one score: components, verdicts, excerpts, baseline."""
     order = _order_or_404(order_id)
     spec = normalize_job_order(order)
-    entries = [entry for entry in store.results_for_order(order_id) if entry["candidate_id"] == candidate_id]
+    entries = store.results_for_order(order_id, candidate_id=candidate_id)
     if not entries:
         raise HTTPException(status_code=404, detail="This candidate has not been matched to this order")
     entry = entries[0]
@@ -431,7 +450,8 @@ def review_match(order_id: str, candidate_id: str, payload: ReviewRequest, user:
     """A recruiter decision. Kept apart from the score, and kept across re-scoring."""
     _order_or_404(order_id)
     if not store.result_for(order_id, candidate_id) and not any(
-        entry["candidate_id"] == candidate_id for entry in store.results_for_order(order_id)
+        entry["candidate_id"] == candidate_id
+        for entry in store.results_for_order(order_id, store.COUNT_FIELDS, candidate_id=candidate_id)
     ):
         raise HTTPException(status_code=404, detail="This candidate has not been matched to this order")
     return jsonable_encoder(store.save_review(order_id, candidate_id, payload.status, payload.note.strip(), user))

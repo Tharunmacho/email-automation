@@ -105,13 +105,39 @@ def retrieval_query() -> Dict[str, Any]:
     }
 
 
-def retrieve(repository: Any, spec: MatchSpec) -> List[Dict[str, Any]]:
-    """Every candidate in the pool, as projected rows."""
+def id_values(candidate_ids: Iterable[str]) -> List[Any]:
+    """Ids in every form `_id` is stored in.
+
+    The CRM keys candidates on hex-string ids and the WhatsApp bot on
+    ObjectIds (see `repository._id_filter`); a result stores `str(_id)` for
+    both, so an `$in` over strings alone would miss every bot-written record.
+    """
+    from bson import ObjectId
+
+    values: List[Any] = []
+    for candidate_id in candidate_ids:
+        values.append(candidate_id)
+        if len(candidate_id) == 24 and ObjectId.is_valid(candidate_id):
+            values.append(ObjectId(candidate_id))
+    return values
+
+
+def retrieve(
+    repository: Any, spec: Optional[MatchSpec] = None, candidate_ids: Optional[Iterable[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Every candidate in the pool, as projected rows — or just the named ones.
+
+    `candidate_ids` narrows the query itself, so re-checking one candidate
+    reads one record rather than the whole pool. Named candidates outside the
+    pool are still left out.
+    """
     from app.db.repository import MATCH_PROJECTION
 
     rows: List[Dict[str, Any]] = []
     skip = 0
     query = retrieval_query()
+    if candidate_ids:
+        query["_id"] = {"$in": id_values(candidate_ids)}
     while skip < MAX_SCAN:
         page = repository.list_summaries(
             limit=PAGE_SIZE, skip=skip, staff_id=None, query=query,
