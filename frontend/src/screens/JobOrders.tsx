@@ -536,19 +536,22 @@ function ScoreRadialGauge({ score, state }: { score: number; state: "open" | "on
 
 interface JobOrdersProps {
   candidates?: CandidateRecord[];
+  /** Re-read matches after a profile or recruitment transition changes. */
+  refreshKey?: number;
   onActivity?: (message: string, type?: LogEntry["type"]) => void;
   /**
    * Open a matched candidate's own screen.
    *
-   * Left undefined where there is nowhere to go — the preview harness, or an
-   * account that cannot reach the candidates page — and the match card then
-   * draws the name as plain text rather than a control that does nothing.
+   * The workspace opens a shared, Job Orders-authorized profile and keeps
+   * this order mounted for the return trip. Preview harnesses may omit it;
+   * their match cards then draw the name as plain text.
    */
   onOpenCandidate?: (candidate: CandidateRecord) => void;
 }
 
 export default function JobOrders({
   candidates: initialCandidates = EMPTY_CANDIDATES,
+  refreshKey = 0,
   onActivity,
   onOpenCandidate,
 }: JobOrdersProps) {
@@ -700,7 +703,7 @@ export default function JobOrders({
     return () => {
       active = false;
     };
-  }, [initialCandidates]);
+  }, [initialCandidates, refreshKey]);
 
   useEffect(() => {
     let active = true;

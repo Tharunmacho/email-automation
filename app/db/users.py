@@ -54,6 +54,7 @@ PAGES = (
     "payroll",
     "staff",
     "job-orders",
+    "mapping-candidates",
     "sourcing",
     "b2b-enquiries",
     "data-management",
@@ -89,7 +90,12 @@ ROLE_DEFAULT_PAGES = {
     # "tasks" is on the staff floor rather than a grant: it is the list of
     # callbacks on the candidates already allocated to them, so an account that
     # can reach its own queue can reach the follow-ups that queue produced.
-    STAFF_ROLE: {"candidates", "candidate-entry", "tasks", "attendance", "payroll", "settings"},
+    # "mapping-candidates" is on the floor for the same reason: it is the job
+    # order steps of their own allocated candidates, and nobody else's.
+    STAFF_ROLE: {
+        "candidates", "candidate-entry", "tasks", "mapping-candidates",
+        "attendance", "payroll", "settings",
+    },
 }
 
 

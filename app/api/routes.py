@@ -83,6 +83,16 @@ from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
 from app.services.whatsapp_reply_policy import reply_policy as whatsapp_reply_policy
 from app.services.identity_intake import file_documents as file_identity_documents
 from app.services.resume_store import ResumeRejected, store_resume
+from app.mapping_pipeline import (
+    MappingError,
+    build_entry as build_mapping_entry,
+    build_view as build_mapping_view,
+    check_answerable as check_mapping_answerable,
+    closed_by_pipeline_release,
+    row_job_order,
+    skip_entry as mapping_skip_entry,
+    updated_pipeline as updated_mapping_pipeline,
+)
 from app.db.users import (
     ACTION_PERMISSIONS,
     ADMIN_ROLE,
@@ -368,16 +378,26 @@ def _staff_scope(user: dict) -> str | None:
 
 
 def _owned_or_404(candidate_id: str, user: dict):
-    """The record, or 404 if it does not exist *or* belongs to someone else.
-
-    404 rather than 403 on purpose: 403 confirms the record exists, which is the
-    fact the isolation rule is there to withhold. Another staff member's id has
-    to be indistinguishable from one that was never issued.
-    """
+    """Require allocation ownership for staff review and modification actions."""
     record = repo().get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
     if user.get("role") == STAFF_ROLE and record.assigned_staff_id != user["id"]:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return record
+
+
+def _readable_or_404(candidate_id: str, user: dict, context: str | None = None):
+    """Page grants permit profile reads regardless of allocation.
+
+    The context is only a request to use that page's permission, never a grant
+    in itself. Mutating routes continue to use `_owned_or_404`.
+    """
+    page = "job-orders" if context == "job-orders" else "candidates"
+    if not _has_page(user, page):
+        raise HTTPException(status_code=404, detail="Not found")
+    record = repo().get(candidate_id)
+    if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return record
 
@@ -498,6 +518,9 @@ def list_candidates(
         description="False skips counting the collection. A client fetching "
                     "pages in parallel already has the total from its first page.",
     ),
+    scope: Literal["mine", "all"] = Query(
+        "mine", description="Owner's queue by default; 'all' browses every profile.",
+    ),
     user: dict = Depends(require_page("candidates")),
 ) -> dict:
     """A page of candidates, projected in the database and scoped to the caller.
@@ -508,10 +531,11 @@ def list_candidates(
     profiles come from `GET /candidates/{id}`, one candidate at a time, when
     something actually opens one.
 
-    A staff member sees only what is allocated to them; an admin sees the lot.
+    Staff can browse every profile with `scope=all`, while the default keeps
+    their allocated review queue. Reading never changes a candidate's owner.
     """
     repository = repo()
-    staff_id = _staff_scope(user)
+    staff_id = _staff_scope(user) if scope == "mine" else None
     items = repository.list_summaries(
         limit=limit, skip=skip, minimal=view == "minimal", staff_id=staff_id
     )
@@ -535,19 +559,24 @@ def list_candidates(
 
 
 @app.get("/candidates/{candidate_id}")
-def get_candidate(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
+def get_candidate(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> dict:
     """The whole record, OCR payload included. The only place that serves it."""
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     return record.model_dump(mode="json")
 
 
 @app.get("/candidates/{candidate_id}/whatsapp-chat")
 def get_candidate_whatsapp_chat(
     candidate_id: str,
-    user: dict = Depends(require_page("candidates")),
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
 ) -> dict:
     """Proxy the candidate's protected bot transcript into the CRM."""
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     key_parts = str(record.idempotency_key or "").split("/")
     wa_id = key_parts[2] if len(key_parts) >= 3 and key_parts[0] == "whatsapp" else ""
     if not wa_id and record.source == "whatsapp":
@@ -594,10 +623,14 @@ def _attachment_response(data: bytes, mime_type: str | None, filename: str) -> R
 
 
 @app.get("/candidates/{candidate_id}/resume")
-def download_resume(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> Response:
+def download_resume(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> Response:
     from app.services.resume_recovery import recover_from_email
 
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
     if not record.resume or not record.resume.storage_key:
         raise HTTPException(status_code=404, detail="Candidate resume attachment not found")
     
@@ -1195,6 +1228,28 @@ def ocr_review_queue(limit: int = 100, _user: dict = Depends(require_admin)) -> 
         raise HTTPException(status_code=503, detail=f"Ingestion state unavailable: {exc}")
 
 
+@app.get("/ingest/checkpoints/review")
+def intake_review_queue(limit: int = 100, _user: dict = Depends(require_admin)) -> dict:
+    """Candidate-write failures whose automatic intake retries were stopped."""
+    from app.db.ingestion_checkpoints import IngestionCheckpointStore
+
+    try:
+        return {"items": IngestionCheckpointStore().review_queue(limit)}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"Intake checkpoints unavailable: {exc}")
+
+
+@app.post("/ingest/checkpoints/{checkpoint_id}/retry")
+def retry_intake_checkpoint(checkpoint_id: str, _user: dict = Depends(require_admin)) -> dict:
+    """Resume quarantined intake, reusing any unexpired saved extraction."""
+    from app.db.ingestion_checkpoints import IngestionCheckpointStore
+
+    store = IngestionCheckpointStore()
+    if not store.reset_for_retry(checkpoint_id):
+        raise HTTPException(status_code=404, detail="No quarantined intake checkpoint with that id.")
+    return {"checkpoint_id": checkpoint_id, "status": "retry"}
+
+
 @app.post("/ingest/ocr-state/reconcile")
 def run_reconciler(limit: int | None = None, _user: dict = Depends(require_admin)) -> dict:
     """Run a reconciler sweep now, inline, instead of waiting for beat.
@@ -1225,7 +1280,11 @@ def retry_ocr_row(row_id: str, _user: dict = Depends(require_admin)) -> dict:
 
 
 @app.get("/candidates/{candidate_id}/identity")
-def candidate_identity_documents(candidate_id: str, user: dict = Depends(require_page("candidates"))) -> dict:
+def candidate_identity_documents(
+    candidate_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> dict:
     """The Aadhaar and passport read out of this candidate's application.
 
     Numbers are masked unless the caller is an administrator. A recruiter needs
@@ -1236,10 +1295,8 @@ def candidate_identity_documents(candidate_id: str, user: dict = Depends(require
     from app.extraction import ocr_notes
     from app.services import identity_files
 
-    # 404s a record that belongs to another staff member, exactly as the
-    # candidate endpoints do — an identity document must not be the thing that
-    # confirms a candidate id exists.
-    record = _owned_or_404(candidate_id, user)
+    # Use the same read permission as the profile; masking still applies below.
+    record = _readable_or_404(candidate_id, user, context)
 
     try:
         found = find_for_candidate(candidate_id)
@@ -1309,7 +1366,8 @@ def download_identity_document(
     candidate_id: str,
     document_type: str,
     record_id: str,
-    user: dict = Depends(require_page("candidates")),
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
 ) -> Response:
     """The Aadhaar or passport scan itself, as a download.
 
@@ -1330,7 +1388,7 @@ def download_identity_document(
             detail=f"'{document_type}' is not an identity document type",
         )
 
-    record = _owned_or_404(candidate_id, user)
+    record = _readable_or_404(candidate_id, user, context)
 
     if document_type == "aadhaar" and user.get("role") != ADMIN_ROLE:
         raise HTTPException(
@@ -1859,7 +1917,7 @@ def list_job_order_candidate_pool(
 ) -> dict:
     """Candidates available for requisitions, regardless of current owner.
 
-    A staff member's Candidates page remains scoped to their own review queue.
+    A staff member's assigned review queue remains scoped to their allocation.
     Job Orders is a separately granted collaboration surface: someone filling
     a requisition must be able to shortlist a suitable candidate even when a
     different staff member currently owns that candidate's review.
@@ -2761,7 +2819,7 @@ class CandidateOfferRequest(BaseModel):
 
 
 def _recruitment_or_404(candidate_id: str, user: dict):
-    """The record, under the same candidate-scope rules as every other read."""
+    """Require ownership for staff pipeline changes, independently of reads."""
     _owned_or_404(candidate_id, user)
     record = repo().get(candidate_id)
     if not record:
@@ -2839,17 +2897,26 @@ def submit_candidate(candidate_id: str, payload: CandidateSubmissionRequest, use
 
     now = utcnow()
     label = "company" if payload.target_type == "company" else "associate"
+    updates: dict = {
+        "recruitment_status": f"submitted_to_{label}",
+        "submission_target_type": payload.target_type,
+        "submission_target_name": payload.target_name,
+        "submission_date": now,
+        "interview_status": "pending",
+        "job_order_id": payload.job_order_id,
+    }
+    # A new engagement starts the Mapped Candidates steps afresh. Answers kept
+    # for this same order (a second target on one order) carry on; a closed
+    # mapping or one for a different order is history, not a head start.
+    pipeline = record.mapping_pipeline or {}
+    if pipeline.get("closed_at") or pipeline.get("job_order_id") != payload.job_order_id:
+        updates["mapping_pipeline"] = None
     updated = repo().record_recruitment_event(
         candidate_id,
         {"type": "submitted", "target_type": payload.target_type,
          "target_name": payload.target_name, "job_order_id": payload.job_order_id,
          "notes": payload.notes, **_actor(user)},
-        {"recruitment_status": f"submitted_to_{label}",
-         "submission_target_type": payload.target_type,
-         "submission_target_name": payload.target_name,
-         "submission_date": now,
-         "interview_status": "pending",
-         "job_order_id": payload.job_order_id},
+        updates,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -2889,11 +2956,13 @@ def unsubmit_candidate(candidate_id: str, payload: CandidateUnsubmitRequest, use
             status_code=409,
             detail="The client has already moved this candidate on (interview or outcome recorded); it can no longer be unsubmitted.",
         )
+    # An unsubmit says the mapping should not have happened, so its steps go
+    # with it rather than lingering as a closed row.
     updated = repo().record_recruitment_event(
         candidate_id,
         {"type": "unsubmitted", "job_order_id": payload.job_order_id,
          "target_name": record.submission_target_name, "notes": payload.notes, **_actor(user)},
-        {"recruitment_status": "available", **_ENGAGEMENT_FIELDS},
+        {"recruitment_status": "available", "mapping_pipeline": None, **_ENGAGEMENT_FIELDS},
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
@@ -2943,21 +3012,7 @@ def update_candidate_outcome(candidate_id: str, payload: CandidateOutcomeRequest
     _reject_if_placed(record)
     now = utcnow()
     returns_to_pool = payload.status in OUTCOMES_RETURNING_TO_POOL
-
-    updates: dict = {
-        "recruitment_status": "available" if returns_to_pool else payload.status,
-        "last_outcome": payload.status,
-        "last_outcome_at": now,
-    }
-    if returns_to_pool:
-        updates.update(_ENGAGEMENT_FIELDS)
-        updates["offer_status"] = None
-    # Our reviewer's verdict is only updated where their vocabulary genuinely
-    # has the same word. "selected" and "offer_declined" have no equivalent and
-    # leave it alone.
-    evaluation = OUTCOME_TO_EVALUATION_STATUS.get(payload.status)
-    if evaluation:
-        updates["evaluation_status"] = evaluation
+    updates = _outcome_updates(record, payload.status, now, user)
 
     updated = repo().record_recruitment_event(
         candidate_id,
@@ -2968,6 +3023,67 @@ def update_candidate_outcome(candidate_id: str, payload: CandidateOutcomeRequest
     if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return updated.model_dump(mode="json")
+
+
+def _outcome_updates(record, status: str, now: datetime, user: dict) -> dict:
+    """The projection a client's decision writes, wherever it is recorded.
+
+    Shared by the outcome endpoint and Mapped Candidates' selection step, so
+    the two cannot release a candidate to the pool by different rules.
+    """
+    returns_to_pool = status in OUTCOMES_RETURNING_TO_POOL
+    updates: dict = {
+        "recruitment_status": "available" if returns_to_pool else status,
+        "last_outcome": status,
+        "last_outcome_at": now,
+    }
+    if returns_to_pool:
+        # Kept on screen as a closed mapping before the engagement fields that
+        # identify the order are cleared.
+        closed = closed_by_pipeline_release(
+            record.model_dump(),
+            stage="offer" if status == "offer_declined" else "selection",
+            reason=status, at=now, actor=_actor(user),
+        )
+        if closed:
+            updates["mapping_pipeline"] = closed
+        updates.update(_ENGAGEMENT_FIELDS)
+        updates["offer_status"] = None
+    # Our reviewer's verdict is only updated where their vocabulary genuinely
+    # has the same word. "selected" and "offer_declined" have no equivalent and
+    # leave it alone.
+    evaluation = OUTCOME_TO_EVALUATION_STATUS.get(status)
+    if evaluation:
+        updates["evaluation_status"] = evaluation
+    return updates
+
+
+def _offer_updates(record, status: str, now: datetime, user: dict) -> dict:
+    """The projection an offer decision writes, including the placement lock.
+
+    Callers must pass `may_change_placement_lock=True` to the repository: this
+    is the only decision allowed to move it.
+    """
+    accepted = status == "accepted"
+    updates: dict = {"offer_status": status, "placement_locked": accepted}
+    if accepted:
+        updates.update(recruitment_status="offer_accepted", evaluation_status="hired")
+    elif status == "declined":
+        closed = closed_by_pipeline_release(
+            record.model_dump(), stage="offer", reason="offer_declined",
+            at=now, actor=_actor(user),
+        )
+        if closed:
+            updates["mapping_pipeline"] = closed
+        updates.update(
+            recruitment_status="available",
+            last_outcome="offer_declined",
+            last_outcome_at=now,
+            **_ENGAGEMENT_FIELDS,
+        )
+    else:
+        updates["recruitment_status"] = "offer_issued"
+    return updates
 
 
 @app.post("/candidates/{candidate_id}/offer")
@@ -2983,21 +3099,7 @@ def update_candidate_offer(candidate_id: str, payload: CandidateOfferRequest, us
         # A fresh offer to somebody already committed elsewhere is the mistake
         # the lock exists to catch. Answering the standing offer is not.
         _reject_if_placed(record)
-    accepted = payload.status == "accepted"
-    now = utcnow()
-
-    updates: dict = {"offer_status": payload.status, "placement_locked": accepted}
-    if accepted:
-        updates.update(recruitment_status="offer_accepted", evaluation_status="hired")
-    elif payload.status == "declined":
-        updates.update(
-            recruitment_status="available",
-            last_outcome="offer_declined",
-            last_outcome_at=now,
-            **_ENGAGEMENT_FIELDS,
-        )
-    else:
-        updates["recruitment_status"] = "offer_issued"
+    updates = _offer_updates(record, payload.status, utcnow(), user)
 
     updated = repo().record_recruitment_event(
         candidate_id,
@@ -3008,6 +3110,185 @@ def update_candidate_offer(candidate_id: str, payload: CandidateOfferRequest, us
     if not updated:
         raise HTTPException(status_code=404, detail="Candidate not found")
     return updated.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+#  Mapped Candidates
+#
+#  The job-order steps after a candidate is mapped: resume submitted, interview
+#  scheduled, selection, offer, visa (stamping and medical) and travel. The
+#  rules are in `app.mapping_pipeline`; these routes scope them to the caller
+#  and write the interview, selection and offer answers through the same
+#  transitions as the recruitment pipeline above.
+# --------------------------------------------------------------------------- #
+class MappingStageRequest(BaseModel):
+    #: Open the next step without answering this one. Managers and admins only.
+    skip: bool = False
+    answer: str | None = None
+    notes: str = Field(default="", max_length=1000)
+    interview_at: datetime | None = None
+    stamping: str | None = None
+    medical: str | None = None
+    travel_date: str | None = None
+    travel_time: str | None = None
+    flight_number: str | None = Field(default=None, max_length=40)
+    airline: str | None = Field(default=None, max_length=80)
+
+
+#: A candidate on Mapped Candidates: mapped to an order right now, or the
+#: closed mapping a rejection left behind.
+_MAPPED_QUERY = {
+    "$or": [
+        {"job_order_id": {"$nin": [None, ""]}, "recruitment_status": {"$nin": [None, "available"]}},
+        # `$exists` as well as `$ne`: an unsubmitted candidate's pipeline is
+        # null, and not every Mongo implementation agrees that a field under a
+        # null parent is missing.
+        {"mapping_pipeline.closed_at": {"$exists": True, "$ne": None}},
+    ],
+}
+
+#: What the screen needs beyond the shared list row.
+_MAPPING_PROJECTION = {
+    "mapping_pipeline": 1,
+    "interview_at": 1,
+    "last_outcome_at": 1,
+    "profile.destination_country": 1,
+}
+
+
+def _job_order_summaries(order_ids) -> dict:
+    """The orders a page of rows refers to, by id.
+
+    Joined here rather than in the browser because a staff member reaching
+    Mapped Candidates has no grant on `/job-orders` — they see the orders
+    their own candidates are mapped to, and nothing else about the book.
+    """
+    from app.db.mongo import get_db
+
+    wanted = [order_id for order_id in order_ids if order_id]
+    if not wanted:
+        return {}
+    fields = {
+        "_id": 0, "id": 1, "title": 1, "client": 1, "destinationCountry": 1,
+        "status": 1, "designation": 1, "headcount": 1, "dueDate": 1,
+    }
+    return {
+        row["id"]: row
+        for row in get_db()["job_orders"].find({"id": {"$in": wanted}}, fields)
+        if row.get("id")
+    }
+
+
+def _mapping_row(row: dict, orders: dict) -> dict:
+    view = build_mapping_view(row)
+    row = {key: value for key, value in row.items() if key != "mapping_pipeline"}
+    order_id = view["job_order_id"]
+    # An order deleted after the mapping still names itself, so the row says
+    # which requisition it was rather than going blank.
+    row["job_order"] = orders.get(order_id) or {"id": order_id, "missing": True}
+    row["mapping"] = view
+    return row
+
+
+@app.get("/mapping/candidates")
+def list_mapped_candidates(
+    limit: int = Query(default=2000, ge=1, le=5000),
+    user: dict = Depends(require_page("mapping-candidates")),
+) -> dict:
+    """Every mapped candidate the caller may see, with its job order and steps.
+
+    Staff see the candidates allocated to them and nobody else's — the same
+    scope as their own review queue. Managers and admins see every mapping.
+    """
+    rows = repo().list_summaries(
+        limit=limit,
+        query=_MAPPED_QUERY,
+        staff_id=_staff_scope(user),
+        extra_projection=_MAPPING_PROJECTION,
+    )
+    orders = _job_order_summaries({row_job_order(row) for row in rows})
+    items = [_mapping_row(row, orders) for row in rows]
+    return {"total": len(items), "count": len(items), "items": items}
+
+
+def _mapping_stage_updates(record, stage: str, entry: dict, now: datetime, user: dict) -> tuple[dict, bool]:
+    """The recruitment projection one answered step writes, and whether it moves the lock."""
+    answer = entry.get("answer")
+    if stage in ("interview", "selection"):
+        # Moving an interview or an outcome under somebody already placed is
+        # what the lock exists to stop; the offer step is how a placement that
+        # fell through is released.
+        _reject_if_placed(record)
+    if stage == "interview":
+        if answer == "scheduled":
+            return {
+                "interview_status": "scheduled",
+                "interview_at": entry["interview_at"],
+                "recruitment_status": "interviewing",
+            }, False
+        return {"interview_status": "pending", "interview_at": None}, False
+    if stage == "selection":
+        updates = _outcome_updates(record, answer, now, user)
+        if answer == "selected":
+            # A decision implies the interview took place.
+            updates["interview_status"] = "completed"
+        return updates, False
+    if stage == "offer":
+        return _offer_updates(record, "accepted" if answer == "accepted" else "declined", now, user), True
+    return {}, False
+
+
+@app.post("/mapping/candidates/{candidate_id}/stages/{stage}")
+def record_mapping_stage(
+    candidate_id: str,
+    stage: str,
+    payload: MappingStageRequest,
+    user: dict = Depends(require_page("mapping-candidates")),
+) -> dict:
+    """Answer, or skip, one step of a mapped candidate's pipeline.
+
+    Refused with 409 when an earlier step is not done yet, when a later step
+    has already been recorded, or when the mapping is closed; with 403 when a
+    staff member tries to skip. Answers the refreshed row.
+    """
+    record = _recruitment_or_404(candidate_id, user)
+    doc = record.model_dump()
+    try:
+        check_mapping_answerable(doc, stage, skip=payload.skip, role=user.get("role"))
+        entry = (
+            mapping_skip_entry(payload.notes)
+            if payload.skip
+            else build_mapping_entry(stage, payload.model_dump())
+        )
+    except MappingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    now = utcnow()
+    actor = _actor(user)
+    updates, moves_lock = (
+        ({}, False) if payload.skip else _mapping_stage_updates(record, stage, entry, now, user)
+    )
+    pipeline = updated_mapping_pipeline(doc, stage, entry, at=now, actor=actor)
+    # Written last so it wins over the closure a selection or offer release
+    # computes: this one carries the answer that caused it.
+    updates["mapping_pipeline"] = pipeline
+    event = {
+        "type": "mapping",
+        "stage": stage,
+        "job_order_id": pipeline["job_order_id"],
+        "status": "skipped" if payload.skip else entry.get("answer"),
+        **{key: value for key, value in entry.items() if key not in ("answer", "skipped")},
+        **actor,
+    }
+    updated = repo().record_recruitment_event(
+        candidate_id, event, updates, may_change_placement_lock=moves_lock,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    row = repo().get_summary(candidate_id, _MAPPING_PROJECTION)
+    if not row:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return _mapping_row(row, _job_order_summaries({row_job_order(row)}))
 
 
 @app.post("/candidates/{candidate_id}/view")

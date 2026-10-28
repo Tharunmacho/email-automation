@@ -1,0 +1,297 @@
+/* --------------------------------------------------------------------------
+   Mapped Candidates
+   The list reuses the All Candidates register (`.ds-*`); what is here is the
+   step track in each row and the pipeline dialog. Colour comes only from the
+   palette tokens, so every palette and the dark theme follow without a rule
+   of their own.
+   -------------------------------------------------------------------------- */
+
+/* ── The six-step track in a table row ─────────────────────────────────── */
+.map-progress { display: inline-flex; flex-direction: column; gap: .4rem; min-width: 11rem; }
+.map-progress .ds-status { white-space: nowrap; }
+.map-progress-track { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; }
+.map-progress-seg { display: block; height: 6px; border-radius: 999px; background: var(--tint-3); }
+.map-progress-seg.is-passed { background: var(--success); }
+.map-progress-seg.is-skipped { background: color-mix(in srgb, var(--success) 45%, var(--tint-3)); }
+.map-progress-seg.is-current { background: var(--primary); box-shadow: 0 0 0 2px var(--primary-glow); }
+.map-progress-seg.is-failed { background: var(--error); }
+.map-progress-caption { color: var(--text-muted); font-size: .72rem; font-weight: 600; white-space: nowrap; }
+
+/* ── Table cells ───────────────────────────────────────────────────────── */
+.map-table { min-width: 820px; }
+.map-order-cell { display: flex; flex-direction: column; gap: .12rem; min-width: 0; max-width: 15rem; }
+.map-order-cell strong { overflow: hidden; color: var(--text-main); font-size: .84rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.map-order-cell small { overflow: hidden; color: var(--text-muted); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.map-updated { color: var(--text-muted); font-size: .76rem; white-space: nowrap; }
+.map-table tbody tr.is-clickable:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* One header row per job order in the grouped layout. Specific enough to win
+   over the register's own `th:last-child` alignment, which this cell also is. */
+.map-table tr.map-group-row > th {
+  padding: .6rem .85rem;
+  border-top: 1px solid var(--border-main);
+  background: var(--tint-1);
+  text-align: left;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.map-table tr.map-group-row:first-child > th { border-top: 0; }
+.map-group-title { margin-right: .6rem; color: var(--text-main); font-size: .84rem; font-weight: 700; }
+.map-group-meta { color: var(--text-muted); font-size: .74rem; }
+
+.map-skeleton { display: grid; gap: .6rem; }
+.map-skeleton .dash-skel { height: 3.4rem; }
+
+/* Narrow screens: each row becomes a labelled card, as on All Candidates. */
+@media (max-width: 900px) {
+  .map-table { min-width: 0; }
+  .map-table-wrap { border: 0; }
+  .map-table thead { display: none; }
+  .map-table tbody { display: grid; gap: .75rem; }
+  .map-table tbody tr:not(.map-group-row) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    border: 1px solid var(--border-main);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-card);
+  }
+  .map-table tbody tr.map-group-row { display: block; }
+  .map-table tr.map-group-row > th { display: block; border: 0; border-radius: 10px; }
+  .map-table td {
+    position: relative;
+    display: flex;
+    min-height: 66px;
+    padding: 1.75rem .85rem .7rem;
+    border-bottom: 1px solid var(--border-main);
+    align-items: center;
+  }
+  .map-table td:nth-child(odd) { border-right: 1px solid var(--border-main); }
+  .map-table td:nth-last-child(-n + 2) { border-bottom: 0; }
+  .map-table td::before {
+    content: attr(data-label);
+    position: absolute;
+    top: .55rem;
+    left: .85rem;
+    color: var(--text-light);
+    font-size: .66rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .map-order-cell { max-width: none; }
+}
+@media (max-width: 560px) {
+  .map-table tbody tr:not(.map-group-row) { grid-template-columns: 1fr; }
+  .map-table td:nth-child(odd) { border-right: 0; }
+  .map-table td:nth-last-child(2) { border-bottom: 1px solid var(--border-main); }
+}
+
+/* ── The pipeline dialog ───────────────────────────────────────────────── */
+.map-dialog.cm-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: min(52rem, 100%);
+  max-height: min(92vh, 60rem);
+  padding: 0;
+  overflow: hidden;
+}
+.map-dialog-head { flex: none; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-main); margin: 0; }
+.map-dialog-who { display: flex; min-width: 0; align-items: center; gap: .75rem; }
+.map-dialog-who-text { display: flex; min-width: 0; flex-direction: column; gap: .1rem; }
+.map-dialog-who-text .sh-modal-title { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-dialog-body { display: grid; flex: 1 1 auto; align-content: start; gap: 1rem; padding: 1rem 1.25rem 1.1rem; overflow-y: auto; overscroll-behavior: contain; }
+.map-dialog-foot { display: flex; flex: none; justify-content: space-between; gap: .75rem; padding: .85rem 1.25rem; border-top: 1px solid var(--border-main); }
+.map-dialog-hint { display: flex; align-items: flex-start; gap: .45rem; margin: 0; color: var(--text-muted); font-size: .76rem; line-height: 1.45; }
+.map-dialog-hint svg { flex: none; margin-top: .1rem; }
+
+.map-order-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .85rem;
+  padding: .85rem 1rem;
+  border: 1px solid var(--border-main);
+  border-radius: 14px;
+  background: var(--tint-1);
+}
+.map-order-icon { display: grid; width: 2.4rem; height: 2.4rem; place-items: center; border-radius: 12px; background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.map-order-text { display: flex; min-width: 0; flex-direction: column; gap: .12rem; }
+.map-order-eyebrow { color: var(--text-light); font-size: .66rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.map-order-text strong { color: var(--text-main); font-size: .95rem; font-weight: 700; }
+.map-order-text small { color: var(--text-muted); font-size: .76rem; }
+.map-order-side { display: flex; flex-direction: column; align-items: flex-end; gap: .45rem; }
+@media (max-width: 640px) {
+  .map-order-card { grid-template-columns: auto minmax(0, 1fr); }
+  .map-order-side { grid-column: 1 / -1; align-items: flex-start; }
+}
+
+/* ── The steps, as a timeline ──────────────────────────────────────────── */
+.map-stages { display: grid; gap: .75rem; margin: 0; padding: 0; list-style: none; }
+.map-stage { position: relative; display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: .75rem; }
+/* The rail joining each node to the next one; green once the step is behind. */
+.map-stage::before {
+  content: "";
+  position: absolute;
+  top: 2.25rem;
+  bottom: -.75rem;
+  left: calc(1.05rem - 1px);
+  width: 2px;
+  background: var(--border-main);
+}
+.map-stage:last-child::before { display: none; }
+.map-stage.is-passed::before,
+.map-stage.is-skipped::before { background: color-mix(in srgb, var(--success) 55%, var(--border-main)); }
+
+.map-stage-node {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin-top: .55rem;
+  place-items: center;
+  border: 2px solid var(--border-main);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-light);
+}
+.map-stage.is-passed .map-stage-node { border-color: var(--success); background: var(--success); color: #fff; }
+.map-stage.is-skipped .map-stage-node { border-color: var(--success); border-style: dashed; color: var(--success-ink); }
+.map-stage.is-current .map-stage-node { border-color: var(--primary); background: var(--primary); color: #fff; box-shadow: 0 0 0 4px var(--primary-glow); }
+.map-stage.is-failed .map-stage-node { border-color: var(--error); background: var(--error); color: #fff; }
+
+.map-stage-card {
+  display: grid;
+  min-width: 0;
+  gap: .7rem;
+  padding: .85rem 1rem;
+  border: 1px solid var(--border-main);
+  border-radius: 14px;
+  background: var(--bg-card);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.map-stage.is-current .map-stage-card { border-color: color-mix(in srgb, var(--primary) 55%, var(--border-main)); box-shadow: 0 0 0 3px var(--primary-glow); }
+.map-stage.is-locked .map-stage-card { background: var(--tint-1); border-style: dashed; }
+.map-stage.is-locked .map-stage-title,
+.map-stage.is-locked .map-stage-icon { color: var(--text-light); }
+.map-stage.is-failed .map-stage-card { border-color: var(--error-edge); background: color-mix(in srgb, var(--error-fill) 55%, var(--bg-card)); }
+
+.map-stage-head { display: flex; align-items: center; gap: .7rem; }
+.map-stage-icon { display: grid; flex: none; width: 2rem; height: 2rem; place-items: center; border-radius: 10px; background: var(--tint-2); color: var(--primary); }
+.map-stage-titles { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .05rem; }
+.map-stage-step { color: var(--text-light); font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.map-stage-title { margin: 0; color: var(--text-main); font-size: .92rem; font-weight: 700; }
+.map-stage-note,
+.map-stage-meta { margin: 0; color: var(--text-muted); font-size: .76rem; line-height: 1.45; }
+.map-stage-meta strong,
+.map-stage-note strong { color: var(--text-main); }
+.map-stage-notes { margin: 0; color: var(--text-main); font-size: .8rem; font-style: italic; line-height: 1.45; }
+.map-stage-summary { display: grid; gap: .45rem; }
+
+.map-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: .3rem;
+  padding: .22rem .65rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.map-chip.is-ok { background: var(--success-fill); color: var(--success-ink); }
+.map-chip.is-info { background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+.map-chip.is-warn { background: var(--warning-fill); color: var(--warning-ink); }
+.map-chip.is-bad { background: var(--error-fill); color: var(--error-ink); }
+.map-chip.is-neutral { background: var(--tint-2); color: var(--text-muted); }
+
+.map-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem .9rem; margin: 0; }
+.map-facts div { display: flex; flex-direction: column; gap: .1rem; }
+.map-facts dt { color: var(--text-light); font-size: .64rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.map-facts dd { margin: 0; color: var(--text-main); font-size: .84rem; font-weight: 600; }
+
+/* ── A step's form ─────────────────────────────────────────────────────── */
+.map-form { display: grid; gap: .8rem; padding: .9rem; border: 1px solid var(--border-blue-faint); border-radius: 12px; background: var(--tint-1); }
+.map-form-question { margin: 0; color: var(--text-main); font-size: .86rem; font-weight: 600; }
+.map-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .75rem; }
+.map-field { display: flex; min-width: 0; flex-direction: column; gap: .35rem; }
+.map-field.is-wide { grid-column: 1 / -1; }
+.map-label { color: var(--text-main); font-size: .74rem; font-weight: 700; }
+.map-optional { color: var(--text-light); font-weight: 500; }
+.map-input {
+  width: 100%;
+  min-width: 0;
+  padding: .55rem .75rem;
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  font-size: .84rem;
+}
+.map-input:focus-visible { border-color: var(--primary); outline: 2px solid var(--primary-glow); outline-offset: 0; }
+.map-input:disabled { opacity: .6; }
+.map-input.is-code { font-family: var(--font-mono); letter-spacing: .04em; text-transform: uppercase; }
+.map-input.is-code::placeholder { text-transform: none; }
+.map-textarea { min-height: 3.6rem; resize: vertical; }
+
+.map-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  margin: 0;
+  padding: .65rem .8rem;
+  border: 1px solid var(--border-main);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+.map-callout svg { flex: none; margin-top: .15rem; color: var(--text-muted); }
+.map-callout.is-bad { border-color: var(--error-edge); background: var(--error-fill); color: var(--error-ink); }
+.map-callout.is-bad svg { color: var(--error-ink); }
+.map-callout.is-ok { border-color: var(--success-edge); background: var(--success-fill); color: var(--success-ink); }
+.map-callout.is-ok svg { color: var(--success-ink); }
+
+.map-form-error { margin: 0; color: var(--error-ink); font-size: .78rem; font-weight: 600; }
+.map-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.map-form-actions .ds-primary-btn:disabled { opacity: .7; cursor: progress; }
+.ds-primary-btn.is-danger { background: var(--error); }
+.ds-primary-btn.is-danger:hover { background: color-mix(in srgb, var(--error) 85%, #000); }
+
+.map-link-btn {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: .35rem;
+  padding: .15rem 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.map-link-btn:hover:not(:disabled) { text-decoration: underline; }
+.map-link-btn:disabled { opacity: .6; cursor: default; }
+
+.map-skip { display: grid; gap: .55rem; padding: .8rem .9rem; border: 1px dashed var(--border-hover); border-radius: 12px; background: var(--tint-1); }
+.map-skip-title { display: flex; align-items: center; gap: .4rem; margin: 0; color: var(--text-main); font-size: .84rem; font-weight: 700; }
+
+@media (max-width: 560px) {
+  .map-stage { grid-template-columns: 1.7rem minmax(0, 1fr); gap: .55rem; }
+  .map-stage-node { width: 1.7rem; height: 1.7rem; }
+  .map-stage::before { left: calc(.85rem - 1px); top: 2.05rem; }
+  .map-stage-head { flex-wrap: wrap; }
+  .map-stage-icon { display: none; }
+  .map-dialog-body { padding: .9rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-stage-card { transition: none; }
+}

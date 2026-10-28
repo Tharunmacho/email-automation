@@ -23,6 +23,7 @@ import {
   Banknote,
   ListChecks,
   LayoutDashboard,
+  Route,
   FilePlus2,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -42,6 +43,7 @@ export const NAV_IDS = [
   "payroll",
   "staff",
   "job-orders",
+  "mapping-candidates",
   "sourcing",
   "b2b-enquiries",
   "data-management",
@@ -151,6 +153,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Recruitment",
     items: [
       { id: "job-orders", label: "Job Orders", icon: Briefcase, roles: ["admin", "manager", "finance_manager"] },
+      // Every candidate mapped to a job order, and the steps from résumé to
+      // travel. Staff reach it too: the API scopes them to the candidates
+      // allocated to them, exactly as their own review queue is scoped.
+      { id: "mapping-candidates", label: "Mapped Candidates", icon: Route, roles: ["admin", "manager", "finance_manager", "staff"] },
       { id: "sourcing", label: "Sourcing Hub", icon: Building2, roles: ["admin", "manager", "finance_manager"] },
       // Sits under the hub rather than beside it: the parties are the address
       // book and these are the requirements they raise, so a recruiter reads
@@ -182,9 +188,8 @@ export const NAV_GROUPS: NavGroup[] = [
  * the user yet — the `roles` on each item decide, exactly as before.
  *
  * Neither is the security. Every screen behind these is guarded by the API, and
- * a granted page does not widen what its data endpoints will return: a staff
- * member on the Candidates page still sees only the candidates allocated to
- * them, because that scoping lives in the API and not in this menu.
+ * the API decides the scope: All Candidates permits shared profile reads,
+ * while Assigned Candidates and review actions stay tied to allocation.
  */
 export function navGroupsFor(role: string | undefined, pages?: string[]): NavGroup[] {
   const allowed = pages
@@ -227,6 +232,7 @@ export function navGroupsFor(role: string | undefined, pages?: string[]): NavGro
 export function defaultNavFor(role: string | undefined, pages?: string[]): NavId {
   const visible = navGroupsFor(role, pages).flatMap((group) => group.items.map((item) => item.id));
   if ((role === "admin" || role === "manager" || role === "finance_manager") && visible.includes("overview")) return "overview";
+  if (role === "staff" && visible.includes("assigned-candidates")) return "assigned-candidates";
   if (visible.includes("candidates")) return "candidates";
   return visible[0] ?? "settings";
 }
@@ -255,6 +261,11 @@ export const NAV_META: Record<NavId, { eyebrow: string; title: string; subtitle:
     eyebrow: "Recruitment",
     title: "Job Orders",
     subtitle: "Client requisitions and the candidate matching pipeline.",
+  },
+  "mapping-candidates": {
+    eyebrow: "Recruitment",
+    title: "Mapped Candidates",
+    subtitle: "Candidates mapped to job orders, and each one's steps from résumé to travel.",
   },
   sourcing: {
     eyebrow: "Recruitment",

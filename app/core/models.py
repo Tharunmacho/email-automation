@@ -585,6 +585,28 @@ class CandidateContact(BaseModel):
     first_seen_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _read_legacy_contact(cls, data: Any) -> Any:
+        """Read bot contacts without changing the caller's stored document."""
+        if not isinstance(data, dict) or not ({"number", "normalized"} & data.keys()):
+            return data
+
+        from app.db.dedup import normalize_phone
+
+        contact = dict(data)
+        number = contact.get("number")
+        if "value" not in contact and isinstance(number, str) and normalize_phone(number):
+            contact["value"] = number
+        if "key" not in contact:
+            value = contact.get("value")
+            key = normalize_phone(value) if isinstance(value, str) else None
+            if key:
+                # The bot's `normalized` can include a country code. Derive the
+                # CRM's last-ten key from the actual value, even if it disagrees.
+                contact["key"] = key
+        return contact
+
 
 class IdentityReview(BaseModel):
     """Two records that look like one person, left for a human to settle.
@@ -804,6 +826,11 @@ class CandidateRecord(BaseModel):
     #: decision may change it — see `record_recruitment_event`.
     placement_locked: bool = False
     recruitment_history: List[Dict[str, Any]] = Field(default_factory=list)
+    #: The gated steps after a candidate is mapped to a job order — resume,
+    #: interview, selection, offer, visa, travel. Shape and rules live in
+    #: `app.mapping_pipeline`; the history of every answer is appended to
+    #: `recruitment_history` alongside the rest of the pipeline.
+    mapping_pipeline: Optional[Dict[str, Any]] = None
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

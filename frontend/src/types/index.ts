@@ -607,9 +607,95 @@ export type OfferStatus = "issued" | "accepted" | "declined";
 
 export type InterviewOutcome = "selected" | "on_hold" | "rejected" | "offer_declined";
 
+/**
+ * Mapped Candidates: the gated steps after a candidate is mapped to a job
+ * order. Mirrors `STAGES` in `app/mapping_pipeline.py`; the two must be changed
+ * together, and the backend is the authority on which step may be answered.
+ */
+export type MappingStageKey = "resume" | "interview" | "selection" | "offer" | "visa" | "travel";
+
+/**
+ * Where one step stands. `current` may already hold a partial answer — a resume
+ * not submitted yet, a medically unfit result — that does not open the next.
+ */
+export type MappingStageState = "passed" | "skipped" | "current" | "failed" | "locked";
+
+/** One recorded answer. Which fields are present depends on the step. */
+export interface MappingStageEntry {
+  answer?: string;
+  skipped?: boolean;
+  /** Read from the recruitment pipeline rather than answered on this screen. */
+  derived?: boolean;
+  notes?: string;
+  at?: string;
+  actor_id?: string;
+  actor_name?: string;
+  interview_at?: string | null;
+  stamping?: "completed" | "pending";
+  medical?: "fit" | "unfit" | "pending";
+  travel_date?: string;
+  travel_time?: string;
+  flight_number?: string;
+  airline?: string;
+}
+
+export interface MappingStageView {
+  key: MappingStageKey;
+  label: string;
+  state: MappingStageState;
+  entry: MappingStageEntry | null;
+  /** Whether the gate is open for an answer. Role rules (skipping) are separate. */
+  answerable: boolean;
+}
+
+export interface MappingView {
+  job_order_id: string | null;
+  status: "in_progress" | "completed" | "closed";
+  /** The step being worked; null once completed or closed. */
+  current_stage: MappingStageKey | null;
+  closed: { stage: MappingStageKey; reason: string; at: string; by?: string | null } | null;
+  stages: MappingStageView[];
+}
+
+/** The slice of a job order a mapped row carries — enough to name it. */
+export interface MappedJobOrder {
+  id: string;
+  title?: string;
+  client?: string;
+  destinationCountry?: string;
+  status?: string;
+  designation?: string;
+  headcount?: number;
+  dueDate?: string;
+  /** The order was deleted after the candidate was mapped to it. */
+  missing?: boolean;
+}
+
+/** A candidate list row with the order it is mapped to and its steps. */
+export interface MappedCandidateRow extends CandidateRecord {
+  job_order: MappedJobOrder;
+  mapping: MappingView;
+}
+
+/** The body of `POST /mapping/candidates/{id}/stages/{stage}`. */
+export interface MappingStagePayload {
+  skip?: boolean;
+  answer?: string;
+  notes?: string;
+  interview_at?: string | null;
+  stamping?: string;
+  medical?: string;
+  travel_date?: string;
+  travel_time?: string;
+  flight_number?: string;
+  airline?: string;
+}
+
 /** One movement in the pipeline, appended and never rewritten. */
 export interface RecruitmentEvent {
-  type: "submitted" | "interview" | "outcome" | "offer" | string;
+  type: "submitted" | "unsubmitted" | "interview" | "outcome" | "offer" | "mapping" | string;
+  /** For `mapping` events: which step was answered or skipped. */
+  stage?: MappingStageKey;
   at: string;
   actor_id?: string | null;
   actor_name?: string | null;

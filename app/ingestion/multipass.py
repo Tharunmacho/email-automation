@@ -369,11 +369,9 @@ class MultipassExtractor:
             )
 
         payload, payload_name = self._payload_for(data, pages, filename, mode)
-        # The row's key names the mail; the digest names the upload. Both are
-        # needed: carving page 54 out of a bundle twice does not produce
-        # identical bytes (PyMuPDF stamps a fresh document id into each carve),
-        # and the service refuses a key it has already seen against different
-        # bytes — which is how a retry turned a good extraction into a failure.
+        # The row's key names the mail; the digest names the upload. Stable PDF
+        # serialization reuses the key on retry, while changed page selections
+        # or compaction settings remain distinct uploads.
         submit_key = f"{row.idempotency_key}/{content_key(payload)}"
         try:
             # The gateway holds one in-flight slot for the submit-and-wait, and

@@ -1005,7 +1005,6 @@ class CandidateRepository:
         minimal: bool = False,
         query: Optional[dict] = None,
         staff_id: Optional[str] = None,
-        projection: Optional[dict] = None,
     ) -> List[dict]:
         """A page of list rows, projected in the database.
 
@@ -1018,13 +1017,8 @@ class CandidateRepository:
 
         `staff_id` narrows the page to that person's own candidates; None is an
         administrator and sees everything.
-
-        `projection` overrides the default for a caller that needs a different
-        shape of row — `MATCH_PROJECTION` for the job-order pool, which scores
-        against fields the directory does not carry.
         """
-        if projection is None:
-            projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
+        projection = MINIMAL_PROJECTION if minimal else LIST_PROJECTION
         cursor = (
             self._coll.find(_scoped(query, staff_id), projection)
             .sort("created_at", -1)
@@ -1049,6 +1043,15 @@ class CandidateRepository:
                 resume.pop("storage_key", None)
             rows.append(doc)
         return rows
+
+    def get_summary(
+        self, candidate_id: str, extra_projection: Optional[dict] = None,
+    ) -> Optional[dict]:
+        """One candidate as a list row, for a screen refreshing a single line."""
+        rows = self.list_summaries(
+            limit=1, query=_id_filter(candidate_id), extra_projection=extra_projection,
+        )
+        return rows[0] if rows else None
 
     def get(self, candidate_id: str) -> Optional[CandidateRecord]:
         doc = self._coll.find_one(_id_filter(candidate_id))

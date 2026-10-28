@@ -1,8 +1,8 @@
 """The role boundary as the HTTP API actually enforces it.
 
-The unit tests cover the scoping helper; these cover the thing that matters —
-that a staff member calling the real routes cannot reach another person's
-candidate or the admin's console.
+Profile browsing is shared, while review and modification actions remain
+allocated to the owning staff member. Page and action grants still control
+access to the admin's console.
 """
 from __future__ import annotations
 
@@ -123,6 +123,30 @@ def test_staff_listing_shows_only_their_own(api):
     assert body["total"] == 1
 
 
+def test_staff_can_browse_all_profiles_before_matching(api):
+    api.sign_in_as("staff", "staff-1")
+    unallocated = make_record("cand-unallocated", "Unallocated Candidate", None)
+    api.repo.records[unallocated.id] = unallocated
+
+    directory = api.get("/candidates?scope=all").json()
+    assert {row["id"] for row in directory["items"]} == {
+        "cand-mine", "cand-theirs", "cand-unallocated",
+    }
+    assert directory["total"] == 3
+    page = api.get("/candidates?scope=all&skip=1&limit=1").json()
+    assert [row["id"] for row in page["items"]] == ["cand-theirs"]
+    assert page["total"] == 3
+    own_queue = api.get("/candidates?scope=mine").json()
+    assert [row["id"] for row in own_queue["items"]] == ["cand-mine"]
+    assert own_queue["total"] == 1
+
+
+def test_staff_cannot_browse_profiles_without_the_candidates_page(api):
+    api.sign_in_as("staff", "staff-1", pages=["settings"])
+    assert api.get("/candidates?scope=all").status_code == 404
+    assert api.get("/candidates/cand-theirs").status_code == 404
+
+
 def test_admin_listing_shows_everything(api):
     api.sign_in_as("admin", "admin-1")
     body = api.get("/candidates").json()
@@ -148,6 +172,120 @@ def test_staff_can_open_their_own_candidate(api):
     assert api.get("/candidates/cand-mine").status_code == 200
 
 
+@pytest.mark.parametrize("staff_id", ["staff-1", "staff-2", None])
+def test_job_order_profile_can_be_read_regardless_of_allocation(api, staff_id):
+    api.sign_in_as("staff", "staff-1", pages=["candidates", "job-orders"])
+    record = api.repo.get("cand-theirs")
+    record.assigned_staff_id = staff_id
+
+    response = api.get("/candidates/cand-theirs?context=job-orders")
+
+    assert response.status_code == 200
+    assert response.json()["profile"]["email"] == "cand-theirs@x.com"
+    assert record.assigned_staff_id == staff_id
+    assert api.repo.viewed == []
+    assert api.repo.evaluations == []
+    assert [row["id"] for row in api.get("/candidates").json()["items"]] == (
+        ["cand-mine", "cand-theirs"] if staff_id == "staff-1" else ["cand-mine"]
+    )
+    assert api.get("/candidates/does-not-exist?context=job-orders").status_code == 404
+
+
+@pytest.mark.parametrize("staff_id", ["staff-2", None])
+def test_staff_can_read_profiles_before_matching_without_a_job_order_grant(api, staff_id):
+    api.sign_in_as("staff", "staff-1")
+    record = api.repo.get("cand-theirs")
+    record.assigned_staff_id = staff_id
+    response = api.get("/candidates/cand-theirs")
+    assert response.status_code == 200
+    assert response.json()["profile"]["full_name"] == "Their Candidate"
+    assert record.assigned_staff_id == staff_id
+    assert api.repo.viewed == []
+    assert api.repo.evaluations == []
+
+
+def test_job_order_profile_does_not_require_the_candidates_page(api):
+    api.sign_in_as("staff", "staff-1", pages=["job-orders"])
+    assert api.get("/candidates/cand-theirs?context=job-orders").status_code == 200
+    assert api.get("/candidates/cand-mine").status_code == 404
+    assert api.get("/candidates").status_code == 404
+
+
+@pytest.mark.parametrize("suffix", [
+    "", "/resume", "/identity", "/whatsapp-chat", "/identity/passport/rec-2/file",
+])
+def test_job_order_read_context_requires_the_job_orders_grant(api, suffix):
+    api.sign_in_as("staff", "staff-1")
+    # Even an owned candidate cannot use a page permission they do not hold.
+    assert api.get(f"/candidates/cand-mine{suffix}?context=job-orders").status_code == 404
+
+
+@pytest.mark.parametrize("query", ["", "?context=job-orders"])
+def test_profile_read_access_does_not_grant_writes_to_another_queue(api, query):
+    api.sign_in_as("staff", "staff-1", pages=["candidates", "job-orders"])
+    path = "/candidates/cand-theirs"
+    assert api.put(f"{path}{query}", json={
+        "is_resume": False, "confidence": 0, "full_name": "Not allowed",
+    }).status_code == 404
+    assert api.post(f"{path}/view{query}").status_code == 404
+    assert api.post(f"{path}/evaluate{query}", json={
+        "status": "shortlisted", "score": 4, "notes": "Not allowed",
+    }).status_code == 404
+    assert api.post(f"{path}/submit{query}", json={
+        "target_type": "company", "target_name": "Example", "job_order_id": "JO-1",
+    }).status_code == 404
+    assert api.repo.get("cand-theirs").profile.full_name == "Their Candidate"
+    assert api.repo.viewed == []
+    assert api.repo.evaluations == []
+
+
+def test_job_order_viewer_can_read_resume_and_passport_but_not_aadhaar_scan(api):
+    from app.services.identity_files import IdentityFile
+
+    api.sign_in_as("staff", "staff-1", pages=["job-orders"])
+    path = "/candidates/cand-theirs"
+    with patch("app.api.routes.get_storage_backend") as backend:
+        backend.return_value.load.return_value = b"resume bytes"
+        response = api.get(f"{path}/resume?context=job-orders")
+        assert response.status_code == 200
+        assert response.content == b"resume bytes"
+
+    doc = {"_id": "passport-2", "document_type": "passport", "candidate_id": "cand-theirs"}
+    with patch("app.db.identity_records.find_one", return_value=doc) as find, patch(
+        "app.services.identity_files.load",
+        return_value=IdentityFile(b"passport bytes", "application/pdf", "passport.pdf"),
+    ):
+        response = api.get(f"{path}/identity/passport/passport-2/file?context=job-orders")
+        assert response.status_code == 200
+        assert response.content == b"passport bytes"
+        find.assert_called_once_with("cand-theirs", "passport", "passport-2")
+        assert api.get(f"{path}/identity/aadhaar/rec-1/file?context=job-orders").status_code == 403
+
+
+def test_job_order_identity_read_preserves_number_masking(api):
+    api.sign_in_as("staff", "staff-1", pages=["job-orders"])
+    with patch("app.db.identity_records.find_for_candidate", _fake_identity):
+        response = api.get("/candidates/cand-theirs/identity?context=job-orders")
+    assert response.status_code == 200
+    card = response.json()["aadhaar"][0]
+    assert card["masked_aadhaar_number"] == "XXXXXXXX9017"
+    assert "aadhaar_number" not in card
+    assert "raw" not in card
+    assert "vid" not in card
+
+
+def test_job_order_viewer_can_read_another_candidates_whatsapp_chat(api):
+    api.sign_in_as("staff", "staff-1", pages=["job-orders"])
+    record = api.repo.get("cand-theirs")
+    record.source = "whatsapp"
+    record.idempotency_key = "whatsapp/line-1/919876543210"
+    with patch("app.api.routes.fetch_candidate_chat", return_value={"sessions": []}) as fetch:
+        response = api.get("/candidates/cand-theirs/whatsapp-chat?context=job-orders")
+    assert response.status_code == 200
+    assert response.json()["available"] is True
+    fetch.assert_called_once_with("919876543210")
+
+
 def test_candidate_whatsapp_chat_is_proxied_for_the_owner(api):
     api.sign_in_as("staff", "staff-1")
     record = api.repo.get("cand-mine")
@@ -167,20 +305,16 @@ def test_candidate_whatsapp_chat_is_proxied_for_the_owner(api):
     fetch.assert_called_once_with("919876543210")
 
 
-def test_candidate_whatsapp_chat_keeps_candidate_scope(api):
-    api.sign_in_as("staff", "staff-1")
+def test_candidate_whatsapp_chat_requires_profile_page_access(api):
+    api.sign_in_as("staff", "staff-1", pages=["settings"])
     with patch("app.api.routes.fetch_candidate_chat") as fetch:
         response = api.get("/candidates/cand-theirs/whatsapp-chat")
     assert response.status_code == 404
     fetch.assert_not_called()
 
 
-def test_staff_gets_404_not_403_for_someone_elses_candidate(api):
-    """403 would confirm the record exists, which is the fact the isolation rule
-    is there to withhold — the id must be indistinguishable from a missing one."""
+def test_staff_gets_404_for_a_missing_candidate(api):
     api.sign_in_as("staff", "staff-1")
-    response = api.get("/candidates/cand-theirs")
-    assert response.status_code == 404
     assert api.get("/candidates/does-not-exist").status_code == 404
 
 
@@ -210,9 +344,13 @@ def test_staff_cannot_edit_someone_elses_candidate(api):
     assert api.repo.get("cand-theirs").profile.full_name == "Their Candidate"
 
 
-def test_staff_cannot_download_someone_elses_resume(api):
+def test_staff_can_download_a_shared_profile_resume_before_matching(api):
     api.sign_in_as("staff", "staff-1")
-    assert api.get("/candidates/cand-theirs/resume").status_code == 404
+    with patch("app.api.routes.get_storage_backend") as backend:
+        backend.return_value.load.return_value = b"resume bytes"
+        response = api.get("/candidates/cand-theirs/resume")
+    assert response.status_code == 200
+    assert response.content == b"resume bytes"
 
 
 # --------------------------------------------------------------------------- #
@@ -259,10 +397,11 @@ def _fake_identity(_candidate_id=None):
     }
 
 
-def test_a_recruiter_is_served_the_masked_aadhaar_only(api):
+@pytest.mark.parametrize("candidate_id", ["cand-mine", "cand-theirs"])
+def test_a_recruiter_is_served_the_masked_aadhaar_only(api, candidate_id):
     api.sign_in_as("staff", "staff-1")
     with patch("app.db.identity_records.find_for_candidate", _fake_identity):
-        body = api.get("/candidates/cand-mine/identity").json()
+        body = api.get(f"/candidates/{candidate_id}/identity").json()
 
     card = body["aadhaar"][0]
     assert card["masked_aadhaar_number"] == "XXXXXXXX9017"
@@ -290,13 +429,8 @@ def test_an_administrator_is_served_the_full_number(api):
     assert "raw" not in body["aadhaar"][0]
 
 
-def test_an_identity_document_never_confirms_someone_elses_candidate(api):
-    """404, exactly as the candidate endpoints do.
-
-    A 403 here would confirm the id exists, and an identity document must not
-    be the thing that leaks it.
-    """
-    api.sign_in_as("staff", "staff-1")
+def test_identity_documents_require_profile_page_access(api):
+    api.sign_in_as("staff", "staff-1", pages=["settings"])
     with patch("app.db.identity_records.find_for_candidate", _fake_identity):
         assert api.get("/candidates/cand-theirs/identity").status_code == 404
 

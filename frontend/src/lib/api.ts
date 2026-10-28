@@ -42,6 +42,14 @@ import type {
   StaffWorkloadResponse,
   InterviewOutcome,
   InterviewStatus,
+  MappedCandidateRow,
+  MappedJobOrder,
+  MappingStageEntry,
+  MappingStageKey,
+  MappingStagePayload,
+  MappingStageState,
+  MappingStageView,
+  MappingView,
   Office,
   OfferStatus,
   RecruitmentEvent,
@@ -89,6 +97,14 @@ export type {
   InterviewOutcome,
   OfferStatus,
   Office,
+  MappedCandidateRow,
+  MappedJobOrder,
+  MappingStageEntry,
+  MappingStageKey,
+  MappingStagePayload,
+  MappingStageState,
+  MappingStageView,
+  MappingView,
   RebalanceResult,
   RehomeResult,
   DeleteStaffResult,
@@ -240,9 +256,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * or editing a full profile — saving a summary back would write away every
  * field it does not carry.
  */
-export function listCandidates(limit = 200, skip = 0, withTotal = true): Promise<CandidateListResponse> {
+export function listCandidates(limit = 200, skip = 0, withTotal = true, scope: "mine" | "all" = "mine"): Promise<CandidateListResponse> {
   const total = withTotal ? "" : "&with_total=false";
-  return request<CandidateListResponse>(`/candidates?limit=${limit}&skip=${skip}${total}`, {
+  return request<CandidateListResponse>(`/candidates?limit=${limit}&skip=${skip}&scope=${scope}${total}`, {
     cache: "no-store",
   });
 }
@@ -261,7 +277,7 @@ const CANDIDATE_PAGE_CONCURRENCY = 4;
  * turned a directory of a few thousand into a long chain of round trips.
  */
 async function loadAllCandidates(): Promise<CandidateListResponse> {
-  const first = await listCandidates(CANDIDATE_PAGE_SIZE, 0);
+  const first = await listCandidates(CANDIDATE_PAGE_SIZE, 0, true, "all");
   const items: CandidateRecord[] = [...(first.items ?? [])];
   if (items.length < CANDIDATE_PAGE_SIZE) {
     return { total: items.length, count: items.length, items };
@@ -276,7 +292,7 @@ async function loadAllCandidates(): Promise<CandidateListResponse> {
   const worker = async () => {
     while (next < skips.length) {
       const index = next++;
-      const page = await listCandidates(CANDIDATE_PAGE_SIZE, skips[index], false);
+      const page = await listCandidates(CANDIDATE_PAGE_SIZE, skips[index], false, "all");
       pages[index] = page.items ?? [];
     }
   };
@@ -327,14 +343,25 @@ export function listAllCandidates(): Promise<CandidateListResponse> {
   return candidateReload;
 }
 
+/** Shared profile reads require the Job Orders page grant on the server. */
+export type CandidateReadContext = "job-orders";
+
+function candidateReadQuery(context?: CandidateReadContext, token?: string | null): string {
+  const params = new URLSearchParams();
+  if (context) params.set("context", context);
+  if (token) params.set("token", token);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 /** The complete record for one candidate — every field, OCR payload included. */
-export function getCandidate(candidateId: string): Promise<CandidateRecord> {
-  return request<CandidateRecord>(`/candidates/${candidateId}`, { cache: "no-store" });
+export function getCandidate(candidateId: string, context?: CandidateReadContext): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}${candidateReadQuery(context)}`, { cache: "no-store" });
 }
 
 /** The WhatsApp conversation stored by the separate automation service. */
-export function getCandidateWhatsAppChat(candidateId: string): Promise<WhatsAppChatResponse> {
-  return request<WhatsAppChatResponse>(`/candidates/${candidateId}/whatsapp-chat`, {
+export function getCandidateWhatsAppChat(candidateId: string, context?: CandidateReadContext): Promise<WhatsAppChatResponse> {
+  return request<WhatsAppChatResponse>(`/candidates/${candidateId}/whatsapp-chat${candidateReadQuery(context)}`, {
     cache: "no-store",
   });
 }
@@ -1038,8 +1065,8 @@ export function fetchStatusOverrides(employeeId?: string): Promise<{ items: Stat
 }
 
 /** Fetch the separately stored Aadhaar and passport records for one candidate. */
-export function getCandidateIdentity(candidateId: string): Promise<IdentityDocuments> {
-  return request<IdentityDocuments>(`/candidates/${candidateId}/identity`, {
+export function getCandidateIdentity(candidateId: string, context?: CandidateReadContext): Promise<IdentityDocuments> {
+  return request<IdentityDocuments>(`/candidates/${candidateId}/identity${candidateReadQuery(context)}`, {
     cache: "no-store",
   });
 }
@@ -1230,9 +1257,8 @@ export function deleteCandidateAPI(candidateId: string): Promise<{ status: strin
   });
 }
 
-export function resumeDownloadUrl(candidateId: string): string {
-  const token = getToken();
-  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+export function resumeDownloadUrl(candidateId: string, context?: CandidateReadContext): string {
+  const query = candidateReadQuery(context, getToken());
   return `${API_BASE}/candidates/${candidateId}/resume${query}`;
 }
 
@@ -1249,9 +1275,9 @@ export function identityFileUrl(
   candidateId: string,
   documentType: "aadhaar" | "passport",
   recordId: string,
+  context?: CandidateReadContext,
 ): string {
-  const token = getToken();
-  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  const query = candidateReadQuery(context, getToken());
   return (
     `${API_BASE}/candidates/${candidateId}/identity/` +
     `${documentType}/${encodeURIComponent(recordId)}/file${query}`
@@ -1593,6 +1619,34 @@ export function updateCandidateOffer(
 }
 
 // --------------------------------------------------------------------------- //
+//  Mapped Candidates
+//
+//    resume -> interview -> selection -> offer -> visa -> travel
+//
+//  The backend scopes the list to the caller (staff see their own allocated
+//  candidates) and refuses any step whose turn has not come.
+// --------------------------------------------------------------------------- //
+export function listMappedCandidates(): Promise<{ total: number; count: number; items: MappedCandidateRow[] }> {
+  return request("/mapping/candidates", { cache: "no-store" });
+}
+
+/** Answer or skip one step; resolves to the candidate's refreshed row. */
+export function recordMappingStage(
+  candidateId: string,
+  stage: MappingStageKey,
+  payload: MappingStagePayload,
+): Promise<MappedCandidateRow> {
+  return request<MappedCandidateRow>(
+    `/mapping/candidates/${encodeURIComponent(candidateId)}/stages/${stage}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+// --------------------------------------------------------------------------- //
 //  Cross-country / office reassignment
 // --------------------------------------------------------------------------- //
 export function fetchOffices(activeOnly = true): Promise<{ items: Office[]; count: number }> {
@@ -1712,8 +1766,8 @@ export function listJobOrdersAPI(): Promise<{ items: JobOrderRecord[] }> {
  * The cross-staff candidate pool used to fill job orders.
  *
  * This is deliberately separate from the normal candidate list: a staff
- * member's Candidates page remains private to their queue, while a user
- * granted Job Orders may consider candidates owned by any reviewer.
+ * member's assigned review queue remains private, while a user granted Job
+ * Orders may consider candidates owned by any reviewer.
  */
 export function listJobOrderCandidatesAPI(): Promise<CandidateListResponse> {
   return request<CandidateListResponse>("/job-orders/candidate-pool?limit=2000", {

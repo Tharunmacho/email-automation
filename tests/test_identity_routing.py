@@ -242,17 +242,7 @@ def test_compaction_never_returns_something_larger():
 #  Idempotency keys
 # --------------------------------------------------------------------------- #
 def test_the_key_names_the_upload_not_just_the_email():
-    """Two carves of one page are not byte-identical, so the key cannot be the
-    mail alone.
-
-    PyMuPDF stamps a fresh document id into every subset it writes. A key that
-    named only the message therefore promised the service "same key, same
-    bytes" and broke it on the second attempt — a scheduled poll overlapping a
-    manual sync, or a plain retry. The service refused the submission with
-    `Idempotency-Key was already used for a different OCR upload`, the résumé
-    parse fell back to the heuristic parser, and a candidate called "Work
-    history" was stored while Veris had read the name correctly.
-    """
+    """The same mail may send different pages, which need distinct upload keys."""
     from app.extraction.jobs import JobContext
 
     context = JobContext(account_id="cv@adiragroups.com", message_id="2603",
@@ -277,12 +267,72 @@ def test_the_same_bytes_still_re_attach_to_the_running_job():
     )
 
 
-def test_a_carve_is_not_byte_stable_which_is_why_the_digest_is_needed():
-    """Pins the fact the fix rests on, so nobody 'simplifies' the key later."""
+def test_repeated_carves_reuse_the_upload_key_and_preserve_page_content():
+    """A failed candidate insert must not buy another OCR of the same pages."""
+    from app.extraction.jobs import JobContext, content_key
+
     data = make_pdf(bundle())
+    context = JobContext(account_id="cv@adiragroups.com", message_id="2603",
+                         attachment_id="2603_5")
 
-    once = MultipassExtractor._payload_for(data, [5], "bundle.pdf", MODE_AADHAAR)[0]
-    twice = MultipassExtractor._payload_for(data, [5], "bundle.pdf", MODE_AADHAAR)[0]
+    once = MultipassExtractor._payload_for(data, [2, 3], "bundle.pdf", "resume")[0]
+    twice = MultipassExtractor._payload_for(data, [2, 3], "bundle.pdf", "resume")[0]
 
-    # Same pages, same content, different bytes — a PDF writer stamps each file.
-    assert once != twice
+    assert once == twice
+    assert context.key_for("resume", content_key(once)) == context.key_for(
+        "resume", content_key(twice)
+    )
+    with fitz.open(stream=data, filetype="pdf") as source, \
+            fitz.open(stream=once, filetype="pdf") as trimmed:
+        assert source.page_count == len(bundle())
+        assert trimmed.page_count == 2
+        for original_index, trimmed_index in ((1, 0), (2, 1)):
+            original = source[original_index]
+            kept = trimmed[trimmed_index]
+            assert kept.rect == original.rect
+            assert kept.get_text() == original.get_text()
+            assert kept.get_pixmap().samples == original.get_pixmap().samples
+
+
+def test_changed_pages_produce_a_different_upload_key():
+    """Stable serialization still distinguishes a genuinely changed upload."""
+    from app.extraction.jobs import JobContext, content_key
+
+    pages = bundle()
+    changed_pages = list(pages)
+    changed_pages[1] = RESUME_PAGE.replace("EOT Crane Operator", "Forklift Operator")
+    assert changed_pages[1] != pages[1]
+    context = JobContext(account_id="cv@adiragroups.com", message_id="2603",
+                         attachment_id="2603_5")
+
+    original = pdf_pages.subset_pdf(make_pdf(pages), [2, 3])
+    changed = pdf_pages.subset_pdf(make_pdf(changed_pages), [2, 3])
+
+    assert original and changed and original != changed
+    assert context.key_for("resume", content_key(original)) != context.key_for(
+        "resume", content_key(changed)
+    )
+
+
+def test_repeated_compaction_reuses_the_upload_key_and_rendered_content():
+    """Shrinking a large scan must be just as stable as carving its pages."""
+    from app.extraction.jobs import JobContext, content_key
+
+    data = _fat_scan()
+    once = pdf_pages.compact_pdf(data, max_bytes=200_000, dpi=200)
+    twice = pdf_pages.compact_pdf(data, max_bytes=200_000, dpi=200)
+    context = JobContext(account_id="cv@adiragroups.com", message_id="2603",
+                         attachment_id="2603_5")
+
+    assert len(once) < len(data), "this test must exercise actual compaction"
+    assert once == twice
+    assert context.key_for("resume", content_key(once)) == context.key_for(
+        "resume", content_key(twice)
+    )
+    with fitz.open(stream=data, filetype="pdf") as source, \
+            fitz.open(stream=once, filetype="pdf") as first, \
+            fitz.open(stream=twice, filetype="pdf") as second:
+        assert first.page_count == second.page_count == source.page_count == 1
+        assert first[0].rect == second[0].rect == source[0].rect
+        assert first[0].get_text() == second[0].get_text() == source[0].get_text() == ""
+        assert first[0].get_pixmap().samples == second[0].get_pixmap().samples

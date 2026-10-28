@@ -55,7 +55,9 @@ interface CandidatesViewProps {
   onAddCandidate: () => void;
   onOpenCandidate: (candidate: CandidateRecord) => void;
   onEditCandidate: (candidate: CandidateRecord) => void;
-  onDeleteCandidate: (candidateId: string) => void;
+  /** Shared profiles can be read while edits remain limited to their owner. */
+  canEditCandidate?: (candidate: CandidateRecord) => boolean;
+  onDeleteCandidate?: (candidateId: string) => void;
   onAssignmentChanged?: () => void;
   onToast?: (message: string, type?: "info" | "success" | "error") => void;
 }
@@ -85,7 +87,10 @@ function nameFromAddress(addr: string): string {
     .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-function getDisplayName(candidate: CandidateRecord): string {
+// The row readings below are exported so Mapped Candidates searches and filters
+// its rows by exactly the same rules as this screen — one definition of a
+// candidate's role, industry and experience band, not two that drift.
+export function getDisplayName(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const parsed = profile.full_name ?? "";
   if (isUsableName(parsed)) return parsed.trim();
@@ -98,7 +103,7 @@ function getDisplayName(candidate: CandidateRecord): string {
   return derived || "Candidate Profile";
 }
 
-function getDesignation(candidate: CandidateRecord): string {
+export function getDesignation(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const exps = profile.work_experience ?? [];
   const job = candidate.job ?? null;
@@ -117,7 +122,7 @@ function getDesignation(candidate: CandidateRecord): string {
   );
 }
 
-function getIndustry(candidate: CandidateRecord): string {
+export function getIndustry(candidate: CandidateRecord): string {
   const profile = candidate.profile ?? {};
   const skills = profile.skills ?? [];
   const lowerSkills = skills.map((s) => s.toLowerCase()).join(" ");
@@ -152,12 +157,12 @@ function getIndustry(candidate: CandidateRecord): string {
   return "General";
 }
 
-function getExperienceYears(candidate: CandidateRecord): number | null {
+export function getExperienceYears(candidate: CandidateRecord): number | null {
   const years = candidate.profile?.total_experience_years;
   return years === null || years === undefined ? null : years;
 }
 
-function formatExperience(years: number | null): string {
+export function formatExperience(years: number | null): string {
   if (years === null) return "—";
   if (years <= 0) return "Fresher";
   if (years < 1) {
@@ -174,15 +179,15 @@ function formatContact(raw: string): string {
   return value;
 }
 
-function getContact(candidate: CandidateRecord): string {
+export function getContact(candidate: CandidateRecord): string {
   return formatContact(candidate.profile?.phone || candidate.phone_key || "");
 }
 
-function getEmail(candidate: CandidateRecord): string {
+export function getEmail(candidate: CandidateRecord): string {
   return candidate.profile?.email || candidate.email_key || candidate.source_email?.from_addr || "";
 }
 
-function getReference(candidate: CandidateRecord): string {
+export function getReference(candidate: CandidateRecord): string {
   return candidate.candidate_code || `CAN-${candidate.id.slice(-12).toUpperCase()}`;
 }
 
@@ -285,6 +290,7 @@ export default function CandidatesView({
   onAddCandidate,
   onOpenCandidate,
   onEditCandidate,
+  canEditCandidate,
   onDeleteCandidate,
   onAssignmentChanged,
   onToast,
@@ -524,16 +530,17 @@ export default function CandidatesView({
    */
   const rowActions = (candidate: CandidateRecord) => {
     const reviewed = candidate.status === "verified";
+    const canEdit = canEditCandidate?.(candidate) ?? true;
     return (
       <>
         <button
           type="button"
           className={`ds-review-action ${reviewed ? "is-done" : ""}`}
-          title={reviewed ? "Open the completed review" : "Review this candidate"}
+          title={!canEdit ? "View this profile" : reviewed ? "Open the completed review" : "Review this candidate"}
           onClick={() => onOpenCandidate(candidate)}
         >
           {reviewed ? <CheckCircle2 size={14} /> : <FileSearch size={14} />}
-          <span>{reviewed ? "Reviewed" : "Review"}</span>
+          <span>{!canEdit ? "View profile" : reviewed ? "Reviewed" : "Review"}</span>
         </button>
         {canReallocate && (
           <button
@@ -546,22 +553,26 @@ export default function CandidatesView({
             <span>Assign</span>
           </button>
         )}
-        <button
-          type="button"
-          className="ds-act"
-          title="Edit this profile"
-          onClick={() => onEditCandidate(candidate)}
-        >
-          <Edit3 size={15} />
-        </button>
-        <button
-          type="button"
-          className="ds-act is-danger"
-          title="Delete this profile"
-          onClick={() => setDeleteConfirm(candidate.id)}
-        >
-          <Trash2 size={15} />
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            className="ds-act"
+            title="Edit this profile"
+            onClick={() => onEditCandidate(candidate)}
+          >
+            <Edit3 size={15} />
+          </button>
+        )}
+        {onDeleteCandidate && (
+          <button
+            type="button"
+            className="ds-act is-danger"
+            title="Delete this profile"
+            onClick={() => setDeleteConfirm(candidate.id)}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
       </>
     );
   };
@@ -575,7 +586,7 @@ export default function CandidatesView({
         className="ds-act is-danger is-solid"
         title="Yes, delete it"
         onClick={() => {
-          onDeleteCandidate(candidateId);
+          onDeleteCandidate?.(candidateId);
           setDeleteConfirm(null);
         }}
       >

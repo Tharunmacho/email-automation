@@ -36,6 +36,7 @@ import DateTimePicker from "@/components/ui/DateTimePicker";
 // The Sourcing Hub owns what a relationship's `type` means, and exports the
 // reading of it. Duplicating that rule here is how the two would drift.
 import { normaliseType, type SourcingType } from "@/screens/SourcingHub";
+import { STAGE_META, answerLabel } from "@/components/mapping/stages";
 
 import {
   reassignCandidate,
@@ -46,8 +47,10 @@ import {
   type CandidateRecord,
   type InterviewOutcome,
   type InterviewStatus,
+  type MappingStageEntry,
   type Office,
   type OfferStatus,
+  type RecruitmentEvent,
   type RecruitmentStatus,
   type SourcingClientRecord,
   type StaffMember,
@@ -126,6 +129,29 @@ const PARTNER_TYPES: Record<"company" | "associate", SourcingType[]> = {
   company: ["client"],
   associate: ["agent", "association"],
 };
+
+/** One history line's headline. */
+function eventTitle(event: RecruitmentEvent): string {
+  switch (event.type) {
+    case "submitted":
+      return `Submitted to ${event.target_name ?? "—"}`;
+    case "unsubmitted":
+      return `Unsubmitted from ${event.job_order_id ?? event.target_name ?? "job order"}`;
+    case "interview":
+      return `Interview ${event.status ?? ""}`;
+    case "outcome":
+      return `${OUTCOME_LABEL[(event.status ?? "selected") as InterviewOutcome] ?? event.status}${event.returned_to_pool ? " · returned to pool" : ""}`;
+    case "mapping": {
+      // A step answered on Mapped Candidates. The event carries the answer as
+      // `status` and the step's own fields (stamping, medical) beside it.
+      const stage = event.stage ?? "resume";
+      const entry = { ...(event as MappingStageEntry), answer: event.status ?? undefined, skipped: event.status === "skipped" };
+      return `${STAGE_META[stage]?.title ?? stage}: ${answerLabel(stage, entry).toLowerCase()}`;
+    }
+    default:
+      return `Offer ${event.status ?? ""}`;
+  }
+}
 
 function tone(status: RecruitmentStatus): string {
   if (status === "offer_accepted") return "is-ok";
@@ -654,15 +680,7 @@ export default function RecruitmentPanel({
               <li key={`${event.type}-${event.at}-${index}`}>
                 <span className="recruit-event-type">{event.type}</span>
                 <span className="recruit-event-body">
-                  <strong>
-                    {event.type === "submitted"
-                      ? `Submitted to ${event.target_name ?? "—"}`
-                      : event.type === "interview"
-                        ? `Interview ${event.status ?? ""}`
-                        : event.type === "outcome"
-                          ? `${OUTCOME_LABEL[(event.status ?? "selected") as InterviewOutcome] ?? event.status}${event.returned_to_pool ? " · returned to pool" : ""}`
-                          : `Offer ${event.status ?? ""}`}
-                  </strong>
+                  <strong>{eventTitle(event)}</strong>
                   {event.notes && <small>{event.notes}</small>}
                   <small className="recruit-event-meta">
                     {whenExact(event.at)}

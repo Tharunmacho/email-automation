@@ -13,6 +13,7 @@ import DataManagementScreen from "@/screens/DataManagementScreen";
 import UserManagementScreen from "@/screens/UserManagementScreen";
 import CandidatesView from "@/screens/CandidatesView";
 import JobOrders from "@/screens/JobOrders";
+import MappingCandidatesScreen from "@/screens/MappingCandidatesScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CandidateProfileScreen from "@/screens/CandidateProfileScreen";
 import TasksScreen from "@/screens/TasksScreen";
@@ -60,6 +61,7 @@ import {
   type AuthUser,
   type CandidateProfile,
   type CandidateRecord,
+  type CandidateReadContext,
   type SlaAlert,
   fetchOffices,
   listCountriesAPI,
@@ -87,6 +89,7 @@ import type { Verdict } from "@/screens/CandidateProfileScreen";
 interface CandidateScreen {
   mode: "profile" | "edit";
   candidateId: string;
+  readContext?: CandidateReadContext;
 }
 
 interface CandidateExtractionState {
@@ -154,8 +157,6 @@ export default function Home() {
   // Candidates that arrived over the socket during this session, so the queue
   // can still mark them "new" long after the toast has faded.
   const [arrivedIds, setArrivedIds] = useState<Set<string>>(() => new Set());
-  // A profile the bell asked the staff workspace to open.
-  const [queueFocusId, setQueueFocusId] = useState<string | null>(null);
   // Set when "Add staff" sends the admin to User Management, so that screen
   // opens on its create form rather than on the accounts matrix.
   const [usersOpenCreate, setUsersOpenCreate] = useState(false);
@@ -590,6 +591,7 @@ export default function Home() {
 
   // ---- the open candidate ------------------------------------------------ //
   const openCandidateId = screen?.candidateId ?? null;
+  const candidateReadContext = screen?.readContext;
 
   /**
    * Fetch the whole record for whichever candidate is open.
@@ -604,11 +606,11 @@ export default function Home() {
   // clearings differ deliberately: closing a candidate empties the record,
   // while opening a different one keeps the last one on screen until the new
   // record arrives, which is what it did before.
-  const [detailFor, setDetailFor] = useState({ id: openCandidateId, nonce: detailNonce });
-  if (detailFor.id !== openCandidateId || detailFor.nonce !== detailNonce) {
-    setDetailFor({ id: openCandidateId, nonce: detailNonce });
+  const [detailFor, setDetailFor] = useState({ id: openCandidateId, nonce: detailNonce, context: candidateReadContext });
+  if (detailFor.id !== openCandidateId || detailFor.nonce !== detailNonce || detailFor.context !== candidateReadContext) {
+    setDetailFor({ id: openCandidateId, nonce: detailNonce, context: candidateReadContext });
     setDetailError(null);
-    if (!openCandidateId) setDetail(null);
+    if (!openCandidateId || detailFor.context !== candidateReadContext) setDetail(null);
   }
 
   useEffect(() => {
@@ -616,7 +618,7 @@ export default function Home() {
 
     let active = true;
 
-    getCandidate(openCandidateId).then(
+    getCandidate(openCandidateId, candidateReadContext).then(
       (record) => active && setDetail(record),
       (err: unknown) =>
         active &&
@@ -628,7 +630,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [openCandidateId, detailNonce]);
+  }, [openCandidateId, detailNonce, candidateReadContext]);
 
   const handleNavigate = useCallback(
     (next: NavId) => {
@@ -820,7 +822,7 @@ export default function Home() {
       // confirmed by the record itself rather than by a toast alone — re-read
       // from the API, because what is stored under this id has just changed.
       setDetailNonce((n) => n + 1);
-      setScreen({ mode: "profile", candidateId });
+      setScreen((current) => ({ ...current, mode: "profile", candidateId }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error saving profile.";
       showToast("Failed to save profile changes.", "error");
@@ -978,18 +980,21 @@ export default function Home() {
   };
 
   // ---- candidate screens -------------------------------------------------- //
-  /**
-   * Where "Back to candidates" lands, which is not the same place for the two
-   * roles: an admin's list of candidates is the directory, a staff member's is
-   * their queue. Sending a reviewer back to a screen the API refuses them is
-   * how the back button used to end up somewhere they could not be.
-   */
-  const listTab: NavId = "candidates";
+  /** Keep an allocated review in its queue; directory browsing returns there. */
+  const listTab: NavId = currentTab === "assigned-candidates" ? "assigned-candidates" : "candidates";
 
-  const openScreen = (mode: CandidateScreen["mode"], candidateId: string) => {
-    const listPath = navPath(listTab);
-    if (pathname !== listPath) window.history.pushState(null, "", listPath);
-    setScreen({ mode, candidateId });
+  const openScreen = (mode: CandidateScreen["mode"], candidateId: string, readContext?: CandidateReadContext) => {
+    if (readContext === "job-orders") {
+      // Keep the order mounted at its existing URL. A history entry lets the
+      // browser's Back button close the profile just like the on-screen one.
+      if (screen?.readContext !== "job-orders") {
+        window.history.pushState({ jobOrderCandidate: true }, "", window.location.href);
+      }
+    } else {
+      const listPath = navPath(listTab);
+      if (pathname !== listPath) window.history.pushState(null, "", listPath);
+    }
+    setScreen({ mode, candidateId, readContext });
   };
 
   /**
@@ -1000,11 +1005,11 @@ export default function Home() {
    * stops that profile's SLA clock, which is why the stamp lives here rather
    * than in the queue — this is the moment the résumé is actually on screen.
    */
-  const handleOpenCandidate = (candidate: CandidateRecord) => {
-    openScreen("profile", candidate.id);
+  const handleOpenCandidate = (candidate: CandidateRecord, readContext?: CandidateReadContext) => {
+    openScreen("profile", candidate.id, readContext);
     appendCandidateLog(candidate.id, "Viewed", `Executive profile opened.`, "info", user?.email);
 
-    if (user?.role !== "staff") return;
+    if (user?.role !== "staff" || candidate.assigned_staff_id !== user.id) return;
     void markCandidateViewed(candidate.id)
       // A first view changes the queue's counts and its SLA colouring, so the
       // list behind the screen has to be re-read. A repeat open changes
@@ -1017,7 +1022,7 @@ export default function Home() {
   };
 
   const handleEditCandidate = (candidate: CandidateRecord) => {
-    openScreen("edit", candidate.id);
+    openScreen("edit", candidate.id, screen?.readContext);
     appendCandidateLog(candidate.id, "Opened editor", `Edit screen opened.`, "info", user?.email);
   };
 
@@ -1026,7 +1031,12 @@ export default function Home() {
     handleNavigate("candidate-entry");
   };
 
-  const closeScreen = () => setScreen(null);
+  const closeScreen = () => {
+    if (screen?.readContext === "job-orders" && window.history.state?.jobOrderCandidate) {
+      window.history.back();
+    }
+    setScreen(null);
+  };
 
   /**
    * The profile a reviewer should see next: the unopened one closest to its
@@ -1038,7 +1048,8 @@ export default function Home() {
   const nextUnviewed = useMemo(() => {
     if (user?.role !== "staff") return null;
     const waiting = candidates.filter(
-      (candidate) => !candidate.viewed_at && candidate.id !== screen?.candidateId,
+      (candidate) => candidate.assigned_staff_id === user.id
+        && !candidate.viewed_at && candidate.id !== screen?.candidateId,
     );
     if (waiting.length === 0) return null;
     // Oldest allocation first — that is the one nearest the SLA window.
@@ -1047,7 +1058,7 @@ export default function Home() {
       const b = new Date(oldest.assigned_at ?? oldest.created_at).getTime();
       return a < b ? candidate : oldest;
     });
-  }, [candidates, screen?.candidateId, user?.role]);
+  }, [candidates, screen?.candidateId, user]);
 
   /**
    * Record a verdict from the review screen, and optionally move straight on.
@@ -1130,21 +1141,15 @@ export default function Home() {
     }
   };
 
-  /**
-   * Open whatever a notification points at.
-   *
-   * The two roles reach a candidate by different routes — an admin through the
-   * directory's profile screen, a staff member through the evaluation drawer in
-   * their queue — so the bell hands over an id and this decides.
-   */
+  /** Search results and notifications open profiles without requiring queue membership. */
   const handleOpenCandidateById = (candidateId: string) => {
     if (!reachableTabs?.has("candidates")) return;
-    if (user?.role === "staff") {
-      handleNavigate("candidates");
-      setQueueFocusId(candidateId);
-      return;
+    const candidate = candidates.find((record) => record.id === candidateId);
+    if (candidate) {
+      handleOpenCandidate(candidate);
+    } else {
+      openScreen("profile", candidateId);
     }
-    openScreen("profile", candidateId);
   };
 
   /**
@@ -1156,6 +1161,13 @@ export default function Home() {
     screen && detail && detail.id === screen.candidateId
       ? detail
       : null;
+  const ownsCandidate = Boolean(
+    screenCandidate && (user?.role !== "staff" || screenCandidate.assigned_staff_id === user.id),
+  );
+  const canReviewCandidate = canReadCandidates && ownsCandidate;
+  const candidateBackLabel = candidateReadContext === "job-orders"
+    ? "Back to job order"
+    : currentTab === "assigned-candidates" ? "Back to assigned candidates" : "Back to candidates";
 
   const meta = screen ? CANDIDATE_SCREEN_META[screen.mode] : NAV_META[currentTab];
 
@@ -1170,7 +1182,7 @@ export default function Home() {
   // controls.
   const ownsItsHeader =
     !screen &&
-    ["overview", "candidates", "assigned-candidates", "candidate-entry", "attendance", "payroll", "staff", "users", "data-management"].includes(
+    ["overview", "candidates", "assigned-candidates", "candidate-entry", "attendance", "payroll", "staff", "users", "data-management", "mapping-candidates"].includes(
       currentTab,
     );
 
@@ -1278,21 +1290,23 @@ export default function Home() {
                 // draft state seeded from the record. Keying on the id makes a
                 // different candidate a different component, so no reviewer
                 // ever sees the previous one's notes in the box.
-                key={screenCandidate.id}
+                key={`${candidateReadContext ?? "candidates"}:${screenCandidate.id}`}
                 candidate={screenCandidate}
                 verifying={verifying}
                 onBack={closeScreen}
-                onEdit={() => handleEditCandidate(screenCandidate)}
+                backLabel={candidateBackLabel}
+                readContext={candidateReadContext}
+                onEdit={canReviewCandidate ? () => handleEditCandidate(screenCandidate) : undefined}
                 // Completing a review now happens from the verdict panel ("Save &
                 // complete"); only admins can take a completed review back.
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
-                evaluation={{
+                evaluation={canReviewCandidate ? {
                   saving: evaluating,
-                  allowAdvance: user?.role === "staff",
+                  allowAdvance: user?.role === "staff" && candidateReadContext !== "job-orders",
                   nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
                   onSave: (verdict, advance, complete) =>
                     void handleSaveEvaluation(screenCandidate.id, verdict, advance, complete),
-                }}
+                } : undefined}
                 recruitment={
                   <RecruitmentPanel
                     candidate={screenCandidate}
@@ -1300,7 +1314,7 @@ export default function Home() {
                     // page, so an account without it is shown the state and
                     // not the controls — rather than buttons whose only
                     // possible outcome is a 404.
-                    canManage={canMovePipeline}
+                    canManage={canMovePipeline && ownsCandidate}
                     canReassign={canReallocate}
                     countries={countries}
                     offices={offices}
@@ -1319,6 +1333,7 @@ export default function Home() {
                 saving={saving}
                 verifying={verifying}
                 onBack={closeScreen}
+                backLabel={candidateBackLabel}
                 onSave={handleSave}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
@@ -1336,7 +1351,7 @@ export default function Home() {
                     <h3 className="db-card-title">Could not open this candidate</h3>
                     <p className="db-card-sub">{detailError}</p>
                     <button type="button" className="db-btn" onClick={closeScreen}>
-                      Back to candidates
+                      {candidateBackLabel}
                     </button>
                   </>
                 ) : (
@@ -1404,27 +1419,17 @@ export default function Home() {
                 )}
 
                 {currentTab === "candidates" && (
-                  user?.role === "staff" ? (
-                    <StaffDashboard
-                      candidates={candidates}
-                      arrivedIds={arrivedIds}
-                      focusCandidateId={queueFocusId}
-                      onFocusHandled={() => setQueueFocusId(null)}
-                      onToast={showToast}
-                      onOpenCandidate={handleOpenCandidate}
-                    />
-                  ) : (
-                    <CandidatesView
-                      candidates={candidates}
-                      canReallocate={canReallocate}
-                      onAddCandidate={handleAddCandidate}
-                      onOpenCandidate={handleOpenCandidate}
-                      onEditCandidate={handleEditCandidate}
-                      onDeleteCandidate={handleDeleteCandidate}
-                      onAssignmentChanged={() => void refreshCandidates()}
-                      onToast={showToast}
-                    />
-                  )
+                  <CandidatesView
+                    candidates={candidates}
+                    canReallocate={canReallocate}
+                    onAddCandidate={handleAddCandidate}
+                    onOpenCandidate={handleOpenCandidate}
+                    onEditCandidate={handleEditCandidate}
+                    canEditCandidate={(candidate) => user.role !== "staff" || candidate.assigned_staff_id === user.id}
+                    onDeleteCandidate={user.role === "admin" ? handleDeleteCandidate : undefined}
+                    onAssignmentChanged={() => void refreshCandidates()}
+                    onToast={showToast}
+                  />
                 )}
 
                 {currentTab === "staff" && (
@@ -1446,8 +1451,6 @@ export default function Home() {
                     <StaffDashboard
                       candidates={candidates.filter((candidate) => candidate.assigned_staff_id === user.id)}
                       arrivedIds={arrivedIds}
-                      focusCandidateId={queueFocusId}
-                      onFocusHandled={() => setQueueFocusId(null)}
                       onToast={showToast}
                       onOpenCandidate={handleOpenCandidate}
                     />
@@ -1460,7 +1463,7 @@ export default function Home() {
                       onAddCandidate={handleAddCandidate}
                       onOpenCandidate={handleOpenCandidate}
                       onEditCandidate={handleEditCandidate}
-                      onDeleteCandidate={handleDeleteCandidate}
+                      onDeleteCandidate={user.role === "admin" ? handleDeleteCandidate : undefined}
                       onAssignmentChanged={() => void refreshCandidates()}
                       onToast={showToast}
                     />
@@ -1480,27 +1483,36 @@ export default function Home() {
 
                 {currentTab === "payroll" && <PayrollScreen user={user} onToast={showToast} />}
 
-                {currentTab === "job-orders" && (
-                  <JobOrders
-                    candidates={candidates}
-                    onActivity={announceActivity}
-                    // Same route in as the directory and the bell: one entry
-                    // point decides where a candidate opens for each role, so
-                    // a staff member lands in their queue and an admin on the
-                    // profile screen. Withheld from an account that cannot
-                    // reach candidates at all, rather than offered and refused.
-                    onOpenCandidate={
-                      canReadCandidates
-                        ? (candidate) => handleOpenCandidateById(candidate.id)
-                        : undefined
-                    }
-                  />
-                )}
-
                 {currentTab === "settings" && (
                   <SettingsScreen user={user} onSignOut={handleSignOut} />
                 )}
               </>
+            )}
+
+            {/* Preserve the selected order and matching filters while reading
+                a candidate, so both Back buttons return to that exact order. */}
+            {currentTab === "job-orders" && (
+              <div hidden={Boolean(screen)}>
+                <JobOrders
+                  candidates={candidates}
+                  refreshKey={detailNonce}
+                  onActivity={announceActivity}
+                  onOpenCandidate={(candidate) => handleOpenCandidate(candidate, "job-orders")}
+                />
+              </div>
+            )}
+
+            {/* Kept mounted behind an open profile for the same reason: Back
+                returns to the same filters, page and open job-order group. */}
+            {currentTab === "mapping-candidates" && (
+              <div hidden={Boolean(screen)}>
+                <MappingCandidatesScreen
+                  role={user.role}
+                  refreshKey={realtimeNonce}
+                  onToast={showToast}
+                  onOpenProfile={canReadCandidates ? handleOpenCandidateById : undefined}
+                />
+              </div>
             )}
           </div>
         </main>

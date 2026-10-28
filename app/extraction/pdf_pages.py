@@ -47,7 +47,10 @@ def subset_pdf(data: bytes, pages: Iterable[int]) -> bytes | None:
             try:
                 for number in wanted:
                     out.insert_pdf(src, from_page=number - 1, to_page=number - 1)
-                return out.tobytes()
+                # A fresh /ID on every save changes the upload digest even
+                # when the source pages are identical. Stable bytes let a mail
+                # retry reattach to its existing OCR job instead of paying again.
+                return out.tobytes(no_new_id=True)
             finally:
                 out.close()
     except Exception as exc:  # noqa: BLE001 — never fatal; fall back to the whole file
@@ -95,7 +98,7 @@ def compact_pdf(data: bytes, max_bytes: int, dpi: int) -> bytes:
                     jpeg = pixmap.tobytes("jpeg", jpg_quality=80)
                     fresh = out.new_page(width=page.rect.width, height=page.rect.height)
                     fresh.insert_image(fresh.rect, stream=jpeg)
-                smaller = out.tobytes(deflate=True)
+                smaller = out.tobytes(deflate=True, no_new_id=True)
             finally:
                 out.close()
     except Exception as exc:  # noqa: BLE001 — the original is always valid
