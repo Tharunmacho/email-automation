@@ -270,6 +270,7 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
     setFilters((prev) => ({ ...prev, [key]: value === "" ? undefined : value, page: 1 }));
 
   const counts = state?.counts;
+  const coverage = state?.coverage;
   const evaluated = counts ? Object.values(counts).reduce((sum, value) => sum + value, 0) : 0;
   const progress = run && run.considered ? Math.min(100, Math.round((run.processed / run.considered) * 100)) : 0;
   const pageCount = page ? Math.max(1, Math.ceil(page.total / (page.page_size || PAGE_SIZE))) : 1;
@@ -353,7 +354,11 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
                   : "Retrieving candidates…"}
             </span>
             <span className="aim-quiet">
-              {formatInt(run.retrieved)} in the pool · {formatInt(run.cached)} reused
+              {run.considered && run.skipped === 0
+                ? `All ${formatInt(run.retrieved)} candidates not yet submitted are being checked`
+                : `${formatInt(run.retrieved)} not yet submitted`}
+              {run.skipped > 0 && ` · ${formatInt(run.skipped)} left out by the configured cap`}
+              {` · ${formatInt(run.cached)} reused`}
             </span>
           </div>
           <div className="ds-meter-track">
@@ -370,6 +375,29 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
         </div>
       )}
 
+      {/* Nobody in the pool is skipped silently: anyone Jev has not read is
+          counted here, with the reason and a way to check them. */}
+      {coverage && coverage.not_evaluated > 0 && !runActive && evaluated > 0 && (
+        <div className="aim-notice is-warn">
+          <CircleHelp size={16} />
+          <span>
+            {formatInt(coverage.not_evaluated)} of {formatInt(coverage.pool)} candidate
+            {coverage.pool === 1 ? "" : "s"} not yet submitted {coverage.not_evaluated === 1 ? "has" : "have"} not
+            been checked by Jev
+            {coverage.skipped_by_cap > 0
+              ? ` — the last run was capped at ${formatInt(coverage.cap ?? 0)} by JEV_MAX_CANDIDATES_PER_RUN.`
+              : " — they were added, or returned to the pool, after the last run."}
+            {coverage.failed > 0 && ` ${formatInt(coverage.failed)} more could not be evaluated.`}
+          </span>
+          {state?.configured && coverage.skipped_by_cap === 0 && (
+            <button type="button" className="ds-ghost-btn aim-notice-action" disabled={starting}
+              onClick={() => begin(state.active ? "match" : "rematch")}>
+              <Sparkles size={14} /> Check them now
+            </button>
+          )}
+        </div>
+      )}
+
       {counts && evaluated > 0 && (
         <div className="stat-tiles">
           <StatTile tone="green" icon={BadgeCheck} label="Strong matches" value={formatInt(counts.strong_match)}
@@ -378,8 +406,12 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
             note="A mandatory item could not be verified" />
           <StatTile tone="red" icon={CircleX} label="Ineligible" value={formatInt(counts.ineligible)}
             note="Verified mandatory requirement not met" />
-          <StatTile tone="slate" icon={FileCheck2} label="Evaluated" value={formatInt(evaluated)}
-            note={run ? `Last run ${formatWhen(run.finished_at || run.created_at)} · $${(run.cost_usd || 0).toFixed(4)}` : "—"} />
+          <StatTile tone={coverage && coverage.not_evaluated > 0 ? "yellow" : "slate"} icon={FileCheck2}
+            label="Checked by Jev"
+            value={coverage ? `${formatInt(coverage.evaluated)} of ${formatInt(coverage.pool)}` : formatInt(evaluated)}
+            note={coverage && coverage.not_evaluated === 0
+              ? "Everyone not yet submitted"
+              : run ? `Last run ${formatWhen(run.finished_at || run.created_at)} · $${(run.cost_usd || 0).toFixed(4)}` : "—"} />
         </div>
       )}
 
@@ -426,7 +458,7 @@ export default function AiMatchPanel({ order, onActivity, onOpenCandidate }: Pro
           <h3>{run && ACTIVE_RUN.has(run.status) ? "Matching in progress" : "No AI matches yet"}</h3>
           <p>
             {state?.configured
-              ? "Find Matching Candidates reads the existing candidate profiles against this order's requirements and ranks them, with the reasons for every score."
+              ? "Find Matching Candidates reads every candidate not yet submitted against this order's requirements and ranks them, with the reasons for every score."
               : "Configure JEV_API_KEY on the server to enable AI matching."}
           </p>
         </div>

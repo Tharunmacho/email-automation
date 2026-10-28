@@ -13,7 +13,7 @@ order. It is not a probability of being hired.
 ```
 POST /job-orders/{id}/matching/runs
   -> spec       normalise the order: mandatory vs preferred, nothing invented   app/matching/spec.py
-  -> prefilter  one projected Mongo query + keyword baseline, top N by baseline app/matching/prefilter.py
+  -> prefilter  everyone not yet submitted; keyword baseline orders, never cuts app/matching/prefilter.py
   -> evidence   PII-minimised candidate state, identifiers asserted absent      app/matching/evidence.py
   -> questions  versioned decision schema (score / choice / noul)               app/matching/questions.py
   -> jev        POST api.typesafe.ai/v1/systemone, timeout, retries, cap        app/matching/jev.py
@@ -36,7 +36,7 @@ only re-sends what failed.
 | `JEV_MAX_RETRIES` | `3` | Attempts on 429 / 5xx / 529 / network errors (exponential backoff, honours `retry-after`) |
 | `JEV_RETRY_BACKOFF_SECONDS` | `0.5` | Base backoff |
 | `JEV_MAX_CONCURRENCY` | `4` | Requests in flight, process-wide |
-| `JEV_MAX_CANDIDATES_PER_RUN` | `150` | Spend ceiling per run |
+| `JEV_MAX_CANDIDATES_PER_RUN` | `0` | Optional ceiling per run. `0` = every eligible candidate is sent to Jev. A cap is reported on the run (`skipped`) and on screen. |
 | `JEV_RESULT_TTL_HOURS` | `336` | Re-ask after this long even if nothing changed (picks up a moved alias) |
 
 ## MongoDB
@@ -62,7 +62,7 @@ All under `require_page("job-orders")` (404 otherwise), except health (admin).
 | Method | Path | |
 |---|---|---|
 | GET | `/job-orders/matching/health` | admin: calls, failures, retries, rate limits, tokens, cost, p50/p95 latency |
-| GET | `/job-orders/{id}/matching` | configured?, active?, normalised spec, latest run, counts |
+| GET | `/job-orders/{id}/matching` | configured?, active?, normalised spec, latest run, counts, `coverage` (checked X of the live pool Y, not yet checked, left out by a cap) |
 | POST | `/job-orders/{id}/matching/runs` | start; body `{"mode": "match"\|"rematch", "force": false}` → 202 |
 | GET | `/job-orders/{id}/matching/runs/{run_id}` | progress |
 | POST | `/job-orders/{id}/matching/runs/{run_id}/cancel` | |
@@ -84,7 +84,7 @@ POST /job-orders/JO-7/matching/runs
 202
 {"id": "MR-3f2a…", "job_order_id": "JO-7", "status": "queued", "mode": "match",
  "historical": false, "retrieved": 0, "considered": 0, "processed": 0, "scored": 0,
- "cached": 0, "failed": 0, "cost_usd": 0.0, "model": "jev-latest", "cap": 150, …}
+ "cached": 0, "skipped": 0, "failed": 0, "cost_usd": 0.0, "model": "jev-latest", "cap": null, …}
 ```
 
 One result row:
@@ -162,5 +162,34 @@ upper bound on mandatory-eligibility false positives and the cost.
 
 Measured on one live call (2026-10-28, `jev-1.14.0`): 2,206 input tokens per candidate,
 output free, at the documented $0.042 per million input tokens ≈ **$0.00009 per
-candidate**, so a full 150-candidate run ≈ **$0.014**. Larger profiles (long work
-histories) cost proportionally more; re-runs with unchanged inputs cost nothing.
+candidate**: about **$0.09 per 1,000 candidates** on a first run. Larger profiles (long
+work histories) cost proportionally more; re-runs with unchanged inputs cost nothing, so
+after the first run only new or changed candidates are paid for.
+
+## Who is analysed
+
+**Everyone except candidates already submitted.** The pool is
+(`app/matching/prefilter.py::retrieval_query`):
+
+| Excluded | Why |
+|---|---|
+| `recruitment_status` other than `available` | already submitted — to a company or associate, interviewing, selected, on hold, offer issued or accepted — on **any** order, this one included |
+| `placement_locked` | placed (implied by the above; kept as a second guard) |
+| `duplicate_of` set | a second copy of a person already analysed under their original record |
+
+Nothing else. Candidates a recruiter entered without a CV are analysed (a thin record
+lands in manual review). A candidate released back to `available` (rejected, offer
+declined) rejoins the pool and is analysed again.
+
+Every candidate in the pool is sent to Jev; the keyword baseline only decides the *order*
+they are evaluated in (best first, so useful rows appear early in a long run). It never
+decides *whether*.
+
+The shortlist, its category counts and its coverage show pool candidates only: someone
+scored and then submitted leaves the AI list at once (the keyword section's "Submitted"
+filter shows who has gone to the client), and re-checking them is refused with 409.
+
+The panel shows "Checked by Jev: X of Y", where Y is everyone not yet submitted right now
+and X counts only candidates still among them. Anyone not yet checked — newly added,
+returned to the pool, or left out by a configured cap — is counted in a notice with the
+reason, and "Check them now" runs only those (everyone else is a cache hit).

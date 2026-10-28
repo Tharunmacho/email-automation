@@ -21384,6 +21384,11 @@ a.payroll-expand-btn { text-decoration: none; }
   margin-top: 0.1rem;
 }
 
+.aim-notice-action {
+  flex: none;
+  margin-left: auto;
+}
+
 .aim-notice.is-bad {
   border-color: var(--error-edge);
   background: var(--error-fill);

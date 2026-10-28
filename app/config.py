@@ -250,10 +250,19 @@ class Settings(BaseSettings):
     #: is tokens and requests per second, set per organisation in the console;
     #: this is the knob that keeps us under whatever that is.
     jev_max_concurrency: int = 4
-    #: How many prefiltered candidates one run may send to Jev. The rule-based
-    #: prefilter ranks the pool first, so this is a spend ceiling, not a
-    #: correctness one — raising it buys recall at the documented $0.042/Mtok.
-    jev_max_candidates_per_run: int = 150
+    #: An optional ceiling on how many candidates one run sends to Jev. 0, the
+    #: default, means no ceiling: every candidate the explicit eligibility rules
+    #: admit is evaluated.
+    #:
+    #: It used to default to 150, and that quietly undid the point of the
+    #: feature — the keyword prefilter chose who reached Jev, so a fabricator
+    #: whose CV never says "welder" could rank 151st and never be read by the
+    #: one component that understands he is one. Cost was never the reason to
+    #: cap: measured at ~$0.00009 per candidate, a thousand is ~$0.09, and an
+    #: unchanged candidate is a cache hit on every later run. Set a number only
+    #: to bound the duration of a first run on a very large pool; whatever it
+    #: leaves out is reported on the run and on the screen, never hidden.
+    jev_max_candidates_per_run: int = 0
     #: Evaluations older than this are recomputed even when nothing else
     #: changed, so a model alias that moved underneath us is eventually picked
     #: up. Everything that changes a score deliberately — the order, the

@@ -1095,6 +1095,10 @@ export interface MatchRun {
   historical: boolean;
   retrieved: number;
   considered: number;
+  /** Left out by an operator-configured cap. 0 unless JEV_MAX_CANDIDATES_PER_RUN is set. */
+  skipped: number;
+  /** The cap in force for this run; null when every eligible candidate is sent. */
+  cap: number | null;
   processed: number;
   scored: number;
   cached: number;
@@ -1125,6 +1129,16 @@ export interface MatchingState {
   latest_run: MatchRun | null;
   counts: Record<MatchCategory, number>;
   failed: number;
+  /** "Jev checked X of Y": counted against the pool as it is now. */
+  coverage: {
+    pool: number;
+    evaluated: number;
+    failed: number;
+    not_evaluated: number;
+    skipped_by_cap: number;
+    cap: number | null;
+    last_full_run_at: string | null;
+  };
   category_labels: Record<MatchCategory, string>;
 }
 

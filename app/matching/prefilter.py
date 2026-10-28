@@ -5,15 +5,24 @@ Two stages, both cheap, both before any network call:
 **Retrieval** is one indexed Mongo query over the candidate collection with a
 projection — the same `list_summaries` path Job Orders already uses for its
 pool, plus the handful of fields matching reads that a list row does not
-carry. The query removes only what is excluded by an explicit rule:
+carry. Everybody is analysed except those already submitted:
 
-    placement_locked      already placed; the CRM will not move them
-    is_resume == False    the extraction pipeline judged it not a CV
-    duplicate_of          a second copy of somebody already in the pool
-    mapped elsewhere      out with a client on a different order right now
+    recruitment_status    anything but `available` means the candidate has
+                          gone to a company or associate — on any order,
+                          this one included — and is past the point a
+                          shortlist is for
+    placement_locked      placed; implied by the status above, kept as a
+                          second guard because it is the field the CRM
+                          itself refuses to move
+    duplicate_of          a second copy of a person who is already in the
+                          pool under their original record; analysing it
+                          would list the same human twice
 
-Nothing is excluded for using different words. That is the next stage's job,
-and it does not exclude either: it ranks.
+That is the whole list. In particular a candidate a recruiter typed in without
+a CV (`profile.is_resume == False`) *is* analysed: they are a real person, and
+a thin record is for Jev to say — it lands them in manual review — not for a
+filter to hide. Nobody is excluded for using different words either; the
+next stage only ranks.
 
 **The baseline** is a transparent keyword score — role terms and skills found
 in the candidate's own evidence, plus whether a stated experience floor is
@@ -57,7 +66,6 @@ EVIDENCE_PROJECTION = {
     # dropped by `evidence.candidate_state` and never leaves the process.
     "profile.passport_number": 1,
     "registration_state.outstanding_documents": 1,
-    "profile.is_resume": 1,
 }
 
 #: Scanning is paged so a large collection is never one cursor held open for
@@ -78,28 +86,32 @@ def _tokens(text: str) -> Set[str]:
     return {token for token in _TOKEN.findall(text.lower()) if len(token) > 2 and token not in _STOP}
 
 
-def retrieval_query(spec: MatchSpec) -> Dict[str, Any]:
-    """The Mongo filter for candidates who may be considered at all."""
+#: Recruitment states that mean "not yet submitted". `None` covers a record
+#: written before the field existed, which `$in` also matches when missing.
+NOT_SUBMITTED = (None, "available")
+
+
+def retrieval_query() -> Dict[str, Any]:
+    """The Mongo filter for the pool: everyone not already submitted.
+
+    The same for every order. A candidate submitted to *this* order is
+    excluded like any other — the shortlist is for finding people to submit,
+    and they have been.
+    """
     return {
+        "recruitment_status": {"$in": list(NOT_SUBMITTED)},
         "placement_locked": {"$ne": True},
-        "profile.is_resume": {"$ne": False},
         "duplicate_of": {"$in": [None, ""]},
-        "$or": [
-            # In the pool, or already mapped to *this* order — re-scoring the
-            # people already submitted is how the screen shows their fit too.
-            {"recruitment_status": {"$in": [None, "available"]}},
-            {"job_order_id": {"$in": [None, "", spec.order_id]}},
-        ],
     }
 
 
 def retrieve(repository: Any, spec: MatchSpec) -> List[Dict[str, Any]]:
-    """Every candidate the explicit rules admit, as projected rows."""
+    """Every candidate in the pool, as projected rows."""
     from app.db.repository import MATCH_PROJECTION
 
     rows: List[Dict[str, Any]] = []
     skip = 0
-    query = retrieval_query(spec)
+    query = retrieval_query()
     while skip < MAX_SCAN:
         page = repository.list_summaries(
             limit=PAGE_SIZE, skip=skip, staff_id=None, query=query,
@@ -197,13 +209,22 @@ def baseline(spec: MatchSpec, row: Dict[str, Any]) -> Baseline:
 
 
 def shortlist_for_jev(
-    spec: MatchSpec, rows: Iterable[Dict[str, Any]], cap: int,
+    spec: MatchSpec, rows: Iterable[Dict[str, Any]], cap: Optional[int] = None,
 ) -> List[tuple[Dict[str, Any], Baseline]]:
-    """The candidates to send, best baseline first, at most `cap` of them.
+    """The candidates to send, best baseline first.
 
-    Ties broken by candidate id so two runs over the same pool send the same
-    people in the same order — which is what makes a cancelled run resumable.
+    Every one of them by default. `cap` (a positive number) keeps only the
+    first `cap` — an operator's ceiling on run time, never the default, because
+    a keyword score deciding who Jev reads is the failure this feature exists
+    to avoid. The caller records how many a cap left out.
+
+    Sorted even when uncapped: the strongest keyword matches are evaluated
+    first, so a recruiter watching a long run sees useful rows early. Ties are
+    broken by candidate id so two runs over the same pool go in the same order,
+    which is what makes a cancelled run resumable.
     """
     scored = [(row, baseline(spec, row)) for row in rows if row.get("id")]
     scored.sort(key=lambda pair: (-pair[1].score, str(pair[0].get("id"))))
-    return scored[: max(0, cap)]
+    if cap and cap > 0:
+        return scored[:cap]
+    return scored

@@ -420,3 +420,137 @@ def test_the_original_candidate_records_are_never_written(api):
     api.put("/job-orders/JO-7/matching/results/exact/review", json={"status": "rejected"})
     assert list(api.db["candidates"].find({}, sort=[("_id", 1)])) == before
     assert api.db["job_orders"].find_one({"id": "JO-7"}, {"_id": 0}) == ORDER
+
+
+# --------------------------------------------------------------------------- #
+#  Coverage: every eligible candidate is read by Jev unless a cap says otherwise
+# --------------------------------------------------------------------------- #
+#: Describes the work in words the order never uses. A keyword shortlist would
+#: rank this person last; Jev must read them anyway.
+NO_KEYWORDS = make_record(
+    "nokw", designation="Boilermaker",
+    summary="NOKW joins stainless plate with an argon-shielded tungsten arc.", years=7,
+)
+
+
+def test_by_default_every_eligible_candidate_is_sent_to_jev(api):
+    assert settings.jev_max_candidates_per_run == 0
+    api.db["candidates"].insert_one(NO_KEYWORDS.to_mongo())
+    run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["cap"] is None
+    assert stored["retrieved"] == stored["considered"] == 5
+    assert stored["skipped"] == 0
+    sent = [call["state"]["candidate"].get("current_designation") for call in api.fake.calls]
+    assert "Boilermaker" in sent  # last on keywords, still read
+
+
+def test_a_configured_cap_is_reported_never_hidden(api):
+    api.db["candidates"].insert_one(NO_KEYWORDS.to_mongo())
+    with patch.object(settings, "jev_max_candidates_per_run", 3):
+        run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["cap"] == 3
+    assert stored["considered"] == 3 and stored["skipped"] == 2
+    sent = [call["state"]["candidate"].get("current_designation") for call in api.fake.calls]
+    assert "Boilermaker" not in sent  # the lowest keyword score is what a cap drops
+
+    coverage = api.get("/job-orders/JO-7/matching").json()["coverage"]
+    assert coverage == {**coverage, "pool": 5, "evaluated": 3, "not_evaluated": 2,
+                        "skipped_by_cap": 2, "cap": 3}
+
+
+def test_coverage_counts_newcomers_and_ignores_people_who_left_the_pool(api):
+    run_match(api)
+    coverage = api.get("/job-orders/JO-7/matching").json()["coverage"]
+    assert (coverage["pool"], coverage["evaluated"], coverage["not_evaluated"]) == (4, 4, 0)
+
+    # One newcomer arrives and one scored candidate is placed elsewhere. The
+    # two must not cancel out into "all checked".
+    api.db["candidates"].insert_one(NO_KEYWORDS.to_mongo())
+    api.db["candidates"].update_one({"_id": "exact"}, {"$set": {"placement_locked": True}})
+    coverage = api.get("/job-orders/JO-7/matching").json()["coverage"]
+    assert (coverage["pool"], coverage["evaluated"], coverage["not_evaluated"]) == (4, 3, 1)
+    assert coverage["skipped_by_cap"] == 0
+
+    # Checking them now sends only the newcomer; everyone else is reused.
+    calls = len(api.fake.calls)
+    run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["scored"] == 1 and stored["cached"] == 3
+    assert len(api.fake.calls) == calls + 1
+    assert api.get("/job-orders/JO-7/matching").json()["coverage"]["not_evaluated"] == 0
+
+
+def test_a_single_candidate_refresh_does_not_redefine_coverage(api):
+    with patch.object(settings, "jev_max_candidates_per_run", 2):
+        run_match(api)
+    api.post("/job-orders/JO-7/matching/results/exact/refresh", params={"force": "true"})
+    coverage = api.get("/job-orders/JO-7/matching").json()["coverage"]
+    # Still the full run's story: two of four were left out by the cap.
+    assert coverage["skipped_by_cap"] == 2 and coverage["pool"] == 4
+
+
+# --------------------------------------------------------------------------- #
+#  The pool: everyone except candidates already submitted
+# --------------------------------------------------------------------------- #
+def test_already_submitted_candidates_are_not_analysed_on_any_order(api):
+    # Submitted to this very order, and out with a client on another one.
+    api.db["candidates"].update_one({"_id": "short"}, {"$set": {
+        "recruitment_status": "submitted_to_company", "job_order_id": "JO-7"}})
+    api.db["candidates"].update_one({"_id": "unknown"}, {"$set": {
+        "recruitment_status": "interviewing", "job_order_id": "JO-99"}})
+    run = run_match(api).json()
+    stored = api.get(f"/job-orders/JO-7/matching/runs/{run['id']}").json()
+    assert stored["retrieved"] == 2
+    summaries = [call["state"]["candidate"].get("resume_summary", "") for call in api.fake.calls]
+    assert not any(s.startswith(("SHORT", "UNKNOWN")) for s in summaries)
+    assert {item["candidate_id"] for item in results(api)["items"]} == {"exact", "equiv"}
+
+
+def test_a_candidate_entered_without_a_cv_is_analysed(api):
+    no_cv = make_record("nocv", designation="Welder", summary="NOCV entered by a recruiter, no CV.")
+    api.db["candidates"].insert_one(no_cv.to_mongo())
+    api.db["candidates"].update_one({"_id": "nocv"}, {"$set": {"profile.is_resume": False}})
+    run_match(api)
+    assert any(call["state"]["candidate"].get("resume_summary", "").startswith("NOCV")
+               for call in api.fake.calls)
+    assert "nocv" in by_id(results(api))
+
+
+def test_a_candidate_submitted_after_scoring_leaves_the_shortlist(api):
+    run_match(api)
+    before = api.get("/job-orders/JO-7/matching").json()
+    assert by_id(results(api))["exact"]["category"] == "strong_match"
+
+    api.db["candidates"].update_one({"_id": "exact"}, {"$set": {
+        "recruitment_status": "submitted_to_company", "job_order_id": "JO-7"}})
+    after = api.get("/job-orders/JO-7/matching").json()
+    assert "exact" not in by_id(results(api))
+    assert after["counts"]["strong_match"] == before["counts"]["strong_match"] - 1
+    assert after["coverage"]["pool"] == 3
+    assert after["coverage"]["evaluated"] == 3 and after["coverage"]["not_evaluated"] == 0
+
+    refresh = api.post("/job-orders/JO-7/matching/results/exact/refresh")
+    assert refresh.status_code == 409
+    assert "already been submitted" in refresh.json()["detail"]
+
+
+def test_a_released_candidate_returns_to_the_pool(api):
+    """Rejected by the client and back to `available`: analysed again."""
+    api.db["candidates"].update_one({"_id": "exact"}, {"$set": {"recruitment_status": "submitted_to_company"}})
+    run_match(api)
+    assert "exact" not in by_id(results(api))
+    api.db["candidates"].update_one({"_id": "exact"}, {"$set": {"recruitment_status": "available"}})
+    run_match(api)
+    assert "exact" in by_id(results(api))
+
+
+def test_a_duplicate_copy_is_not_analysed_twice(api):
+    copy = make_record("dup", designation="TIG Welder", summary="DUP second copy of exact.")
+    api.db["candidates"].insert_one(copy.to_mongo())
+    api.db["candidates"].update_one({"_id": "dup"}, {"$set": {"duplicate_of": "exact", "status": "duplicate"}})
+    run_match(api)
+    assert not any(call["state"]["candidate"].get("resume_summary", "").startswith("DUP")
+                   for call in api.fake.calls)
+    assert "exact" in by_id(results(api))

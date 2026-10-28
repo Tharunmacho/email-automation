@@ -316,8 +316,11 @@ def test_the_baseline_credits_equivalent_terminology_without_rejecting_it():
     assert stranger.score >= 0  # ranked low, not excluded
 
 
-def test_retrieval_excludes_only_by_explicit_rule():
-    query = retrieval_query(normalize_job_order(ORDER))
+def test_the_pool_is_everyone_not_yet_submitted():
+    query = retrieval_query()
+    assert query["recruitment_status"] == {"$in": [None, "available"]}
     assert query["placement_locked"] == {"$ne": True}
-    assert query["profile.is_resume"] == {"$ne": False}
+    assert set(query) == {"recruitment_status", "placement_locked", "duplicate_of"}
+    # A recruiter-entered record without a CV is a real candidate: never filtered.
+    assert "is_resume" not in repr(query)
     assert "profile.current_designation" not in repr(query)

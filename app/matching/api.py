@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from app.api.routes import repo, require_admin, require_page
 from app.matching import jev, runner, scoring, store
 from app.matching.evidence import evidence_fingerprint, experience_years
-from app.matching.prefilter import EVIDENCE_PROJECTION
+from app.matching.prefilter import EVIDENCE_PROJECTION, retrieval_query
 from app.matching.spec import normalize_job_order, spec_fingerprint
 
 router = APIRouter(prefix="/job-orders", tags=["matching"])
@@ -49,6 +49,40 @@ class StartRunRequest(BaseModel):
 class ReviewRequest(BaseModel):
     status: Literal["pending", "shortlisted", "rejected", "manual_review"]
     note: str = Field(default="", max_length=1000)
+
+
+def _id_values(candidate_ids: List[str]) -> List[Any]:
+    """Ids in every form `_id` is stored in.
+
+    The CRM keys candidates on hex-string ids and the WhatsApp bot on
+    ObjectIds (see `repository._id_filter`); a result stores `str(_id)` for
+    both, so an `$in` over strings alone would miss every bot-written record.
+    """
+    from bson import ObjectId
+
+    values: List[Any] = []
+    for candidate_id in candidate_ids:
+        values.append(candidate_id)
+        if len(candidate_id) == 24 and ObjectId.is_valid(candidate_id):
+            values.append(ObjectId(candidate_id))
+    return values
+
+
+def _ids_in_pool(candidate_ids: List[str]) -> set:
+    """Which of these candidates are in the pool right now.
+
+    Asked of Mongo with `retrieval_query` itself, so the screen and the runner
+    share one definition of "not yet submitted" rather than two that could
+    drift. A candidate scored last week and submitted this morning drops out
+    of the list, the counts and the coverage at once.
+    """
+    if not candidate_ids:
+        return set()
+    rows = repo().list_summaries(
+        limit=len(candidate_ids), staff_id=None, minimal=True,
+        query={**retrieval_query(), "_id": {"$in": _id_values(candidate_ids)}},
+    )
+    return {str(row["id"]) for row in rows}
 
 
 def _order_or_404(order_id: str) -> Dict[str, Any]:
@@ -92,12 +126,38 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
     spec = normalize_job_order(order)
     counts: Dict[str, int] = {key: 0 for key in scoring.CATEGORY_RANK}
     failed = 0
-    for entry in store.results_for_order(order_id):
+    entries = store.results_for_order(order_id)
+    # Counted over the pool only. Somebody scored and then submitted is no
+    # longer a match to act on, and must not keep inflating "Strong matches".
+    pool_ids = _ids_in_pool(store.candidate_ids(entries))
+    evaluated = 0
+    for entry in entries:
+        if entry["candidate_id"] not in pool_ids:
+            continue
         result = entry["result"]
         if result:
             counts[result.get("category", scoring.LOW)] = counts.get(result.get("category"), 0) + 1
+            evaluated += 1
         elif entry["failure"]:
             failed += 1
+
+    # "Jev checked X of Y". Y is everyone not yet submitted, as of now, and X
+    # counts only candidates still among them. A result for somebody submitted
+    # since does not stand in for a newcomer nobody has checked — otherwise the
+    # two cancel out and the screen says "all checked" while one person was
+    # never read.
+    pool = repo().count(retrieval_query())
+    full_run = store.latest_full_run(order_id)
+    coverage = {
+        "pool": pool,
+        "evaluated": evaluated,
+        "failed": failed,
+        "not_evaluated": max(0, pool - evaluated - failed),
+        # What a configured cap left out of the last full run. Zero by default.
+        "skipped_by_cap": int((full_run or {}).get("skipped") or 0),
+        "cap": (full_run or {}).get("cap"),
+        "last_full_run_at": (full_run or {}).get("finished_at") or (full_run or {}).get("created_at"),
+    }
     return jsonable_encoder({
         "configured": jev.is_configured(),
         "active": spec.is_active,
@@ -107,6 +167,7 @@ def matching_state(order_id: str, _user: dict = Depends(_job_orders)) -> dict:
         "latest_run": store.latest_run(order_id),
         "counts": counts,
         "failed": failed,
+        "coverage": coverage,
         "category_labels": scoring.CATEGORY_LABELS,
     })
 
@@ -148,11 +209,13 @@ def _candidate_rows(candidate_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """The live candidate rows behind a page of results, by id."""
     if not candidate_ids:
         return {}
-    from app.db.repository import MATCH_PROJECTION, _id_filter
+    from app.db.repository import MATCH_PROJECTION
 
+    # `$in` over both id forms rather than an `$or` of per-id filters: with
+    # every candidate analysed, a page can be backed by thousands of results.
     rows = repo().list_summaries(
         limit=len(candidate_ids), staff_id=None,
-        query={"$or": [_id_filter(candidate_id) for candidate_id in candidate_ids]},
+        query={"_id": {"$in": _id_values(candidate_ids)}},
         projection=MATCH_PROJECTION, extra_projection=EVIDENCE_PROJECTION,
     )
     return {str(row.get("id")): row for row in rows}
@@ -260,6 +323,11 @@ def matching_results(
     spec = normalize_job_order(order)
     spec_fp = spec_fingerprint(spec)
     entries = store.results_for_order(order_id)
+    # The shortlist is of people who can still be submitted. Anyone submitted
+    # since they were scored leaves it; the order's own submissions are where
+    # the keyword section's "Submitted" filter already shows them.
+    pool_ids = _ids_in_pool(store.candidate_ids(entries))
+    entries = [entry for entry in entries if entry["candidate_id"] in pool_ids]
     candidates = _candidate_rows(store.candidate_ids(entries))
     reviews = store.reviews_for_order(order_id)
 
@@ -348,6 +416,11 @@ def refresh_match(
 ) -> dict:
     """Re-evaluate one candidate. A no-op cache hit if nothing it depends on changed."""
     order = _order_or_404(order_id)
+    if candidate_id not in _ids_in_pool([candidate_id]):
+        raise HTTPException(
+            status_code=409,
+            detail="This candidate has already been submitted, so they are not analysed again.",
+        )
     spec = normalize_job_order(order)
     return _start(order, user, mode=runner.MODE_REMATCH if not spec.is_active else runner.MODE_REFRESH,
                   candidate_ids=[candidate_id], force=force)

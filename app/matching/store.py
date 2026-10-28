@@ -298,7 +298,7 @@ def create_run(job_order_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         "job_order_id": job_order_id,
         "active_lock": job_order_id,
         "status": RUN_QUEUED,
-        "retrieved": 0, "considered": 0, "processed": 0, "scored": 0,
+        "retrieved": 0, "considered": 0, "skipped": 0, "processed": 0, "scored": 0,
         "cached": 0, "failed": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0,
         "cancel_requested": False, "error": None,
         "created_at": now, "updated_at": now, "started_at": None, "finished_at": None,
@@ -337,6 +337,18 @@ def get_run(run_id: str) -> Optional[Dict[str, Any]]:
 
 def latest_run(job_order_id: str) -> Optional[Dict[str, Any]]:
     rows = list(_db()[RUNS].find({"job_order_id": job_order_id}, {"_id": 0, "active_lock": 0})
+                .sort("created_at", DESCENDING).limit(1))
+    return rows[0] if rows else None
+
+
+def latest_full_run(job_order_id: str) -> Optional[Dict[str, Any]]:
+    """The newest run over the whole pool — not a one-candidate refresh.
+
+    Coverage ("Jev checked X of Y") has to come from a run that looked at the
+    pool; a refresh retrieves one candidate and would report a pool of one.
+    """
+    rows = list(_db()[RUNS].find({"job_order_id": job_order_id, "candidate_ids": None},
+                                 {"_id": 0, "active_lock": 0})
                 .sort("created_at", DESCENDING).limit(1))
     return rows[0] if rows else None
 

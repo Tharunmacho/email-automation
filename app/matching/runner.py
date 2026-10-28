@@ -112,7 +112,8 @@ def start_run(
         "scoring_version": config.version,
         "schema_version": DECISION_SCHEMA_VERSION,
         "model": settings.jev_model,
-        "cap": settings.jev_max_candidates_per_run,
+        # None when uncapped, which is the default; see `jev_max_candidates_per_run`.
+        "cap": settings.jev_max_candidates_per_run or None,
         "created_by": {"id": user.get("id"), "name": user.get("name") or user.get("email")},
     })
     run_id = run["id"]
@@ -254,9 +255,12 @@ def execute(
             wanted = set(candidate_ids)
             rows = [row for row in rows if str(row.get("id")) in wanted]
         pool = prefilter.shortlist_for_jev(spec, rows, settings.jev_max_candidates_per_run)
-        store.update_run(run_id, retrieved=len(rows), considered=len(pool))
-        log.info("Matching run %s on %s: %d retrieved, %d to evaluate",
-                 run_id, spec.order_id, len(rows), len(pool))
+        # `skipped` is what a configured cap left out. Zero unless an operator
+        # set one, and recorded either way so the screen can say so.
+        store.update_run(run_id, retrieved=len(rows), considered=len(pool),
+                         skipped=len(rows) - len(pool))
+        log.info("Matching run %s on %s: %d retrieved, %d to evaluate, %d left out by the cap",
+                 run_id, spec.order_id, len(rows), len(pool), len(rows) - len(pool))
 
         if not pool:
             store.finish_run(run_id, store.RUN_COMPLETED)
