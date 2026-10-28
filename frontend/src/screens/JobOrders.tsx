@@ -34,7 +34,7 @@ import {
   Send,
 } from "lucide-react";
 
-import AiMatchPanel from "@/components/matching/AiMatchPanel";
+import CandidateMatchPanel from "@/components/matching/CandidateMatchPanel";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -1867,9 +1867,9 @@ export default function JobOrders({
           </dl>
         </section>
 
-        {/* AI matching (Jev): an explainable, server-ranked shortlist. The
+        {/* Candidate matching: an explainable, server-ranked shortlist. The
             keyword matches below are unchanged and remain the quick view. */}
-        <AiMatchPanel
+        <CandidateMatchPanel
           order={selectedOrder}
           onActivity={activity}
           onOpenCandidate={

@@ -12,8 +12,5 @@ services:
       - key: OPENAI_API_KEY
         sync: false
         placeholder: "Paste your OpenAI API key here (starting with sk-...)"
-      - key: JEV_API_KEY
-        sync: false
-        placeholder: "Paste your TypeSafe (Jev) API key here - used server-side for candidate matching"
       - key: GMAIL_QUERY
         value: "has:attachment is:unread"

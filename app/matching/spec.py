@@ -28,12 +28,11 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 #: Bumped whenever this normalisation changes in a way that could change a
-#: score. It is part of the cache key, so bumping it recomputes everything.
+#: score. It is part of the spec fingerprint, so bumping it re-ranks everything.
 SPEC_VERSION = "spec-1"
 
-#: Orders a new shortlist may be generated for. `FILLED` and `CLOSED` are
-#: history: they can be re-read and re-analysed, but only through the explicit
-#: rematch path, never by a recruiter pressing the button by accident.
+#: Orders that are a live shortlist. `FILLED` and `CLOSED` are history: they
+#: are still ranked, but the screen says the ranking is for reference.
 ACTIVE_STATUSES = frozenset({"OPEN", "IN PROGRESS"})
 
 MANDATORY = "mandatory"
@@ -310,8 +309,8 @@ def normalize_job_order(order: Dict[str, Any]) -> MatchSpec:
 def spec_fingerprint(spec: MatchSpec) -> str:
     """A short, stable digest of everything in the spec that can change a score.
 
-    Part of the cache key. Editing an order's skills or its experience floor
-    changes this and invalidates its results; renaming the client does not.
+    Part of the ranking cache key. Editing an order's skills or its experience
+    floor changes this and re-ranks the pool; renaming the client does not.
     """
     import hashlib
     import json

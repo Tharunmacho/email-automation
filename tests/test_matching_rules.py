@@ -1,33 +1,19 @@
-"""The rules matching rests on, tested without a database or a network.
+"""The rules matching rests on, tested without a database.
 
-    spec       nothing invented; "Any" is no requirement; closed is inactive
-    evidence   identifiers never leave; blank is not zero; excerpts are on file
-    questions  "not stated" is not a low mark; a hesitant yes is unknown
-    scoring    a failed mandatory requirement outranks any score
+    spec        nothing invented; "Any" is no requirement; closed is inactive
+    vocabulary  word forms, synonyms and trades meet; typos are absorbed
+    evidence    blank is not zero; a band is a range; excerpts are on file
+    scoring     a failed mandatory requirement outranks any score
 """
 from __future__ import annotations
 
 import pytest
 
-from app.matching import scoring
-from app.matching.evidence import (
-    FORBIDDEN_FIELDS,
-    assert_no_identifiers,
-    candidate_state,
-    evidence_fingerprint,
-    excerpt_for,
-    experience_years,
-)
-from app.matching.prefilter import baseline, retrieval_query
-from app.matching.questions import (
-    NOT_SATISFIED,
-    REQUIREMENT_PREFIX,
-    SATISFIED,
-    UNKNOWN,
-    build_questions,
-    build_state,
-    read_answers,
-)
+from app.matching import scoring, vocabulary
+from app.matching.evidence import band_range, excerpt_for, experience_range, experience_years, history_years
+from app.matching.matcher import PoolIndex, build_query, match_one
+from app.matching.pool import retrieval_query
+from app.matching.scoring import NOT_SATISFIED, SATISFIED, UNKNOWN, Component, Verdict
 from app.matching.spec import MANDATORY, PREFERRED, normalize_job_order, spec_fingerprint
 
 ORDER = {
@@ -110,217 +96,167 @@ def test_the_fingerprint_follows_requirements_not_the_client_name():
     assert spec_fingerprint(normalize_job_order({**ORDER, "minExperience": "5"})) != base
 
 
+
+# --------------------------------------------------------------------------- #
+#  Vocabulary
+# --------------------------------------------------------------------------- #
+def test_word_forms_meet():
+    assert vocabulary.terms("Welders welding welder") == ["weld", "weld", "weld"]
+    assert vocabulary.normalise("Pipe Fitter") == vocabulary.normalise("pipefitting")
+    assert vocabulary.normalise("Fabrication") == vocabulary.normalise("fabricators")
+
+
+def test_synonyms_are_rewritten_to_one_word():
+    assert vocabulary.terms("GTAW") == vocabulary.terms("argon arc") == vocabulary.terms("TIG")
+    assert vocabulary.terms("Light Motor Vehicle licence")[0] == "lmv"
+    # Rewriting never swallows the word next to it.
+    assert vocabulary.terms("TIG Welder") == ["tig", "weld"]
+
+
+def test_trades_and_their_relatives():
+    assert vocabulary.trades_in("Pipe Fabricator who TIG welds spools") == {"fabricator", "welder"}
+    assert vocabulary.trades_in("Commis chef") == {"cook"}
+    assert vocabulary.trades_in("Electrical Engineer") == {"electrical_engineer"}
+    assert "fabricator" in vocabulary.related_to({"welder"})
+    assert "welder" in vocabulary.related_to({"fabricator"})  # symmetric
+
+
+def test_stop_words_carry_no_weight():
+    assert vocabulary.terms("Senior Welder required urgently, 3 years experience") == ["weld"]
+
+
 # --------------------------------------------------------------------------- #
 #  Evidence
 # --------------------------------------------------------------------------- #
-def test_no_identifier_reaches_the_state():
-    state = candidate_state(ROW)
-    flat = repr(state)
-    for value in ("Z1234567", "+919876543210", "arjun@example.com", "linkedin", "GW-998", "Arjun Kumar"):
-        assert value not in flat
-    assert_no_identifiers(state)
-    # Readiness survives without the number.
-    assert state["documents"]["passport_on_file"] is True
-    assert state["documents"]["passport_expiry"] == "2030-04-01"
-
-
-def test_the_guard_catches_an_identifier_anywhere():
-    for field_name in ("passport_number", "phone", "email"):
-        assert field_name in FORBIDDEN_FIELDS
-        with pytest.raises(ValueError):
-            assert_no_identifiers({"candidate": {"nested": [{field_name: "x"}]}})
-
-
 def test_blank_experience_is_unknown_not_zero():
     assert experience_years({"profile": {}}) is None
     assert experience_years({"profile": {"total_experience_years": 0}}) == 0.0
-    state = candidate_state({"profile": {"total_experience_band": "2-5 years"}})
-    assert "total_experience_years" not in state
-    assert state["total_experience_band"] == "2-5 years"
+    assert experience_range({"profile": {}}) is None
+
+
+@pytest.mark.parametrize("band,expected", [
+    ("2-5 years", (2.0, 5.0)), ("3_5", (3.0, 5.0)), ("10+ years", (10.0, float("inf"))),
+    ("Fresher", (0.0, 0.0)), ("less than 1 year", (0.0, 1.0)), ("", None), ("some", None),
+])
+def test_a_band_is_a_range_never_a_figure(band, expected):
+    assert band_range(band) == expected
+
+
+def test_dated_history_widens_a_stated_figure_it_contradicts():
+    row = {"profile": {"total_experience_years": 1, "work_experience": [
+        {"designation": "Welder", "start_date": "2015", "end_date": "2022"}]}}
+    assert history_years(row) == 7.0
+    low, high, _how = experience_range(row)
+    assert (low, high) == (1.0, 7.0)
 
 
 def test_excerpts_come_from_the_record_and_name_their_field():
-    found = excerpt_for(ROW, ["blueprint"])
-    assert found["field"] == "profile.trade_skills"
-    assert "Blueprint reading" in found["excerpt"]
-    assert excerpt_for(ROW, ["crane operation"]) is None
+    found = excerpt_for(ROW, ["tig"])
+    assert found["field"].startswith("profile.") and "TIG" in found["excerpt"]
+    assert excerpt_for(ROW, ["underwater basket weaving"]) is None
 
 
-def test_the_evidence_fingerprint_ignores_contact_details():
-    before = evidence_fingerprint(ROW)
-    moved = {**ROW, "profile": {**ROW["profile"], "phone": "+910000000000"}}
-    assert evidence_fingerprint(moved) == before
-    upskilled = {**ROW, "profile": {**ROW["profile"], "skills": ["TIG Welding", "MIG", "Rigging"]}}
-    assert evidence_fingerprint(upskilled) != before
+def test_the_pool_is_everyone_not_yet_submitted():
+    query = retrieval_query()
+    assert set(query) == {"recruitment_status", "placement_locked", "duplicate_of"}
+    assert None in query["recruitment_status"]["$in"] and "available" in query["recruitment_status"]["$in"]
 
 
 # --------------------------------------------------------------------------- #
-#  Questions and answers
+#  The matcher on single candidates
 # --------------------------------------------------------------------------- #
-def _score(level: int, confidence: float = 0.9, levels: int = 5) -> dict:
-    return {"type": "score", "score": float(level), "confidence": confidence,
-            "legend": {str(i): f"level {i}" for i in range(levels)},
-            "probabilities": {str(i): (1.0 if i == level else 0.0) for i in range(levels)}}
+def ranked(order, *rows):
+    index = PoolIndex(list(rows))
+    query = build_query(normalize_job_order(order))
+    config = scoring.config_for(order)
+    return {doc.id: match_one(query, doc, index, config) for doc in index.docs}
 
 
-def _choice(option: str, confidence: float = 0.95) -> dict:
-    return {"type": "choice", "choice": option, "confidence": confidence,
-            "probabilities": {option: confidence}}
+def person(cid, designation="", *, skills=(), years=None, summary="", **profile):
+    body = {"current_designation": designation, "skills": list(skills), "resume_summary": summary, **profile}
+    if years is not None:
+        body["total_experience_years"] = years
+    return {"id": cid, "profile": body}
 
 
-def test_questions_respect_documented_limits():
-    spec = normalize_job_order({**ORDER, "requiredLicences": ["A", "B"]})
-    questions = build_questions(spec)
-    for question in questions.values():
-        assert question["type"] in {"score", "choice", "noul"}
-        if question["type"] == "score":
-            assert 1 <= len(question["criteria"]) <= 10
-        if question["type"] == "choice":
-            assert 1 <= len(question["criteria"]) <= 255
-    requirement_questions = [key for key in questions if key.startswith(REQUIREMENT_PREFIX)]
-    assert len(requirement_questions) == 3  # experience + two licences
-    for key in requirement_questions:
-        assert set(questions[key]["criteria"]) == {SATISFIED, NOT_SATISFIED, UNKNOWN}
+def test_the_same_trade_in_other_words_is_credited():
+    found = ranked(ORDER, person("fab", "Fabricator", skills=["Argon arc welding", "Blueprint reading"], years=6),
+                   person("cook", "Commis Chef", skills=["Tandoor"], years=8))
+    assert found["fab"].matched_skills == ["TIG Welding", "Blueprint Reading"]
+    assert found["fab"].category == scoring.STRONG
+    assert found["cook"].category == scoring.LOW and found["cook"].score < 20
 
 
-def test_the_state_carries_both_sides_and_no_identifiers():
-    state = build_state(normalize_job_order(ORDER), candidate_state(ROW))
-    assert state["job_order"]["required_skills"] == ["TIG Welding", "Blueprint Reading"]
-    assert_no_identifiers(state)
+def test_a_misspelling_still_counts():
+    order = {**ORDER, "title": "Carpenter", "designation": "Shuttering Carpenter", "skills": ["Shuttering"]}
+    found = ranked(order, person("typo", "Carpenter", skills=["Shutering"], years=5),
+                   person("other", "Mason", skills=["Plastering"], years=5))
+    assert found["typo"].matched_skills == ["Shuttering"]
 
 
-def test_not_stated_is_not_a_low_mark():
-    spec = normalize_job_order(ORDER)
-    evaluation = read_answers({"skills_match": _score(0), "experience_match": _score(1)}, spec)
-    assert evaluation.dimensions["skills_match"].stated is False
-    # Level 1 ("none of the skills") is the bottom of the *stated* scale.
-    assert evaluation.dimensions["experience_match"].value == 0.0
-    assert evaluation.dimensions["experience_match"].stated is True
-    assert read_answers({"skills_match": _score(4)}, spec).dimensions["skills_match"].value == 1.0
+def test_experience_in_an_unrelated_trade_is_not_counted():
+    found = ranked(ORDER, person("cook", "Commis Chef", years=20))
+    experience = next(c for c in found["cook"].outcome.components if c.key == "experience")
+    assert experience.value == 0.0 and "not counted" in experience.detail
 
 
-def test_a_hesitant_yes_on_a_mandatory_requirement_is_unknown():
-    spec = normalize_job_order(ORDER)
-    sure = read_answers({f"{REQUIREMENT_PREFIX}0": _choice(SATISFIED, 0.95)}, spec)
-    unsure = read_answers({f"{REQUIREMENT_PREFIX}0": _choice(SATISFIED, 0.4)}, spec)
-    assert sure.verdicts[0].status == SATISFIED
-    assert unsure.verdicts[0].status == UNKNOWN
+def test_below_the_minimum_is_ineligible_whatever_the_score():
+    found = ranked(ORDER, person("short", "TIG Welder", skills=["TIG Welding", "Blueprint reading"], years=1))
+    assert found["short"].category == scoring.INELIGIBLE
+    assert found["short"].outcome.failed == ["At least 3 years of relevant experience"]
 
 
-def test_a_missing_or_malformed_answer_is_unknown_never_a_pass():
-    spec = normalize_job_order(ORDER)
-    assert read_answers({}, spec).verdicts[0].status == UNKNOWN
-    wrong_type = {f"{REQUIREMENT_PREFIX}0": {"type": "noul", "noul": 1.0}, "skills_match": _choice("x")}
-    evaluation = read_answers(wrong_type, spec)
-    assert evaluation.verdicts[0].status == UNKNOWN
-    assert "skills_match" not in evaluation.dimensions
-    invented = {f"{REQUIREMENT_PREFIX}0": _choice("probably", 0.99)}
-    assert read_answers(invented, spec).verdicts[0].status == UNKNOWN
+def test_a_band_that_straddles_the_minimum_needs_a_call():
+    found = ranked(ORDER, person("band", "TIG Welder", skills=["TIG Welding"], total_experience_band="2-5 years"))
+    assert found["band"].category == scoring.REVIEW
+    assert found["band"].outcome.unverified == ["At least 3 years of relevant experience"]
+
+
+def test_a_thin_record_whose_title_fits_goes_to_a_person():
+    found = ranked({**ORDER, "minExperience": ""}, person("bot", "Welder"))
+    assert found["bot"].category == scoring.REVIEW
+    assert "too thin" in found["bot"].outcome.reasons[0]
+
+
+def test_an_expired_licence_is_not_a_held_one():
+    order = {**ORDER, "requiredLicences": ["Gas welding licence"]}
+    expired = person("old", "TIG Welder", skills=["TIG Welding"], years=6,
+                     licenses=[{"name": "Gas welding licence", "expiry_date": "2020-01-01"}])
+    valid = person("new", "TIG Welder", skills=["TIG Welding"], years=6,
+                   licenses=[{"name": "Gas welding licence", "expiry_date": "2035-01-01"}])
+    found = ranked(order, expired, valid)
+    assert found["old"].category == scoring.INELIGIBLE
+    assert found["new"].outcome.matched == ["At least 3 years of relevant experience", "Licence: Gas welding licence"]
 
 
 # --------------------------------------------------------------------------- #
 #  Scoring
 # --------------------------------------------------------------------------- #
-def _answers(level=4, requirement=SATISFIED, **overrides):
-    answers = {key: _score(level) for key in (
-        "role_relevance", "skills_match", "experience_match", "qualifications_match",
-        "document_readiness", "evidence_quality")}
-    answers.update({"salary_fit": _choice("not_stated"), "destination_fit": _choice("matches"),
-                    "availability_fit": _choice("available"),
-                    f"{REQUIREMENT_PREFIX}0": _choice(requirement)})
-    answers.update(overrides)
-    return answers
+def components(value):
+    return [Component("role", 0.3, value), Component("skills", 0.3, value), Component("documents", 0.1, None)]
 
 
 def test_a_failed_mandatory_requirement_overrides_any_score():
-    spec = normalize_job_order(ORDER)
-    outcome = scoring.score(spec, read_answers(_answers(4, NOT_SATISFIED), spec))
-    assert outcome.score >= 90
-    assert outcome.category == scoring.INELIGIBLE
-    # Evidence quality kept high so this is a weak match, not a thin record.
-    weak = scoring.score(spec, read_answers(_answers(1, evidence_quality=_score(4)), spec))
-    assert weak.category == scoring.LOW
-    # Ranked below a low match whatever the numbers say.
-    assert scoring.rank_key(outcome.category, outcome.score) > scoring.rank_key(weak.category, weak.score)
+    outcome = scoring.combine(components(1.0), [Verdict("min-experience", "3 years", NOT_SATISFIED)],
+                              role=1.0, sparse=False)
+    assert outcome.score == 100.0 and outcome.category == scoring.INELIGIBLE
+    assert scoring.rank_key(outcome.category, 100) > scoring.rank_key(scoring.LOW, 1)
 
 
-def test_strong_skills_with_insufficient_mandatory_experience_is_ineligible():
-    spec = normalize_job_order(ORDER)
-    answers = _answers(4, NOT_SATISFIED, experience_match=_score(1))
-    outcome = scoring.score(spec, read_answers(answers, spec))
-    assert outcome.category == scoring.INELIGIBLE
-    assert outcome.failed == ["At least 3 years of relevant experience"]
+def test_unverified_sends_a_plausible_candidate_to_a_person_and_leaves_the_rest_low():
+    unknown = [Verdict("age-band", "Age 21–45", UNKNOWN)]
+    assert scoring.combine(components(0.9), unknown, role=0.9, sparse=False).category == scoring.REVIEW
+    assert scoring.combine(components(0.1), unknown, role=0.1, sparse=False).category == scoring.LOW
 
 
-def test_an_unverified_licence_goes_to_manual_review():
-    spec = normalize_job_order({**ORDER, "minExperience": "Any", "requiredLicences": ["Gulf licence"]})
-    outcome = scoring.score(spec, read_answers(_answers(4, UNKNOWN), spec))
-    assert outcome.category == scoring.REVIEW
-    assert outcome.unverified == ["Licence: Gulf licence"]
-
-
-def test_a_sparse_record_goes_to_manual_review():
-    spec = normalize_job_order(ORDER)
-    outcome = scoring.score(spec, read_answers(_answers(4, evidence_quality=_score(1)), spec))
-    assert outcome.category == scoring.REVIEW
-
-
-def test_a_self_contradicting_record_goes_to_manual_review():
-    spec = normalize_job_order(ORDER)
-    answers = _answers(4, conflicting_evidence={"type": "noul", "noul": 0.8})
-    assert scoring.score(spec, read_answers(answers, spec)).category == scoring.REVIEW
-
-
-def test_salary_only_counts_when_the_order_states_one():
-    no_salary = normalize_job_order(ORDER)
-    with_salary = normalize_job_order({**ORDER, "salary": "SGD 2,000"})
-    compatible = scoring.score(with_salary, read_answers(_answers(4, salary_fit=_choice("compatible")), with_salary))
-    incompatible = scoring.score(with_salary, read_answers(_answers(4, salary_fit=_choice("incompatible")), with_salary))
-    unstated = scoring.score(no_salary, read_answers(_answers(4), no_salary))
-    salary = next(c for c in unstated.components if c.key == "salary")
-    assert salary.value is None  # not applicable, not zero
-    assert compatible.score == 100.0 and unstated.score == 100.0
-    # Qualifications is not applicable (the order names none), so the applicable
-    # weights sum to 0.85 and losing salary's 0.10 leaves 0.75 / 0.85.
-    assert incompatible.score == pytest.approx(round(100 * 0.75 / 0.85, 1))
-
-
-def test_an_applicable_dimension_with_no_evidence_scores_zero_and_says_so():
-    spec = normalize_job_order(ORDER)
-    outcome = scoring.score(spec, read_answers(_answers(4, document_readiness=_score(0)), spec))
-    documents = next(c for c in outcome.components if c.key == "documents")
-    assert documents.unknown and documents.value == 0.0
-    assert "No evidence on file for documents" in outcome.reasons
+def test_inapplicable_components_are_reweighted_not_zeroed():
+    outcome = scoring.combine(components(0.8), [Verdict("x", "x", SATISFIED)], role=0.8, sparse=False)
+    assert outcome.score == 80.0 and outcome.category == scoring.STRONG
 
 
 def test_weights_are_configurable_per_order_and_change_the_version():
     default = scoring.config_for(ORDER)
-    custom = scoring.config_for({**ORDER, "matchingWeights": {"skills": 0.6, "nonsense": 9, "experience": "x"}})
-    assert custom.weights["skills"] == 0.6
-    assert "nonsense" not in custom.weights
-    assert custom.weights["experience"] == scoring.DEFAULT_WEIGHTS["experience"]
+    custom = scoring.config_for({**ORDER, "matchingWeights": {"role": 0.9, "nonsense": 4, "skills": "x"}})
+    assert custom.weights["role"] == 0.9 and "nonsense" not in custom.weights
+    assert custom.weights["skills"] == scoring.DEFAULT_WEIGHTS["skills"]
     assert custom.version != default.version
-
-
-# --------------------------------------------------------------------------- #
-#  Prefilter
-# --------------------------------------------------------------------------- #
-def test_the_baseline_credits_equivalent_terminology_without_rejecting_it():
-    spec = normalize_job_order(ORDER)
-    result = baseline(spec, ROW)
-    assert result.role_hit  # "Welder" appears in "TIG welding" history
-    assert result.skills_found == ["TIG Welding", "Blueprint Reading"]
-    assert result.experience_met is True
-    stranger = baseline(spec, {"id": "x", "profile": {"current_designation": "Accountant"}})
-    assert stranger.score < result.score
-    assert stranger.score >= 0  # ranked low, not excluded
-
-
-def test_the_pool_is_everyone_not_yet_submitted():
-    query = retrieval_query()
-    assert query["recruitment_status"] == {"$in": [None, "available"]}
-    assert query["placement_locked"] == {"$ne": True}
-    assert set(query) == {"recruitment_status", "placement_locked", "duplicate_of"}
-    # A recruiter-entered record without a CV is a real candidate: never filtered.
-    assert "is_resume" not in repr(query)
-    assert "profile.current_designation" not in repr(query)

@@ -58,7 +58,6 @@ import type {
   MatchResultRow,
   MatchResultsPage,
   MatchReviewStatus,
-  MatchRun,
   Office,
   OfferStatus,
   RecruitmentEvent,
@@ -122,7 +121,6 @@ export type {
   MatchResultRow,
   MatchResultsPage,
   MatchReviewStatus,
-  MatchRun,
   RebalanceResult,
   RehomeResult,
   DeleteStaffResult,
@@ -1671,59 +1669,16 @@ export function recordMappingStage(
 }
 
 // --------------------------------------------------------------------------- //
-//  Candidate matching (Jev)
+//  Candidate matching
 //
-//  Runs are background jobs: `startMatching` returns at once with a run to
-//  poll. The Jev key never reaches the browser — every call here goes to our
-//  own API, which is the only thing that talks to the vendor.
+//  Ranked by the server on request, from the live candidate records. Nothing
+//  is started or polled: each call returns the ranking as it stands.
 // --------------------------------------------------------------------------- //
 const matchingBase = (orderId: string) => `/job-orders/${encodeURIComponent(orderId)}/matching`;
 
-export function fetchMatchingState(orderId: string): Promise<MatchingState> {
-  return request(matchingBase(orderId), { cache: "no-store" });
-}
-
-export function startMatching(
-  orderId: string,
-  options: { mode?: "match" | "rematch"; force?: boolean; screen?: boolean } = {},
-): Promise<MatchRun> {
-  return request(`${matchingBase(orderId)}/runs`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      mode: options.mode ?? "match",
-      force: options.force ?? false,
-      // false sends the candidates the free check would skip as well.
-      screen: options.screen ?? true,
-    }),
-  });
-}
-
-export function fetchMatchRun(orderId: string, runId: string): Promise<MatchRun> {
-  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
-}
-
-/**
- * Brings an order up to date as its panel opens. The server starts a run only
- * when something in the pool is not current yet, and sends only that; most of
- * the time the background sweep got there first and `run` is null.
- */
-export function preloadMatching(orderId: string): Promise<{ pending: number | null; run: MatchRun | null }> {
-  return request(`${matchingBase(orderId)}/preload`, { method: "POST" });
-}
-
-/** The newest run on an order, so a screen left open notices a background one. */
-export async function fetchLatestMatchRun(orderId: string): Promise<MatchRun | null> {
-  const body = await request<{ run: MatchRun | null }>(`${matchingBase(orderId)}/latest-run`, { cache: "no-store" });
-  return body.run;
-}
-
-export function cancelMatchRun(orderId: string, runId: string): Promise<MatchRun> {
-  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
-}
-
-export function retryMatchRun(orderId: string, runId: string): Promise<MatchRun> {
-  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}/retry`, { method: "POST" });
+/** `fresh` re-reads the candidate pool now instead of reusing the last minute's read. */
+export function fetchMatchingState(orderId: string, options: { fresh?: boolean } = {}): Promise<MatchingState> {
+  return request(`${matchingBase(orderId)}${options.fresh ? "?fresh=true" : ""}`, { cache: "no-store" });
 }
 
 export interface MatchResultFilters {
@@ -1748,13 +1703,6 @@ export function fetchMatchResults(orderId: string, filters: MatchResultFilters =
 
 export function fetchMatchExplanation(orderId: string, candidateId: string): Promise<MatchExplanation> {
   return request(`${matchingBase(orderId)}/results/${encodeURIComponent(candidateId)}`, { cache: "no-store" });
-}
-
-export function refreshMatch(orderId: string, candidateId: string, force = false): Promise<MatchRun> {
-  return request(
-    `${matchingBase(orderId)}/results/${encodeURIComponent(candidateId)}/refresh${force ? "?force=true" : ""}`,
-    { method: "POST" },
-  );
 }
 
 export function reviewMatch(

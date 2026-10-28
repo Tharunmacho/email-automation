@@ -1,4 +1,4 @@
-"""The offline metrics that decide whether Jev is trusted over the baseline."""
+"""The offline metrics that say whether the ranking agrees with recruiters."""
 from __future__ import annotations
 
 import pytest
@@ -16,26 +16,24 @@ def test_ranking_metrics_on_a_known_case():
     assert recall_at(ranked, set(), 3) == 0.0
 
 
-def test_jev_and_the_baseline_are_scored_against_recruiter_decisions():
-    results = [
-        {"candidate_id": "a", "category": "strong_match", "score": 90, "baseline": {"score": 10},
-         "usage": {"cost_usd": 0.0001}},
-        {"candidate_id": "b", "category": "low_match", "score": 20, "baseline": {"score": 95},
-         "usage": {"cost_usd": 0.0001}},
-        {"candidate_id": "c", "category": "ineligible", "score": 99, "baseline": {"score": 50},
-         "usage": {"cost_usd": 0.0001}},
-    ]
+def test_the_ranking_is_scored_against_recruiter_decisions():
+    ranked = [("a", "strong_match", 90.0), ("b", "low_match", 20.0), ("c", "ineligible", 99.0)]
     reviews = {"a": {"status": "shortlisted"}, "b": {"status": "rejected"}, "c": {"status": "rejected"},
                "d": {"status": "pending"}}
-    report = evaluate_order(results, reviews)
+    report = evaluate_order(ranked, reviews)
     assert report["labelled"] == 3 and report["relevant"] == 1
-    assert report["jev"]["ndcg_at_10"] == pytest.approx(1.0)
-    assert report["baseline"]["ndcg_at_10"] < 1.0
-    # b was rejected and Jev did not mark it ineligible: one of two rejections.
+    assert report["ndcg_at_10"] == pytest.approx(1.0)
+    # b was rejected and was not marked ineligible: one of two rejections.
     assert report["mandatory_false_positive_rate"] == 0.5
-    assert report["cost_usd"] == pytest.approx(0.0003)
+
+
+def test_a_ranking_that_buries_the_pick_scores_lower():
+    reviews = {"a": {"status": "shortlisted"}, "b": {"status": "rejected"}}
+    good = evaluate_order([("a", "strong_match", 90.0), ("b", "low_match", 10.0)], reviews)
+    bad = evaluate_order([("a", "low_match", 10.0), ("b", "strong_match", 90.0)], reviews)
+    assert good["ndcg_at_10"] > bad["ndcg_at_10"]
 
 
 def test_no_decisions_means_no_claim():
-    assert evaluate_order([{"candidate_id": "a"}], {}) is None
+    assert evaluate_order([("a", "strong_match", 90.0)], {}) is None
     assert summarise([None])["orders"] == 0

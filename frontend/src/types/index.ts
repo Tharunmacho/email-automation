@@ -1075,51 +1075,17 @@ export interface JobOrderRecord {
 export type JobOrderStatus = JobOrderRecord["status"];
 
 // --------------------------------------------------------------------------- //
-//  Candidate matching (Jev) — mirrors app/matching/api.py
+//  Candidate matching — mirrors app/matching/api.py
 //
-//  `score` is a matching score, 0-100: how well the evidence on file meets the
-//  order. It is never a probability of being hired, and the screens must not
-//  present it as one.
+//  Computed by the server from the live records: no model, nothing to start,
+//  nothing to wait for. `score` is a matching score, 0-100: how well the
+//  evidence on file meets the order. It is never a probability of being hired,
+//  and the screens must not present it as one.
 // --------------------------------------------------------------------------- //
 export type MatchCategory = "strong_match" | "potential_match" | "manual_review" | "low_match" | "ineligible";
-export type MatchEligibility = "met" | "not_met" | "unverified" | "no_mandatory" | "not_evaluated";
+export type MatchEligibility = "met" | "not_met" | "unverified" | "no_mandatory";
 export type MatchReviewStatus = "pending" | "shortlisted" | "rejected" | "manual_review";
-export type MatchDocumentsBand = "ready" | "partial" | "not_ready" | "unknown";
-export type MatchRunStatus = "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
-
-export interface MatchRun {
-  id: string;
-  job_order_id: string;
-  status: MatchRunStatus;
-  mode: "match" | "rematch" | "refresh";
-  /** Who started it: a recruiter's button, the panel opening, or the background sweep. */
-  trigger?: "user" | "open" | "auto";
-  historical: boolean;
-  retrieved: number;
-  considered: number;
-  /** Left out by an operator-configured cap. 0 unless JEV_MAX_CANDIDATES_PER_RUN is set. */
-  skipped: number;
-  /** The cap in force for this run; null when every eligible candidate is sent. */
-  cap: number | null;
-  /** Held back by an automatic run because Jev failed on them recently. */
-  deferred?: number;
-  /** Decided by the free check without a Jev call (different trade, or below the minimum). */
-  screened?: number;
-  /** False for "Check with Jev": nobody is skipped by the free check. */
-  screen?: boolean;
-  processed: number;
-  scored: number;
-  cached: number;
-  failed: number;
-  input_tokens: number;
-  cost_usd: number;
-  error: string | null;
-  cancel_requested: boolean;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  candidate_ids?: string[] | null;
-}
+export type MatchDocumentsBand = "ready" | "partial" | "not_ready";
 
 export interface MatchRequirementSpec {
   key: string;
@@ -1130,25 +1096,12 @@ export interface MatchRequirementSpec {
 }
 
 export interface MatchingState {
-  configured: boolean;
   active: boolean;
   inactive_reason: string | null;
   spec: { required_skills: string[]; requirements: MatchRequirementSpec[]; [key: string]: unknown };
-  latest_run: MatchRun | null;
+  /** Everyone not yet submitted, as ranked for this order. */
+  pool: number;
   counts: Record<MatchCategory, number>;
-  failed: number;
-  /** "Jev checked X of Y": counted against the pool as it is now. */
-  coverage: {
-    pool: number;
-    evaluated: number;
-    /** Of `evaluated`, decided by the free check without a Jev call. */
-    screened: number;
-    failed: number;
-    not_evaluated: number;
-    skipped_by_cap: number;
-    cap: number | null;
-    last_full_run_at: string | null;
-  };
   category_labels: Record<MatchCategory, string>;
 }
 
@@ -1159,25 +1112,18 @@ export interface MatchResultRow {
   designation: string;
   experience_years: number | null;
   experience_band: string;
-  candidate_missing: boolean;
-  /** `screened`: decided by the free check, not sent to Jev, so there is no score. */
-  status: "scored" | "failed" | "screened";
-  screen: { rule: "different_trade" | "below_experience"; reason: string; version: string } | null;
-  score: number | null;
-  category: MatchCategory | null;
+  score: number;
+  category: MatchCategory;
   category_label: string;
   matched_skills: string[];
+  /** Half credit: some of the skill's words, or its trade, are on record. */
+  related_skills: string[];
   skills_without_evidence: string[];
   unverified_requirements: string[];
   failed_requirements: string[];
   eligibility: MatchEligibility;
-  documents: { band: MatchDocumentsBand; value: number | null; label: string };
+  documents: { band: MatchDocumentsBand; value: number; label: string };
   review: { status: MatchReviewStatus; note: string; by_name: string | null; at: string | null };
-  failure: { message: string | null; retryable: boolean | null; at: string | null } | null;
-  stale: { order_changed: boolean; candidate_changed: boolean };
-  historical: boolean;
-  evaluated_at: string | null;
-  model: string | null;
 }
 
 export interface MatchResultsPage {
@@ -1194,20 +1140,17 @@ export interface MatchComponent {
   value: number | null;
   applicable: boolean;
   unknown: boolean;
-  parts: Record<string, unknown>;
+  /** What the record showed, in a sentence. */
+  detail: string;
 }
 
 export interface MatchExplanation extends MatchResultRow {
   score_label: string;
   components: MatchComponent[];
-  requirements: { key: string; label: string; status: "satisfied" | "not_satisfied" | "unknown"; confidence: number; source: string }[];
-  dimensions: Record<string, { value: number; confidence: number; label: string; stated: boolean }>;
-  signals: { equivalent_title: number | null; conflicting_evidence: number | null };
+  requirements: { key: string; label: string; status: "satisfied" | "not_satisfied" | "unknown"; source: string; detail: string }[];
   reasons: string[];
   evidence: { requirement: string; field: string; excerpt: string }[];
-  baseline: { score: number; role_hit: boolean; skills_found: string[]; skills_missing: string[]; experience_met: boolean | null } | null;
   spec_requirements: MatchRequirementSpec[];
-  versions: { scoring: string | null; schema: string | null; model: string | null; model_requested: string | null };
-  usage: { input_tokens: number; output_tokens: number; cost_usd: number } | null;
+  scoring_version: string;
   review_history: { status: MatchReviewStatus; note: string; by_name: string | null; at: string }[];
 }

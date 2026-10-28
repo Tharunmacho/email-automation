@@ -21384,11 +21384,6 @@ a.payroll-expand-btn { text-decoration: none; }
   margin-top: 0.1rem;
 }
 
-.aim-notice-action {
-  flex: none;
-  margin-left: auto;
-}
-
 .aim-notice.is-bad {
   border-color: var(--error-edge);
   background: var(--error-fill);
@@ -21399,38 +21394,6 @@ a.payroll-expand-btn { text-decoration: none; }
   border-color: var(--warning-edge);
   background: var(--warning-fill);
   color: var(--warning-ink);
-}
-
-.aim-notice.is-info {
-  border-color: var(--border-blue-strong);
-  background: var(--primary-glow);
-  color: var(--text-main);
-}
-
-.aim-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  font-size: 0.85rem;
-}
-
-.aim-progress-top {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.aim-progress-top > span:first-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.aim-progress .ds-meter-fill {
-  transition: width 0.4s ease;
 }
 
 .aim-quiet {
@@ -21553,15 +21516,6 @@ a.payroll-expand-btn { text-decoration: none; }
   margin: 0.4rem 0 0;
 }
 
-.aim-inline-warn {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.35rem;
-  margin: 0.4rem 0 0;
-  font-size: 0.8rem;
-  color: var(--warning-ink);
-}
-
 .aim-h3 {
   margin: 0 0 0.5rem;
   font-size: 0.8rem;
@@ -21630,6 +21584,13 @@ a.payroll-expand-btn { text-decoration: none; }
   color: var(--text-main);
 }
 
+.aim-component-detail {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
 .aim-components td:nth-child(2) {
   width: 3.5rem;
 }
@@ -21679,10 +21640,6 @@ a.payroll-expand-btn { text-decoration: none; }
 }
 
 .aim-meta,
-.aim-baseline {
-  margin: 0;
-}
-
 @media (max-width: 720px) {
   .aim-panel {
     padding: 1rem;
