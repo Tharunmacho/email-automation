@@ -50,6 +50,15 @@ import type {
   MappingStageState,
   MappingStageView,
   MappingView,
+  MatchCategory,
+  MatchDocumentsBand,
+  MatchEligibility,
+  MatchExplanation,
+  MatchingState,
+  MatchResultRow,
+  MatchResultsPage,
+  MatchReviewStatus,
+  MatchRun,
   Office,
   OfferStatus,
   RecruitmentEvent,
@@ -105,6 +114,15 @@ export type {
   MappingStageState,
   MappingStageView,
   MappingView,
+  MatchCategory,
+  MatchDocumentsBand,
+  MatchEligibility,
+  MatchExplanation,
+  MatchingState,
+  MatchResultRow,
+  MatchResultsPage,
+  MatchReviewStatus,
+  MatchRun,
   RebalanceResult,
   RehomeResult,
   DeleteStaffResult,
@@ -239,7 +257,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `${response.status} ${response.statusText}`;
     try {
       const body = await response.json();
-      if (body?.detail) detail = String(body.detail);
+      if (body?.detail) {
+        // Most routes send a string; a few send `{ message, ... }` so the
+        // caller gets context too. Either way the toast shows words.
+        detail = typeof body.detail === "object" && body.detail !== null && "message" in body.detail
+          ? String(body.detail.message)
+          : String(body.detail);
+      }
     } catch {
       // Non-JSON error body — keep the status line.
     }
@@ -1644,6 +1668,86 @@ export function recordMappingStage(
       body: JSON.stringify(payload),
     },
   );
+}
+
+// --------------------------------------------------------------------------- //
+//  Candidate matching (Jev)
+//
+//  Runs are background jobs: `startMatching` returns at once with a run to
+//  poll. The Jev key never reaches the browser — every call here goes to our
+//  own API, which is the only thing that talks to the vendor.
+// --------------------------------------------------------------------------- //
+const matchingBase = (orderId: string) => `/job-orders/${encodeURIComponent(orderId)}/matching`;
+
+export function fetchMatchingState(orderId: string): Promise<MatchingState> {
+  return request(matchingBase(orderId), { cache: "no-store" });
+}
+
+export function startMatching(
+  orderId: string,
+  options: { mode?: "match" | "rematch"; force?: boolean } = {},
+): Promise<MatchRun> {
+  return request(`${matchingBase(orderId)}/runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: options.mode ?? "match", force: options.force ?? false }),
+  });
+}
+
+export function fetchMatchRun(orderId: string, runId: string): Promise<MatchRun> {
+  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
+}
+
+export function cancelMatchRun(orderId: string, runId: string): Promise<MatchRun> {
+  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+}
+
+export function retryMatchRun(orderId: string, runId: string): Promise<MatchRun> {
+  return request(`${matchingBase(orderId)}/runs/${encodeURIComponent(runId)}/retry`, { method: "POST" });
+}
+
+export interface MatchResultFilters {
+  category?: MatchCategory;
+  eligibility?: MatchEligibility;
+  documents?: MatchDocumentsBand;
+  review?: MatchReviewStatus;
+  skill?: string;
+  min_experience?: number;
+  page?: number;
+  page_size?: number;
+}
+
+export function fetchMatchResults(orderId: string, filters: MatchResultFilters = {}): Promise<MatchResultsPage> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  const query = params.toString();
+  return request(`${matchingBase(orderId)}/results${query ? `?${query}` : ""}`, { cache: "no-store" });
+}
+
+export function fetchMatchExplanation(orderId: string, candidateId: string): Promise<MatchExplanation> {
+  return request(`${matchingBase(orderId)}/results/${encodeURIComponent(candidateId)}`, { cache: "no-store" });
+}
+
+export function refreshMatch(orderId: string, candidateId: string, force = false): Promise<MatchRun> {
+  return request(
+    `${matchingBase(orderId)}/results/${encodeURIComponent(candidateId)}/refresh${force ? "?force=true" : ""}`,
+    { method: "POST" },
+  );
+}
+
+export function reviewMatch(
+  orderId: string,
+  candidateId: string,
+  status: MatchReviewStatus,
+  note = "",
+): Promise<{ status: MatchReviewStatus; note: string; by_name: string | null; at: string }> {
+  return request(`${matchingBase(orderId)}/results/${encodeURIComponent(candidateId)}/review`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, note }),
+  });
 }
 
 // --------------------------------------------------------------------------- //

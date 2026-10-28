@@ -21346,3 +21346,342 @@ a.payroll-expand-btn { text-decoration: none; }
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/*  AI candidate matching (components/matching/AiMatchPanel.tsx)              */
+/*  Tokens only, so the dark theme follows without a second block.            */
+/* ------------------------------------------------------------------------- */
+.aim-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-xl);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.aim-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.aim-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.aim-notice svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
+.aim-notice.is-bad {
+  border-color: var(--error-edge);
+  background: var(--error-fill);
+  color: var(--error-ink);
+}
+
+.aim-notice.is-warn {
+  border-color: var(--warning-edge);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+}
+
+.aim-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+}
+
+.aim-progress-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.aim-progress-top > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.aim-progress .ds-meter-fill {
+  transition: width 0.4s ease;
+}
+
+.aim-quiet {
+  color: var(--text-light);
+  font-size: 0.78rem;
+}
+
+.aim-skeleton {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.aim-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.aim-pill.is-good { background: var(--success-fill); border-color: var(--success-edge); color: var(--success-ink); }
+.aim-pill.is-warn { background: var(--warning-fill); border-color: var(--warning-edge); color: var(--warning-ink); }
+.aim-pill.is-bad { background: var(--error-fill); border-color: var(--error-edge); color: var(--error-ink); }
+.aim-pill.is-info { background: var(--primary-glow); border-color: var(--border-blue-strong); color: var(--primary); }
+.aim-pill.is-quiet { background: var(--tint-2); border-color: var(--border-main); color: var(--text-muted); }
+
+.aim-table td {
+  vertical-align: top;
+}
+
+.aim-table td small {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+.aim-score {
+  font-family: var(--font-numeric);
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+
+.aim-score.is-large {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+/* An ineligible candidate keeps the number, so a recruiter can see the gap,
+   but the number is visibly not the verdict. */
+.aim-score.is-struck {
+  color: var(--text-light);
+  text-decoration: line-through;
+}
+
+.aim-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.aim-gaps {
+  display: inline-block;
+  max-width: 14rem;
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--warning-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aim-review {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.aim-review.is-shortlisted { color: var(--success-ink); }
+.aim-review.is-rejected { color: var(--error-ink); }
+.aim-review.is-manual_review { color: var(--warning-ink); }
+
+.aim-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+
+.aim-dialog-who {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.aim-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+}
+
+.aim-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.aim-verdict-score {
+  display: flex;
+  align-items: baseline;
+  gap: 0.2rem;
+}
+
+.aim-score-label {
+  margin: 0.4rem 0 0;
+}
+
+.aim-inline-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: var(--warning-ink);
+}
+
+.aim-h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-label);
+}
+
+.aim-reasons {
+  margin: 0;
+  padding: 0.65rem 0.85rem 0.65rem 1.8rem;
+  border-radius: var(--radius-md);
+  background: var(--tint-1);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.aim-list,
+.aim-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.aim-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.aim-evidence li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--border-blue-strong);
+  background: var(--tint-1);
+  font-size: 0.85rem;
+}
+
+.aim-evidence q {
+  color: var(--text-muted);
+}
+
+.aim-components {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.aim-components th,
+.aim-components td {
+  padding: 0.4rem 0.25rem;
+  border-bottom: 1px solid var(--border-blue-faint);
+  text-align: left;
+}
+
+.aim-components th {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.aim-components td:nth-child(2) {
+  width: 3.5rem;
+}
+
+.aim-components td:last-child {
+  width: 45%;
+}
+
+.aim-bar {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--tint-3);
+}
+
+.aim-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.aim-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.aim-note {
+  width: 100%;
+  min-height: 64px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-main);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.aim-danger {
+  color: var(--error-ink);
+}
+
+.aim-meta,
+.aim-baseline {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .aim-panel {
+    padding: 1rem;
+  }
+
+  .aim-verdict {
+    flex-direction: column;
+  }
+
+  .aim-components td:last-child {
+    width: 40%;
+  }
+}

@@ -495,6 +495,12 @@ def ensure_indexes() -> None:
     ensure_ingestion_state_indexes()
     ensure_ingestion_checkpoint_indexes()
     ensure_identity_indexes()
+    # Candidate/job-order matching. The unique pair-and-version index is what
+    # stops a double-click paying Jev twice for the same answer, and the sparse
+    # unique `active_lock` is what stops two runs on one order at once.
+    from app.matching.store import ensure_indexes as ensure_matching_indexes
+
+    ensure_matching_indexes()
 
     log.info(
         "MongoDB indexes ensured on '%s', 'sourcing_clients', 'job_orders', "

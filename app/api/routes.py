@@ -5416,6 +5416,11 @@ from app.payroll import router as payroll_router
 from app.reimbursements import router as reimbursements_router
 
 app.include_router(attendance_router)
+# Candidate matching lives under /job-orders/{id}/matching/... and needs the
+# auth dependencies above; no path here collides with the job-order routes.
+from app.matching.api import router as matching_router
+
+app.include_router(matching_router)
 # Before payroll, whose `/{year}/{month}` would otherwise claim these paths.
 app.include_router(reimbursements_router)
 app.include_router(payroll_router)

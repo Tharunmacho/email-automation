@@ -34,6 +34,7 @@ import {
   Send,
 } from "lucide-react";
 
+import AiMatchPanel from "@/components/matching/AiMatchPanel";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -1865,6 +1866,22 @@ export default function JobOrders({
             </div>
           </dl>
         </section>
+
+        {/* AI matching (Jev): an explainable, server-ranked shortlist. The
+            keyword matches below are unchanged and remain the quick view. */}
+        <AiMatchPanel
+          order={selectedOrder}
+          onActivity={activity}
+          onOpenCandidate={
+            onOpenCandidate
+              ? (candidateId) => {
+                  const record = dbCandidates.find((cand) => cand.id === candidateId);
+                  if (record) onOpenCandidate(record);
+                  else activity("That candidate is not in the loaded pool yet — refresh and try again.", "warn");
+                }
+              : undefined
+          }
+        />
 
         <div className="jod-matches">
           <div className="jod-section-head">

@@ -225,6 +225,41 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-6-luna"
     openai_max_tokens: int = 4096
 
+    # ---- Jev (TypeSafe System One) — candidate/job-order matching ----
+    #: The key for https://api.typesafe.ai. Server-side only: it is read here,
+    #: used in `app.matching.jev`, and never reaches a response body, a log
+    #: line or the browser bundle. Empty means the feature reports itself as
+    #: unconfigured rather than quietly scoring with something else.
+    jev_api_key: str = ""
+    jev_base_url: str = "https://api.typesafe.ai"
+    #: An alias rather than a pinned version, so a release lands without a
+    #: deploy. It is recorded on every stored result, so a score can always be
+    #: traced to the model that produced it.
+    jev_model: str = "jev-latest"
+    #: One request carries one candidate against one job order. The documented
+    #: per-request context is 64k tokens and the evidence we send is a small
+    #: fraction of that, so a request that has not answered in half a minute is
+    #: not going to.
+    jev_timeout_seconds: float = 30.0
+    #: 429 and 529 are the two the vendor says to back off on. Three attempts
+    #: at 0.5s, 1s, 2s keeps a stalled run short enough that a recruiter waiting
+    #: on the screen still gets an answer.
+    jev_max_retries: int = 3
+    jev_retry_backoff_seconds: float = 0.5
+    #: Requests in flight across the whole process. The account's real ceiling
+    #: is tokens and requests per second, set per organisation in the console;
+    #: this is the knob that keeps us under whatever that is.
+    jev_max_concurrency: int = 4
+    #: How many prefiltered candidates one run may send to Jev. The rule-based
+    #: prefilter ranks the pool first, so this is a spend ceiling, not a
+    #: correctness one — raising it buys recall at the documented $0.042/Mtok.
+    jev_max_candidates_per_run: int = 150
+    #: Evaluations older than this are recomputed even when nothing else
+    #: changed, so a model alias that moved underneath us is eventually picked
+    #: up. Everything that changes a score deliberately — the order, the
+    #: profile, the weights, the schema — is already in the cache key.
+    jev_result_ttl_hours: int = 24 * 14
+
 
 
     # ---- Resume gates ----
