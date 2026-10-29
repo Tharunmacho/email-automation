@@ -58,7 +58,8 @@ class Site:
 
 
 # Pins supplied by the user from Google Maps: Mount Road on 2026-10-07, and
-# Royapettah on 2026-10-29 when its address was corrected to 35 Westcott Road.
+# Royapettah on 2026-10-29 when its address was corrected to 35 Westcott Road
+# and its radius set to 400 m.
 SITES: dict[str, Site] = {
     MOUNT_ROAD: Site(
         name=MOUNT_ROAD,
@@ -70,12 +71,11 @@ SITES: dict[str, Site] = {
     ROYAPETTAH: Site(
         name=ROYAPETTAH,
         address="35, Westcott Rd, Indira Garden, Royapettah, Chennai, Tamil Nadu 600014",
-        latitude=13.054036,
-        longitude=80.264377,
-        radius_m=500,
+        latitude=13.054280,
+        longitude=80.264568,
+        radius_m=400,
     ),
 }
-
 
 
 class OffSiteError(ValueError):
