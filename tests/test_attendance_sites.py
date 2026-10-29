@@ -35,13 +35,13 @@ def _north_of(point, metres):
 class FakeUsers:
     def __init__(self):
         self.members = {
-            # Listed under Royapettah by number, although their desk is Mount Road.
-            "listed": User(id="listed", email="l@example.com", name="Listed Person",
+            # No branch typed in: Royapettah by their desk (Singapore and Malaysia).
+            "listed": User(id="listed", email="sreya.adira@gmail.com", name="Listed Person",
                            role=STAFF_ROLE, staff_code="AE010", phone="+91 7806822702"),
             "unlisted": User(id="unlisted", email="u@example.com", name="Other Person",
                              role=STAFF_ROLE, staff_code="AE011", phone="+91 9000000001",
                              branch=MOUNT_ROAD),
-            # Filed under Royapettah, but not on the Royapettah list.
+            # A new hire created at Royapettah, on the general desk.
             "filed": User(id="filed", email="f@example.com", name="Filed Person",
                           role=STAFF_ROLE, staff_code="AE012", phone="+91 9000000002",
                           branch=ROYAPETTAH),
@@ -64,9 +64,10 @@ def env():
         yield service
 
 
-def _event(location, message_id="loc-1", location_unavailable=False):
+def _event(location, message_id="loc-1", location_unavailable=False,
+           sender_phone="917806822702", stated_name="Listed"):
     return WhatsAppAttendanceEvent(
-        message_id=message_id, sender_phone="917806822702", stated_name="Listed",
+        message_id=message_id, sender_phone=sender_phone, stated_name=stated_name,
         action="check_in", occurred_at=datetime(2026, 10, 5, 4, 0, tzinfo=timezone.utc),
         latitude=location[0] if location else None,
         longitude=location[1] if location else None,
@@ -84,17 +85,32 @@ def answered(response) -> tuple[int, dict]:
     return response.status_code, json.loads(response.body)
 
 
-def test_a_listed_number_is_held_to_its_listed_office():
+def test_the_office_is_the_branch_the_crm_files_them_under():
     with patch.object(sites, "SITES", TEST_SITES):
-        employee = FakeUsers().get("listed")
-        assert sites.site_for(employee).name == ROYAPETTAH
+        assert sites.site_for(FakeUsers().get("listed")).name == ROYAPETTAH
         assert sites.site_for(FakeUsers().get("unlisted")).name == MOUNT_ROAD
 
 
-def test_everyone_off_the_royapettah_list_punches_from_mount_road():
-    # Their branch says Royapettah, but only the listed numbers work from there.
+def test_a_new_hire_created_at_royapettah_is_on_site_there(env):
+    """The reported fault: created at Royapettah, filed off site at Mount Road.
+
+    The office came from a fixed list of phone numbers, and a new hire's number
+    was never on it.
+    """
+    status, result = answered(whatsapp_private_attendance(
+        _event(ROYA, sender_phone="919000000002", stated_name="Filed")
+    ))
+    assert status == 201
+    assert result["location_status"] == sites.ON_SITE
+    assert result["site"] == ROYAPETTAH
+
+
+def test_a_branch_without_an_office_punches_from_mount_road():
+    elsewhere = User(id="elsewhere", email="e@example.com", name="Elsewhere Person",
+                     role=STAFF_ROLE, staff_code="AE013", phone="+91 9000000003",
+                     branch="Velachery")
     with patch.object(sites, "SITES", TEST_SITES):
-        assert sites.site_for(FakeUsers().get("filed")).name == MOUNT_ROAD
+        assert sites.site_for(elsewhere).name == MOUNT_ROAD
 
 
 def test_a_punch_inside_the_radius_is_recorded_with_where_it_was_made(env):

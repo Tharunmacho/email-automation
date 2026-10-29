@@ -1,10 +1,15 @@
 """Where an employee was standing when they punched.
 
 Each office is a point and a radius, and each employee is measured against
-their own office only. The Royapettah staff are listed by number below;
-everyone else works from Mount Road, whatever branch or desk they are filed
-under. A punch made at the other office is recorded and flagged like any other
-off-site punch.
+their own office only: the branch the CRM files them under (`branch_of`, the
+Location column in User Management). A branch with no office of its own falls
+to Mount Road. A punch made at the other office is recorded and flagged like
+any other off-site punch.
+
+The office used to come from a fixed list of phone numbers. A staff member
+created at Royapettah in the CRM was not on it, so their first punch from the
+Royapettah office was filed as off site at Mount Road. Moving someone between
+offices is now a User Management change, not a code change.
 
 Until 2026-10-29 any office counted. That was added while an off-site pin was
 still refused outright, and Royapettah staff missing from the list were being
@@ -35,9 +40,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-import re
 
-from app.branches import MOUNT_ROAD, ROYAPETTAH
+from app.branches import MOUNT_ROAD, ROYAPETTAH, branch_of
 
 
 @dataclass(frozen=True)
@@ -72,16 +76,6 @@ SITES: dict[str, Site] = {
     ),
 }
 
-#: The staff who punch from the Royapettah office, by the last ten digits of
-#: their number. Everyone not listed here punches from Mount Road.
-ROYAPETTAH_STAFF: dict[str, str] = {
-    "7806822702": "Sreya",
-    "8438588507": "Bakkiammal",
-    "8870277929": "Sharmila",
-    "9884448455": "Hajira",
-    "6381748354": "Sahi",
-    "7200786679": "Noorul",
-}
 
 
 class OffSiteError(ValueError):
@@ -106,15 +100,12 @@ class OffSiteError(ValueError):
         self.code = code
 
 
-def _phone_key(phone: str | None) -> str:
-    digits = re.sub(r"\D", "", phone or "")
-    return digits[-10:]
-
-
 def site_for(employee) -> Site:
-    """The office this employee punches from: Royapettah if listed, else Mount Road."""
-    if _phone_key(getattr(employee, "phone", None)) in ROYAPETTAH_STAFF:
-        return SITES[ROYAPETTAH]
+    """The office of the branch this employee is filed under, else Mount Road."""
+    branch = branch_of(employee).casefold()
+    for name, site in SITES.items():
+        if name.casefold() == branch:
+            return site
     return SITES[MOUNT_ROAD]
 
 
