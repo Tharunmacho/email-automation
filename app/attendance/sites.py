@@ -1,9 +1,15 @@
 """Where an employee was standing when they punched.
 
-Each office is a point and a radius. A punch is measured against every located
-office — any office counts, not only their own, so staff listed under the wrong
-office (or falling to it by desk) are not locked out while sitting at their
-desk.
+Each office is a point and a radius, and each employee is measured against
+their own office only. The Royapettah staff are listed by number below;
+everyone else works from Mount Road, whatever branch or desk they are filed
+under. A punch made at the other office is recorded and flagged like any other
+off-site punch.
+
+Until 2026-10-29 any office counted. That was added while an off-site pin was
+still refused outright, and Royapettah staff missing from the list were being
+locked out at their desks. Now that nothing is refused, the looser rule only
+hid who was punching from where.
 
 **The measurement no longer refuses the punch.** It used to: a pin outside
 every radius was a 403 and nothing was recorded. That cost honest staff their
@@ -31,7 +37,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from app.branches import MOUNT_ROAD, ROYAPETTAH, branch_of
+from app.branches import MOUNT_ROAD, ROYAPETTAH
 
 
 @dataclass(frozen=True)
@@ -47,7 +53,9 @@ class Site:
         return self.latitude is not None and self.longitude is not None
 
 
-# Pins supplied by the user from Google Maps on 2026-10-07.
+# Pins supplied by the user from Google Maps on 2026-10-07. The Royapettah
+# address was corrected to 35 Westcott Road on 2026-10-29; its pin is still the
+# 2026-10-07 one until the exact coordinates for No. 35 are dropped in.
 SITES: dict[str, Site] = {
     MOUNT_ROAD: Site(
         name=MOUNT_ROAD,
@@ -58,23 +66,22 @@ SITES: dict[str, Site] = {
     ),
     ROYAPETTAH: Site(
         name=ROYAPETTAH,
-        address="Modern Tower, 23 Westcott Road, Royapettah, Chennai 600014",
+        address="35, Westcott Rd, Indira Garden, Royapettah, Chennai, Tamil Nadu 600014",
         latitude=13.058932,
         longitude=80.264005,
         radius_m=500,
     ),
 }
 
-#: Numbers whose office is fixed regardless of their branch, by the last ten digits.
-PHONE_SITES: dict[str, str] = {
-    **dict.fromkeys(
-        ("9884447455", "7448337753", "9967926889", "8925726036", "9884949735"),
-        MOUNT_ROAD,
-    ),
-    **dict.fromkeys(
-        ("7806822702", "8438588507", "8870277929", "9884448455", "6381748354", "7200786679"),
-        ROYAPETTAH,
-    ),
+#: The staff who punch from the Royapettah office, by the last ten digits of
+#: their number. Everyone not listed here punches from Mount Road.
+ROYAPETTAH_STAFF: dict[str, str] = {
+    "7806822702": "Sreya",
+    "8438588507": "Bakkiammal",
+    "8870277929": "Sharmila",
+    "9884448455": "Hajira",
+    "6381748354": "Sahi",
+    "7200786679": "Noorul",
 }
 
 
@@ -105,12 +112,11 @@ def _phone_key(phone: str | None) -> str:
     return digits[-10:]
 
 
-def site_for(employee) -> Site | None:
-    """The office this employee must punch from, if any."""
-    listed = PHONE_SITES.get(_phone_key(getattr(employee, "phone", None)))
-    if listed:
-        return SITES[listed]
-    return SITES.get(branch_of(employee))
+def site_for(employee) -> Site:
+    """The office this employee punches from: Royapettah if listed, else Mount Road."""
+    if _phone_key(getattr(employee, "phone", None)) in ROYAPETTAH_STAFF:
+        return SITES[ROYAPETTAH]
+    return SITES[MOUNT_ROAD]
 
 
 def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -154,7 +160,7 @@ def check_on_site(
     sent round the same loop a second time.
     """
     site = site_for(employee)
-    if site is None or not site.located:
+    if not site.located:
         return None
     if latitude is None or longitude is None:
         if not location_unavailable:
@@ -168,24 +174,10 @@ def check_on_site(
             "radius_m": site.radius_m,
             "status": UNVERIFIED,
         }
-    # Their own office first, so a punch inside both radii is filed under it.
-    offices = [site, *(other for other in SITES.values() if other.located and other is not site)]
-    distances = [(office, distance_m(latitude, longitude, office.latitude, office.longitude)) for office in offices]
-    for office, distance in distances:
-        if distance <= office.radius_m:
-            return {
-                "site": office.name,
-                "distance_m": round(distance),
-                "radius_m": office.radius_m,
-                "status": ON_SITE,
-            }
-    # Outside every radius. Filed against the nearest office rather than their
-    # own, because the nearest is the one that makes the distance readable to
-    # whoever reviews it.
-    nearest, distance = min(distances, key=lambda pair: pair[1])
+    distance = distance_m(latitude, longitude, site.latitude, site.longitude)
     return {
-        "site": nearest.name,
+        "site": site.name,
         "distance_m": round(distance),
-        "radius_m": nearest.radius_m,
-        "status": OFF_SITE,
+        "radius_m": site.radius_m,
+        "status": ON_SITE if distance <= site.radius_m else OFF_SITE,
     }

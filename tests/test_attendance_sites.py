@@ -41,6 +41,10 @@ class FakeUsers:
             "unlisted": User(id="unlisted", email="u@example.com", name="Other Person",
                              role=STAFF_ROLE, staff_code="AE011", phone="+91 9000000001",
                              branch=MOUNT_ROAD),
+            # Filed under Royapettah, but not on the Royapettah list.
+            "filed": User(id="filed", email="f@example.com", name="Filed Person",
+                          role=STAFF_ROLE, staff_code="AE012", phone="+91 9000000002",
+                          branch=ROYAPETTAH),
         }
 
     def get(self, user_id):
@@ -85,6 +89,12 @@ def test_a_listed_number_is_held_to_its_listed_office():
         employee = FakeUsers().get("listed")
         assert sites.site_for(employee).name == ROYAPETTAH
         assert sites.site_for(FakeUsers().get("unlisted")).name == MOUNT_ROAD
+
+
+def test_everyone_off_the_royapettah_list_punches_from_mount_road():
+    # Their branch says Royapettah, but only the listed numbers work from there.
+    with patch.object(sites, "SITES", TEST_SITES):
+        assert sites.site_for(FakeUsers().get("filed")).name == MOUNT_ROAD
 
 
 def test_a_punch_inside_the_radius_is_recorded_with_where_it_was_made(env):
@@ -134,12 +144,13 @@ def test_a_live_location_is_recorded_as_unverified(env):
     assert result["distance_m"] is None
 
 
-def test_the_other_office_counts_too(env):
-    # Listed under Royapettah but punching from Mount Road: still at an office.
+def test_the_other_office_is_recorded_and_flagged(env):
+    # Listed under Royapettah but punching from Mount Road: not their office.
     status, result = answered(whatsapp_private_attendance(_event(MOUNT)))
     assert status == 201
     assert result["status"] == "recorded"
-    assert result["event"]["evidence"]["metadata"]["site"]["site"] == MOUNT_ROAD
+    assert result["location_status"] == sites.OFF_SITE
+    assert result["event"]["evidence"]["metadata"]["site"]["site"] == ROYAPETTAH
 
 
 def test_a_punch_without_a_location_is_refused(env):
