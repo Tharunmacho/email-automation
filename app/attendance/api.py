@@ -87,16 +87,28 @@ def _log_placement(employee, latitude, longitude, placement: dict | None) -> Non
     )
 
 
+def _log_refusal(employee, latitude: float | None, longitude: float | None, exc: OffSiteError) -> None:
+    """Record where a refused punch was made, for the same question as above."""
+    log.info(
+        "Attendance refused for %s (%s) at %s,%s (%s m away)",
+        employee.id,
+        exc.code,
+        latitude,
+        longitude,
+        None if exc.distance_m is None else round(exc.distance_m),
+    )
+
+
 def _on_site(employee, latitude: float | None, longitude: float | None) -> dict | None:
     """Place a punch for the console, as the HTTP answer the caller sees.
 
-    A punch away from the offices is recorded and flagged, not refused. The one
-    refusal left is `location_required`, raised when nothing was sent and the
-    caller has not said why.
+    A punch away from the employee's office, or with no location, is refused
+    with a 403 and nothing is recorded.
     """
     try:
         placement = check_on_site(employee, latitude, longitude)
     except OffSiteError as exc:
+        _log_refusal(employee, latitude, longitude, exc)
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     _log_placement(employee, latitude, longitude, placement)
     return placement
@@ -134,7 +146,8 @@ class WhatsAppAttendanceEvent(BaseModel):
     #: use — in practice a live location, which the Cloud API delivers as an
     #: `unsupported` message with no coordinates at all. Without this the punch
     #: would come back as `location_required` and the employee would be asked
-    #: for the same thing again, forever. See `app.attendance.sites`.
+    #: for the same thing again, forever; instead it is refused as `off_site`
+    #: with an explanation. See `app.attendance.sites`.
     location_unavailable: bool = False
 
 
@@ -228,9 +241,12 @@ def whatsapp_private_attendance(
             location_unavailable=payload.location_unavailable,
         )
     except OffSiteError as exc:
-        # Only `location_required` reaches here now: the bare command that opens
-        # a punch, which the bot answers by going and asking for a location.
-        log.info("Attendance needs a location from %s (%s)", employee.id, exc.code)
+        # `location_required` is the bare command that opens a punch, which the
+        # bot answers by going and asking for a location. `off_site` is a
+        # location that did not place them at their office; nothing is recorded
+        # and the bot holds the command so sharing again from the office
+        # completes it.
+        _log_refusal(employee, payload.latitude, payload.longitude, exc)
         return _attendance_refusal(403, exc.code, str(exc))
     _log_placement(employee, payload.latitude, payload.longitude, site)
 

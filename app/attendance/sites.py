@@ -1,38 +1,29 @@
-"""Where an employee was standing when they punched.
+"""Where an employee must be standing for a punch to count.
 
 Each office is a point and a radius, and each employee is measured against
 their own office only: the branch the CRM files them under (`branch_of`, the
 Location column in User Management). A branch with no office of its own falls
-to Mount Road. A punch made at the other office is recorded and flagged like
-any other off-site punch.
+to Mount Road. A punch made at the other office is refused like any other.
+
+**A punch from outside the radius is refused and nothing is recorded.** With
+no punch the day is absent, and nothing goes to a manager. The user set this
+on 2026-10-29, ending a spell in which an off-site punch was recorded and
+flagged for a manager to review instead.
+
+The known cost: the pin WhatsApp sends carries no accuracy figure, and a phone
+indoors can fall back to WiFi or cell towers, so somebody at their desk can now
+and then be refused. They are told why, and the bot holds their command for ten
+minutes so that sharing their location again completes it.
+
+A live location is refused the same way. WhatsApp does not deliver it to the
+Cloud API at all — it arrives as `unsupported` (error 131051) with no
+coordinates — so it can never be placed, and the employee is told to use "Send
+your current location" instead.
 
 The office used to come from a fixed list of phone numbers. A staff member
 created at Royapettah in the CRM was not on it, so their first punch from the
 Royapettah office was filed as off site at Mount Road. Moving someone between
 offices is now a User Management change, not a code change.
-
-Until 2026-10-29 any office counted. That was added while an off-site pin was
-still refused outright, and Royapettah staff missing from the list were being
-locked out at their desks. Now that nothing is refused, the looser rule only
-hid who was punching from where.
-
-**The measurement no longer refuses the punch.** It used to: a pin outside
-every radius was a 403 and nothing was recorded. That cost honest staff their
-attendance, because the coordinate WhatsApp sends is not evidence of where
-somebody is. There is no accuracy figure in the payload, the phone falls back
-to WiFi and cell towers indoors, and tapping a *nearby place* in WhatsApp's
-location picker sends that place's coordinates rather than the sender's. From
-here all of those look exactly like a real pin from the wrong side of the city.
-
-So the office radius is now evidence, not a gate: the punch is recorded either
-way and carries `status` saying what was established. A manager reviews what
-comes back `off_site` or `unverified`. An employee silently losing a day's
-attendance to a 400 m WiFi error is the worse failure of the two.
-
-`unverified` is the live-location case. WhatsApp does not deliver live location
-to the Cloud API at all — it arrives as `unsupported` (error 131051) with no
-coordinates — so a punch made that way can never be placed. It is still filed,
-and still flagged.
 
 An office without coordinates is measured against nothing at all.
 """
@@ -79,13 +70,7 @@ SITES: dict[str, Site] = {
 
 
 class OffSiteError(ValueError):
-    """The punch cannot be placed yet and the employee has to be asked.
-
-    Only `location_required` raises now: the bare command that starts a punch,
-    which the bot answers by asking for a location. A punch that *is* located
-    and lands outside every office is no longer an error — it is recorded and
-    flagged. See the module docstring.
-    """
+    """The punch is not recorded: no location yet, or not at the office."""
 
     def __init__(self, message: str, *, distance_m: float | None = None, code: str = "off_site"):
         super().__init__(message)
@@ -94,7 +79,8 @@ class OffSiteError(ValueError):
         #: Which of the two refusals this is, for a caller that must act on it
         #: rather than relay prose. ``location_required`` means no location was
         #: supplied at all and the employee has to be asked for one;
-        #: ``off_site`` means they sent one and it was not at any office. The
+        #: ``off_site`` means what they sent did not place them at their
+        #: office, or could not be placed at all (a live location). The
         #: WhatsApp workflow answers them differently, and matching on the
         #: wording of the message would break the moment the wording changed.
         self.code = code
@@ -119,10 +105,8 @@ def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius * math.asin(math.sqrt(a))
 
 
-#: What `check_on_site` established about where a punch was made.
+#: Recorded on every punch that passes `check_on_site`.
 ON_SITE = "on_site"
-OFF_SITE = "off_site"
-UNVERIFIED = "unverified"
 
 
 def check_on_site(
@@ -132,22 +116,21 @@ def check_on_site(
     *,
     location_unavailable: bool = False,
 ) -> dict | None:
-    """Place a punch against the offices, for the event's evidence.
+    """Hold a punch to the employee's office, or refuse it.
 
-    Returns what was established, or None when this employee has no located
-    office to be measured against.
+    Returns where the punch was placed, for the event's evidence, or None when
+    this employee has no located office to be measured against. Raises
+    `OffSiteError` otherwise — see the module docstring.
 
-    This does not refuse an off-site punch — see the module docstring. The one
-    thing it still refuses is a punch that arrived with **no location and no
-    word on why**, because that is the opening move of every punch: "Rafi -
-    check in" is sent on its own and the bot has to be told to go and ask for a
-    location. Answering it with a filed, unverified punch would mean nobody was
-    ever asked for a location again.
+    A punch with **no location and no word on why** is `location_required`,
+    because that is the opening move of every punch: "Rafi - check in" is sent
+    on its own and the bot has to be told to go and ask for a location.
 
     `location_unavailable` is how the caller says it already asked and the
     answer could not be used — a live location, which the Cloud API delivers
-    with no coordinates at all. That one is filed as `unverified` rather than
-    sent round the same loop a second time.
+    with no coordinates at all. That is `off_site` with its own explanation,
+    rather than `location_required`, which would send the employee round the
+    same loop again.
     """
     site = site_for(employee)
     if not site.located:
@@ -158,16 +141,20 @@ def check_on_site(
                 f"Location is required. Share your current location from the {site.name} office to mark attendance.",
                 code="location_required",
             )
-        return {
-            "site": site.name,
-            "distance_m": None,
-            "radius_m": site.radius_m,
-            "status": UNVERIFIED,
-        }
+        raise OffSiteError(
+            "Attendance not recorded: live location does not reach us. "
+            f'Use "Send your current location" from the {site.name} office.',
+        )
     distance = distance_m(latitude, longitude, site.latitude, site.longitude)
+    if distance > site.radius_m:
+        raise OffSiteError(
+            f"Attendance not recorded: you are not at the {site.name} office. "
+            "Share your current location from the office to mark attendance.",
+            distance_m=distance,
+        )
     return {
         "site": site.name,
         "distance_m": round(distance),
         "radius_m": site.radius_m,
-        "status": ON_SITE if distance <= site.radius_m else OFF_SITE,
+        "status": ON_SITE,
     }
