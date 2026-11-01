@@ -35,6 +35,8 @@ def order(**overrides):
         "maxAge": 45,
         "industry": "Oil & Gas",
         "submittedCandidateIds": ["cand-1"],
+        # Agent terms: for agents only, never on the website.
+        "terms": {"b2bRate": "4.9 with Ticket", "advancePayment": "EUR 946", "candidatePays": "VFS"},
         "website": {
             "show": True,
             "city": "Jeddah",
@@ -80,6 +82,9 @@ def test_card_never_carries_the_client_remarks_ages_or_candidates():
     assert "INTERNAL" not in published
     assert "45" not in published
     assert "cand-1" not in published
+    assert "4.9" not in published
+    assert "946" not in published
+    assert "VFS" not in published
 
 
 @pytest.mark.parametrize("status, show, listed", [
@@ -190,7 +195,7 @@ def test_public_api_url_wins_over_the_request(api, monkeypatch):
 def test_public_jobs_never_return_internal_fields(api):
     api.db["job_orders"].insert_one(order())
     item = api.get("/public/jobs").json()["items"][0]
-    assert not {"client", "description", "minAge", "maxAge", "submittedCandidateIds", "_id"} & set(item)
+    assert not {"client", "description", "minAge", "maxAge", "submittedCandidateIds", "terms", "_id"} & set(item)
 
 
 def test_poster_upload_round_trips_through_the_public_route(api):

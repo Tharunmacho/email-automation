@@ -3818,6 +3818,43 @@ def require_service_key(x_service_key: str | None = Header(default=None)) -> Non
 
 
 # --------------------------------------------------------------------------- #
+#  Résumés sent by Sourcing Hub agents on WhatsApp (`app/agent_resumes.py`)
+# --------------------------------------------------------------------------- #
+AGENT_RESUME_MAX_BYTES = 20 * 1024 * 1024  # the résumé store's own limit
+
+
+@app.post("/agent-resumes")
+def agent_resume_intake(
+    file: UploadFile = File(...),
+    phone: str = Form(...),
+    wamid: str = Form(default=""),
+    line_id: str = Form(default=""),
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """One file an agent sent to the bot. Always 200 with a `status`.
+
+    The outcome is in the body (`created`, `rejected`, `error`, `ignored`,
+    `processing`) so the bot can tell the agent what happened. Only an
+    unexpected failure is a 5xx, which the bot retries.
+    """
+    from app.agent_resumes import submit_agent_resume
+
+    data = file.file.read(AGENT_RESUME_MAX_BYTES + 1)
+    if len(data) > AGENT_RESUME_MAX_BYTES:
+        return {"status": "rejected", "code": "file_too_large",
+                "message": "The file is larger than 20 MB."}
+    return submit_agent_resume(
+        data=data,
+        filename=file.filename or "resume",
+        mime_type=file.content_type or "application/octet-stream",
+        phone=phone,
+        wamid=wamid.strip(),
+        line_id=line_id.strip(),
+        repository=repo(),
+    )
+
+
+# --------------------------------------------------------------------------- #
 #  WhatsApp group intake
 #
 #  The receiving half of group timesheets and agent-posted candidate profiles.

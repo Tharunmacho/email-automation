@@ -115,6 +115,17 @@ def test_each_agent_gets_the_order_without_the_client_or_remarks(db):
         "salary": "SAR 1800",
         "min_experience": "3 years",
         "poster_url": "/public/job-posters/0123456789abcdef0123456789abcdef.jpg",
+        # No terms on this order: every key still travels, blank.
+        "industry": "",
+        "gender": "",
+        "process_time": "",
+        "b2b_rate": "",
+        "candidate_pays": "",
+        "advance_payment": "",
+        "balance_payment": "",
+        "requirements": [],
+        "documents": [],
+        "documents_single_pdf": False,
         "agent_id": "AGT-1",
         "agent_name": "Imran",
         "phone": "98765 43210",
@@ -123,6 +134,53 @@ def test_each_agent_gets_the_order_without_the_client_or_remarks(db):
         assert "Secret Client" not in str(payload)
         assert "internal remarks" not in str(payload)
     assert all(call.kwargs.get("require_sent") is True for call in post.call_args_list)
+
+
+def test_the_orders_agent_terms_travel_with_it(db):
+    order = {
+        **ORDER,
+        "industry": "Automotive",
+        "terms": {
+            "gender": "Male & Female",
+            "processTime": "6-8 months",
+            "b2bRate": "4.9 with Ticket",
+            "candidatePays": "VFS, Embassy fee",
+            "advancePayment": "€946",
+            "balancePayment": "After the visa",
+            "requirements": ["Relevant work experience", "Basic English", "Valid passport & PCC", "Updated CV"],
+            "documents": ["CV", "Passport copy (all pages including cover pages)", "PCC (Police Clearance Certificate)"],
+            "singlePdf": True,
+        },
+    }
+    with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
+        broadcast_job_order(order, database=db)
+    payload = post.call_args_list[0].args[1]
+    assert {key: payload[key] for key in (
+        "industry", "gender", "process_time", "b2b_rate", "candidate_pays",
+        "advance_payment", "balance_payment", "requirements", "documents", "documents_single_pdf",
+    )} == {
+        "industry": "Automotive",
+        "gender": "Male & Female",
+        "process_time": "6-8 months",
+        "b2b_rate": "4.9 with Ticket",
+        "candidate_pays": "VFS, Embassy fee",
+        "advance_payment": "€946",
+        "balance_payment": "After the visa",
+        "requirements": ["Relevant work experience", "Basic English", "Valid passport & PCC", "Updated CV"],
+        "documents": ["CV", "Passport copy (all pages including cover pages)", "PCC (Police Clearance Certificate)"],
+        "documents_single_pdf": True,
+    }
+
+
+def test_malformed_terms_are_sent_as_blanks_not_errors(db):
+    order = {**ORDER, "terms": {"requirements": "not a list", "documents": [None, " ", "CV"], "singlePdf": "yes"}}
+    with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
+        result = broadcast_job_order(order, database=db)
+    assert result["sent"] == 2
+    payload = post.call_args_list[0].args[1]
+    assert payload["requirements"] == []
+    assert payload["documents"] == ["CV"]
+    assert payload["documents_single_pdf"] is False
 
 
 def test_an_order_without_a_poster_sends_a_blank_poster_for_the_bot_to_default(db):

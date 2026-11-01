@@ -13,7 +13,11 @@ budget, the same split as `app/staff_whatsapp.py`.
   and associations are never messaged.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
-  website poster as the picture when it has one.
+  website poster as the picture when it has one — plus the order's agent terms
+  (`terms`: gender, process time, B2B rate, costs borne by the candidate,
+  payment terms, requirements and documents), which are for agents and never
+  go on the website. The bot's current Meta template shows only the first
+  five; the rest travel so a template with more slots can use them.
 * **Off the request path.** The save returns at once; sending runs in a
   background thread. Nothing here raises.
 """
@@ -94,6 +98,31 @@ def _text(value: Any) -> str:
     return str(value).strip() if value is not None else ""
 
 
+def _texts(value: Any) -> List[str]:
+    """A list of non-blank strings, whatever was stored."""
+    if not isinstance(value, list):
+        return []
+    return [text for text in (_text(item) for item in value if isinstance(item, (str, int, float))) if text]
+
+
+def terms_facts(order: Dict[str, Any]) -> Dict[str, Any]:
+    """The order's agent terms (`terms` on the job order) for the bot, every key always present."""
+    terms = order.get("terms") if isinstance(order.get("terms"), dict) else {}
+    documents = _texts(terms.get("documents"))
+    return {
+        "industry": _text(order.get("industry")),
+        "gender": _text(terms.get("gender")),
+        "process_time": _text(terms.get("processTime")),
+        "b2b_rate": _text(terms.get("b2bRate")),
+        "candidate_pays": _text(terms.get("candidatePays")),
+        "advance_payment": _text(terms.get("advancePayment")),
+        "balance_payment": _text(terms.get("balancePayment")),
+        "requirements": _texts(terms.get("requirements")),
+        "documents": documents,
+        "documents_single_pdf": bool(documents) and terms.get("singlePdf") is True,
+    }
+
+
 def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, Any]:
     """Message every active agent about one newly created job order. Never raises."""
     order_id = _text(order.get("id"))
@@ -123,6 +152,7 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
             # The message's picture. The bot uses it if it is a JPG or PNG and
             # falls back to a default image otherwise.
             "poster_url": _text((order.get("website") or {}).get("posterUrl")),
+            **terms_facts(order),
         }
         sent = 0
         failed: List[str] = []

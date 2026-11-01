@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from app.ai.resume_parser import ResumeParser
 from app.config import settings
 from app.core.exceptions import ForeignNationalityError
-from app.core.models import CandidateProfile, CandidateRecord, utcnow
+from app.core.models import AgentSubmission, CandidateProfile, CandidateRecord, utcnow
 from app.db import identity_records
 from app.db.dedup import normalize_email, normalize_passport, normalize_phone, sha256_hex
 from app.extraction import ocr_gateway
@@ -319,13 +319,20 @@ def intake_uploaded_candidate(
     job_id: str | None = None,
     job_title: str | None = None,
     destination_countries: Sequence[str] | None = None,
+    submitted_by_agent: AgentSubmission | None = None,
 ) -> CandidateUploadResult:
     """Create a candidate from any available details or documents.
 
     Every business field is optional. An empty submission intentionally creates
     a placeholder record that staff can complete later; uploaded files still
     go through their normal safety and OCR validation.
+
+    `submitted_by_agent` marks a résumé a Sourcing Hub agent sent on WhatsApp
+    (`app/agent_resumes.py`): the record's source becomes "agent" and it keeps
+    who sent it. It requires a résumé.
     """
+    if submitted_by_agent is not None and resume is None:
+        raise CandidateUploadError("An agent submission needs a resume.", code="missing_resume")
     def identity_uploads(
         value: UploadedDocument | Sequence[UploadedDocument] | None,
         document_type: str,
@@ -517,7 +524,8 @@ def intake_uploaded_candidate(
     now = utcnow()
     record = CandidateRecord(
         id=candidate_id,
-        source="upload" if resume else "manual",
+        source="agent" if submitted_by_agent else ("upload" if resume else "manual"),
+        submitted_by_agent=submitted_by_agent,
         profile=profile,
         resume=stored_resume,
         resume_hash=resume_hash,

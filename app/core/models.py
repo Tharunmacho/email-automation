@@ -636,6 +636,25 @@ class IdentityReview(BaseModel):
     note: Optional[str] = None
 
 
+class AgentSubmission(BaseModel):
+    """Which Sourcing Hub agent sent a candidate's résumé over WhatsApp.
+
+    A snapshot taken when the résumé arrived. The agent's Sourcing Hub record
+    can be renamed or deleted later without changing who sent this candidate.
+    """
+
+    agent_id: str
+    #: The agency name in the Sourcing Hub.
+    agent_name: Optional[str] = None
+    #: The person at the agency whose number sent it.
+    contact_name: Optional[str] = None
+    phone: Optional[str] = None
+    #: The Meta phone-number id the résumé arrived on (Rafi's line).
+    line_id: Optional[str] = None
+    wamid: Optional[str] = None
+    received_at: Optional[datetime] = None
+
+
 class CandidateRecord(BaseModel):
     """The full MongoDB document for one ingested candidate."""
 
@@ -646,7 +665,10 @@ class CandidateRecord(BaseModel):
 
     # Defaulted to "email" so every document written before this field existed
     # reads back as what it actually is. There is no backfill to run.
-    source: Literal["email", "whatsapp", "manual", "upload"] = "email"
+    # "agent" is a résumé a Sourcing Hub agent sent on WhatsApp; who sent it is
+    # in `submitted_by_agent`.
+    source: Literal["email", "whatsapp", "manual", "upload", "agent"] = "email"
+    submitted_by_agent: Optional[AgentSubmission] = None
     # Receiving business line for WhatsApp candidates. `source_bot_id` is the
     # Meta phone-number id fallback when the caller cannot supply its display number.
     source_bot_number: Optional[str] = None
@@ -876,10 +898,12 @@ class CandidateRecord(BaseModel):
         # Administrator-created records never invent an email source. Legacy
         # manual records remain readable; the current upload path requires the
         # document it was extracted from.
-        if self.source in ("manual", "upload"):
+        # An agent's résumé goes through the same upload intake, so the same
+        # rule applies: it always has the document it was read from.
+        if self.source in ("manual", "upload", "agent"):
             if self.source_email is not None:
                 raise ValueError("an administrator-uploaded candidate cannot have source_email")
-            if self.source == "upload" and self.resume is None:
+            if self.source in ("upload", "agent") and self.resume is None:
                 raise ValueError("an uploaded candidate must have a resume")
             return self
 

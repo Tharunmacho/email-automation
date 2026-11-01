@@ -156,6 +156,10 @@ LIST_PROJECTION = {
     "source_email.subject": 1,
     "source_bot_number": 1,
     "source_bot_id": 1,
+    # The agent who sent it, for the label in the candidate list.
+    "submitted_by_agent.agent_id": 1,
+    "submitted_by_agent.agent_name": 1,
+    "submitted_by_agent.contact_name": 1,
     # Allocation and verdict: the staff queue sorts and colours rows by these,
     # and the SLA countdown in the list is `assigned_at` against `viewed_at`.
     "assigned_staff_id": 1,

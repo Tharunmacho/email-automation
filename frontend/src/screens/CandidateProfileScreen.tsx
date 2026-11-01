@@ -27,6 +27,7 @@ import {
 import { useModalFocus } from "@/components/ui/useModalFocus";
 
 import {
+  agentSourceLabel,
   flattenExtras,
   formatExtraValue,
   highestQualificationOf,
@@ -791,9 +792,9 @@ export default function CandidateProfileScreen({
   const hasResume = Boolean(
     candidate.resume?.storage_key || candidate.resume?.original_filename,
   );
-  const sourceLabel = candidate.source === "upload"
+  const sourceLabel = agentSourceLabel(candidate) ?? (candidate.source === "upload"
     ? "Admin upload"
-    : candidate.source === "manual" ? "Legacy manual entry" : fromWhatsApp ? "WhatsApp" : "Email";
+    : candidate.source === "manual" ? "Legacy manual entry" : fromWhatsApp ? "WhatsApp" : "Email");
 
   /** Where they are, and where they want to go — shown as two separate facts. */
   const originLine = [

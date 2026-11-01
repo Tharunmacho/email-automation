@@ -25,7 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { formatInt, formatDateFull, initialsOf } from "@/lib/format";
-import { humanizeKey } from "@/lib/candidateProfile";
+import { agentSourceLabel, humanizeKey } from "@/lib/candidateProfile";
 import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import {
@@ -192,6 +192,8 @@ export function getReference(candidate: CandidateRecord): string {
 }
 
 function getSourceLine(candidate: CandidateRecord): string {
+  const agent = agentSourceLabel(candidate);
+  if (agent) return agent;
   if (candidate.source !== "whatsapp") return candidate.source === "upload" ? "Admin upload" : "Email";
   return candidate.source_bot_number || (candidate.source_bot_id ? `Bot ID ${candidate.source_bot_id}` : "WhatsApp");
 }

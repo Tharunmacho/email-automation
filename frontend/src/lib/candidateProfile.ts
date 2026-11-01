@@ -10,6 +10,7 @@
  */
 
 import type { CandidateProfile, CandidateRecord, JobAnswer } from "@/lib/api";
+import type { AgentSubmission } from "@/types";
 
 // --------------------------------------------------------------------------- //
 //  Editable shapes
@@ -113,6 +114,15 @@ export interface EditableState {
 export const EXTRA_PLACEHOLDERS = ["null", "n/a", "none", "0 months", "not specified"];
 
 /** True when the extractor's answer amounts to "the resume did not say". */
+/** "Agent: Gulf Manpower (Imran)", or null when the candidate did not come from an agent. */
+export function agentSourceLabel(candidate: { submitted_by_agent?: AgentSubmission | null }): string | null {
+  const agent = candidate.submitted_by_agent;
+  if (!agent) return null;
+  const name = agent.agent_name || agent.contact_name || "Sourcing Hub agent";
+  const contact = agent.contact_name && agent.contact_name !== name ? ` (${agent.contact_name})` : "";
+  return `Agent: ${name}${contact}`;
+}
+
 export function isBlankValue(value?: string | null): boolean {
   const text = (value ?? "").trim();
   return !text || EXTRA_PLACEHOLDERS.includes(text.toLowerCase());

@@ -289,6 +289,18 @@ export interface IdentityDocument {
   updated_at?: string | null;
 }
 
+/** Which Sourcing Hub agent sent a candidate's résumé — mirrors `AgentSubmission` in app/core/models.py. */
+export interface AgentSubmission {
+  agent_id: string;
+  /** The agency name in the Sourcing Hub. */
+  agent_name?: string | null;
+  /** The person at the agency who sent it. */
+  contact_name?: string | null;
+  phone?: string | null;
+  line_id?: string | null;
+  received_at?: string | null;
+}
+
 export interface CandidateRecord {
   id: string;
   /**
@@ -303,7 +315,9 @@ export interface CandidateRecord {
    * WhatsApp integration, which are all email — read it as `"email"` when
    * missing rather than treating it as unknown.
    */
-  source?: "email" | "whatsapp" | "manual" | "upload";
+  source?: "email" | "whatsapp" | "manual" | "upload" | "agent";
+  /** For `source: "agent"`: the Sourcing Hub agent who sent the résumé on WhatsApp. */
+  submitted_by_agent?: AgentSubmission | null;
   /** Business WhatsApp line that received this candidate. */
   source_bot_number?: string | null;
   /** Meta phone-number id, shown only when no display number was supplied. */
@@ -1072,9 +1086,44 @@ export interface JobOrderRecord {
   submittedCandidateIds?: string[];
   /** How the order appears on the website's Current Jobs page. */
   website?: JobOrderWebsite;
+  /** Who may apply, the process, the money, and the paperwork — see `JobOrderTerms`. */
+  terms?: JobOrderTerms;
 }
 
 export type JobOrderStatus = JobOrderRecord["status"];
+
+export type JobOrderGender = "Male & Female" | "Male" | "Female";
+
+/**
+ * The terms an order is offered on, as recruiters post it to agents:
+ *
+ *   PRODUCTION OPERATORS – 30 VACANCIES, Male & Female, process time 6-8
+ *   months, Ref B2B 4.9 with Ticket, VFS and embassy fee borne by candidates,
+ *   €946 in advance after offer acceptance and the rest after the visa,
+ *   requirements, and the documents to send in order in a single PDF.
+ *
+ * Sent to agents with the WhatsApp broadcast (`app/agent_whatsapp.py`). None of
+ * it goes on the public website: the B2B rate and payment terms are for agents.
+ */
+export interface JobOrderTerms {
+  gender?: JobOrderGender;
+  /** Selection to deployment, e.g. "6-8 months". */
+  processTime?: string;
+  /** The rate quoted to B2B agents, e.g. "4.9 with Ticket". */
+  b2bRate?: string;
+  /** Costs the candidate bears, e.g. "VFS, Embassy fee". */
+  candidatePays?: string;
+  /** Paid once the candidate accepts the offer, e.g. "€946". */
+  advancePayment?: string;
+  /** When the remainder is paid, e.g. "After visa". */
+  balancePayment?: string;
+  /** What a candidate must have, one item each. */
+  requirements?: string[];
+  /** Documents the candidate sends, in the order they must appear. */
+  documents?: string[];
+  /** The documents must arrive as one PDF. */
+  singlePdf?: boolean;
+}
 
 /**
  * The public card for a job order on adiragroups.com — see `app/website_jobs.py`.

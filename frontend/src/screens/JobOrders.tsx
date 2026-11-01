@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 
 import CandidateMatchPanel from "@/components/matching/CandidateMatchPanel";
+import JobOrderTermsFields, { JobOrderTermsSpecs, cleanTerms, termsDraft, type TermsDraft } from "@/components/jobOrders/JobOrderTermsFields";
 import WebsiteListingFields, { cleanWebsite, websiteDefaults } from "@/components/jobOrders/WebsiteListingFields";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
@@ -72,7 +73,7 @@ const EXPERIENCE_OPTIONS = [
 
 const INDUSTRY_OPTIONS = [
   "IT Services & Consulting", "Software & Technology", "Logistics & Transport",
-  "Healthcare", "Finance & Banking", "Manufacturing", "Oil & Gas", "Construction",
+  "Healthcare", "Finance & Banking", "Manufacturing", "Automotive", "Oil & Gas", "Construction",
 ].map((value) => ({ value, label: value }));
 
 const STATUS_TONE: Record<JobOrderStatus, StatTone> = {
@@ -670,6 +671,10 @@ export default function JobOrders({
   const [editWebsite, setEditWebsite] = useState<JobOrderWebsite>(websiteDefaults);
   const [posterUploading, setPosterUploading] = useState(false);
 
+  // Gender, process time, B2B rate, payment terms, requirements and documents.
+  const [newTerms, setNewTerms] = useState<TermsDraft>(() => termsDraft());
+  const [editTerms, setEditTerms] = useState<TermsDraft>(() => termsDraft({}));
+
   useEffect(() => {
     let active = true;
     listJobOrdersAPI()
@@ -804,6 +809,9 @@ export default function JobOrders({
     // An order saved before it had a website block was never published; editing
     // it for another reason must not put it on the website unasked.
     setEditWebsite(websiteDefaults(item.website ?? { show: false }));
+    // `{}` rather than nothing: an order that never had terms opens empty, not
+    // with the new-order defaults, so saving it adds nothing unasked.
+    setEditTerms(termsDraft(item.terms ?? {}));
     setIsEditModalOpen(true);
   };
 
@@ -840,6 +848,7 @@ export default function JobOrders({
       skills: parsedSkills.length > 0 ? parsedSkills : ["General"],
       description: editRemarks,
       website: cleanWebsite(editWebsite),
+      terms: cleanTerms(editTerms),
     };
     const updated: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
 
@@ -1003,6 +1012,7 @@ export default function JobOrders({
       designation: designationRole,
       shortlistedCandidateIds: [],
       website: cleanWebsite(newWebsite),
+      terms: cleanTerms(newTerms),
     };
 
     activity(`Created job order: ${newRecord.title} (${newRecord.client}) — ${newRecord.headcount} seat${newRecord.headcount === 1 ? "" : "s"}.`, "success");
@@ -1023,6 +1033,7 @@ export default function JobOrders({
     setNewHeadcount("1");
     setNewDueDate("");
     setNewWebsite(websiteDefaults());
+    setNewTerms(termsDraft());
   };
 
   const handleDeleteOrder = (id: string) => {
@@ -1380,6 +1391,8 @@ export default function JobOrders({
                   placeholder="Comma separated — e.g. React, Node, TypeScript"
                 />
               </div>
+
+              <JobOrderTermsFields value={editTerms} onChange={setEditTerms} idPrefix="jo-edit-terms" />
 
               <WebsiteListingFields
                 value={editWebsite}
@@ -1877,6 +1890,8 @@ export default function JobOrders({
                 {formatDueDate(selectedOrder.dueDate)}
               </dd>
             </div>
+
+            <JobOrderTermsSpecs terms={selectedOrder.terms} />
 
             <div className="jod-spec jod-spec-wide">
               <dt>Remarks</dt>
@@ -2746,6 +2761,8 @@ export default function JobOrders({
                     onChange={(e) => setSalaryRange(e.target.value)}
                   />
                 </div>
+
+                <JobOrderTermsFields value={newTerms} onChange={setNewTerms} idPrefix="jo-new-terms" />
 
                 <WebsiteListingFields
                   value={newWebsite}

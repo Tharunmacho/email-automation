@@ -4850,6 +4850,43 @@ body {
   }
 }
 
+/* Job order "Terms & requirements" — shares the .jo-web panel. */
+.jo-terms-note {
+  margin: -0.35rem 0 0;
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--text-light);
+}
+
+.jo-terms-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.jo-terms-doc-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 560px) {
+  .jo-terms-doc-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.jod-spec-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .sh-type-switch {
   display: flex;
   gap: 4px;
