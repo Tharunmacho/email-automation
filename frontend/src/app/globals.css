@@ -4722,6 +4722,134 @@ body {
   font-weight: 650;
 }
 
+/* ---- Job order: website listing (the public card on adiragroups.com) ---- */
+.jo-web {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 1rem 1.1rem 1.15rem;
+  border: 1px solid var(--border-blue);
+  border-radius: 12px;
+  background: var(--tint-1);
+  min-width: 0;
+}
+
+.jo-web-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.jo-web .modal-input,
+.jo-web .modal-textarea {
+  background: var(--bg-card);
+}
+
+.jo-web-grid {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.jo-web-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.jo-web-poster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.jo-web-poster-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1.5px dashed var(--border-blue-strong);
+  border-radius: 12px;
+  background: var(--bg-card);
+  color: var(--primary);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.jo-web-poster-drop:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-glow);
+}
+
+.jo-web-poster-drop:disabled {
+  cursor: progress;
+}
+
+.jo-web-poster-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.jo-web-poster-note {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-light);
+}
+
+.jo-web-poster-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+.jo-web-poster-frame img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+}
+
+.jo-web-poster-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.jo-web-poster-actions .jod-btn:first-child {
+  flex: 1;
+  justify-content: center;
+}
+
+.jo-web-error {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--rose-ink);
+}
+
+@media (max-width: 560px) {
+  .jo-web-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .sh-type-switch {
   display: flex;
   gap: 4px;

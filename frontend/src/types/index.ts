@@ -1070,9 +1070,32 @@ export interface JobOrderRecord {
   rejectedCandidateIds?: string[];
   /** Shortlisted candidates already submitted to this order's client. */
   submittedCandidateIds?: string[];
+  /** How the order appears on the website's Current Jobs page. */
+  website?: JobOrderWebsite;
 }
 
 export type JobOrderStatus = JobOrderRecord["status"];
+
+/**
+ * The public card for a job order on adiragroups.com — see `app/website_jobs.py`.
+ *
+ * Only what is here, plus the title, destination, salary and experience, goes
+ * public. The client and the internal remarks never do.
+ */
+export interface JobOrderWebsite {
+  /** `true` lists the order on the website while it is open. Anything else keeps it off. */
+  show?: boolean;
+  /** `/public/job-posters/…` from `uploadJobOrderPosterAPI`, or an absolute URL. */
+  posterUrl?: string;
+  city?: string;
+  /** The tag on the card ("Piping"). Falls back to the industry. */
+  category?: string;
+  jobType?: JobOrderWebsiteType;
+  /** Public text for the card. The order's `description` is internal remarks. */
+  description?: string;
+}
+
+export type JobOrderWebsiteType = "Full time" | "Contract" | "Part time" | "Remote";
 
 // --------------------------------------------------------------------------- //
 //  Candidate matching — mirrors app/matching/api.py

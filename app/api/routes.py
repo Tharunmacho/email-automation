@@ -13,6 +13,7 @@ import base64
 import binascii
 import hashlib
 import os
+import re
 import threading
 import time
 import uuid
@@ -1962,6 +1963,115 @@ def delete_job_order(order_id: str, _user: dict = Depends(require_page("job-orde
     coll = get_db()["job_orders"]
     coll.delete_one({"id": order_id})
     return {"status": "deleted", "id": order_id}
+
+
+# ---- Job Orders on the public website ------------------------------------- #
+#  adiragroups.com's Current Jobs page reads `GET /public/jobs` — see
+#  `app/website_jobs.py`. A poster is uploaded on its own and the order stores
+#  the path it comes back with: the screen saves an order whole, so a poster
+#  written into it from here would be lost to the next save of a stale copy.
+JOB_POSTER_MAX_BYTES = 5 * 1024 * 1024
+_JOB_POSTER_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+_JOB_POSTER_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
+
+
+def _public_api_base(request: Request) -> str:
+    """The address the internet reaches this API at, for posters the website loads.
+
+    `PUBLIC_API_URL` when set. Otherwise the address of this request, preferring
+    the proxy's forwarded headers: behind the deployment's reverse proxy the
+    socket itself is plain HTTP, and an `http://` image on an HTTPS website is
+    mixed content the browser may refuse.
+    """
+    if settings.public_api_url.strip():
+        return settings.public_api_url.strip().rstrip("/")
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    host = (
+        request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+        or request.headers.get("host", "")
+        or request.url.netloc
+    )
+    return f"{proto}://{host}"
+
+
+@app.get("/public/jobs")
+def public_jobs(request: Request) -> Response:
+    """Open job orders, as cards for the website's Current Jobs page.
+
+    Unauthenticated: this is the website's own job board. It is read live from
+    `job_orders` on every call, so closing an order takes its card down at the
+    next page load, and it only ever carries the public fields — never the
+    client, the remarks or the candidates (`app/website_jobs.py`). Newest first.
+    """
+    from app import website_jobs
+    from app.db.mongo import get_db
+
+    try:
+        orders = list(
+            get_db()["job_orders"]
+            .find(website_jobs.PUBLISHED_QUERY)
+            .sort("_id", -1)
+            .limit(500)
+        )
+    except PyMongoError:
+        log.exception("Could not read job orders for the website")
+        raise HTTPException(status_code=503, detail="Jobs are temporarily unavailable.") from None
+    items = website_jobs.public_jobs(orders, _public_api_base(request))
+    return JSONResponse(
+        {"items": items, "count": len(items)},
+        # A minute at most between closing an order and the card going away,
+        # while a busy page is not one database read per visitor.
+        headers={"Cache-Control": "public, max-age=60"},
+    )
+
+
+@app.post("/job-orders/posters", status_code=201)
+async def upload_job_order_poster(
+    file: UploadFile = File(...),
+    _user: dict = Depends(require_page("job-orders")),
+) -> dict:
+    """Store a job poster and return the path the website will load it from."""
+    import filetype
+
+    data = await file.read(JOB_POSTER_MAX_BYTES + 1)
+    if len(data) > JOB_POSTER_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The poster is larger than 5 MB.")
+    kind = filetype.guess(data) if data else None
+    extension = _JOB_POSTER_TYPES.get(kind.mime) if kind else None
+    if not extension:
+        raise HTTPException(status_code=422, detail="The poster must be a JPG, PNG or WebP image.")
+
+    name = f"{uuid.uuid4().hex}.{extension}"
+    try:
+        get_storage_backend().save(f"job-posters/{name}", data, kind.mime)
+    except Exception as exc:  # noqa: BLE001 — any storage failure is the same answer to the user
+        log.exception("Could not store job poster %s", name)
+        raise HTTPException(status_code=503, detail="The poster could not be stored. Try again.") from exc
+    return {"url": f"/public/job-posters/{name}", "content_type": kind.mime, "size": len(data)}
+
+
+@app.get("/public/job-posters/{name}")
+def get_job_order_poster(name: str) -> Response:
+    """A job poster, for anyone: the website's visitors load it from here.
+
+    Unauthenticated on purpose — a poster is advertising. Only names this API
+    generated are accepted, so the route cannot be walked into the rest of the
+    storage backend, which holds résumés and identity documents.
+    """
+    match = _JOB_POSTER_NAME.match(name)
+    if not match:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        data = get_storage_backend().load(f"job-posters/{name}")
+    except Exception:  # noqa: BLE001 — missing and unreadable look the same from outside
+        raise HTTPException(status_code=404, detail="Not found") from None
+    media_type = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}[match.group(1)]
+    return Response(
+        content=data,
+        media_type=media_type,
+        # The name is new for every upload, so a given address never changes.
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 # --------------------------------------------------------------------------- #

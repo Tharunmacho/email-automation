@@ -1872,6 +1872,21 @@ export function deleteJobOrderAPI(orderId: string): Promise<{ status: string }> 
   return request<{ status: string }>(`/job-orders/${orderId}`, { method: "DELETE" });
 }
 
+// ---- Job orders on the public website ---- //
+
+/** Store a poster for a job order's website card. Returns the path to save on the order. */
+export function uploadJobOrderPosterAPI(file: File): Promise<{ url: string }> {
+  const body = new FormData();
+  body.append("file", file);
+  return request<{ url: string }>("/job-orders/posters", { method: "POST", body });
+}
+
+/** A poster path as an address this browser can load. */
+export function jobPosterSrc(url?: string): string {
+  if (!url) return "";
+  return url.startsWith("/") ? `${API_BASE}${url}` : url;
+}
+
 // ---- B2B Enquiries -------------------------------------------------------- //
 //
 // Manpower requirements raised by agents. The WhatsApp bot writes them through

@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 
 import CandidateMatchPanel from "@/components/matching/CandidateMatchPanel";
+import WebsiteListingFields, { cleanWebsite, websiteDefaults } from "@/components/jobOrders/WebsiteListingFields";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -58,7 +59,7 @@ import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 // Defined in `@/types` so `lib/api` and `SourcingHub` share one definition of
 // what a job order is; re-exported here because both already import it by this
 // path.
-import type { JobOrderRecord, JobOrderStatus } from "@/types";
+import type { JobOrderRecord, JobOrderStatus, JobOrderWebsite } from "@/types";
 
 export type { JobOrderRecord, JobOrderStatus };
 
@@ -664,6 +665,11 @@ export default function JobOrders({
   const [editSkills, setEditSkills] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
 
+  // The order's card on the website's Current Jobs page.
+  const [newWebsite, setNewWebsite] = useState<JobOrderWebsite>(websiteDefaults);
+  const [editWebsite, setEditWebsite] = useState<JobOrderWebsite>(websiteDefaults);
+  const [posterUploading, setPosterUploading] = useState(false);
+
   useEffect(() => {
     let active = true;
     listJobOrdersAPI()
@@ -795,6 +801,9 @@ export default function JobOrders({
     setEditSalary(item.salary);
     setEditSkills(item.skills.join(", "));
     setEditRemarks(item.description || "");
+    // An order saved before it had a website block was never published; editing
+    // it for another reason must not put it on the website unasked.
+    setEditWebsite(websiteDefaults(item.website ?? { show: false }));
     setIsEditModalOpen(true);
   };
 
@@ -830,6 +839,7 @@ export default function JobOrders({
       salary: editSalary || "Not disclosed",
       skills: parsedSkills.length > 0 ? parsedSkills : ["General"],
       description: editRemarks,
+      website: cleanWebsite(editWebsite),
     };
     const updated: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
 
@@ -992,6 +1002,7 @@ export default function JobOrders({
       industry: industry || "General",
       designation: designationRole,
       shortlistedCandidateIds: [],
+      website: cleanWebsite(newWebsite),
     };
 
     activity(`Created job order: ${newRecord.title} (${newRecord.client}) — ${newRecord.headcount} seat${newRecord.headcount === 1 ? "" : "s"}.`, "success");
@@ -1011,6 +1022,7 @@ export default function JobOrders({
     setInternalNotes("");
     setNewHeadcount("1");
     setNewDueDate("");
+    setNewWebsite(websiteDefaults());
   };
 
   const handleDeleteOrder = (id: string) => {
@@ -1369,11 +1381,19 @@ export default function JobOrders({
                 />
               </div>
 
+              <WebsiteListingFields
+                value={editWebsite}
+                onChange={setEditWebsite}
+                industry={editIndustry}
+                onUploadingChange={setPosterUploading}
+              />
+
               <div>
-                <label className="modal-label">Remarks</label>
+                <label className="modal-label">Internal remarks</label>
                 <textarea
-                  aria-label="Remarks"
+                  aria-label="Internal remarks"
                   className="modal-textarea"
+                  placeholder="Not shown on the website."
                   value={editRemarks}
                   onChange={(e) => setEditRemarks(e.target.value)}
                 />
@@ -1384,7 +1404,7 @@ export default function JobOrders({
               <button type="button" className="modal-cancel-btn" onClick={closeEditModal}>
                 Cancel
               </button>
-              <button type="submit" className="modal-submit-btn">
+              <button type="submit" className="modal-submit-btn" disabled={posterUploading}>
                 Save changes
               </button>
             </div>
@@ -2727,12 +2747,19 @@ export default function JobOrders({
                   />
                 </div>
 
+                <WebsiteListingFields
+                  value={newWebsite}
+                  onChange={setNewWebsite}
+                  industry={industry}
+                  onUploadingChange={setPosterUploading}
+                />
+
                 <div>
                   <label className="modal-label">Internal Remarks / Notes</label>
                   <textarea
                     aria-label="Internal remarks or notes"
                     className="modal-textarea"
-                    placeholder="Add any internal notes here..."
+                    placeholder="Add any internal notes here — not shown on the website."
                     value={internalNotes}
                     onChange={(e) => setInternalNotes(e.target.value)}
                   />
@@ -2750,7 +2777,7 @@ export default function JobOrders({
                 <button
                   type="submit"
                   className="modal-submit-btn"
-                  disabled={!selectedClient || !destinationCountry || !designationRole.trim()}
+                  disabled={!selectedClient || !destinationCountry || !designationRole.trim() || posterUploading}
                 >
                   Create order
                 </button>

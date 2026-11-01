@@ -144,6 +144,44 @@ def test_missing_punch_is_provisional_then_becomes_actual_absence():
     assert expired["unpaid_minutes"] == 480
 
 
+def test_a_day_with_no_attendance_marked_is_absent_once_its_window_closes():
+    # Default shift 10:00-19:00 IST with an hour's flex: the window closes at
+    # 20:00 IST, which is 14:30 UTC.
+    before_shift = calculate_day(date(2026, 9, 2), [], now=utc(3))
+    during_shift = calculate_day(date(2026, 9, 2), [], now=utc(14, 29))
+    after_window = calculate_day(date(2026, 9, 2), [], now=utc(14, 31))
+    next_day = calculate_day(date(2026, 9, 2), [], now=utc(6, day=3))
+
+    for pending in (before_shift, during_shift):
+        assert pending["status"] == "MP"
+        assert pending["provisional"] is True
+        assert pending["unpaid_minutes"] == 0
+
+    for absent in (after_window, next_day):
+        assert absent["status"] == "A"
+        assert absent["provisional"] is False
+        assert absent["unpaid_minutes"] == 480
+        assert absent["uncovered_minutes"] == 0
+
+
+def test_an_unmarked_absence_spends_no_grace():
+    day = calculate_day(date(2026, 9, 2), [], now=utc(6, day=3))
+    rolled = calculate_month([day])[0]
+    assert rolled["unpaid_minutes"] == 480
+    assert rolled["grace_minutes_applied"] == 0
+    assert rolled["permission_minutes_remaining"] == 60
+
+
+def test_a_punch_added_later_turns_an_unmarked_absence_back_into_a_worked_day():
+    punches = [
+        {"action": "check_in", "occurred_at": utc(4, 30)},
+        {"action": "check_out", "occurred_at": utc(13, 30)},
+    ]
+    day = calculate_day(date(2026, 9, 2), punches, now=utc(6, day=10))
+    assert day["status"] == "P"
+    assert day["unpaid_minutes"] == 0
+
+
 def test_five_minute_work_session_uses_grace_then_deducts_uncovered_shift():
     day = calculate_day(
         date(2026, 9, 8),

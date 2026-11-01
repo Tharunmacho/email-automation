@@ -389,6 +389,19 @@ class Settings(BaseSettings):
     wa_bot_api_key: str = ""
     wa_bot_timeout_seconds: float = 5.0
 
+    # ---- Public website: Current Jobs ----
+    # adiragroups.com reads open job orders from `GET /public/jobs`
+    # (`app/website_jobs.py`).
+    #
+    # The card's picture when an order has no poster. A path on the website
+    # itself, so it resolves against adiragroups.com, not against this API.
+    website_jobs_default_image: str = "/images/hero-skyline.jpg"
+    # Where the internet reaches this API, e.g. `https://api.example.com`.
+    # Posters uploaded for job orders are served from here, and the website
+    # needs an absolute address to load them from. Empty uses the address the
+    # website's request came in on.
+    public_api_url: str = ""
+
     # Path to the CV policy table (JSON). Empty uses the built-in rules in
     # `app/policy/cv_policy.py`, which are a starting point rather than the
     # agency's real ones — pointing this at a file is how the table changes

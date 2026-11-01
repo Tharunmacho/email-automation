@@ -156,6 +156,38 @@ def calculate_day(
     check_in = check_ins[0] if check_ins else None
     check_out = check_outs[-1] if check_outs else None
 
+    if not check_in and not check_out:
+        # No attendance marked at all. While the day's flexible window is open
+        # the person may still arrive, so nothing is decided yet. Once it has
+        # closed, no punch could earn anything for this day: it is an absence,
+        # shown and charged as one straight away rather than after the missing
+        # punch deadline below, which is for a day with half its punches. A
+        # manager's added punches still recalculate it, as days are computed on
+        # every read.
+        window_closed = end + timedelta(minutes=policy.flex_minutes)
+        if now > window_closed:
+            return _result(
+                day,
+                AttendanceStatus.ABSENT,
+                start,
+                end,
+                required_shift_minutes=required,
+                actual_covered_minutes=0,
+                uncovered_minutes=0,
+                unpaid_minutes=required,
+            )
+        return _result(
+            day,
+            AttendanceStatus.MISSING_PUNCH,
+            start,
+            end,
+            required_shift_minutes=required,
+            actual_covered_minutes=0,
+            uncovered_minutes=0,
+            unpaid_minutes=0,
+            provisional=True,
+        )
+
     if not check_in or not check_out:
         # Half a day's punches prove nothing about how long the person stayed.
         # Until the regularisation window closes the day is provisional and
