@@ -1937,6 +1937,34 @@ def list_job_order_candidate_pool(
     return {"total": total, "count": len(items), "items": items}
 
 
+@app.get("/job-orders/assignees")
+def list_job_order_assignees(_user: dict = Depends(require_page("job-orders"))) -> dict:
+    """Who a job order can be assigned to, for the job order dialogs' staff dropdown.
+
+    Active staff and managers who sign in to the CRM, with their phone number,
+    and nothing else about them: the Job Orders page reaches this without the
+    Staff or Users pages, so it must not hand out what those pages guard.
+    """
+    from app.db.users import MANAGER_ROLES, STAFF_ROLE
+
+    people = [
+        *users.list_staff(include_inactive=False),
+        *users.list_managers(include_inactive=False),
+    ]
+    items = [
+        {
+            "id": person.id,
+            "name": (person.name or person.email or "").strip(),
+            "phone": (person.phone or "").strip(),
+            "role": person.role,
+        }
+        for person in people
+        if person.role in (STAFF_ROLE, *MANAGER_ROLES) and person.crm_access is not False
+    ]
+    items.sort(key=lambda item: item["name"].lower())
+    return {"items": items}
+
+
 @app.post("/job-orders")
 def create_job_order(order_data: dict, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
@@ -1978,7 +2006,10 @@ def delete_job_order(order_id: str, _user: dict = Depends(require_page("job-orde
 #  the path it comes back with: the screen saves an order whole, so a poster
 #  written into it from here would be lost to the next save of a stale copy.
 JOB_POSTER_MAX_BYTES = 5 * 1024 * 1024
-_JOB_POSTER_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+# JPG and PNG only: the poster is also the picture on the agents' WhatsApp
+# message, and WhatsApp's image header takes nothing else (5 MB at most).
+_JOB_POSTER_TYPES = {"image/jpeg": "jpg", "image/png": "png"}
+# WebP is still served: posters uploaded before the rule above keep working.
 _JOB_POSTER_NAME = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
 
 
@@ -2046,7 +2077,7 @@ async def upload_job_order_poster(
     kind = filetype.guess(data) if data else None
     extension = _JOB_POSTER_TYPES.get(kind.mime) if kind else None
     if not extension:
-        raise HTTPException(status_code=422, detail="The poster must be a JPG, PNG or WebP image.")
+        raise HTTPException(status_code=422, detail="The poster must be a JPG or PNG image.")
 
     name = f"{uuid.uuid4().hex}.{extension}"
     try:

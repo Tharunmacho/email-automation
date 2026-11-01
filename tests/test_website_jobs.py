@@ -37,6 +37,8 @@ def order(**overrides):
         "submittedCandidateIds": ["cand-1"],
         # Agent terms: for agents only, never on the website.
         "terms": {"b2bRate": "4.9 with Ticket", "advancePayment": "EUR 946", "candidatePays": "VFS"},
+        # Staff contact: for agents only, never on the website.
+        "assignedStaff": {"id": "u-7", "name": "Rafi Staff", "phone": "+91 90000 11111"},
         "website": {
             "show": True,
             "city": "Jeddah",
@@ -85,6 +87,8 @@ def test_card_never_carries_the_client_remarks_ages_or_candidates():
     assert "4.9" not in published
     assert "946" not in published
     assert "VFS" not in published
+    assert "Rafi Staff" not in published
+    assert "90000" not in published
 
 
 @pytest.mark.parametrize("status, show, listed", [
@@ -118,6 +122,14 @@ def test_order_without_website_details_still_makes_a_complete_card():
     assert card["desc"] == "2 vacancies · Skills: Piping, Fabrication"
     # Every text field is a string: the website calls .toLowerCase() on them.
     assert all(isinstance(card[k], str) for k in ("title", "city", "country", "industry"))
+
+
+def test_the_poster_on_the_order_wins_over_the_old_website_poster():
+    own = "/public/job-posters/" + "b" * 32 + ".png"
+    card = listing_for(order(posterUrl=own), BASE)
+    assert card["image"] == f"{BASE}{own}"
+    # Orders saved before the poster moved up keep showing theirs.
+    assert listing_for(order(), BASE)["image"] == f"{BASE}{POSTER}"
 
 
 def test_absolute_poster_urls_are_used_as_given():
@@ -211,6 +223,14 @@ def test_poster_upload_round_trips_through_the_public_route(api):
     assert poster.content == PNG
     assert poster.headers["content-type"] == "image/png"
     assert "immutable" in poster.headers["cache-control"]
+
+
+def test_webp_posters_are_refused_because_whatsapp_cannot_show_them(api):
+    webp = b"RIFF\x24\x00\x00\x00WEBPVP8 " + b"\x00" * 64
+    api.sign_in()
+    response = api.post("/job-orders/posters", files={"file": ("poster.webp", io.BytesIO(webp), "image/webp")})
+    assert response.status_code == 422
+    assert "JPG or PNG" in response.json()["detail"]
 
 
 def test_poster_upload_needs_a_session_and_an_image(api):

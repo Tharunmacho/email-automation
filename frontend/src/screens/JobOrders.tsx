@@ -37,6 +37,8 @@ import {
 import CandidateMatchPanel from "@/components/matching/CandidateMatchPanel";
 import JobOrderTermsFields, { JobOrderTermsSpecs, cleanTerms, termsDraft, type TermsDraft } from "@/components/jobOrders/JobOrderTermsFields";
 import WebsiteListingFields, { cleanWebsite, websiteDefaults } from "@/components/jobOrders/WebsiteListingFields";
+import JobPosterField from "@/components/jobOrders/JobPosterField";
+import AssignedStaffField, { staffLabel } from "@/components/jobOrders/AssignedStaffField";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -60,7 +62,7 @@ import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 // Defined in `@/types` so `lib/api` and `SourcingHub` share one definition of
 // what a job order is; re-exported here because both already import it by this
 // path.
-import type { JobOrderRecord, JobOrderStatus, JobOrderWebsite } from "@/types";
+import type { JobOrderRecord, JobOrderStaff, JobOrderStatus, JobOrderWebsite } from "@/types";
 
 export type { JobOrderRecord, JobOrderStatus };
 
@@ -671,6 +673,13 @@ export default function JobOrders({
   const [editWebsite, setEditWebsite] = useState<JobOrderWebsite>(websiteDefaults);
   const [posterUploading, setPosterUploading] = useState(false);
 
+  // The poster (agents' WhatsApp picture and the website card) and the staff
+  // member responsible. Both are required on a new order.
+  const [newPoster, setNewPoster] = useState<string | undefined>(undefined);
+  const [editPoster, setEditPoster] = useState<string | undefined>(undefined);
+  const [newStaff, setNewStaff] = useState<JobOrderStaff | undefined>(undefined);
+  const [editStaff, setEditStaff] = useState<JobOrderStaff | undefined>(undefined);
+
   // Gender, process time, B2B rate, payment terms, requirements and documents.
   const [newTerms, setNewTerms] = useState<TermsDraft>(() => termsDraft());
   const [editTerms, setEditTerms] = useState<TermsDraft>(() => termsDraft({}));
@@ -812,6 +821,9 @@ export default function JobOrders({
     // `{}` rather than nothing: an order that never had terms opens empty, not
     // with the new-order defaults, so saving it adds nothing unasked.
     setEditTerms(termsDraft(item.terms ?? {}));
+    // Older orders kept the poster in the website block; saving moves it up.
+    setEditPoster(item.posterUrl || item.website?.posterUrl || undefined);
+    setEditStaff(item.assignedStaff);
     setIsEditModalOpen(true);
   };
 
@@ -849,6 +861,8 @@ export default function JobOrders({
       description: editRemarks,
       website: cleanWebsite(editWebsite),
       terms: cleanTerms(editTerms),
+      posterUrl: editPoster,
+      assignedStaff: editStaff,
     };
     const updated: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
 
@@ -982,9 +996,18 @@ export default function JobOrders({
     void (mode === "submit" ? handleSubmitToClient(orderId, candidateId) : handleUnsubmit(orderId, candidateId));
   };
 
+  // What the New job order dialog still needs, named beside its disabled button.
+  const createMissing = [
+    !selectedClient && "client",
+    !designationRole.trim() && "role",
+    !destinationCountry && "destination country",
+    !newStaff && "assigned staff",
+    !newPoster && "job poster",
+  ].filter((item): item is string => Boolean(item));
+
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!designationRole.trim() || !selectedClient || !destinationCountry) return;
+    if (!designationRole.trim() || !selectedClient || !destinationCountry || !newPoster || !newStaff) return;
 
     const uniqueNum = Math.floor(100 + Math.random() * 900);
     const id = `ORD-${uniqueNum}-${Date.now().toString().slice(-4)}`;
@@ -1013,6 +1036,8 @@ export default function JobOrders({
       shortlistedCandidateIds: [],
       website: cleanWebsite(newWebsite),
       terms: cleanTerms(newTerms),
+      posterUrl: newPoster,
+      assignedStaff: newStaff,
     };
 
     activity(`Created job order: ${newRecord.title} (${newRecord.client}) — ${newRecord.headcount} seat${newRecord.headcount === 1 ? "" : "s"}.`, "success");
@@ -1034,6 +1059,8 @@ export default function JobOrders({
     setNewDueDate("");
     setNewWebsite(websiteDefaults());
     setNewTerms(termsDraft());
+    setNewPoster(undefined);
+    setNewStaff(undefined);
   };
 
   const handleDeleteOrder = (id: string) => {
@@ -1392,14 +1419,19 @@ export default function JobOrders({
                 />
               </div>
 
-              <JobOrderTermsFields value={editTerms} onChange={setEditTerms} idPrefix="jo-edit-terms" />
+              <AssignedStaffField value={editStaff} onChange={setEditStaff} id="jo-edit-staff" />
 
-              <WebsiteListingFields
-                value={editWebsite}
-                onChange={setEditWebsite}
-                industry={editIndustry}
+              <JobPosterField
+                value={editPoster}
+                onChange={setEditPoster}
+                // An order that has a poster keeps one: it can be replaced, not removed.
+                required={Boolean(editingOrder?.posterUrl || editingOrder?.website?.posterUrl)}
                 onUploadingChange={setPosterUploading}
               />
+
+              <JobOrderTermsFields value={editTerms} onChange={setEditTerms} idPrefix="jo-edit-terms" />
+
+              <WebsiteListingFields value={editWebsite} onChange={setEditWebsite} industry={editIndustry} />
 
               <div>
                 <label className="modal-label">Internal remarks</label>
@@ -1888,6 +1920,17 @@ export default function JobOrders({
               <dd style={{ color: dueMeta.color }}>
                 <Calendar size={13} />
                 {formatDueDate(selectedOrder.dueDate)}
+              </dd>
+            </div>
+
+            <div className="jod-spec">
+              <dt>Assigned staff</dt>
+              <dd>
+                {selectedOrder.assignedStaff ? (
+                  staffLabel(selectedOrder.assignedStaff)
+                ) : (
+                  <span className="jod-spec-empty">Not assigned</span>
+                )}
               </dd>
             </div>
 
@@ -2762,14 +2805,13 @@ export default function JobOrders({
                   />
                 </div>
 
+                <AssignedStaffField value={newStaff} onChange={setNewStaff} required id="jo-new-staff" />
+
+                <JobPosterField value={newPoster} onChange={setNewPoster} required onUploadingChange={setPosterUploading} />
+
                 <JobOrderTermsFields value={newTerms} onChange={setNewTerms} idPrefix="jo-new-terms" />
 
-                <WebsiteListingFields
-                  value={newWebsite}
-                  onChange={setNewWebsite}
-                  industry={industry}
-                  onUploadingChange={setPosterUploading}
-                />
+                <WebsiteListingFields value={newWebsite} onChange={setNewWebsite} industry={industry} />
 
                 <div>
                   <label className="modal-label">Internal Remarks / Notes</label>
@@ -2784,6 +2826,11 @@ export default function JobOrders({
               </div>
 
               <div className="modal-footer">
+                {createMissing.length > 0 && (
+                  <span className="jo-missing" aria-live="polite">
+                    Still needed: {createMissing.join(", ")}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="modal-cancel-btn"
@@ -2794,7 +2841,7 @@ export default function JobOrders({
                 <button
                   type="submit"
                   className="modal-submit-btn"
-                  disabled={!selectedClient || !destinationCountry || !designationRole.trim() || posterUploading}
+                  disabled={createMissing.length > 0 || posterUploading}
                 >
                   Create order
                 </button>

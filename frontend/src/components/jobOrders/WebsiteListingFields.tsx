@@ -1,17 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Globe, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { Globe } from "lucide-react";
 
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
-import { jobPosterSrc, uploadJobOrderPosterAPI } from "@/lib/api";
 import type { JobOrderWebsite, JobOrderWebsiteType } from "@/types";
 
 const JOB_TYPES: JobOrderWebsiteType[] = ["Full time", "Contract", "Part time", "Remote"];
 const JOB_TYPE_OPTIONS = JOB_TYPES.map((value) => ({ value, label: value }));
-const POSTER_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const POSTER_MAX_BYTES = 5 * 1024 * 1024;
 
 /** A new order is listed on the website unless someone says otherwise. */
 export function websiteDefaults(existing?: JobOrderWebsite): JobOrderWebsite {
@@ -22,11 +18,17 @@ export function websiteIsShown(website?: JobOrderWebsite): boolean {
   return website?.show === true;
 }
 
-/** Trimmed, with empty fields left out, as it is saved on the order. */
+/**
+ * Trimmed, with empty fields left out, as it is saved on the order.
+ *
+ * The poster is not part of it: it lives on the order (`posterUrl`, see
+ * `JobPosterField`) because agents get it on WhatsApp too. An old
+ * `website.posterUrl` is dropped here once the order is saved with its poster
+ * moved up.
+ */
 export function cleanWebsite(website: JobOrderWebsite): JobOrderWebsite {
   const out: JobOrderWebsite = { show: websiteIsShown(website) };
   const text = (value?: string) => (value ?? "").trim();
-  if (text(website.posterUrl)) out.posterUrl = text(website.posterUrl);
   if (text(website.city)) out.city = text(website.city);
   if (text(website.category)) out.category = text(website.category);
   if (website.jobType) out.jobType = website.jobType;
@@ -39,56 +41,18 @@ interface WebsiteListingFieldsProps {
   onChange: (next: JobOrderWebsite) => void;
   /** The order's industry, shown as the tag when no category is given. */
   industry?: string;
-  /** Lets the dialog hold its save button while a poster is still uploading. */
-  onUploadingChange?: (uploading: boolean) => void;
 }
 
 /**
  * The "Website listing" part of the job order dialogs.
  *
  * Everything here is public: it becomes the card on the website's Current Jobs
- * page while the order is open. The order's remarks stay internal.
+ * page while the order is open, with the order's poster as its picture. The
+ * order's remarks stay internal.
  */
-export default function WebsiteListingFields({
-  value,
-  onChange,
-  industry,
-  onUploadingChange,
-}: WebsiteListingFieldsProps) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [posterError, setPosterError] = useState("");
+export default function WebsiteListingFields({ value, onChange, industry }: WebsiteListingFieldsProps) {
   const shown = websiteIsShown(value);
   const set = (patch: Partial<JobOrderWebsite>) => onChange({ ...value, ...patch });
-
-  const busy = (next: boolean) => {
-    setUploading(next);
-    onUploadingChange?.(next);
-  };
-
-  const handlePoster = async (file: File | undefined) => {
-    if (!file) return;
-    setPosterError("");
-    if (!POSTER_TYPES.includes(file.type)) {
-      setPosterError("Use a JPG, PNG or WebP image.");
-      return;
-    }
-    if (file.size > POSTER_MAX_BYTES) {
-      setPosterError("The poster is larger than 5 MB.");
-      return;
-    }
-    busy(true);
-    try {
-      const { url } = await uploadJobOrderPosterAPI(file);
-      set({ posterUrl: url });
-    } catch (err) {
-      setPosterError(err instanceof Error ? err.message : "The poster could not be uploaded.");
-    } finally {
-      busy(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  };
-
   const industryTag = industry && industry !== "General" ? industry : "";
 
   return (
@@ -102,96 +66,47 @@ export default function WebsiteListingFields({
         checked={shown}
         onChange={(next) => set({ show: next })}
         label="Show on adiragroups.com"
-        hint="Listed on the Current Jobs page while this order is open, and taken down when it is closed."
+        hint="Listed on the Current Jobs page, with the job poster, while this order is open, and taken down when it is closed."
       />
 
       {shown && (
         <>
-          <div className="jo-web-grid">
-            <div className="jo-web-poster">
-              {value.posterUrl ? (
-                <figure className="jo-web-poster-frame">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- an API-served upload, not a static asset */}
-                  <img src={jobPosterSrc(value.posterUrl)} alt="Job poster preview" />
-                  <div className="jo-web-poster-actions">
-                    <button type="button" className="jod-btn" onClick={() => fileRef.current?.click()} disabled={uploading}>
-                      {uploading ? <Loader2 size={13} className="icon-spin" /> : <ImagePlus size={13} />}
-                      <span>Replace</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="jod-btn is-danger"
-                      onClick={() => set({ posterUrl: undefined })}
-                      disabled={uploading}
-                      aria-label="Remove poster"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </figure>
-              ) : (
-                <button
-                  type="button"
-                  className="jo-web-poster-drop"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                >
-                  {uploading ? <Loader2 size={20} className="icon-spin" /> : <ImagePlus size={20} />}
-                  <span className="jo-web-poster-title">{uploading ? "Uploading…" : "Upload poster"}</span>
-                  <span className="jo-web-poster-note">JPG, PNG or WebP · up to 5 MB</span>
-                </button>
-              )}
+          <div className="jo-web-row-3">
+            <div>
+              <label className="modal-label" htmlFor="jo-web-city">
+                City
+              </label>
               <input
-                ref={fileRef}
-                type="file"
-                accept={POSTER_TYPES.join(",")}
-                hidden
-                onChange={(e) => void handlePoster(e.target.files?.[0])}
+                id="jo-web-city"
+                type="text"
+                className="modal-input"
+                placeholder="e.g. Jeddah"
+                value={value.city ?? ""}
+                onChange={(e) => set({ city: e.target.value })}
+                required
               />
-              {posterError && (
-                <span className="jo-web-error" role="alert">
-                  {posterError}
-                </span>
-              )}
             </div>
-
-            <div className="jo-web-fields">
-              <div>
-                <label className="modal-label" htmlFor="jo-web-city">
-                  City
-                </label>
-                <input
-                  id="jo-web-city"
-                  type="text"
-                  className="modal-input"
-                  placeholder="e.g. Jeddah"
-                  value={value.city ?? ""}
-                  onChange={(e) => set({ city: e.target.value })}
-                  required
-                />
-              </div>
-              <div>
-                <span className="modal-label">Job type</span>
-                <Select
-                  value={value.jobType ?? "Full time"}
-                  options={JOB_TYPE_OPTIONS}
-                  onChange={(next) => set({ jobType: next as JobOrderWebsiteType })}
-                  ariaLabel="Job type"
-                />
-              </div>
-              <div>
-                <label className="modal-label" htmlFor="jo-web-category">
-                  Category tag
-                </label>
-                <input
-                  id="jo-web-category"
-                  type="text"
-                  className="modal-input"
-                  placeholder={industryTag ? `${industryTag} (from industry)` : "e.g. Piping"}
-                  value={value.category ?? ""}
-                  onChange={(e) => set({ category: e.target.value })}
-                />
-              </div>
+            <div>
+              <span className="modal-label">Job type</span>
+              <Select
+                value={value.jobType ?? "Full time"}
+                options={JOB_TYPE_OPTIONS}
+                onChange={(next) => set({ jobType: next as JobOrderWebsiteType })}
+                ariaLabel="Job type"
+              />
+            </div>
+            <div>
+              <label className="modal-label" htmlFor="jo-web-category">
+                Category tag
+              </label>
+              <input
+                id="jo-web-category"
+                type="text"
+                className="modal-input"
+                placeholder={industryTag ? `${industryTag} (from industry)` : "e.g. Piping"}
+                value={value.category ?? ""}
+                onChange={(e) => set({ category: e.target.value })}
+              />
             </div>
           </div>
 

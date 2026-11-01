@@ -126,6 +126,8 @@ def test_each_agent_gets_the_order_without_the_client_or_remarks(db):
         "requirements": [],
         "documents": [],
         "documents_single_pdf": False,
+        "staff_name": "",
+        "staff_phone": "",
         "agent_id": "AGT-1",
         "agent_name": "Imran",
         "phone": "98765 43210",
@@ -170,6 +172,23 @@ def test_the_orders_agent_terms_travel_with_it(db):
         "documents": ["CV", "Passport copy (all pages including cover pages)", "PCC (Police Clearance Certificate)"],
         "documents_single_pdf": True,
     }
+
+
+def test_the_assigned_staff_member_travels_as_the_contact(db):
+    order = {**ORDER, "assignedStaff": {"id": "u-7", "name": "Rafi", "phone": "+91 98849 49735"}}
+    with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
+        broadcast_job_order(order, database=db)
+    payload = post.call_args_list[0].args[1]
+    assert (payload["staff_name"], payload["staff_phone"]) == ("Rafi", "+91 98849 49735")
+    assert "u-7" not in str(payload)
+
+
+def test_the_poster_on_the_order_is_the_messages_picture(db):
+    order = {**ORDER, "posterUrl": "/public/job-posters/" + "f" * 32 + ".png"}
+    with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
+        broadcast_job_order(order, database=db)
+    # The order's own poster wins over the old `website.posterUrl`.
+    assert post.call_args_list[0].args[1]["poster_url"] == "/public/job-posters/" + "f" * 32 + ".png"
 
 
 def test_malformed_terms_are_sent_as_blanks_not_errors(db):

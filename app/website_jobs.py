@@ -18,9 +18,10 @@ the page can show both side by side with one fetch added.
 What goes public is deliberately narrow. The client's name, the internal
 remarks, age limits and the candidates mapped to the order never leave the CRM;
 the card is built from the role, the destination, the salary, the experience
-asked for, and the order's `website` block, which a recruiter fills in for the
-purpose (poster, city, category, job type, public description, and a switch to
-keep an order off the site).
+asked for, the order's poster (`posterUrl`, required when an order is created,
+because agents get it on WhatsApp too), and the order's `website` block, which a
+recruiter fills in for the purpose (city, category, job type, public
+description, and a switch to keep an order off the site).
 """
 from __future__ import annotations
 
@@ -44,6 +45,16 @@ PUBLISHED_QUERY = {"status": {"$ne": "CLOSED"}, "website.show": True}
 def website_block(order: dict) -> dict:
     block = order.get("website")
     return block if isinstance(block, dict) else {}
+
+
+def poster_url(order: dict) -> str:
+    """The order's poster as stored, or "" when it has none.
+
+    Kept on the order itself (`posterUrl`) since the poster also goes to agents
+    on WhatsApp. Orders saved before that kept it in `website.posterUrl`, which
+    is still read.
+    """
+    return _text(order.get("posterUrl")) or _text(website_block(order).get("posterUrl"))
 
 
 def is_published(order: dict) -> bool:
@@ -127,7 +138,7 @@ def listing_for(order: dict, base_url: str = "") -> dict:
         "date": _posted(order),
         "desc": _text(web.get("description")) or _fallback_description(order),
         "salary": _public(order.get("salary")),
-        "image": resolve_url(web.get("posterUrl"), base_url) or settings.website_jobs_default_image,
+        "image": resolve_url(poster_url(order), base_url) or settings.website_jobs_default_image,
         # The website's page keeps only items with `visible` set and, for
         # another language, `allLanguages`; both are true for everything here.
         "visible": True,

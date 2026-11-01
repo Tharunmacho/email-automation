@@ -1084,6 +1084,14 @@ export interface JobOrderRecord {
   rejectedCandidateIds?: string[];
   /** Shortlisted candidates already submitted to this order's client. */
   submittedCandidateIds?: string[];
+  /**
+   * The job poster: `/public/job-posters/…` from `uploadJobOrderPosterAPI`, or
+   * an absolute URL. Required on a new order — agents get it on WhatsApp, and
+   * it is the website card's picture. Older orders kept it in `website.posterUrl`.
+   */
+  posterUrl?: string;
+  /** The staff member responsible for the order. Required on a new order. */
+  assignedStaff?: JobOrderStaff;
   /** How the order appears on the website's Current Jobs page. */
   website?: JobOrderWebsite;
   /** Who may apply, the process, the money, and the paperwork — see `JobOrderTerms`. */
@@ -1091,6 +1099,17 @@ export interface JobOrderRecord {
 }
 
 export type JobOrderStatus = JobOrderRecord["status"];
+
+/**
+ * Who a job order is assigned to, as `GET /job-orders/assignees` lists them.
+ * The name and phone are kept on the order as they were when assigned, so the
+ * order still says who had it if the account later changes or goes.
+ */
+export interface JobOrderStaff {
+  id: string;
+  name: string;
+  phone: string;
+}
 
 export type JobOrderGender = "Male & Female" | "Male" | "Female";
 
@@ -1134,7 +1153,7 @@ export interface JobOrderTerms {
 export interface JobOrderWebsite {
   /** `true` lists the order on the website while it is open. Anything else keeps it off. */
   show?: boolean;
-  /** `/public/job-posters/…` from `uploadJobOrderPosterAPI`, or an absolute URL. */
+  /** Where older orders kept the poster; it is now `JobOrderRecord.posterUrl`. Read only. */
   posterUrl?: string;
   city?: string;
   /** The tag on the card ("Piping"). Falls back to the industry. */

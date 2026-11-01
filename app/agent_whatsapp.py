@@ -13,10 +13,11 @@ budget, the same split as `app/staff_whatsapp.py`.
   and associations are never messaged.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
-  website poster as the picture when it has one — plus the order's agent terms
+  poster as the picture (required on a new order) — plus the order's agent terms
   (`terms`: gender, process time, B2B rate, costs borne by the candidate,
-  payment terms, requirements and documents), which are for agents and never
-  go on the website. The bot's `agent_job_order_details` template shows all
+  payment terms, requirements and documents) and the staff member the order is
+  assigned to (`assignedStaff`: name and phone, for agents to contact), which
+  are for agents and never go on the website. The bot's `agent_job_order_details` template shows all
   of them, one per line (`agentJobOrderParameters` in the bot).
 * **Off the request path.** The save returns at once; sending runs in a
   background thread. Nothing here raises.
@@ -31,6 +32,7 @@ from app.config import settings
 from app.db.dedup import normalize_phone
 from app.logging_config import get_logger
 from app.staff_whatsapp import _post, relay_enabled
+from app.website_jobs import poster_url
 
 log = get_logger(__name__)
 
@@ -105,6 +107,12 @@ def _texts(value: Any) -> List[str]:
     return [text for text in (_text(item) for item in value if isinstance(item, (str, int, float))) if text]
 
 
+def staff_facts(order: Dict[str, Any]) -> Dict[str, str]:
+    """The staff member the order is assigned to, as agents would contact them."""
+    staff = order.get("assignedStaff") if isinstance(order.get("assignedStaff"), dict) else {}
+    return {"staff_name": _text(staff.get("name")), "staff_phone": _text(staff.get("phone"))}
+
+
 def terms_facts(order: Dict[str, Any]) -> Dict[str, Any]:
     """The order's agent terms (`terms` on the job order) for the bot, every key always present."""
     terms = order.get("terms") if isinstance(order.get("terms"), dict) else {}
@@ -151,8 +159,9 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
             "min_experience": _text(order.get("minExperience")),
             # The message's picture. The bot uses it if it is a JPG or PNG and
             # falls back to a default image otherwise.
-            "poster_url": _text((order.get("website") or {}).get("posterUrl")),
+            "poster_url": poster_url(order),
             **terms_facts(order),
+            **staff_facts(order),
         }
         sent = 0
         failed: List[str] = []

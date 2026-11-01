@@ -69,6 +69,7 @@ import type {
   DemoAccount,
   NotificationRecord,
   WhatsAppChatResponse,
+  JobOrderStaff,
 } from "@/types";
 
 export type {
@@ -1879,6 +1880,11 @@ export function uploadJobOrderPosterAPI(file: File): Promise<{ url: string }> {
   const body = new FormData();
   body.append("file", file);
   return request<{ url: string }>("/job-orders/posters", { method: "POST", body });
+}
+
+/** Who a job order can be assigned to: active staff and managers, with their phone. */
+export function listJobOrderAssigneesAPI(): Promise<{ items: (JobOrderStaff & { role: string })[] }> {
+  return request<{ items: (JobOrderStaff & { role: string })[] }>("/job-orders/assignees");
 }
 
 /** A poster path as an address this browser can load. */
