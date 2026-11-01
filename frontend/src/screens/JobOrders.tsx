@@ -680,9 +680,9 @@ export default function JobOrders({
   const [newStaff, setNewStaff] = useState<JobOrderStaff | undefined>(undefined);
   const [editStaff, setEditStaff] = useState<JobOrderStaff | undefined>(undefined);
 
-  // Gender, process time, B2B rate, payment terms, requirements and documents.
+  // Gender, process time and B2B rate.
   const [newTerms, setNewTerms] = useState<TermsDraft>(() => termsDraft());
-  const [editTerms, setEditTerms] = useState<TermsDraft>(() => termsDraft({}));
+  const [editTerms, setEditTerms] = useState<TermsDraft>(() => termsDraft());
 
   useEffect(() => {
     let active = true;
@@ -818,9 +818,7 @@ export default function JobOrders({
     // An order saved before it had a website block was never published; editing
     // it for another reason must not put it on the website unasked.
     setEditWebsite(websiteDefaults(item.website ?? { show: false }));
-    // `{}` rather than nothing: an order that never had terms opens empty, not
-    // with the new-order defaults, so saving it adds nothing unasked.
-    setEditTerms(termsDraft(item.terms ?? {}));
+    setEditTerms(termsDraft(item.terms));
     // Older orders kept the poster in the website block; saving moves it up.
     setEditPoster(item.posterUrl || item.website?.posterUrl || undefined);
     setEditStaff(item.assignedStaff);
@@ -1434,11 +1432,11 @@ export default function JobOrders({
               <WebsiteListingFields value={editWebsite} onChange={setEditWebsite} industry={editIndustry} />
 
               <div>
-                <label className="modal-label">Internal remarks</label>
+                <label className="modal-label">Remarks</label>
                 <textarea
-                  aria-label="Internal remarks"
+                  aria-label="Remarks"
                   className="modal-textarea"
-                  placeholder="Not shown on the website."
+                  placeholder="Sent to agents with the job order message. Not shown on the website."
                   value={editRemarks}
                   onChange={(e) => setEditRemarks(e.target.value)}
                 />
@@ -1939,7 +1937,7 @@ export default function JobOrders({
             <div className="jod-spec jod-spec-wide">
               <dt>Remarks</dt>
               <dd>
-                {selectedOrder.description || <span className="jod-spec-empty">No internal notes added</span>}
+                {selectedOrder.description || <span className="jod-spec-empty">No remarks added</span>}
               </dd>
             </div>
           </dl>
@@ -2814,11 +2812,11 @@ export default function JobOrders({
                 <WebsiteListingFields value={newWebsite} onChange={setNewWebsite} industry={industry} />
 
                 <div>
-                  <label className="modal-label">Internal Remarks / Notes</label>
+                  <label className="modal-label">Remarks</label>
                   <textarea
-                    aria-label="Internal remarks or notes"
+                    aria-label="Remarks"
                     className="modal-textarea"
-                    placeholder="Add any internal notes here — not shown on the website."
+                    placeholder="Sent to agents with the job order message. Not shown on the website."
                     value={internalNotes}
                     onChange={(e) => setInternalNotes(e.target.value)}
                   />

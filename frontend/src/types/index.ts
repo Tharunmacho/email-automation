@@ -1114,15 +1114,11 @@ export interface JobOrderStaff {
 export type JobOrderGender = "Male & Female" | "Male" | "Female";
 
 /**
- * The terms an order is offered on, as recruiters post it to agents:
- *
- *   PRODUCTION OPERATORS – 30 VACANCIES, Male & Female, process time 6-8
- *   months, Ref B2B 4.9 with Ticket, VFS and embassy fee borne by candidates,
- *   €946 in advance after offer acceptance and the rest after the visa,
- *   requirements, and the documents to send in order in a single PDF.
+ * The terms an order is offered on, as recruiters post it to agents ("Male &
+ * Female, process time 6-8 months, Ref B2B 4.9 with Ticket").
  *
  * Sent to agents with the WhatsApp broadcast (`app/agent_whatsapp.py`). None of
- * it goes on the public website: the B2B rate and payment terms are for agents.
+ * it goes on the public website: the B2B rate is for agents.
  */
 export interface JobOrderTerms {
   gender?: JobOrderGender;
@@ -1130,25 +1126,13 @@ export interface JobOrderTerms {
   processTime?: string;
   /** The rate quoted to B2B agents, e.g. "4.9 with Ticket". */
   b2bRate?: string;
-  /** Costs the candidate bears, e.g. "VFS, Embassy fee". */
-  candidatePays?: string;
-  /** Paid once the candidate accepts the offer, e.g. "€946". */
-  advancePayment?: string;
-  /** When the remainder is paid, e.g. "After visa". */
-  balancePayment?: string;
-  /** What a candidate must have, one item each. */
-  requirements?: string[];
-  /** Documents the candidate sends, in the order they must appear. */
-  documents?: string[];
-  /** The documents must arrive as one PDF. */
-  singlePdf?: boolean;
 }
 
 /**
  * The public card for a job order on adiragroups.com — see `app/website_jobs.py`.
  *
  * Only what is here, plus the title, destination, salary and experience, goes
- * public. The client and the internal remarks never do.
+ * public. The client and the remarks (which go to agents) never do.
  */
 export interface JobOrderWebsite {
   /** `true` lists the order on the website while it is open. Anything else keeps it off. */
@@ -1159,7 +1143,7 @@ export interface JobOrderWebsite {
   /** The tag on the card ("Piping"). Falls back to the industry. */
   category?: string;
   jobType?: JobOrderWebsiteType;
-  /** Public text for the card. The order's `description` is internal remarks. */
+  /** Public text for the card. The order's `description` is the remarks agents get, never shown here. */
   description?: string;
 }
 

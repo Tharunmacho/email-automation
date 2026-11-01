@@ -15,8 +15,9 @@ nothing goes public that no one chose to put there.
 Each item has the same shape as the website's own `jobListings` documents, so
 the page can show both side by side with one fetch added.
 
-What goes public is deliberately narrow. The client's name, the internal
-remarks, age limits and the candidates mapped to the order never leave the CRM;
+What goes public is deliberately narrow. The client's name, the remarks (sent
+to agents, not the public), age limits and the candidates mapped to the order
+never reach the website;
 the card is built from the role, the destination, the salary, the experience
 asked for, the order's poster (`posterUrl`, required when an order is created,
 because agents get it on WhatsApp too), and the order's `website` block, which a
@@ -92,7 +93,7 @@ def _fallback_description(order: dict) -> str:
     """A line for the card when the recruiter wrote no public description.
 
     Built only from fields that are already public. The order's own
-    `description` is never used: on the Job Orders screen it is internal remarks.
+    `description` is never used: it is the Remarks agents get with the order.
     """
     parts: list[str] = []
     headcount = order.get("headcount")

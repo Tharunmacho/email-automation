@@ -13,12 +13,12 @@ budget, the same split as `app/staff_whatsapp.py`.
   and associations are never messaged.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
-  poster as the picture (required on a new order) — plus the order's agent terms
-  (`terms`: gender, process time, B2B rate, costs borne by the candidate,
-  payment terms, requirements and documents) and the staff member the order is
-  assigned to (`assignedStaff`: name and phone, for agents to contact), which
-  are for agents and never go on the website. The bot's `agent_job_order_details` template shows all
-  of them, one per line (`agentJobOrderParameters` in the bot).
+  poster as the picture (required on a new order) — plus the order's agent
+  terms (`terms`: gender, process time and B2B rate), its Remarks
+  (`description`), and the staff member it is assigned to (`assignedStaff`:
+  name and phone, for agents to contact), which are for agents and never go on
+  the website. Which of them the WhatsApp message shows is the bot's Meta
+  template's business (`agentJobOrderParameters` in the bot).
 * **Off the request path.** The save returns at once; sending runs in a
   background thread. Nothing here raises.
 """
@@ -100,13 +100,6 @@ def _text(value: Any) -> str:
     return str(value).strip() if value is not None else ""
 
 
-def _texts(value: Any) -> List[str]:
-    """A list of non-blank strings, whatever was stored."""
-    if not isinstance(value, list):
-        return []
-    return [text for text in (_text(item) for item in value if isinstance(item, (str, int, float))) if text]
-
-
 def staff_facts(order: Dict[str, Any]) -> Dict[str, str]:
     """The staff member the order is assigned to, as agents would contact them."""
     staff = order.get("assignedStaff") if isinstance(order.get("assignedStaff"), dict) else {}
@@ -116,18 +109,11 @@ def staff_facts(order: Dict[str, Any]) -> Dict[str, str]:
 def terms_facts(order: Dict[str, Any]) -> Dict[str, Any]:
     """The order's agent terms (`terms` on the job order) for the bot, every key always present."""
     terms = order.get("terms") if isinstance(order.get("terms"), dict) else {}
-    documents = _texts(terms.get("documents"))
     return {
         "industry": _text(order.get("industry")),
         "gender": _text(terms.get("gender")),
         "process_time": _text(terms.get("processTime")),
         "b2b_rate": _text(terms.get("b2bRate")),
-        "candidate_pays": _text(terms.get("candidatePays")),
-        "advance_payment": _text(terms.get("advancePayment")),
-        "balance_payment": _text(terms.get("balancePayment")),
-        "requirements": _texts(terms.get("requirements")),
-        "documents": documents,
-        "documents_single_pdf": bool(documents) and terms.get("singlePdf") is True,
     }
 
 
@@ -162,6 +148,8 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
             "poster_url": poster_url(order),
             **terms_facts(order),
             **staff_facts(order),
+            # The Remarks box on the job order dialogs, written for agents.
+            "remarks": _text(order.get("description")),
         }
         sent = 0
         failed: List[str] = []

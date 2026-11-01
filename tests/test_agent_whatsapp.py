@@ -31,7 +31,7 @@ ORDER = {
     "headcount": 12,
     "salary": "SAR 1800",
     "minExperience": "3 years",
-    "description": "internal remarks",
+    "description": "Interviews in Chennai on 10 Nov. Bring originals.",
     "status": "OPEN",
     "website": {"show": True, "posterUrl": "/public/job-posters/0123456789abcdef0123456789abcdef.jpg"},
 }
@@ -99,7 +99,7 @@ def test_switch_on_without_a_bot_sends_nothing(db):
     post.assert_not_called()
 
 
-def test_each_agent_gets_the_order_without_the_client_or_remarks(db):
+def test_each_agent_gets_the_order_and_its_remarks_but_not_the_client(db):
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         result = broadcast_job_order(ORDER, database=db)
 
@@ -120,21 +120,15 @@ def test_each_agent_gets_the_order_without_the_client_or_remarks(db):
         "gender": "",
         "process_time": "",
         "b2b_rate": "",
-        "candidate_pays": "",
-        "advance_payment": "",
-        "balance_payment": "",
-        "requirements": [],
-        "documents": [],
-        "documents_single_pdf": False,
         "staff_name": "",
         "staff_phone": "",
+        "remarks": "Interviews in Chennai on 10 Nov. Bring originals.",
         "agent_id": "AGT-1",
         "agent_name": "Imran",
         "phone": "98765 43210",
     }
     for payload in payloads:
         assert "Secret Client" not in str(payload)
-        assert "internal remarks" not in str(payload)
     assert all(call.kwargs.get("require_sent") is True for call in post.call_args_list)
 
 
@@ -146,32 +140,23 @@ def test_the_orders_agent_terms_travel_with_it(db):
             "gender": "Male & Female",
             "processTime": "6-8 months",
             "b2bRate": "4.9 with Ticket",
-            "candidatePays": "VFS, Embassy fee",
+            # Asked for once, then dropped from the form: no longer sent.
             "advancePayment": "€946",
-            "balancePayment": "After the visa",
-            "requirements": ["Relevant work experience", "Basic English", "Valid passport & PCC", "Updated CV"],
-            "documents": ["CV", "Passport copy (all pages including cover pages)", "PCC (Police Clearance Certificate)"],
-            "singlePdf": True,
+            "documents": ["CV"],
         },
     }
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         broadcast_job_order(order, database=db)
     payload = post.call_args_list[0].args[1]
     assert {key: payload[key] for key in (
-        "industry", "gender", "process_time", "b2b_rate", "candidate_pays",
-        "advance_payment", "balance_payment", "requirements", "documents", "documents_single_pdf",
+        "industry", "gender", "process_time", "b2b_rate",
     )} == {
         "industry": "Automotive",
         "gender": "Male & Female",
         "process_time": "6-8 months",
         "b2b_rate": "4.9 with Ticket",
-        "candidate_pays": "VFS, Embassy fee",
-        "advance_payment": "€946",
-        "balance_payment": "After the visa",
-        "requirements": ["Relevant work experience", "Basic English", "Valid passport & PCC", "Updated CV"],
-        "documents": ["CV", "Passport copy (all pages including cover pages)", "PCC (Police Clearance Certificate)"],
-        "documents_single_pdf": True,
     }
+    assert not {"advance_payment", "documents"} & set(payload)
 
 
 def test_the_assigned_staff_member_travels_as_the_contact(db):
@@ -191,15 +176,14 @@ def test_the_poster_on_the_order_is_the_messages_picture(db):
     assert post.call_args_list[0].args[1]["poster_url"] == "/public/job-posters/" + "f" * 32 + ".png"
 
 
-def test_malformed_terms_are_sent_as_blanks_not_errors(db):
-    order = {**ORDER, "terms": {"requirements": "not a list", "documents": [None, " ", "CV"], "singlePdf": "yes"}}
+@pytest.mark.parametrize("terms", ["not a dict", None, {"gender": None, "processTime": "  ", "b2bRate": None}])
+def test_malformed_terms_are_sent_as_blanks_not_errors(db, terms):
+    order = {**ORDER, "terms": terms}
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         result = broadcast_job_order(order, database=db)
     assert result["sent"] == 2
     payload = post.call_args_list[0].args[1]
-    assert payload["requirements"] == []
-    assert payload["documents"] == ["CV"]
-    assert payload["documents_single_pdf"] is False
+    assert (payload["gender"], payload["process_time"], payload["b2b_rate"]) == ("", "", "")
 
 
 def test_an_order_without_a_poster_sends_a_blank_poster_for_the_bot_to_default(db):
