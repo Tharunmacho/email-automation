@@ -16,8 +16,8 @@ budget, the same split as `app/staff_whatsapp.py`.
   website poster as the picture when it has one — plus the order's agent terms
   (`terms`: gender, process time, B2B rate, costs borne by the candidate,
   payment terms, requirements and documents), which are for agents and never
-  go on the website. The bot's current Meta template shows only the first
-  five; the rest travel so a template with more slots can use them.
+  go on the website. The bot's `agent_job_order_details` template shows all
+  of them, one per line (`agentJobOrderParameters` in the bot).
 * **Off the request path.** The save returns at once; sending runs in a
   background thread. Nothing here raises.
 """
