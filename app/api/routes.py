@@ -1940,12 +1940,19 @@ def list_job_order_candidate_pool(
 @app.post("/job-orders")
 def create_job_order(order_data: dict, _user: dict = Depends(require_page("job-orders"))) -> dict:
     from app.db.mongo import get_db
+    from app.agent_whatsapp import start_job_order_broadcast
+
     coll = get_db()["job_orders"]
     order_id = order_data.get("id")
     if order_id:
+        # This endpoint upserts, so only a first save is a new job order.
+        is_new = coll.find_one({"id": order_id}, {"_id": 1}) is None
         coll.replace_one({"id": order_id}, order_data, upsert=True)
     else:
+        is_new = True
         coll.insert_one(order_data)
+    if is_new:
+        start_job_order_broadcast(order_data)
     return {"status": "ok", "record": order_data}
 
 
@@ -2306,6 +2313,10 @@ def convert_b2b_enquiry(
         order_id,
         user.get("email"),
     )
+
+    from app.agent_whatsapp import start_job_order_broadcast
+
+    start_job_order_broadcast(order)
 
     return {
         "status": "ok",

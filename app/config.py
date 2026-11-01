@@ -389,6 +389,12 @@ class Settings(BaseSettings):
     wa_bot_api_key: str = ""
     wa_bot_timeout_seconds: float = 5.0
 
+    # When a job order is created, message every active Sourcing Hub agent on
+    # WhatsApp from Rafi's line (`app/agent_whatsapp.py`). Off by default:
+    # leave it off until the bot's agent template is approved on that line's
+    # WABA, or every new order would be claimed and refused by the bot.
+    agent_job_order_whatsapp: bool = False
+
     # ---- Public website: Current Jobs ----
     # adiragroups.com reads open job orders from `GET /public/jobs`
     # (`app/website_jobs.py`).
