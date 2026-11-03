@@ -22,6 +22,38 @@ from app.logging_config import get_logger
 log = get_logger(__name__)
 
 
+def _phone_key(value: Any) -> str | None:
+    return normalize_phone(str(value)) if value not in (None, "") else None
+
+
+def _sourcing_type(db: Any, phone_key: str) -> str | None:
+    """The Sourcing Hub type this number belongs to, or None if no row has it.
+
+    Every number on a row counts: the row's own phone and every contact's, so a
+    client is matched on all its contacts whether it has one or several.
+    ``"agent"`` wins when the number sits on more than one row, because only an
+    agent's messages go to the bot's agent workers (``app/agent_resumes.py``
+    applies the same rule). Clients, associations and rows with no type are all
+    left for a person, and the bot sends them nothing.
+    """
+    found: str | None = None
+    projection = {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1}
+    for account in db["sourcing_clients"].find({}, projection):
+        phones = [account.get("phone")]
+        phones.extend(
+            contact.get("phone")
+            for contact in account.get("contacts") or []
+            if isinstance(contact, dict)
+        )
+        if not any(_phone_key(contact_phone) == phone_key for contact_phone in phones):
+            continue
+        kind = str(account.get("type") or "").strip().lower() or "unknown"
+        if kind == "agent":
+            return "agent"
+        found = found or kind
+    return found
+
+
 def reply_policy(
     phone: str,
     *,
@@ -30,10 +62,18 @@ def reply_policy(
 ) -> dict[str, str | bool]:
     """Return the bot's reply decision without exposing the matched contact.
 
+    The administrator's suppression list is checked first and wins over every
+    other match: a suppressed number gets ``suppressed_number`` even when it is
+    also staff or a Sourcing Hub contact. When it came last, a suppressed agent
+    was reported as an agent and the bot's agent workers answered them.
+
     All user accounts are checked, including inactive staff and administrators:
     deactivation changes access and allocation, not whether a number belongs to
     the agency.  Every Sourcing Hub row is checked for the same reason; an
     inactive commercial relationship is still not a candidate conversation.
+    A Sourcing Hub match also reports ``sourcing_type`` so the bot can hand
+    agents' files and questions to its agent workers and send nobody else
+    anything.
     """
     phone_key = normalize_phone(phone)
     if not phone_key:
@@ -44,30 +84,7 @@ def reply_policy(
         }
 
     try:
-        for member in user_repository.list_all(include_inactive=True):
-            if normalize_phone(member.phone) == phone_key:
-                return {
-                    "should_reply": False,
-                    "action": "ignore",
-                    "reason": "internal_user_number",
-                }
-
         db = database if database is not None else get_db()
-        sourcing = db["sourcing_clients"]
-        projection = {"_id": 0, "phone": 1, "contacts.phone": 1}
-        for account in sourcing.find({}, projection):
-            phones = [account.get("phone")]
-            phones.extend(
-                contact.get("phone")
-                for contact in account.get("contacts", [])
-                if isinstance(contact, dict)
-            )
-            if any(normalize_phone(contact_phone) == phone_key for contact_phone in phones):
-                return {
-                    "should_reply": False,
-                    "action": "ignore",
-                    "reason": "sourcing_contact_number",
-                }
 
         if db["bot_suppression_numbers"].count_documents(
             {"phone_key": phone_key}, limit=1
@@ -76,6 +93,23 @@ def reply_policy(
                 "should_reply": False,
                 "action": "ignore",
                 "reason": "suppressed_number",
+            }
+
+        for member in user_repository.list_all(include_inactive=True):
+            if normalize_phone(member.phone) == phone_key:
+                return {
+                    "should_reply": False,
+                    "action": "ignore",
+                    "reason": "internal_user_number",
+                }
+
+        sourcing_type = _sourcing_type(db, phone_key)
+        if sourcing_type is not None:
+            return {
+                "should_reply": False,
+                "action": "ignore",
+                "reason": "sourcing_contact_number",
+                "sourcing_type": sourcing_type,
             }
     except Exception as exc:  # noqa: BLE001 - this boundary must fail closed
         log.error("WhatsApp reply-policy lookup failed; suppressing reply: %s", exc)

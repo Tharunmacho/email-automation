@@ -27,7 +27,7 @@ class FakeSourcingCollection:
 
     def find(self, query, projection):
         assert query == {}
-        assert projection == {"_id": 0, "phone": 1, "contacts.phone": 1}
+        assert projection == {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1}
         return list(self.rows)
 
 
@@ -71,6 +71,7 @@ def test_sourcing_hub_number_is_ignored_across_phone_formatting():
         "should_reply": False,
         "action": "ignore",
         "reason": "sourcing_contact_number",
+        "sourcing_type": "unknown",
     }
 
 
@@ -88,6 +89,64 @@ def test_every_sourcing_contact_number_is_ignored():
 
     assert response.status_code == 200
     assert response.json()["reason"] == "sourcing_contact_number"
+
+
+CLIENT_WITH_TWO_CONTACTS = {
+    "type": "client",
+    "phone": "+91 95555 55555",
+    "contacts": [
+        {"name": "Owner", "phone": "+91 95555 55555"},
+        {"name": "Site HR", "phone": "+971 50 123 4567"},
+    ],
+}
+CLIENT_WITH_ONE_CONTACT = {
+    "type": "Client",
+    "phone": "+91 94444 44444",
+    "contacts": [{"name": "Owner", "phone": "+91 94444 44444"}],
+}
+
+
+def test_every_client_contact_is_ignored_with_one_contact_or_several():
+    for phone in ("919555555555", "971501234567", "9444444444"):
+        response, _ = call_policy(
+            phone, sourcing=(CLIENT_WITH_TWO_CONTACTS, CLIENT_WITH_ONE_CONTACT)
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "should_reply": False,
+            "action": "ignore",
+            "reason": "sourcing_contact_number",
+            "sourcing_type": "client",
+        }, phone
+
+
+def test_agent_numbers_are_reported_as_agents_even_when_also_on_a_client_row():
+    agent = {"type": "agent", "phone": "+91 93333 33333", "contacts": []}
+    shared = {"type": "client", "phone": "+91 93333 33333"}
+
+    response, _ = call_policy("919333333333", sourcing=(shared, agent))
+
+    assert response.json()["reason"] == "sourcing_contact_number"
+    assert response.json()["sourcing_type"] == "agent"
+
+
+def test_suppression_wins_over_sourcing_and_staff_matches():
+    agent = {"type": "agent", "phone": "+91 93333 33333"}
+
+    for phone, staff in (("919333333333", ()), ("919222222222", ("+91 92222 22222",))):
+        response, _ = call_policy(
+            phone,
+            staff=staff,
+            sourcing=(agent,),
+            suppressed=("9333333333", "+91 92222 22222"),
+        )
+
+        assert response.json() == {
+            "should_reply": False,
+            "action": "ignore",
+            "reason": "suppressed_number",
+        }, phone
 
 
 def test_staff_number_is_ignored_including_inactive_accounts():
@@ -141,8 +200,13 @@ def test_policy_lookup_failure_is_fail_closed():
         def list_all(self, include_inactive=True):
             raise RuntimeError("database unavailable")
 
+    database = {
+        "sourcing_clients": FakeSourcingCollection(),
+        "bot_suppression_numbers": FakeSuppressionCollection(),
+    }
     with (
         patch("app.api.routes.users", BrokenUsers()),
+        patch("app.services.whatsapp_reply_policy.get_db", return_value=database),
         patch("app.config.settings.whatsapp_service_key", SERVICE_KEY),
     ):
         response = TestClient(app).post(

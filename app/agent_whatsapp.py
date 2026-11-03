@@ -117,6 +117,46 @@ def terms_facts(order: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def agent_job_order_facts(order: Dict[str, Any]) -> Dict[str, Any]:
+    """Everything about one job order an agent may be told, and nothing else.
+
+    The one place that decides it, for the broadcast and for the bot's answers
+    to agents' questions (`open_job_order_facts`). Never the client's name.
+    """
+    return {
+        "job_order_id": _text(order.get("id")),
+        "title": _text(order.get("title") or order.get("designation")),
+        "destination_country": _text(order.get("destinationCountry")),
+        "headcount": order.get("headcount"),
+        "salary": _text(order.get("salary")),
+        "min_experience": _text(order.get("minExperience")),
+        **terms_facts(order),
+        **staff_facts(order),
+        # The Remarks box on the job order dialogs, written for agents.
+        "remarks": _text(order.get("description")),
+    }
+
+
+#: Enough for an agent's "what do you have?" without an unbounded prompt.
+OPEN_ORDERS_FOR_AGENTS = 25
+
+
+def open_job_order_facts(database, limit: int = OPEN_ORDERS_FOR_AGENTS) -> List[Dict[str, Any]]:
+    """The open job orders, newest first, as agents may be told about them.
+
+    The same orders the broadcast announces to every active agent (status
+    OPEN), so answering an agent from them shares nothing new.
+    """
+    rows: List[Dict[str, Any]] = []
+    for order in database["job_orders"].find({}).sort("_id", -1):
+        if _text(order.get("status")).upper() != "OPEN" or not _text(order.get("id")):
+            continue
+        rows.append(agent_job_order_facts(order))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, Any]:
     """Message every active agent about one newly created job order. Never raises."""
     order_id = _text(order.get("id"))
@@ -137,19 +177,10 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
 
         recipients = agent_recipients(database)
         facts = {
-            "job_order_id": order_id,
-            "title": _text(order.get("title") or order.get("designation")),
-            "destination_country": _text(order.get("destinationCountry")),
-            "headcount": order.get("headcount"),
-            "salary": _text(order.get("salary")),
-            "min_experience": _text(order.get("minExperience")),
+            **agent_job_order_facts(order),
             # The message's picture. The bot uses it if it is a JPG or PNG and
             # falls back to a default image otherwise.
             "poster_url": poster_url(order),
-            **terms_facts(order),
-            **staff_facts(order),
-            # The Remarks box on the job order dialogs, written for agents.
-            "remarks": _text(order.get("description")),
         }
         sent = 0
         failed: List[str] = []

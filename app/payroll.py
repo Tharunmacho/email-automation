@@ -31,6 +31,9 @@ RUNS = "payroll_runs"
 OVERRIDE_LOGS = "payroll_override_logs"
 INCENTIVES = "payroll_incentives"
 DEFAULT_SHIFT_MINUTES = 8 * 60
+#: Every employee's month counts as 26 working days, whatever the calendar
+#: says: the daily loss-of-pay rate is the monthly salary divided by 26.
+STANDARD_WORKING_DAYS = 26
 PRESENT_STATUSES = {"P", "LT", "EE", "PP", "OD", "WFH"}
 
 
@@ -135,7 +138,7 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
         if tracking_start is not None and day >= tracking_start
     ]
     days = calculate_month(attendance.day(employee.id, day) for day in period_days)
-    required_working_days = sum(day.get("status") not in {"WO", "H"} for day in days)
+    required_working_days = STANDARD_WORKING_DAYS
     unpaid_before_ot = sum(int(day.get("unpaid_minutes", 0)) for day in days)
     late_unpaid_minutes = sum(int(day.get("late_unpaid_minutes", 0)) for day in days)
     grace_minutes = sum(int(day.get("grace_minutes_applied", 0)) for day in days)

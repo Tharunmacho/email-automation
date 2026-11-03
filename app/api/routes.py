@@ -5134,6 +5134,23 @@ def bot_suppression_directory(
     return {"numbers": numbers, "count": len(numbers)}
 
 
+@app.get("/agent-job-orders")
+def bot_agent_job_orders(
+    _service: None = Depends(require_service_key),
+) -> dict:
+    """Open job orders as agents may be told about them, for the WhatsApp bot.
+
+    The bot answers a Sourcing Hub agent's questions from these and from the
+    orders it sent that agent. Built by the broadcast's own field list
+    (`agent_job_order_facts`), so the client's name never leaves.
+    """
+    from app.agent_whatsapp import open_job_order_facts
+    from app.db.mongo import get_db
+
+    items = open_job_order_facts(get_db())
+    return {"items": items, "count": len(items)}
+
+
 @app.get("/taxonomy")
 def bot_taxonomy(_service: None = Depends(require_service_key)) -> dict:
     from app.db.taxonomy import BOT_LIST_LIMIT, list_countries, list_jobs, taxonomy_version

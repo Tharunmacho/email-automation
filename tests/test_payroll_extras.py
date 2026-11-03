@@ -232,6 +232,14 @@ def test_local_day_is_used_for_payroll_month():
     assert local_day(datetime(2026, 8, 31, 20, 0, tzinfo=timezone.utc)) == date(2026, 9, 1)
 
 
+def test_every_month_counts_26_working_days(api):
+    # August 2026 has 31 days and Sundays off, yet salary is divided by 26.
+    as_user(YOOSUF)
+    paid = row(api)
+    assert paid["required_working_days"] == 26
+    assert paid["daily_lop_rate"] == round(30000 / 26, 2)
+
+
 def test_payroll_only_staff_get_full_salary_with_no_attendance(api):
     offline = FakeEmployee("staff-9", "Helper")
     offline.crm_access = False

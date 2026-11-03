@@ -264,3 +264,55 @@ def test_converting_a_b2b_enquiry_starts_the_broadcast(client, db):
     assert response.status_code == 201, response.text
     start.assert_called_once()
     assert start.call_args.args[0]["status"] == "OPEN"
+
+
+# --------------------------------------------------------------------------- #
+#  Open job orders, for the bot's answers to agents' questions
+# --------------------------------------------------------------------------- #
+def test_open_job_orders_for_agents_are_open_only_newest_first_and_never_name_the_client(db):
+    from app.agent_whatsapp import open_job_order_facts
+
+    db["job_orders"].insert_many([
+        {**ORDER, "id": "ORD-OLD", "title": "Mason"},
+        {**ORDER, "id": "ORD-FILLED", "status": "FILLED"},
+        {**ORDER, "id": "", "title": "No id"},
+        {**ORDER, "id": "ORD-NEW", "terms": {"gender": "Male", "processTime": "45 days", "b2bRate": "500 USD"},
+         "assignedStaff": {"name": "Rafi", "phone": "+91 98844 47455"}},
+    ])
+
+    items = open_job_order_facts(db)
+
+    assert [item["job_order_id"] for item in items] == ["ORD-NEW", "ORD-OLD"]
+    assert items[0] == {
+        "job_order_id": "ORD-NEW",
+        "title": "Pipe Fitter",
+        "destination_country": "Saudi Arabia",
+        "headcount": 12,
+        "salary": "SAR 1800",
+        "min_experience": "3 years",
+        "industry": "",
+        "gender": "Male",
+        "process_time": "45 days",
+        "b2b_rate": "500 USD",
+        "staff_name": "Rafi",
+        "staff_phone": "+91 98844 47455",
+        "remarks": "Interviews in Chennai on 10 Nov. Bring originals.",
+    }
+    assert "Secret Client" not in repr(items)
+    assert len(open_job_order_facts(db, limit=1)) == 1
+
+
+def test_the_bot_reads_open_job_orders_with_its_service_key(db):
+    db["job_orders"].insert_one(dict(ORDER))
+    with patch("app.api.routes.ensure_indexes"), \
+         patch("app.db.mongo.get_db", return_value=db), \
+         patch("app.config.settings.whatsapp_service_key", "bot-key"):
+        test_client = TestClient(fastapi_app)
+        assert test_client.get("/agent-job-orders").status_code == 401
+        response = test_client.get("/agent-job-orders", headers={"X-Service-Key": "bot-key"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["items"][0]["job_order_id"] == ORDER["id"]
+    assert "Secret Client" not in response.text
