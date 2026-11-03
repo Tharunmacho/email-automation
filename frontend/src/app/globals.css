@@ -21352,6 +21352,12 @@ a.um-phone:hover {
 .attendance-cover-cell { display: flex; flex-direction: column; gap: .3rem; min-width: 10rem; }
 .attendance-cover-cell small { color: var(--text-muted); }
 .attendance-cover-cell select { padding: .35rem .5rem; border: 1px solid var(--border-main); border-radius: 8px; background: var(--bg-card); color: var(--text-main); font: inherit; font-size: .75rem; }
+/* Cover requests waiting for this user's answer, above the attendance tabs. */
+.attendance-cover-prompt { border-color: var(--warning-edge); background: var(--warning-fill); margin-bottom: 1rem; }
+.attendance-cover-prompt-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem; }
+.attendance-cover-prompt-list li { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; padding: .65rem .8rem; border: 1px solid var(--border-main); border-radius: 10px; background: var(--bg-card); }
+.attendance-cover-prompt-list li > span { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.attendance-cover-prompt-list small { color: var(--text-muted); overflow-wrap: anywhere; }
 
 /* Job order submit / unsubmit confirmation. */
 .jo-confirm-dialog { max-width: 30rem; }

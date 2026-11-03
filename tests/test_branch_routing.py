@@ -4,8 +4,9 @@ Royapettah is the Singapore and Malaysia desk, managed by Noorul. Mount Road is
 every other destination, managed by Rafi. Each manager is told about, lists and
 decides only their own branch's requests; an administrator can decide any.
 
-Noorul is also the finance manager for both branches, so paid leave, LOP and
-Extra OT from Mount Road need Rafi *and* Noorul.
+Noorul is also the finance manager for both branches, so paid leave, LOP,
+Extra OT and paid late / early-leaving permissions from Mount Road need Rafi
+*and* Noorul.
 """
 from __future__ import annotations
 
@@ -137,12 +138,36 @@ def test_extra_ot_goes_to_the_branch_manager_and_the_finance_manager(repository)
 
 
 def test_a_permission_that_moves_no_money_needs_only_the_branch_manager(repository):
+    duty = request_permission(
+        PermissionRequest(attendance_date=date(2030, 10, 10), kind="official_duty", reason="Client visit"),
+        user=as_user(RAVI),
+    )["permission"]
+    assert Notifications.sent == ["rafi"]
+    decided = decide_permission(duty["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert decided["status"] == "approved"
+
+
+def test_a_paid_late_permission_needs_the_branch_manager_and_noorul(repository):
+    # Late arrival is paid from the monthly three hours, so finance signs too.
     late = request_permission(
         PermissionRequest(attendance_date=date(2030, 10, 10), kind="late", requested_minutes=30, reason="Traffic"),
         user=as_user(RAVI),
     )["permission"]
-    assert Notifications.sent == ["rafi"]
-    decided = decide_permission(late["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert Notifications.sent == ["rafi", "noorul"]
+    first = decide_permission(late["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(RAFI))
+    assert first["status"] == "pending"
+    assert first["permission"]["awaiting_stages"] == ["finance"]
+    second = decide_permission(late["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(NOORUL))
+    assert second["status"] == "approved"
+
+
+def test_a_royapettah_early_leaving_permission_is_one_decision_by_noorul(repository):
+    early = request_permission(
+        PermissionRequest(attendance_date=date(2030, 10, 10), kind="early_exit", requested_minutes=60, reason="Doctor"),
+        user=as_user(SREYA),
+    )["permission"]
+    assert Notifications.sent == ["noorul"]
+    decided = decide_permission(early["id"], PermissionDecision(approved=True, reason="OK"), admin=as_user(NOORUL))
     assert decided["status"] == "approved"
 
 
@@ -222,8 +247,11 @@ def test_the_finance_manager_lists_money_requests_from_every_branch(repository):
     assert {(row["employee_id"], row["kind"]) for row in permissions} == {("sreya", "paid_leave"), ("ravi", "paid_leave")}
     ravi = next(row for row in permissions if row["employee_id"] == "ravi")
     assert ravi["employee_name"] == "Ravi" and ravi["can_decide"] is True
-    # A late permission from Mount Road is for Rafi alone.
-    assert list_permissions(2030, 10, employee_id=None, user=as_user(NOORUL))["items"] == []
+    # A late permission is paid from the monthly three hours, so Noorul signs
+    # Mount Road's too.
+    late = list_permissions(2030, 10, employee_id=None, user=as_user(NOORUL))["items"]
+    assert [(row["employee_id"], row["kind"]) for row in late] == [("ravi", "late")]
+    assert late[0]["can_decide"] is True
     assert [row["employee_id"] for row in list_extra_ot(2026, 9, employee_id=None, user=as_user(NOORUL))["items"]] == ["ravi"]
 
 

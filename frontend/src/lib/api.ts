@@ -420,8 +420,14 @@ export interface AttendanceDay {
   uncovered_minutes?: number;
   grace_minutes_applied?: number;
   approved_permission_minutes?: number;
+  /** The monthly three-hour paid permission (approved late / early time). */
+  permission_minutes_allowed?: number;
   permission_minutes_used?: number;
   permission_minutes_remaining?: number;
+  /** The automatic 60-minute grace for late / early time without permission. */
+  grace_minutes_allowed?: number;
+  grace_minutes_used?: number;
+  grace_minutes_remaining?: number;
   permission_occasions_used?: number;
   permission_warning?: boolean;
   permission_exhausted?: boolean;
@@ -432,7 +438,19 @@ export interface AttendanceMonth {
   year: number;
   month: number;
   days: AttendanceDay[];
-  totals: { paid_permission_minutes: number; approved_permission_minutes?: number; grace_minutes?: number; unpaid_minutes: number; permission_occasions: number };
+  totals: {
+    paid_permission_minutes: number;
+    approved_permission_minutes?: number;
+    grace_minutes?: number;
+    unpaid_minutes: number;
+    permission_occasions: number;
+    /** Paid permission a month: 180 min from November 2026. */
+    permission_allowance_minutes?: number;
+    grace_allowance_minutes?: number;
+    /** Months before November 2026: one 60-minute balance, two occasions. */
+    shared_allowance?: boolean;
+    permission_occasion_limit?: number | null;
+  };
   salary_preview?: { label: "PROVISIONAL"; attendance_lop: number };
 }
 
@@ -784,6 +802,11 @@ export interface PayrollRow {
   unpaid_minutes_before_ot: number;
   late_unpaid_minutes: number;
   grace_minutes: number;
+  /** Late / early time paid from the monthly three-hour permission. */
+  permission_minutes?: number;
+  /** 180 from November 2026; 0 for earlier months (one shared 60-minute grace). */
+  permission_allowance_minutes?: number;
+  grace_allowance_minutes?: number;
   paid_leave_days: number;
   calendar_days: number;
   required_working_days: number;
@@ -798,6 +821,7 @@ export interface PayrollMonth {
   month: number;
   basis: "required_working_days";
   grace_allowance_minutes: number;
+  permission_allowance_minutes?: number;
   paid_leave_allowance_days: number;
   items: PayrollRow[];
   branch?: string | null;

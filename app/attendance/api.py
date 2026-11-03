@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api.routes import current_user, require_admin, require_service_key, users
-from app.attendance.engine import calculate_month, local_day, lop_amount
+from app.attendance.engine import calculate_month, local_day, lop_amount, policy_for_month
 from app.attendance.models import AdjustmentRequest, CalendarDayRequest, CoverNomination, CoverResponse, DutyPlanRequest, ExtraOTDecision, ExtraOTRequest, PermissionDecision, PermissionRequest, PunchRequest, ShiftAssignmentRequest, WeeklyOffRequest
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import LEAVE_KINDS, WEEKDAYS, AttendanceError, AttendanceService
@@ -450,6 +450,7 @@ def attendance_month(
         daily = [attendance.day(employee, date(year, month, number)) for number in range(first, end + 1)]
     days = calculate_month(daily)
     unpaid_total = sum(row["unpaid_minutes"] for row in days)
+    allowance = policy_for_month(date(year, month, 1))
     result = {
         "employee_id": employee,
         "year": year,
@@ -461,6 +462,14 @@ def attendance_month(
             "grace_minutes": sum(row.get("grace_minutes_applied", 0) for row in days),
             "unpaid_minutes": unpaid_total,
             "permission_occasions": days[-1]["permission_occasions_used"] if days else 0,
+            # The month's two balances: three hours of approved paid permission
+            # and 60 minutes of automatic grace (one shared 60 before Nov 2026).
+            "permission_allowance_minutes": (
+                allowance.monthly_grace_minutes if allowance.shared_pool else allowance.monthly_permission_minutes
+            ),
+            "grace_allowance_minutes": allowance.monthly_grace_minutes,
+            "shared_allowance": allowance.shared_pool,
+            "permission_occasion_limit": allowance.monthly_paid_occasions,
         },
     }
     if (wage_basis is None) != (scheduled_payable_minutes is None):
@@ -639,7 +648,7 @@ def _ask_cover(permission: dict) -> None:
             title="Leave cover request",
             message=(
                 f"{name} is on leave on {permission['attendance_date']} and asked you to "
-                "handle their work that day. Accept or decline in Attendance."
+                "handle their work that day. Open Attendance to accept or reject."
             ),
         )
     except Exception as exc:  # noqa: BLE001

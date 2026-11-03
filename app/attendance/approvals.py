@@ -2,7 +2,8 @@
 
 Most requests need one decision: the requester's branch manager, or the
 administrators for a manager's own request. Requests that move money — paid
-leave, LOP (unpaid leave) and Extra OT — also need the finance manager. Both
+leave, LOP (unpaid leave), Extra OT and the paid late-arrival / early-leaving
+permissions (the monthly three hours) — also need the finance manager. Both
 stages must approve before the request takes effect; a rejection at either
 stage rejects it outright.
 
@@ -22,7 +23,8 @@ MANAGER_STAGE = "manager"
 FINANCE_STAGE = "finance"
 
 #: Permission kinds that change pay, and so need the finance manager too.
-FINANCE_PERMISSION_KINDS = frozenset({"paid_leave", "unpaid_leave"})
+#: `late` and `early_exit` are paid from the monthly three-hour permission.
+FINANCE_PERMISSION_KINDS = frozenset({"paid_leave", "unpaid_leave", "late", "early_exit"})
 
 PERMISSION = "permission"
 EXTRA_OT = "extra_ot"

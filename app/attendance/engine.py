@@ -17,15 +17,53 @@ IST = ZoneInfo("Asia/Kolkata")
 
 @dataclass(frozen=True)
 class AttendancePolicy:
-    # Shared automatically across late arrivals and early departures each month.
-    monthly_paid_minutes: int = 60
-    monthly_paid_occasions: int = 2
-    warning_minutes: int = 45
+    """The monthly allowances that keep late and early time off the payslip.
+
+    Two separate balances, both reset on the 1st:
+
+    * **Grace** (`monthly_grace_minutes`, 60) is automatic. Arriving late or
+      leaving early without a permission is forgiven day by day, oldest first,
+      until it runs out.
+    * **Paid permission** (`monthly_permission_minutes`, 180 — three hours) is
+      asked for in advance as a late-arrival or early-leaving permission and
+      approved by the finance manager (Noorul). Approved time is paid from this
+      balance and never touches the grace.
+
+    Approved time beyond the three hours is ordinary late/early time again, so
+    any grace left may still forgive it.
+
+    `shared_pool` is the rule before November 2026: one 60-minute balance that
+    approved permissions (at most two a month) and the grace both drew from.
+    Payroll is recalculated on every read, so earlier months keep that rule.
+    """
+
+    monthly_grace_minutes: int = 60
+    monthly_permission_minutes: int = 180
+    #: Approved permissions paid per month; None means only the minutes limit.
+    monthly_paid_occasions: int | None = None
+    shared_pool: bool = False
+    #: `permission_warning` turns on once this much paid permission is used.
+    warning_minutes: int = 150
     missing_punch_deadline_days: int = 2
     timezone_name: str = "Asia/Kolkata"
     # Flexible hours: presence counts from this long before the shift start
     # until this long after its end — 09:00 to 20:00 on the default shift.
     flex_minutes: int = 60
+
+
+#: The first month with the separate three-hour paid permission.
+PAID_PERMISSION_START = date(2026, 11, 1)
+
+#: Before `PAID_PERMISSION_START`: one shared 60-minute balance, two occasions.
+SHARED_POOL_POLICY = AttendancePolicy(
+    monthly_grace_minutes=60, monthly_permission_minutes=60,
+    monthly_paid_occasions=2, shared_pool=True, warning_minutes=45,
+)
+
+
+def policy_for_month(day: date) -> AttendancePolicy:
+    """The allowance rule in force for the month containing ``day``."""
+    return SHARED_POOL_POLICY if day < PAID_PERMISSION_START else AttendancePolicy()
 
 
 def as_utc(value: datetime) -> datetime:
@@ -273,12 +311,19 @@ def calculate_day(
 
 
 def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None) -> list[dict]:
-    """Allocate the monthly 60-minute grace balance chronologically."""
-    policy = policy or AttendancePolicy()
-    remaining = policy.monthly_paid_minutes
+    """Allocate the month's paid-permission and grace balances chronologically.
+
+    Without an explicit ``policy`` the rule in force for the month is used
+    (`policy_for_month`).
+    """
+    ordered = sorted(days, key=lambda row: row["date"])
+    if policy is None:
+        policy = policy_for_month(ordered[0]["date"]) if ordered else AttendancePolicy()
+    grace_left = policy.monthly_grace_minutes
+    permission_left = grace_left if policy.shared_pool else policy.monthly_permission_minutes
     occasions = 0
     results: list[dict] = []
-    for raw in sorted(days, key=lambda row: row["date"]):
+    for raw in ordered:
         row = dict(raw)
         eligible = max(0, int(row.pop("approved_actual_minutes", 0)))
         occurrence_minutes = [max(0, int(value)) for value in row.pop("approved_occurrence_minutes", [])]
@@ -289,14 +334,17 @@ def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None
         for occurrence in occurrence_minutes:
             if not occurrence:
                 continue
-            if occasions < policy.monthly_paid_occasions or emergency:
-                applied = min(occurrence, remaining)
+            limit = policy.monthly_paid_occasions
+            if limit is None or occasions < limit or emergency:
+                applied = min(occurrence, permission_left)
                 paid += applied
             else:
                 applied = 0
             if applied:
                 occasions += 1
-                remaining -= applied
+                permission_left -= applied
+                if policy.shared_pool:
+                    grace_left = permission_left
         excess = eligible - paid
         # A full-day charge (unpaid leave, an expired missing punch) is final
         # and arrives here already priced; `uncovered_minutes` is the part-day
@@ -309,22 +357,36 @@ def calculate_month(days: Iterable[dict], policy: AttendancePolicy | None = None
         # is still honoured for rows built by older callers.
         raw_uncovered = row["uncovered_minutes"] if "uncovered_minutes" in row else row.get("unapproved_minutes", 0)
         uncovered = max(0, int(raw_uncovered))
-        automatic_grace = min(uncovered, remaining)
-        remaining -= automatic_grace
+        # Grace forgives late/early time no permission paid for: the uncovered
+        # shortfall and, with separate balances, approved time beyond the three
+        # hours. Under the old shared balance an unpaid excess means the one
+        # balance (or its two occasions) is spent, so grace never reached it.
+        graceable = uncovered if policy.shared_pool else uncovered + excess
+        automatic_grace = min(graceable, grace_left)
+        grace_left -= automatic_grace
+        if policy.shared_pool:
+            permission_left = grace_left
         row["grace_minutes_applied"] = automatic_grace
         row["approved_permission_minutes"] = paid
         row["paid_permission_minutes"] = paid + automatic_grace
         row["uncovered_minutes"] = uncovered
-        row["unpaid_minutes"] = fixed_unpaid + uncovered - automatic_grace + excess
+        row["unpaid_minutes"] = fixed_unpaid + uncovered + excess - automatic_grace
         # The part-day share of that charge: arriving late, leaving early, or a
         # permission beyond the monthly allowance. Payroll lets approved
         # overtime cancel this share, never a whole missing day.
-        row["late_unpaid_minutes"] = uncovered - automatic_grace + excess
+        row["late_unpaid_minutes"] = uncovered + excess - automatic_grace
+        permission_total = policy.monthly_grace_minutes if policy.shared_pool else policy.monthly_permission_minutes
         row["permission_occasions_used"] = occasions
-        row["permission_minutes_used"] = policy.monthly_paid_minutes - remaining
-        row["permission_minutes_remaining"] = remaining
+        row["permission_minutes_allowed"] = permission_total
+        row["permission_minutes_used"] = permission_total - permission_left
+        row["permission_minutes_remaining"] = permission_left
+        row["grace_minutes_allowed"] = policy.monthly_grace_minutes
+        row["grace_minutes_used"] = policy.monthly_grace_minutes - grace_left
+        row["grace_minutes_remaining"] = grace_left
         row["permission_warning"] = row["permission_minutes_used"] >= policy.warning_minutes
-        row["permission_exhausted"] = remaining == 0 or occasions >= policy.monthly_paid_occasions
+        row["permission_exhausted"] = permission_left == 0 or (
+            policy.monthly_paid_occasions is not None and occasions >= policy.monthly_paid_occasions
+        )
         if paid:
             row["status"] = AttendanceStatus.PAID_PERMISSION.value
         results.append(row)

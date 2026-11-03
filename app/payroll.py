@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from pymongo import ASCENDING, DESCENDING
 
 from app.api.routes import current_user, users
-from app.attendance.engine import IST, calculate_month, local_day, lop_amount
+from app.attendance.engine import IST, calculate_month, local_day, lop_amount, policy_for_month
 from app.attendance.repository import AttendanceRepository
 from app.attendance.service import AttendanceService
 from app.config import settings
@@ -142,6 +142,9 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
     unpaid_before_ot = sum(int(day.get("unpaid_minutes", 0)) for day in days)
     late_unpaid_minutes = sum(int(day.get("late_unpaid_minutes", 0)) for day in days)
     grace_minutes = sum(int(day.get("grace_minutes_applied", 0)) for day in days)
+    # Late / early time paid from the monthly three-hour permission.
+    permission_minutes = sum(int(day.get("approved_permission_minutes", 0)) for day in days)
+    allowance = policy_for_month(date(year, month, 1))
     paid_leave_days = sum(day.get("status") == "PL" for day in days)
     monthly_salary = float(policy.get("monthly_salary", 0) or 0)
     scheduled_minutes = max(1, required_working_days * DEFAULT_SHIFT_MINUTES)
@@ -199,6 +202,9 @@ def _employee_row(employee, year: int, month: int, attendance_repo, attendance, 
         "unpaid_minutes_before_ot": unpaid_before_ot,
         "late_unpaid_minutes": late_unpaid_minutes - ot_offset_minutes,
         "grace_minutes": grace_minutes,
+        "permission_minutes": permission_minutes,
+        "permission_allowance_minutes": 0 if allowance.shared_pool else allowance.monthly_permission_minutes,
+        "grace_allowance_minutes": allowance.monthly_grace_minutes,
         "paid_leave_days": paid_leave_days,
         "present_days": sum(day.get("status") in PRESENT_STATUSES for day in days),
         "absent_days": sum(day.get("status") in {"A", "UL"} for day in days),
@@ -252,11 +258,15 @@ def payroll_month(year: int, month: int, branch: str | None = Query(default=None
         if wanted is not None and branch_of(employee).casefold() != wanted:
             continue
         rows.append(_employee_row(employee, year, month, attendance_repo, attendance, runs))
+    allowance = policy_for_month(date(year, month, 1))
     return {
         "year": year,
         "month": month,
         "basis": "required_working_days",
-        "grace_allowance_minutes": 60,
+        "grace_allowance_minutes": allowance.monthly_grace_minutes,
+        # Approved late / early permission paid each month (three hours from
+        # November 2026; before that it shared the 60-minute grace).
+        "permission_allowance_minutes": 0 if allowance.shared_pool else allowance.monthly_permission_minutes,
         "paid_leave_allowance_days": 1,
         "items": rows,
         "branch": branch,

@@ -475,7 +475,10 @@ function PayrollBreakdown({ row }: { row: PayrollRow }) {
           <>
             <Metric label="Working days" value={`${row.required_working_days} / ${row.calendar_days}`} />
             <Metric label="Paid leave" value={`${row.paid_leave_days} / 1 day`} />
-            <Metric label="Grace used" value={`${row.grace_minutes} / 60 min`} />
+            {(row.permission_allowance_minutes ?? 0) > 0 && (
+              <Metric label="Paid permission" value={`${row.permission_minutes ?? 0} / ${row.permission_allowance_minutes} min`} />
+            )}
+            <Metric label="Grace used" value={`${row.grace_minutes} / ${row.grace_allowance_minutes ?? 60} min`} />
           </>
         )}
       </div>

@@ -112,6 +112,28 @@ const PERMISSION_KIND: Record<AttendancePermission["kind"], string> = {
 const TIMED_KINDS: AttendancePermission["kind"][] = ["late", "early_exit", "early_check_in"];
 /** Whole-day leave, which may name a colleague to cover the day's work. */
 const LEAVE_KINDS: AttendancePermission["kind"][] = ["paid_leave", "unpaid_leave"];
+/** Late arrival / early leaving, paid from the monthly three-hour permission. */
+const PAID_PERMISSION_KINDS: AttendancePermission["kind"][] = ["late", "early_exit"];
+/** Requests that change pay, so the finance manager signs them as well. */
+const MONEY_KINDS: AttendancePermission["kind"][] = [...LEAVE_KINDS, ...PAID_PERMISSION_KINDS];
+
+/**
+ * The month's two balances, as the server reports them. From November 2026:
+ * three hours of approved paid permission plus a separate 60-minute automatic
+ * grace. Earlier months had one shared 60-minute balance and two occasions.
+ */
+function allowanceOf(month?: AttendanceMonth | null) {
+  const totals = month?.totals;
+  return {
+    shared: totals?.shared_allowance ?? false,
+    permissionAllowed: totals?.permission_allowance_minutes ?? 180,
+    permissionUsed: totals?.approved_permission_minutes ?? 0,
+    graceAllowed: totals?.grace_allowance_minutes ?? 60,
+    graceUsed: totals?.grace_minutes ?? 0,
+    sharedUsed: totals?.paid_permission_minutes ?? 0,
+    occasions: totals?.permission_occasions ?? 0,
+  };
+}
 
 const COVER_STATUS: Record<string, string> = {
   requested: "Waiting for reply",
@@ -419,7 +441,12 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     setBusy(true);
     try {
       await respondToCoverRequest(permission.id, accepted);
-      onToast(accepted ? `You will cover ${permission.employee_name || "your colleague"}'s work` : "Cover request declined", accepted ? "success" : "info");
+      onToast(
+        accepted
+          ? `Accepted. You will cover ${permission.employee_name || "your colleague"}'s work; the leave now goes for approval.`
+          : `Rejected. ${permission.employee_name || "Your colleague"} has been told to choose someone else.`,
+        accepted ? "success" : "info",
+      );
       await loadCoverRequests();
     } catch (error) {
       onToast(error instanceof Error ? error.message : "Could not answer the cover request", "error");
@@ -485,7 +512,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
       });
       setReason("");
       setCoverId("");
-      const approver = approversFor(LEAVE_KINDS.includes(kind));
+      const approver = approversFor(MONEY_KINDS.includes(kind));
       onToast(
         needsCover
           ? `Sent to ${coverName || "your colleague"} first. It goes to ${approver} once they accept.`
@@ -674,7 +701,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     summary: monthSummary(adminMonths[person.id]),
     permissions: permissions.filter((permission) => permission.employee_id === person.id),
   }));
-  const permissionUsed = visibleMonth?.totals.paid_permission_minutes ?? 0;
+  const allowance = allowanceOf(visibleMonth);
   const currentDay = visibleMonth?.days.find((row) => row.date === today) ?? day;
 
   const openEmployeeDetails = (selectedEmployeeId: string) => {
@@ -682,19 +709,27 @@ export default function AttendanceScreen({ user, onToast }: Props) {
     setTab("employee");
   };
 
+  // Leave days a colleague asked this user to cover that still need an answer.
+  const openCoverRequests = coverRequests.filter(
+    (request) => request.cover_status === "requested" && request.status === "awaiting_cover",
+  );
+  const coverTab: PageTab[] = coverRequests.length > 0
+    ? [{ id: "cover", label: "Cover requests", icon: <Users size={15} />, count: openCoverRequests.length || coverRequests.length, alert: openCoverRequests.length > 0 }]
+    : [];
   const tabs: PageTab[] = isTeamView
     ? [
       { id: "overview", label: "Team overview", icon: <Users size={15} /> },
       { id: "approvals", label: "Approvals", icon: <ShieldCheck size={15} />, count: pendingCount + pendingOt, alert: pendingCount + pendingOt > 0 },
+      ...coverTab,
       { id: "employee", label: "Employee record", icon: <CalendarDays size={15} /> },
       { id: "roster", label: "Duty roster", icon: <ClipboardList size={15} />, count: dutyPlans.length || undefined },
     ]
     : [
       { id: "overview", label: "Overview", icon: <LayoutGrid size={15} /> },
+      ...coverTab,
       { id: "request", label: "New request", icon: <Send size={15} /> },
       { id: "history", label: "My requests", icon: <History size={15} />, count: (permissions.length + extraOt.length) || undefined },
       ...(user.role !== "admin" ? [{ id: "weekly", label: "Weekly off", icon: <CalendarDays size={15} /> }] : []),
-      ...(coverRequests.length > 0 ? [{ id: "cover", label: "Cover requests", icon: <Users size={15} />, count: coverRequests.length, alert: coverRequests.some((request) => request.cover_status === "requested") }] : []),
     ];
   const activeTab = tabs.some((item) => item.id === tab) ? tab : "overview";
   const selectedUnpaid = visibleMonth?.totals.unpaid_minutes ?? 0;
@@ -745,9 +780,17 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           <Stat label="Attendance" value={`${summary.percentage}%`} note={`${summary.attended} of ${summary.scheduled} working days`} icon={<Percent size={16} />} />
           <Stat label="Today" value={statusLabel(currentDay)} note={today} icon={<CalendarDays size={16} />} />
           <Stat label="Check in" value={timeOf(currentDay?.check_in)} note="Server-recorded time" icon={<LogIn size={16} />} />
-          <Stat label="Permission used" value={`${permissionUsed} / 60 min`} note={`${month?.totals.permission_occasions ?? 0} of 2 occasions`} icon={<ShieldCheck size={16} />} />
+          {allowance.shared ? (
+            <Stat label="Permission used" value={`${allowance.sharedUsed} / ${allowance.graceAllowed} min`} note={`${allowance.occasions} of 2 occasions`} icon={<ShieldCheck size={16} />} />
+          ) : (
+            <Stat label="Paid permission" value={`${allowance.permissionUsed} / ${allowance.permissionAllowed} min`} note={`Grace ${allowance.graceUsed} / ${allowance.graceAllowed} min used`} icon={<ShieldCheck size={16} />} />
+          )}
           <Stat label="Unpaid" value={durationLabel(month?.totals.unpaid_minutes ?? 0)} note="Actual absence time only" icon={<WalletCards size={16} />} />
         </div>
+      )}
+
+      {openCoverRequests.length > 0 && activeTab !== "cover" && (
+        <CoverPrompt requests={openCoverRequests} busy={busy} onAnswer={answerCover} />
       )}
 
       <PageTabs tabs={tabs} active={activeTab} onChange={setTab} label="Attendance sections" />
@@ -915,7 +958,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                 <div>
                   <h2 className="ds-panel-title">{requestType === "permission" ? "Request permission" : "Request extra OT"}</h2>
                   <p className="ds-panel-sub">
-                    Goes to {approversFor(requestType === "ot" || LEAVE_KINDS.includes(kind))} for approval.
+                    Goes to {approversFor(requestType === "ot" || MONEY_KINDS.includes(kind))} for approval.
                   </p>
                 </div>
                 <div className="scope-switch" role="group" aria-label="Request type">
@@ -929,6 +972,14 @@ export default function AttendanceScreen({ user, onToast }: Props) {
                   <label>Date<DatePicker value={permissionDate} onChange={setPermissionDate} ariaLabel="Permission date" clearable={false} /></label>
                   <label>Type<Select value={kind} onChange={(value) => setKind(value as AttendancePermission["kind"])} ariaLabel="Permission type" options={Object.entries(PERMISSION_KIND).map(([value, label]) => ({ value, label: value === "paid_leave" ? "Paid leave / holiday" : label }))} /></label>
                   {TIMED_KINDS.includes(kind) && <label>{kind === "early_check_in" ? "Minutes early" : "Minutes"}<input type="number" min="1" max="1440" value={minutes} onChange={(event) => setMinutes(event.target.value)} /></label>}
+                  {PAID_PERMISSION_KINDS.includes(kind) && !allowance.shared && (
+                    <p className="attendance-form-note">
+                      Paid permission: up to {allowance.permissionAllowed / 60} hours a month, approved by{" "}
+                      {approversFor(true)}. You have used {allowance.permissionUsed} of{" "}
+                      {allowance.permissionAllowed} min this month. Late or early time without an approved
+                      permission uses your separate {allowance.graceAllowed}-minute grace first, then is deducted.
+                    </p>
+                  )}
                   {BEFORE_SHIFT_KINDS.includes(kind) && (
                     <p className="attendance-form-note">
                       {kind === "early_check_in"
@@ -981,7 +1032,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
               <h2 className="ds-panel-title">How it works</h2>
               <ul>
                 <li><Clock3 size={15} /><span><strong>8 payable hours</strong>{day?.shift_start && day?.shift_end ? `${timeOf(day.shift_start)}–${timeOf(day.shift_end)}` : "10:00 AM–7:00 PM"} with a one-hour break</span></li>
-                <li><ShieldCheck size={15} /><span><strong>60 min permission</strong>Up to 2 occasions a month, paid</span></li>
+                <li><ShieldCheck size={15} /><span><strong>3 hours paid permission</strong>Late arrival or early leaving, asked in advance and approved by the finance manager</span></li>
+                <li><Clock3 size={15} /><span><strong>60 min grace</strong>Automatic, for late or early time without a permission</span></li>
                 <li><CalendarDays size={15} /><span><strong>1 paid leave</strong>Per month</span></li>
                 <li><Timer size={15} /><span><strong>Extra OT</strong>Not paid; approved OT offsets late time</span></li>
                 <li><WalletCards size={15} /><span><strong>Deductions</strong>Uncovered time is deducted by the minute</span></li>
@@ -1056,7 +1108,7 @@ export default function AttendanceScreen({ user, onToast }: Props) {
           </section>
         )}
 
-        {!isTeamView && activeTab === "cover" && (
+        {activeTab === "cover" && (
           <CoverRequestsSection requests={coverRequests} busy={busy} onAnswer={answerCover} />
         )}
       </div>
@@ -1093,11 +1145,22 @@ function PageTabs({ tabs, active, onChange, label }: { tabs: PageTab[]; active: 
   );
 }
 
+/** Which balance paid for a day's late / early time. */
+function paidNote(row: AttendanceDay): string {
+  const permission = row.approved_permission_minutes ?? 0;
+  const grace = row.grace_minutes_applied ?? 0;
+  if (permission && grace) return `${permission} min permission + ${grace} min grace`;
+  if (permission) return "Approved paid permission";
+  if (grace) return "Automatic grace";
+  return "Permission or grace";
+}
+
 function PolicyStrip() {
   return (
     <div className="attendance-policy-strip" aria-label="Attendance policy summary">
       <span><Clock3 size={15} /><strong>8 hours</strong> payable work + 1-hour break</span>
       <span><CalendarDays size={15} /><strong>1 day</strong> paid leave</span>
+      <span><Timer size={15} /><strong>3 hours</strong> paid permission + <strong>60 min</strong> grace a month</span>
       <span><ShieldCheck size={15} />Sunday weekly off, or Friday if chosen by Thursday</span>
       <span><WalletCards size={15} />Extra time deducted by minute</span>
     </div>
@@ -1106,6 +1169,46 @@ function PolicyStrip() {
 
 function Stat({ label, value, note, icon }: { label: string; value: string; note: string; icon: ReactNode }) {
   return <div className="ds-stat is-static"><span className="ds-stat-top"><span className="ds-stat-label">{label}</span>{icon}</span><span className="ds-stat-value">{value}</span><span className="ds-stat-foot">{note}</span></div>;
+}
+
+/**
+ * Leave cover requests still waiting for this user's answer, shown at the top
+ * of Attendance in every view so the Accept / Reject buttons are the first
+ * thing the colleague sees after the "Leave cover request" notification.
+ */
+function CoverPrompt({ requests, busy, onAnswer }: {
+  requests: AttendancePermission[];
+  busy: boolean;
+  onAnswer: (permission: AttendancePermission, accepted: boolean) => Promise<void>;
+}) {
+  return (
+    <section className="ds-panel attendance-cover-prompt" aria-label="Leave cover requests waiting for your answer">
+      <div className="ds-panel-head">
+        <div>
+          <h2 className="ds-panel-title">
+            {requests.length === 1 ? "A colleague asked you to cover their leave" : `${requests.length} colleagues asked you to cover their leave`}
+          </h2>
+          <p className="ds-panel-sub">
+            Accept to take over their work that day; the leave then goes for approval. If you reject, they are told to choose someone else.
+          </p>
+        </div>
+      </div>
+      <ul className="attendance-cover-prompt-list">
+        {requests.map((request) => (
+          <li key={request.id}>
+            <span>
+              <strong>{request.employee_name || request.employee_id}</strong>
+              <small>{PERMISSION_KIND[request.kind]} on {request.attendance_date}{request.reason ? ` · ${request.reason}` : ""}</small>
+            </span>
+            <div className="attendance-decision-actions">
+              <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onAnswer(request, true)}><CheckCircle2 size={15} /> Accept</button>
+              <button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onAnswer(request, false)}><XCircle size={15} /> Reject</button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /** Leave days colleagues have asked this user to cover. */
@@ -1140,8 +1243,8 @@ function CoverRequestsSection({ requests, busy, onAnswer }: {
             <td className="is-actions">
               {request.cover_status === "requested" && request.status === "awaiting_cover" ? (
                 <div className="attendance-decision-actions">
-                  <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onAnswer(request, true)}><CheckCircle2 size={15} /> I will cover</button>
-                  <button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onAnswer(request, false)}><XCircle size={15} /> Decline</button>
+                  <button type="button" className="attendance-approve-btn" disabled={busy} onClick={() => void onAnswer(request, true)}><CheckCircle2 size={15} /> Accept</button>
+                  <button type="button" className="attendance-reject-btn" disabled={busy} onClick={() => void onAnswer(request, false)}><XCircle size={15} /> Reject</button>
                 </div>
               ) : <span>—</span>}
             </td>
@@ -1221,7 +1324,7 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
             {ordered.map((permission) => {
               const employeeMonth = months[permission.employee_id];
               const leaveDays = employeeMonth?.days.filter((day) => day.status === "PL" || day.status === "UL").length ?? 0;
-              const permissionMinutes = employeeMonth?.totals.approved_permission_minutes ?? 0;
+              const employeeAllowance = allowanceOf(employeeMonth);
               return (
                 <article className={`attendance-request-card is-${permission.status}`} key={permission.id}>
                   <header>
@@ -1235,7 +1338,11 @@ function PermissionTable({ permissions, staff, admin, busy, onDecision, months, 
                   <div className="attendance-request-usage">
                     <div><span>Requested</span><strong>{permission.requested_minutes ? `${permission.requested_minutes} min` : "Full day"}</strong></div>
                     <div><span>Leave this month</span><strong>{leaveDays} day(s)</strong></div>
-                    <div><span>Hours approved</span><strong>{permissionMinutes} min</strong></div>
+                    {employeeAllowance.shared ? (
+                      <div><span>Hours approved</span><strong>{employeeAllowance.permissionUsed} min</strong></div>
+                    ) : (
+                      <div><span>Paid permission used</span><strong>{employeeAllowance.permissionUsed} / {employeeAllowance.permissionAllowed} min</strong></div>
+                    )}
                   </div>
                   {LEAVE_KINDS.includes(permission.kind) && (
                     <p className="attendance-decision-reason">
@@ -1508,7 +1615,7 @@ function MonthTable({ month, title, sectionId }: { month: AttendanceMonth | null
                 fully covered — including one where a late start was made up by
                 a late finish. It is stated rather than left blank. */}
             <td><strong className={uncovered ? "attendance-unpaid" : "attendance-no-impact"}>{uncovered ? durationLabel(uncovered) : "0 min"}</strong><small className="attendance-cell-note">{uncovered ? "Short of the required duty" : "Requirement met"}</small></td>
-            <td><strong>{durationLabel(row.paid_permission_minutes ?? 0)}</strong><small className="attendance-cell-note">Grace or approved permission</small></td>
+            <td><strong>{durationLabel(row.paid_permission_minutes ?? 0)}</strong><small className="attendance-cell-note">{paidNote(row)}</small></td>
             <td><strong className={unpaid ? "attendance-unpaid" : "attendance-no-impact"}>{unpaid ? durationLabel(unpaid) : "No deduction"}</strong><small className="attendance-cell-note">{unpaid ? (fullDayAbsence ? "Full-day absence" : "Uncovered shift time") : "Fully covered"}</small></td>
           </tr>;
         })}
