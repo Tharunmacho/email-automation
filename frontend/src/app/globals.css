@@ -19147,6 +19147,32 @@ a.um-phone:hover {
   color: var(--primary);
 }
 
+.sh-table-destinations {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.sh-table-destinations svg {
+  flex: none;
+}
+
+.sh-table-destinations.is-unset,
+.sh-field-hint.is-warn {
+  color: var(--warning);
+}
+
+.sh-field-hint {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-light);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
 .sh-table-office {
   display: -webkit-box;
   overflow: hidden;

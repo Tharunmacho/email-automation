@@ -994,6 +994,12 @@ export interface SourcingClientRecord {
   address?: string;
   country?: string;
   /**
+   * Agents only: the countries they recruit for. A new job order is sent on
+   * WhatsApp only to agents who list its destination country (or "Any
+   * country"); an agent with none listed is sent nothing.
+   */
+  destinationCountries?: string[];
+  /**
    * All known contacts, with the primary contact first. The three top-level
    * contact fields above mirror that first entry for older API consumers.
    */

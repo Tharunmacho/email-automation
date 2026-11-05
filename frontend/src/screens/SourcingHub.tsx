@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import Select from "@/components/ui/Select";
+import MultiSelect from "@/components/ui/MultiSelect";
 import Combobox from "@/components/ui/Combobox";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
@@ -199,6 +200,13 @@ function contactsOf(record: SourcingRecord): SourcingContact[] {
   }];
 }
 
+/** An agent's job destination countries, tolerating a record that stored one as text. */
+function destinationCountriesOf(record: SourcingRecord): string[] {
+  const raw = record.destinationCountries as unknown;
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  return list.map((item) => String(item ?? "").trim()).filter(Boolean);
+}
+
 function toneOf(engagement: Engagement | undefined): ClientTone {
   if (!engagement || engagement.orders === 0) return "idle";
   if (engagement.live > 0) return "live";
@@ -239,6 +247,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [newIndustryOrCategory, setNewIndustryOrCategory] = useState("");
   const [newRegNo, setNewRegNo] = useState("");
   const [newCountry, setNewCountry] = useState("");
+  /** Agents only: which job orders they are sent, by destination country. */
+  const [newDestinationCountries, setNewDestinationCountries] = useState<string[]>([]);
   const [newContacts, setNewContacts] = useState<SourcingContact[]>([{ ...EMPTY_CONTACT }]);
   const [newAddress, setNewAddress] = useState("");
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
@@ -331,6 +341,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewIndustryOrCategory("");
     setNewRegNo("");
     setNewCountry("");
+    setNewDestinationCountries([]);
     setNewContacts([{ ...EMPTY_CONTACT }]);
     setNewAddress("");
     setFormError("");
@@ -352,6 +363,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewIndustryOrCategory(item.industryOrCategory || "");
     setNewRegNo(item.regNo || "");
     setNewCountry(item.country || "");
+    setNewDestinationCountries(destinationCountriesOf(item));
     setNewContacts(contactsOf(item).map((contact) => ({
       name: contact.name,
       phone: hasValue(contact.phone) ? contact.phone : "",
@@ -419,6 +431,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         rec.id.toLowerCase().includes(q) ||
         (rec.regNo || "").toLowerCase().includes(q) ||
         (rec.country || "").toLowerCase().includes(q) ||
+        destinationCountriesOf(rec).some((country) => country.toLowerCase().includes(q)) ||
         (rec.address || "").toLowerCase().includes(q) ||
         (rec.industryOrCategory || "").toLowerCase().includes(q)
       );
@@ -532,6 +545,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         industryOrCategory: newIndustryOrCategory.trim(),
         regNo: newRegNo.trim(),
         country: newCountry.trim(),
+        // Only agents are sent job orders; any other type drops the list.
+        destinationCountries: newType === "agent" ? newDestinationCountries : undefined,
         address: newAddress.trim(),
       };
 
@@ -562,6 +577,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         industryOrCategory: newIndustryOrCategory.trim(),
         regNo: newRegNo.trim(),
         country: newCountry.trim(),
+        destinationCountries: newType === "agent" ? newDestinationCountries : undefined,
         address: newAddress.trim(),
       };
 
@@ -660,6 +676,12 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     "India",
     ...countryOptions,
   ]));
+  // Where an agent sends people: the destination register, plus anything the
+  // record already lists that has since been retired from it.
+  const destinationOptions = Array.from(new Set([
+    ...countryOptions,
+    ...newDestinationCountries,
+  ])).map((value) => ({ value, label: value }));
 
   // ---- pieces ------------------------------------------------------------ //
 
@@ -729,6 +751,20 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           <span className="sh-table-office-cell">
             {item.country && (
               <strong className="sh-table-country"><Globe2 size={12} />{item.country}</strong>
+            )}
+            {item.type === "agent" && (
+              destinationCountriesOf(item).length ? (
+                <small className="sh-table-destinations" title={destinationCountriesOf(item).join(", ")}>
+                  <Briefcase size={11} /> Jobs: {destinationCountriesOf(item).join(", ")}
+                </small>
+              ) : (
+                <small
+                  className="sh-table-destinations is-unset"
+                  title="This agent is sent no job orders until countries are chosen"
+                >
+                  <AlertTriangle size={11} /> No job countries
+                </small>
+              )
             )}
             <span className="sh-table-office" title={item.address || undefined}>
               {item.address || "Not provided"}
@@ -1136,6 +1172,27 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                     />
                   </div>
                 </div>
+
+                {newType === "agent" && (
+                  <div className="sh-field">
+                    <label className="modal-label" htmlFor="sh-destinations">
+                      Job destination countries
+                    </label>
+                    <MultiSelect
+                      id="sh-destinations"
+                      values={newDestinationCountries}
+                      options={destinationOptions}
+                      onChange={setNewDestinationCountries}
+                      placeholder="Select one or more countries"
+                      ariaLabel="Job destination countries"
+                    />
+                    <small className={`sh-field-hint${newDestinationCountries.length ? "" : " is-warn"}`}>
+                      {newDestinationCountries.length
+                        ? "Only new job orders for these countries are sent to this agent on WhatsApp."
+                        : "No countries chosen: this agent will not be sent any job orders. Choose \u201cAny country\u201d to send all."}
+                    </small>
+                  </div>
+                )}
 
                 <section className="sh-contacts" aria-labelledby="sh-contacts-title">
                   <div className="sh-contacts-head">

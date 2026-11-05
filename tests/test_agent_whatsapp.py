@@ -1,4 +1,4 @@
-"""New job orders go to the Sourcing Hub's active agents on WhatsApp, once.
+"""New job orders go to the Sourcing Hub's active agents for that country on WhatsApp, once.
 
 The CRM half: who is messaged, what travels to the bot, and that a job order is
 announced exactly once. The bot half (template, line, phone format) is tested
@@ -20,6 +20,7 @@ from app.agent_whatsapp import (
     BROADCAST_COLLECTION,
     agent_recipients,
     broadcast_job_order,
+    serves_country,
 )
 from app.config import settings
 
@@ -38,21 +39,34 @@ ORDER = {
 
 AGENTS = [
     {"id": "AGT-1", "name": "Gulf Manpower", "type": "agent", "status": "ACTIVE",
-     "contact": "Imran", "phone": "98765 43210",
+     "contact": "Imran", "phone": "98765 43210", "destinationCountries": ["Saudi Arabia", "Qatar"],
      "contacts": [{"name": "Imran", "phone": "98765 43210", "email": ""},
                   {"name": "Second", "phone": "91234 56789", "email": ""}]},
     # Older record: no `contacts`, only the top-level mirror.
     {"id": "AGT-2", "name": "Chennai Agency", "type": "agent", "status": "ACTIVE",
-     "contact": "", "phone": "+971 50 123 4567"},
+     "contact": "", "phone": "+971 50 123 4567", "destinationCountries": ["  saudi ARABIA "]},
     # Same number as AGT-1, written differently: one message, not two.
     {"id": "AGT-3", "name": "Duplicate", "type": "agent", "status": "ACTIVE",
-     "contact": "Imran", "phone": "+91-98765-43210"},
-    {"id": "AGT-4", "name": "Pending", "type": "agent", "status": "PENDING", "phone": "9000000001"},
-    {"id": "AGT-5", "name": "Inactive", "type": "agent", "status": "INACTIVE", "phone": "9000000002"},
-    {"id": "AGT-6", "name": "No phone", "type": "agent", "status": "ACTIVE", "phone": ""},
-    {"id": "CLI-1", "name": "A client", "type": "client", "status": "ACTIVE", "phone": "9000000003"},
+     "contact": "Imran", "phone": "+91-98765-43210", "destinationCountries": ["Saudi Arabia"]},
+    {"id": "AGT-4", "name": "Pending", "type": "agent", "status": "PENDING", "phone": "9000000001",
+     "destinationCountries": ["Saudi Arabia"]},
+    {"id": "AGT-5", "name": "Inactive", "type": "agent", "status": "INACTIVE", "phone": "9000000002",
+     "destinationCountries": ["Saudi Arabia"]},
+    {"id": "AGT-6", "name": "No phone", "type": "agent", "status": "ACTIVE", "phone": "",
+     "destinationCountries": ["Saudi Arabia"]},
+    # Recruits for other countries only.
+    {"id": "AGT-7", "name": "Europe Desk", "type": "agent", "status": "ACTIVE", "contact": "Elena",
+     "phone": "9000000005", "destinationCountries": ["Germany", "Europe"]},
+    # Has not chosen any countries yet: hears about nothing.
+    {"id": "AGT-8", "name": "Not set up", "type": "agent", "status": "ACTIVE", "contact": "New",
+     "phone": "9000000006"},
+    # Takes everything.
+    {"id": "AGT-9", "name": "Anywhere", "type": "agent", "status": "ACTIVE", "contact": "Any",
+     "phone": "9000000007", "destinationCountries": ["Any country"]},
+    {"id": "CLI-1", "name": "A client", "type": "client", "status": "ACTIVE", "phone": "9000000003",
+     "destinationCountries": ["Saudi Arabia"]},
     {"id": "ASC-1", "name": "An association", "type": "association", "status": "ACTIVE",
-     "phone": "9000000004"},
+     "phone": "9000000004", "destinationCountries": ["Saudi Arabia"]},
 ]
 
 
@@ -75,11 +89,40 @@ def _enabled():
 # --------------------------------------------------------------------------- #
 #  Who is messaged
 # --------------------------------------------------------------------------- #
-def test_only_active_agents_with_a_phone_are_picked_once_per_number(db):
-    assert agent_recipients(db) == [
+def test_only_active_agents_for_the_country_with_a_phone_are_picked_once_per_number(db):
+    assert agent_recipients(db, "Saudi Arabia") == [
         {"agent_id": "AGT-1", "agent_name": "Imran", "phone": "98765 43210"},
         {"agent_id": "AGT-2", "agent_name": "Chennai Agency", "phone": "+971 50 123 4567"},
+        {"agent_id": "AGT-9", "agent_name": "Any", "phone": "9000000007"},
     ]
+
+
+def test_an_order_reaches_only_the_agents_who_list_its_country(db):
+    ids = lambda country: [r["agent_id"] for r in agent_recipients(db, country)]  # noqa: E731
+    assert ids("Qatar") == ["AGT-1", "AGT-9"]
+    assert ids("germany") == ["AGT-7", "AGT-9"]
+    assert ids("Kuwait") == ["AGT-9"]
+    # No country on the order: only an "Any country" agent.
+    assert ids("") == ["AGT-9"]
+    # An order for "Any country" goes to every agent who has chosen countries,
+    # never to one who has chosen none.
+    assert ids("Any country") == ["AGT-1", "AGT-2", "AGT-7", "AGT-9"]
+
+
+@pytest.mark.parametrize("countries, order_country, expected", [
+    (set(), "Saudi Arabia", False),
+    (set(), "Any country", False),
+    ({"saudi arabia"}, "Saudi  Arabia", True),
+    ({"saudi arabia"}, "Qatar", False),
+    ({"any country"}, "", True),
+])
+def test_serves_country(countries, order_country, expected):
+    assert serves_country(countries, order_country) is expected
+
+
+def test_a_single_country_stored_as_text_still_matches(db):
+    db["sourcing_clients"].update_one({"id": "AGT-8"}, {"$set": {"destinationCountries": "Oman"}})
+    assert [r["agent_id"] for r in agent_recipients(db, "Oman")] == ["AGT-8", "AGT-9"]
 
 
 # --------------------------------------------------------------------------- #
@@ -103,7 +146,7 @@ def test_each_agent_gets_the_order_and_its_remarks_but_not_the_client(db):
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         result = broadcast_job_order(ORDER, database=db)
 
-    assert result == {"sent": 2, "recipients": 2, "failed_agent_ids": []}
+    assert result == {"sent": 3, "recipients": 3, "failed_agent_ids": []}
     paths = {call.args[0] for call in post.call_args_list}
     assert paths == {AGENT_JOB_ORDER_PATH}
     payloads = [call.args[1] for call in post.call_args_list]
@@ -181,7 +224,7 @@ def test_malformed_terms_are_sent_as_blanks_not_errors(db, terms):
     order = {**ORDER, "terms": terms}
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         result = broadcast_job_order(order, database=db)
-    assert result["sent"] == 2
+    assert result["sent"] == 3
     payload = post.call_args_list[0].args[1]
     assert (payload["gender"], payload["process_time"], payload["b2b_rate"]) == ("", "", "")
 
@@ -198,7 +241,7 @@ def test_a_job_order_is_announced_only_once(db):
         broadcast_job_order(ORDER, database=db)
         second = broadcast_job_order(ORDER, database=db)
     assert second == {"sent": 0, "reason": "already_sent"}
-    assert post.call_count == 2  # both from the first run
+    assert post.call_count == 3  # all from the first run
 
 
 def test_an_order_that_is_not_open_is_not_announced(db):
@@ -209,13 +252,22 @@ def test_an_order_that_is_not_open_is_not_announced(db):
 
 
 def test_failed_sends_are_recorded_and_do_not_stop_the_rest(db):
-    with _enabled(), patch.object(agent_whatsapp, "_post", side_effect=[False, True]):
+    with _enabled(), patch.object(agent_whatsapp, "_post", side_effect=[False, True, True]):
         result = broadcast_job_order(ORDER, database=db)
-    assert result["sent"] == 1
+    assert result["sent"] == 2
     assert result["failed_agent_ids"] == ["AGT-1"]
     record = db[BROADCAST_COLLECTION].find_one({"_id": "ORD-123-4567"})
-    assert record["sent"] == 1 and record["recipients"] == 2
+    assert record["sent"] == 2 and record["recipients"] == 3
     assert record["failed_agent_ids"] == ["AGT-1"]
+    assert record["destination_country"] == "Saudi Arabia"
+
+
+def test_an_order_for_a_country_nobody_covers_messages_no_one(db):
+    with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
+        db["sourcing_clients"].delete_one({"id": "AGT-9"})
+        result = broadcast_job_order({**ORDER, "id": "ORD-KW", "destinationCountry": "Kuwait"}, database=db)
+    assert result == {"sent": 0, "recipients": 0, "failed_agent_ids": []}
+    post.assert_not_called()
 
 
 def test_a_database_error_is_not_an_exception(db):

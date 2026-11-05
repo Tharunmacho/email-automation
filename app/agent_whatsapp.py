@@ -1,7 +1,8 @@
 """Telling the Sourcing Hub's agents about a new job order on WhatsApp.
 
-When a job order is created, every active agent in the Sourcing Hub gets one
-WhatsApp message about it, from Rafi's line. The CRM decides who and when; the
+When a job order is created, every active agent in the Sourcing Hub who
+recruits for its destination country gets one WhatsApp message about it, from
+Rafi's line. The CRM decides who and when; the
 bot (`POST /api/agent-job-order`) owns the template, the line and the send
 budget, the same split as `app/staff_whatsapp.py`.
 
@@ -11,6 +12,12 @@ budget, the same split as `app/staff_whatsapp.py`.
 * **Agents only.** Sourcing Hub rows with `type == "agent"` and
   `status == "ACTIVE"`, one message per agent, to the primary contact. Clients
   and associations are never messaged.
+* **By country.** An agent lists the countries they recruit for
+  (`destinationCountries` on their Sourcing Hub record) and hears only about
+  orders for one of them. An agent with none listed hears about nothing.
+  "Any country" is a wildcard on either side: an agent who lists it hears
+  about every order, and an order for "Any country" goes to every agent who
+  lists at least one country.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
   poster as the picture (required on a new order) — plus the order's agent
@@ -57,10 +64,39 @@ def _primary_contact(record: Dict[str, Any]) -> tuple[str, str]:
     return str(record.get("contact") or "").strip(), str(record.get("phone") or "").strip()
 
 
-def agent_recipients(database) -> List[Dict[str, str]]:
-    """Active Sourcing Hub agents with a phone, one entry per number."""
+#: The countries register's catch-all entry, matched as a wildcard.
+ANY_COUNTRY = "any country"
+
+
+def _country_key(value: Any) -> str:
+    """A country name for comparing: case and spacing do not matter."""
+    return " ".join(str(value or "").split()).casefold()
+
+
+def agent_countries(record: Dict[str, Any]) -> set[str]:
+    """The destination countries an agent recruits for, as match keys."""
+    raw = record.get("destinationCountries")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return set()
+    return {key for key in (_country_key(item) for item in raw) if key}
+
+
+def serves_country(countries: set[str], order_country: Any) -> bool:
+    """Whether an agent with these countries should hear about an order for that one."""
+    if not countries:
+        return False
+    if ANY_COUNTRY in countries:
+        return True
+    wanted = _country_key(order_country)
+    return bool(wanted) and (wanted == ANY_COUNTRY or wanted in countries)
+
+
+def agent_recipients(database, destination_country: Any) -> List[Dict[str, str]]:
+    """Active Sourcing Hub agents with a phone who recruit for this country, one entry per number."""
     projection = {"_id": 0, "id": 1, "name": 1, "type": 1, "status": 1,
-                  "contact": 1, "phone": 1, "contacts": 1}
+                  "contact": 1, "phone": 1, "contacts": 1, "destinationCountries": 1}
     recipients: List[Dict[str, str]] = []
     seen: set[str] = set()
     for record in database["sourcing_clients"].find({}, projection):
@@ -68,6 +104,8 @@ def agent_recipients(database) -> List[Dict[str, str]]:
             continue
         # The Sourcing Hub shows anything but ACTIVE as Pending or Inactive.
         if str(record.get("status") or "").strip().upper() != "ACTIVE":
+            continue
+        if not serves_country(agent_countries(record), destination_country):
             continue
         contact_name, phone = _primary_contact(record)
         key = normalize_phone(phone)
@@ -144,8 +182,9 @@ OPEN_ORDERS_FOR_AGENTS = 25
 def open_job_order_facts(database, limit: int = OPEN_ORDERS_FOR_AGENTS) -> List[Dict[str, Any]]:
     """The open job orders, newest first, as agents may be told about them.
 
-    The same orders the broadcast announces to every active agent (status
-    OPEN), so answering an agent from them shares nothing new.
+    Every open order (status OPEN), whatever its country: the broadcast only
+    chooses whom to message first, and the same facts are on the public
+    Current Jobs page, so answering an agent from them shares nothing new.
     """
     rows: List[Dict[str, Any]] = []
     for order in database["job_orders"].find({}).sort("_id", -1):
@@ -158,7 +197,7 @@ def open_job_order_facts(database, limit: int = OPEN_ORDERS_FOR_AGENTS) -> List[
 
 
 def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, Any]:
-    """Message every active agent about one newly created job order. Never raises."""
+    """Message the active agents for its country about one newly created job order. Never raises."""
     order_id = _text(order.get("id"))
     try:
         if not broadcast_enabled():
@@ -175,7 +214,8 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
         if not _claim(database, order_id):
             return {"sent": 0, "reason": "already_sent"}
 
-        recipients = agent_recipients(database)
+        country = _text(order.get("destinationCountry"))
+        recipients = agent_recipients(database, country)
         facts = {
             **agent_job_order_facts(order),
             # The message's picture. The bot uses it if it is a JPG or PNG and
@@ -199,13 +239,14 @@ def broadcast_job_order(order: Dict[str, Any], *, database=None) -> Dict[str, An
             {"_id": order_id},
             {"$set": {
                 "finished_at": datetime.now(timezone.utc),
+                "destination_country": country,
                 "recipients": len(recipients),
                 "sent": sent,
                 "failed_agent_ids": failed,
             }},
         )
-        log.info("Job order %s sent to %d of %d agents on WhatsApp",
-                 order_id, sent, len(recipients))
+        log.info("Job order %s (%s) sent to %d of %d matching agents on WhatsApp",
+                 order_id, country or "no country", sent, len(recipients))
         return {"sent": sent, "recipients": len(recipients), "failed_agent_ids": failed}
     except Exception as exc:  # noqa: BLE001 - the order is saved; this is a side effect
         log.warning("Could not send job order %s to agents: %s", order_id, exc)
