@@ -21,11 +21,14 @@ budget, the same split as `app/staff_whatsapp.py`.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
   poster as the picture (required on a new order) — plus the order's agent
-  terms (`terms`: gender, process time and B2B rate), its Remarks
-  (`description`), and the staff member it is assigned to (`assignedStaff`:
-  name and phone, for agents to contact), which are for agents and never go on
-  the website. Which of them the WhatsApp message shows is the bot's Meta
-  template's business (`agentJobOrderParameters` in the bot).
+  terms (`terms`: gender, process time and B2B rate) and its Remarks
+  (`description`), which are for agents and never go on the website. Which of
+  them the WhatsApp message shows is the bot's Meta template's business
+  (`agentJobOrderParameters` in the bot).
+* **The agent's own staff member.** Every agent is handled by one member of
+  staff (`handlingStaff` on their Sourcing Hub record), and the message gives
+  each agent that person's name and number to contact. Job orders no longer
+  carry a staff member of their own.
 * **Off the request path.** The save returns at once; sending runs in a
   background thread. Nothing here raises.
 """
@@ -33,10 +36,11 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from app.config import settings
 from app.db.dedup import normalize_phone
+from app.db.users import USERS_COLLECTION, User, UserRepository
 from app.logging_config import get_logger
 from app.staff_whatsapp import _post, relay_enabled
 from app.website_jobs import poster_url
@@ -93,10 +97,48 @@ def serves_country(countries: set[str], order_country: Any) -> bool:
     return bool(wanted) and (wanted == ANY_COUNTRY or wanted in countries)
 
 
+def _text(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+#: Looks a staff account up by id; `UserRepository.get` in production.
+UserLookup = Callable[[str], Optional[User]]
+
+
+def handling_staff(record: Dict[str, Any], get_user: Optional[UserLookup] = None) -> Dict[str, str]:
+    """The staff member who handles this agent, as agents would contact them.
+
+    `handlingStaff` on the Sourcing Hub record keeps the id, name and phone as
+    they were when the agent was assigned. With `get_user`, the staff account's
+    current name and number win, so a staff member whose number changed is not
+    contacted on the old one; the saved copy covers an account that is gone or
+    cannot be read. Blank when the agent has no staff member yet.
+    """
+    staff = record.get("handlingStaff") if isinstance(record.get("handlingStaff"), dict) else {}
+    name, phone = _text(staff.get("name")), _text(staff.get("phone"))
+    staff_id = _text(staff.get("id"))
+    if staff_id and get_user is not None:
+        try:
+            user = get_user(staff_id)
+        except Exception as exc:  # noqa: BLE001 - the saved copy is good enough
+            log.warning("Could not read staff account %s for an agent: %s", staff_id, exc)
+            user = None
+        if user is not None:
+            name = _text(user.name) or name
+            phone = _text(user.phone) or phone
+    return {"staff_name": name, "staff_phone": phone}
+
+
 def agent_recipients(database, destination_country: Any) -> List[Dict[str, str]]:
-    """Active Sourcing Hub agents with a phone who recruit for this country, one entry per number."""
+    """Active Sourcing Hub agents with a phone who recruit for this country, one entry per number.
+
+    Each entry carries the agent's own staff member (`handling_staff`), blank
+    when none is assigned, so every agent is told whom to contact.
+    """
     projection = {"_id": 0, "id": 1, "name": 1, "type": 1, "status": 1,
-                  "contact": 1, "phone": 1, "contacts": 1, "destinationCountries": 1}
+                  "contact": 1, "phone": 1, "contacts": 1, "destinationCountries": 1,
+                  "handlingStaff": 1}
+    get_user = UserRepository(database[USERS_COLLECTION]).get
     recipients: List[Dict[str, str]] = []
     seen: set[str] = set()
     for record in database["sourcing_clients"].find({}, projection):
@@ -116,6 +158,7 @@ def agent_recipients(database, destination_country: Any) -> List[Dict[str, str]]
             "agent_id": str(record.get("id") or ""),
             "agent_name": contact_name or str(record.get("name") or "").strip(),
             "phone": phone,
+            **handling_staff(record, get_user),
         })
     return recipients
 
@@ -134,16 +177,6 @@ def _claim(database, order_id: str) -> bool:
         return False
 
 
-def _text(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-def staff_facts(order: Dict[str, Any]) -> Dict[str, str]:
-    """The staff member the order is assigned to, as agents would contact them."""
-    staff = order.get("assignedStaff") if isinstance(order.get("assignedStaff"), dict) else {}
-    return {"staff_name": _text(staff.get("name")), "staff_phone": _text(staff.get("phone"))}
-
-
 def terms_facts(order: Dict[str, Any]) -> Dict[str, Any]:
     """The order's agent terms (`terms` on the job order) for the bot, every key always present."""
     terms = order.get("terms") if isinstance(order.get("terms"), dict) else {}
@@ -160,6 +193,8 @@ def agent_job_order_facts(order: Dict[str, Any]) -> Dict[str, Any]:
 
     The one place that decides it, for the broadcast and for the bot's answers
     to agents' questions (`open_job_order_facts`). Never the client's name.
+    Whom to contact is not here: that is the agent's own staff member
+    (`handling_staff`), added per agent.
     """
     return {
         "job_order_id": _text(order.get("id")),
@@ -169,7 +204,6 @@ def agent_job_order_facts(order: Dict[str, Any]) -> Dict[str, Any]:
         "salary": _text(order.get("salary")),
         "min_experience": _text(order.get("minExperience")),
         **terms_facts(order),
-        **staff_facts(order),
         # The Remarks box on the job order dialogs, written for agents.
         "remarks": _text(order.get("description")),
     }

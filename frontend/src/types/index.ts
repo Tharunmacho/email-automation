@@ -1000,6 +1000,12 @@ export interface SourcingClientRecord {
    */
   destinationCountries?: string[];
   /**
+   * Agents only: the staff member who handles this agent. Required on a new
+   * agent. Their name and number are the contact on every job order sent to
+   * the agent on WhatsApp, and the bot points the agent to them.
+   */
+  handlingStaff?: StaffContact;
+  /**
    * All known contacts, with the primary contact first. The three top-level
    * contact fields above mirror that first entry for older API consumers.
    */
@@ -1096,7 +1102,11 @@ export interface JobOrderRecord {
    * it is the website card's picture. Older orders kept it in `website.posterUrl`.
    */
   posterUrl?: string;
-  /** The staff member responsible for the order. Required on a new order. */
+  /**
+   * Legacy: who an order was assigned to before staff moved to agents. New
+   * orders have none; each agent's own staff member (`handlingStaff` on their
+   * Sourcing Hub record) is the contact on the WhatsApp message instead.
+   */
   assignedStaff?: JobOrderStaff;
   /** How the order appears on the website's Current Jobs page. */
   website?: JobOrderWebsite;
@@ -1107,15 +1117,18 @@ export interface JobOrderRecord {
 export type JobOrderStatus = JobOrderRecord["status"];
 
 /**
- * Who a job order is assigned to, as `GET /job-orders/assignees` lists them.
- * The name and phone are kept on the order as they were when assigned, so the
- * order still says who had it if the account later changes or goes.
+ * A staff member as the staff dropdowns offer them (`GET /job-orders/assignees`).
+ * The name and phone are kept on the record as they were when assigned, so it
+ * still says who had it if the account later changes or goes.
  */
-export interface JobOrderStaff {
+export interface StaffContact {
   id: string;
   name: string;
   phone: string;
 }
+
+/** The older name, from when job orders had a staff member. */
+export type JobOrderStaff = StaffContact;
 
 export type JobOrderGender = "Male & Female" | "Male" | "Female";
 

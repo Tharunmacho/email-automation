@@ -38,7 +38,6 @@ import CandidateMatchPanel from "@/components/matching/CandidateMatchPanel";
 import JobOrderTermsFields, { JobOrderTermsSpecs, cleanTerms, termsDraft, type TermsDraft } from "@/components/jobOrders/JobOrderTermsFields";
 import WebsiteListingFields, { cleanWebsite, websiteDefaults } from "@/components/jobOrders/WebsiteListingFields";
 import JobPosterField from "@/components/jobOrders/JobPosterField";
-import AssignedStaffField, { staffLabel } from "@/components/jobOrders/AssignedStaffField";
 import DatePicker from "@/components/ui/DatePicker";
 import Select from "@/components/ui/Select";
 import StatTile, { type StatTone } from "@/components/ui/StatTile";
@@ -62,7 +61,7 @@ import { CACHE_KEYS, readCache, writeCache } from "@/lib/localCache";
 // Defined in `@/types` so `lib/api` and `SourcingHub` share one definition of
 // what a job order is; re-exported here because both already import it by this
 // path.
-import type { JobOrderRecord, JobOrderStaff, JobOrderStatus, JobOrderWebsite } from "@/types";
+import type { JobOrderRecord, JobOrderStatus, JobOrderWebsite } from "@/types";
 
 export type { JobOrderRecord, JobOrderStatus };
 
@@ -673,12 +672,11 @@ export default function JobOrders({
   const [editWebsite, setEditWebsite] = useState<JobOrderWebsite>(websiteDefaults);
   const [posterUploading, setPosterUploading] = useState(false);
 
-  // The poster (agents' WhatsApp picture and the website card) and the staff
-  // member responsible. Both are required on a new order.
+  // The poster (agents' WhatsApp picture and the website card), required on a
+  // new order. Whom agents contact is not the order's: each agent has their
+  // own handling staff member in the Sourcing Hub.
   const [newPoster, setNewPoster] = useState<string | undefined>(undefined);
   const [editPoster, setEditPoster] = useState<string | undefined>(undefined);
-  const [newStaff, setNewStaff] = useState<JobOrderStaff | undefined>(undefined);
-  const [editStaff, setEditStaff] = useState<JobOrderStaff | undefined>(undefined);
 
   // Gender, process time and B2B rate.
   const [newTerms, setNewTerms] = useState<TermsDraft>(() => termsDraft());
@@ -821,7 +819,6 @@ export default function JobOrders({
     setEditTerms(termsDraft(item.terms));
     // Older orders kept the poster in the website block; saving moves it up.
     setEditPoster(item.posterUrl || item.website?.posterUrl || undefined);
-    setEditStaff(item.assignedStaff);
     setIsEditModalOpen(true);
   };
 
@@ -860,7 +857,6 @@ export default function JobOrders({
       website: cleanWebsite(editWebsite),
       terms: cleanTerms(editTerms),
       posterUrl: editPoster,
-      assignedStaff: editStaff,
     };
     const updated: JobOrderRecord = { ...draft, status: deriveStatus(draft) };
 
@@ -999,13 +995,12 @@ export default function JobOrders({
     !selectedClient && "client",
     !designationRole.trim() && "role",
     !destinationCountry && "destination country",
-    !newStaff && "assigned staff",
     !newPoster && "job poster",
   ].filter((item): item is string => Boolean(item));
 
   const handleCreateOrder = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!designationRole.trim() || !selectedClient || !destinationCountry || !newPoster || !newStaff) return;
+    if (!designationRole.trim() || !selectedClient || !destinationCountry || !newPoster) return;
 
     const uniqueNum = Math.floor(100 + Math.random() * 900);
     const id = `ORD-${uniqueNum}-${Date.now().toString().slice(-4)}`;
@@ -1035,7 +1030,6 @@ export default function JobOrders({
       website: cleanWebsite(newWebsite),
       terms: cleanTerms(newTerms),
       posterUrl: newPoster,
-      assignedStaff: newStaff,
     };
 
     activity(`Created job order: ${newRecord.title} (${newRecord.client}) — ${newRecord.headcount} seat${newRecord.headcount === 1 ? "" : "s"}.`, "success");
@@ -1058,7 +1052,6 @@ export default function JobOrders({
     setNewWebsite(websiteDefaults());
     setNewTerms(termsDraft());
     setNewPoster(undefined);
-    setNewStaff(undefined);
   };
 
   const handleDeleteOrder = (id: string) => {
@@ -1416,8 +1409,6 @@ export default function JobOrders({
                   placeholder="Comma separated — e.g. React, Node, TypeScript"
                 />
               </div>
-
-              <AssignedStaffField value={editStaff} onChange={setEditStaff} id="jo-edit-staff" />
 
               <JobPosterField
                 value={editPoster}
@@ -1918,17 +1909,6 @@ export default function JobOrders({
               <dd style={{ color: dueMeta.color }}>
                 <Calendar size={13} />
                 {formatDueDate(selectedOrder.dueDate)}
-              </dd>
-            </div>
-
-            <div className="jod-spec">
-              <dt>Assigned staff</dt>
-              <dd>
-                {selectedOrder.assignedStaff ? (
-                  staffLabel(selectedOrder.assignedStaff)
-                ) : (
-                  <span className="jod-spec-empty">Not assigned</span>
-                )}
               </dd>
             </div>
 
@@ -2802,8 +2782,6 @@ export default function JobOrders({
                     onChange={(e) => setSalaryRange(e.target.value)}
                   />
                 </div>
-
-                <AssignedStaffField value={newStaff} onChange={setNewStaff} required id="jo-new-staff" />
 
                 <JobPosterField value={newPoster} onChange={setNewPoster} required onUploadingChange={setPosterUploading} />
 

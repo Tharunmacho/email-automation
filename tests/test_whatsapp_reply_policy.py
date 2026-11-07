@@ -12,13 +12,17 @@ SERVICE_KEY = "reply-policy-test-key"
 
 
 class FakeUsers:
-    def __init__(self, *phones: str):
+    def __init__(self, *phones: str, accounts: dict | None = None):
         self.members = [SimpleNamespace(phone=phone) for phone in phones]
         self.include_inactive = None
+        self.accounts = accounts or {}
 
     def list_all(self, include_inactive=True):
         self.include_inactive = include_inactive
         return self.members
+
+    def get(self, user_id):
+        return self.accounts.get(user_id)
 
 
 class FakeSourcingCollection:
@@ -27,7 +31,7 @@ class FakeSourcingCollection:
 
     def find(self, query, projection):
         assert query == {}
-        assert projection == {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1}
+        assert projection == {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1, "handlingStaff": 1}
         return list(self.rows)
 
 
@@ -41,8 +45,8 @@ class FakeSuppressionCollection:
         return int(query.get("phone_key") in self.keys)
 
 
-def call_policy(phone: str, *, staff=(), sourcing=(), suppressed=(), service_key=SERVICE_KEY):
-    users = FakeUsers(*staff)
+def call_policy(phone: str, *, staff=(), sourcing=(), suppressed=(), service_key=SERVICE_KEY, accounts=None):
+    users = FakeUsers(*staff, accounts=accounts)
     database = {
         "sourcing_clients": FakeSourcingCollection(*sourcing),
         "bot_suppression_numbers": FakeSuppressionCollection(*suppressed),
@@ -129,6 +133,40 @@ def test_agent_numbers_are_reported_as_agents_even_when_also_on_a_client_row():
 
     assert response.json()["reason"] == "sourcing_contact_number"
     assert response.json()["sourcing_type"] == "agent"
+    # No staff member assigned to the agent: nothing to point them to.
+    assert "agent_staff" not in response.json()
+
+
+def test_an_agent_is_reported_with_the_staff_member_who_handles_them():
+    unassigned = {"type": "agent", "phone": "+91 93333 33333"}
+    agent = {
+        "type": "agent",
+        "phone": "+91 93333 33333",
+        "handlingStaff": {"id": "u-7", "name": "Zara", "phone": "+91 98849 49735"},
+    }
+
+    response, _ = call_policy("919333333333", sourcing=(unassigned, agent))
+
+    assert response.json() == {
+        "should_reply": False,
+        "action": "ignore",
+        "reason": "sourcing_contact_number",
+        "sourcing_type": "agent",
+        "agent_staff": {"name": "Zara", "phone": "+91 98849 49735"},
+    }
+
+    # The staff account's current number wins over the one saved on the agent.
+    current = SimpleNamespace(name="Zara K", phone="+91 77777 00000")
+    response, _ = call_policy("919333333333", sourcing=(agent,), accounts={"u-7": current})
+    assert response.json()["agent_staff"] == {"name": "Zara K", "phone": "+91 77777 00000"}
+
+
+def test_a_client_is_never_reported_with_a_staff_member():
+    client = {"type": "client", "phone": "+91 93333 33333",
+              "handlingStaff": {"id": "u-7", "name": "Zara", "phone": "+91 98849 49735"}}
+    response, _ = call_policy("919333333333", sourcing=(client,))
+    assert response.json()["sourcing_type"] == "client"
+    assert "agent_staff" not in response.json()
 
 
 def test_suppression_wins_over_sourcing_and_staff_matches():

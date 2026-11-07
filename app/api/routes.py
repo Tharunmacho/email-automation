@@ -114,6 +114,7 @@ from app.storage.factory import get_storage_backend
 from app.tasks import sla_checker
 from app.api.websocket import router as websocket_router
 
+from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError, ServerSelectionTimeoutError
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse
@@ -1937,14 +1938,8 @@ def list_job_order_candidate_pool(
     return {"total": total, "count": len(items), "items": items}
 
 
-@app.get("/job-orders/assignees")
-def list_job_order_assignees(_user: dict = Depends(require_page("job-orders"))) -> dict:
-    """Who a job order can be assigned to, for the job order dialogs' staff dropdown.
-
-    Active staff and managers who sign in to the CRM, with their phone number,
-    and nothing else about them: the Job Orders page reaches this without the
-    Staff or Users pages, so it must not hand out what those pages guard.
-    """
+def _assignable_staff() -> list[dict]:
+    """Active staff and managers who sign in to the CRM: id, name, phone and role only."""
     from app.db.users import MANAGER_ROLES, STAFF_ROLE
 
     people = [
@@ -1962,7 +1957,69 @@ def list_job_order_assignees(_user: dict = Depends(require_page("job-orders"))) 
         if person.role in (STAFF_ROLE, *MANAGER_ROLES) and person.crm_access is not False
     ]
     items.sort(key=lambda item: item["name"].lower())
-    return {"items": items}
+    return items
+
+
+@app.get("/job-orders/assignees")
+def list_job_order_assignees(_user: dict = Depends(require_page("job-orders", "sourcing"))) -> dict:
+    """Who can handle a Sourcing Hub agent, for the staff dropdowns.
+
+    Active staff and managers who sign in to the CRM, with their phone number,
+    and nothing else about them: the Sourcing Hub and Job Orders pages reach
+    this without the Staff or Users pages, so it must not hand out what those
+    pages guard. (The path is from when job orders had a staff member.)
+    """
+    return {"items": _assignable_staff()}
+
+
+class AgentStaffAssignment(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=120)
+    staff_id: str = Field(min_length=1, max_length=120)
+
+
+class AgentStaffAssignmentsIn(BaseModel):
+    assignments: list[AgentStaffAssignment] = Field(min_length=1, max_length=500)
+
+
+@app.post("/sourcing-clients/handling-staff")
+def assign_agents_handling_staff(
+    payload: AgentStaffAssignmentsIn,
+    _user: dict = Depends(require_page("sourcing")),
+) -> dict:
+    """Assign Sourcing Hub agents to the staff members who handle them, several at once.
+
+    Only `handlingStaff` changes on each agent, so nothing else on the record
+    is overwritten from a stale screen. The staff member is looked up here, by
+    id, among the people the dropdowns offer, and saved as id, name and phone.
+    """
+    from app.db.mongo import get_db
+
+    staff_by_id = {person["id"]: person for person in _assignable_staff()}
+    unknown = sorted({a.staff_id for a in payload.assignments if a.staff_id not in staff_by_id})
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail="These staff members cannot be assigned (not found, inactive or without CRM access): "
+            + ", ".join(unknown),
+        )
+
+    coll = get_db()["sourcing_clients"]
+    updated: list[dict] = []
+    skipped: list[str] = []
+    for assignment in payload.assignments:
+        person = staff_by_id[assignment.staff_id]
+        staff = {"id": person["id"], "name": person["name"], "phone": person["phone"]}
+        record = coll.find_one_and_update(
+            {"id": assignment.agent_id, "type": {"$regex": r"^\s*agent\s*$", "$options": "i"}},
+            {"$set": {"handlingStaff": staff}},
+            projection={"_id": 0},
+            return_document=ReturnDocument.AFTER,
+        )
+        if record is None:
+            skipped.append(assignment.agent_id)
+        else:
+            updated.append(record)
+    return {"updated": updated, "skipped": skipped}
 
 
 @app.post("/job-orders")

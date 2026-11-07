@@ -4882,7 +4882,7 @@ body {
   color: var(--rose-ink);
 }
 
-.jo-inline-retry {
+.sh-inline-retry {
   padding: 0;
   border: 0;
   background: none;
@@ -21874,5 +21874,216 @@ a.payroll-expand-btn { text-decoration: none; }
 
   .aim-components td:last-child {
     width: 40%;
+  }
+}
+
+/* --- Sourcing Hub: the staff member who handles each agent ----------------- */
+.sh-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sh-assign-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 0.83rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.sh-assign-btn:hover {
+  background: var(--tint-2);
+  border-color: var(--border-blue-strong);
+}
+
+.sh-assign-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-glow);
+}
+
+.sh-assign-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--warning-edge);
+  background: var(--warning-fill);
+  color: var(--warning-ink);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-table-staff {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-table-staff svg {
+  flex: none;
+}
+
+.ds-who-text small.sh-table-staff.is-unset {
+  color: var(--warning);
+}
+
+.sh-assign-modal {
+  max-width: 720px;
+}
+
+.sh-assign-body {
+  gap: 0.9rem;
+}
+
+.sh-assign-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sh-assign-tools .sh-search {
+  max-width: none;
+}
+
+.sh-assign-summary {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.sh-assign-summary.is-warn {
+  color: var(--warning);
+}
+
+.sh-assign-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border-blue);
+  border-radius: var(--radius-md);
+}
+
+.sh-assign-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.6rem 0.85rem;
+  border-top: 1px solid var(--border-main);
+}
+
+.sh-assign-row:first-child {
+  border-top: 0;
+}
+
+.sh-assign-row.is-changed {
+  background: var(--tint-1);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.sh-assign-agent {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.sh-assign-agent strong,
+.sh-assign-agent small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sh-assign-agent strong {
+  color: var(--text-main);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.sh-assign-agent small {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.sh-assign-empty {
+  margin: 0;
+  padding: 1.5rem 1rem;
+  border: 1px dashed var(--border-blue);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.sh-assign-footer {
+  align-items: center;
+}
+
+.sh-assign-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: auto;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.sh-assign-footer button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .sh-head-actions {
+    width: 100%;
+  }
+
+  .sh-head-actions > button {
+    flex: 1 1 0;
+  }
+
+  .sh-assign-row {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+  }
+
+  .sh-assign-summary {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .sh-assign-count {
+    width: 100%;
+  }
+
+  .sh-assign-footer {
+    flex-wrap: wrap;
   }
 }

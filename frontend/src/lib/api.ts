@@ -1854,6 +1854,21 @@ export function deleteSourcingClientAPI(clientId: string): Promise<{ status: str
   return request<{ status: string }>(`/sourcing-clients/${clientId}`, { method: "DELETE" });
 }
 
+/**
+ * Assign agents to the staff members who handle them, several at once. Only
+ * `handlingStaff` changes on each agent; the server looks each staff member up
+ * by id. Returns the agents as saved, and the ids it left alone (not agents).
+ */
+export function assignAgentsHandlingStaffAPI(
+  assignments: { agent_id: string; staff_id: string }[],
+): Promise<{ updated: SourcingClientRecord[]; skipped: string[] }> {
+  return request<{ updated: SourcingClientRecord[]; skipped: string[] }>("/sourcing-clients/handling-staff", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assignments }),
+  });
+}
+
 // ---- Job Orders DB API ----
 export function listJobOrdersAPI(): Promise<{ items: JobOrderRecord[] }> {
   return request<{ items: JobOrderRecord[] }>("/job-orders");
@@ -1907,6 +1922,7 @@ export function uploadJobOrderPosterAPI(file: File): Promise<{ url: string }> {
 }
 
 /** Who a job order can be assigned to: active staff and managers, with their phone. */
+/** The staff members an agent can be handled by: active staff and managers who use the CRM. */
 export function listJobOrderAssigneesAPI(): Promise<{ items: (JobOrderStaff & { role: string })[] }> {
   return request<{ items: (JobOrderStaff & { role: string })[] }>("/job-orders/assignees");
 }

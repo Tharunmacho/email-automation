@@ -90,10 +90,11 @@ def _enabled():
 #  Who is messaged
 # --------------------------------------------------------------------------- #
 def test_only_active_agents_for_the_country_with_a_phone_are_picked_once_per_number(db):
+    no_staff = {"staff_name": "", "staff_phone": ""}
     assert agent_recipients(db, "Saudi Arabia") == [
-        {"agent_id": "AGT-1", "agent_name": "Imran", "phone": "98765 43210"},
-        {"agent_id": "AGT-2", "agent_name": "Chennai Agency", "phone": "+971 50 123 4567"},
-        {"agent_id": "AGT-9", "agent_name": "Any", "phone": "9000000007"},
+        {"agent_id": "AGT-1", "agent_name": "Imran", "phone": "98765 43210", **no_staff},
+        {"agent_id": "AGT-2", "agent_name": "Chennai Agency", "phone": "+971 50 123 4567", **no_staff},
+        {"agent_id": "AGT-9", "agent_name": "Any", "phone": "9000000007", **no_staff},
     ]
 
 
@@ -202,13 +203,51 @@ def test_the_orders_agent_terms_travel_with_it(db):
     assert not {"advance_payment", "documents"} & set(payload)
 
 
-def test_the_assigned_staff_member_travels_as_the_contact(db):
-    order = {**ORDER, "assignedStaff": {"id": "u-7", "name": "Rafi", "phone": "+91 98849 49735"}}
+def test_each_agent_is_given_their_own_staff_member_to_contact(db):
+    db["sourcing_clients"].update_one(
+        {"id": "AGT-1"}, {"$set": {"handlingStaff": {"id": "u-7", "name": "Zara", "phone": "+91 98849 49735"}}},
+    )
+    db["sourcing_clients"].update_one(
+        {"id": "AGT-2"}, {"$set": {"handlingStaff": {"id": "u-8", "name": "Rafi", "phone": "+91 98844 47455"}}},
+    )
+    # An order saved before staff moved to agents still names someone: ignored.
+    order = {**ORDER, "assignedStaff": {"id": "u-1", "name": "Old Order Staff", "phone": "+91 90000 00000"}}
     with _enabled(), patch.object(agent_whatsapp, "_post", return_value=True) as post:
         broadcast_job_order(order, database=db)
-    payload = post.call_args_list[0].args[1]
-    assert (payload["staff_name"], payload["staff_phone"]) == ("Rafi", "+91 98849 49735")
-    assert "u-7" not in str(payload)
+    contacts = {
+        call.args[1]["agent_id"]: (call.args[1]["staff_name"], call.args[1]["staff_phone"])
+        for call in post.call_args_list
+    }
+    assert contacts == {
+        "AGT-1": ("Zara", "+91 98849 49735"),
+        "AGT-2": ("Rafi", "+91 98844 47455"),
+        # No staff member assigned: blank, and the bot says "Adira Enterprises".
+        "AGT-9": ("", ""),
+    }
+    assert "u-7" not in str(post.call_args_list[0].args[1])
+    assert "Old Order Staff" not in str(post.call_args_list)
+
+
+def test_the_staff_members_current_number_wins_over_the_one_saved_on_the_agent(db):
+    db["users"].insert_one({"_id": "u-7", "email": "zara@agency.test", "name": "Zara K",
+                            "role": "staff", "phone": "+91 77777 00000"})
+    db["sourcing_clients"].update_one(
+        {"id": "AGT-1"}, {"$set": {"handlingStaff": {"id": "u-7", "name": "Zara", "phone": "+91 98849 49735"}}},
+    )
+    # The account is gone: the copy saved on the agent is used.
+    db["sourcing_clients"].update_one(
+        {"id": "AGT-2"}, {"$set": {"handlingStaff": {"id": "u-gone", "name": "Ex", "phone": "+91 90000 22222"}}},
+    )
+    recipients = {r["agent_id"]: r for r in agent_recipients(db, "Saudi Arabia")}
+    assert (recipients["AGT-1"]["staff_name"], recipients["AGT-1"]["staff_phone"]) == ("Zara K", "+91 77777 00000")
+    assert (recipients["AGT-2"]["staff_name"], recipients["AGT-2"]["staff_phone"]) == ("Ex", "+91 90000 22222")
+
+
+@pytest.mark.parametrize("staff", [None, "Zara", {"id": "", "name": "  ", "phone": None}])
+def test_a_missing_or_malformed_staff_member_is_blank(staff):
+    from app.agent_whatsapp import handling_staff
+
+    assert handling_staff({"handlingStaff": staff}) == {"staff_name": "", "staff_phone": ""}
 
 
 def test_the_poster_on_the_order_is_the_messages_picture(db):
@@ -346,10 +385,10 @@ def test_open_job_orders_for_agents_are_open_only_newest_first_and_never_name_th
         "gender": "Male",
         "process_time": "45 days",
         "b2b_rate": "500 USD",
-        "staff_name": "Rafi",
-        "staff_phone": "+91 98844 47455",
         "remarks": "Interviews in Chennai on 10 Nov. Bring originals.",
     }
+    # Whom to contact comes from the agent now, not the order.
+    assert "Rafi" not in repr(items)
     assert "Secret Client" not in repr(items)
     assert len(open_job_order_facts(db, limit=1)) == 1
 

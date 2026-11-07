@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.agent_whatsapp import handling_staff
 from app.db.dedup import normalize_phone
 from app.db.mongo import get_db
 from app.db.users import UserRepository
@@ -26,18 +27,23 @@ def _phone_key(value: Any) -> str | None:
     return normalize_phone(str(value)) if value not in (None, "") else None
 
 
-def _sourcing_type(db: Any, phone_key: str) -> str | None:
-    """The Sourcing Hub type this number belongs to, or None if no row has it.
+def _sourcing_match(db: Any, phone_key: str) -> tuple[str | None, dict | None]:
+    """The Sourcing Hub type this number belongs to, and the agent row if it is an agent.
 
-    Every number on a row counts: the row's own phone and every contact's, so a
-    client is matched on all its contacts whether it has one or several.
-    ``"agent"`` wins when the number sits on more than one row, because only an
-    agent's messages go to the bot's agent workers (``app/agent_resumes.py``
-    applies the same rule). Clients, associations and rows with no type are all
-    left for a person, and the bot sends them nothing.
+    ``(None, None)`` if no row has the number. Every number on a row counts: the
+    row's own phone and every contact's, so a client is matched on all its
+    contacts whether it has one or several. ``"agent"`` wins when the number
+    sits on more than one row, because only an agent's messages go to the bot's
+    agent workers (``app/agent_resumes.py`` applies the same rule). Clients,
+    associations and rows with no type are all left for a person, and the bot
+    sends them nothing.
+
+    Of several agent rows with the number, the first one with a staff member
+    assigned is the one returned.
     """
     found: str | None = None
-    projection = {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1}
+    agent: dict | None = None
+    projection = {"_id": 0, "type": 1, "phone": 1, "contacts.phone": 1, "handlingStaff": 1}
     for account in db["sourcing_clients"].find({}, projection):
         phones = [account.get("phone")]
         phones.extend(
@@ -49,9 +55,12 @@ def _sourcing_type(db: Any, phone_key: str) -> str | None:
             continue
         kind = str(account.get("type") or "").strip().lower() or "unknown"
         if kind == "agent":
-            return "agent"
+            if isinstance(account.get("handlingStaff"), dict):
+                return "agent", account
+            agent = agent or account
+            continue
         found = found or kind
-    return found
+    return ("agent", agent) if agent is not None else (found, None)
 
 
 def reply_policy(
@@ -59,7 +68,7 @@ def reply_policy(
     *,
     user_repository: UserRepository,
     database: Any | None = None,
-) -> dict[str, str | bool]:
+) -> dict[str, Any]:
     """Return the bot's reply decision without exposing the matched contact.
 
     The administrator's suppression list is checked first and wins over every
@@ -73,7 +82,9 @@ def reply_policy(
     inactive commercial relationship is still not a candidate conversation.
     A Sourcing Hub match also reports ``sourcing_type`` so the bot can hand
     agents' files and questions to its agent workers and send nobody else
-    anything.
+    anything. An agent's match also reports ``agent_staff``, the name and
+    number of the staff member who handles that agent, when one is assigned:
+    the bot points the agent to them.
     """
     phone_key = normalize_phone(phone)
     if not phone_key:
@@ -103,14 +114,22 @@ def reply_policy(
                     "reason": "internal_user_number",
                 }
 
-        sourcing_type = _sourcing_type(db, phone_key)
+        sourcing_type, agent = _sourcing_match(db, phone_key)
         if sourcing_type is not None:
-            return {
+            decision: dict[str, Any] = {
                 "should_reply": False,
                 "action": "ignore",
                 "reason": "sourcing_contact_number",
                 "sourcing_type": sourcing_type,
             }
+            if agent is not None:
+                staff = handling_staff(agent, getattr(user_repository, "get", None))
+                if staff["staff_name"] or staff["staff_phone"]:
+                    decision["agent_staff"] = {
+                        "name": staff["staff_name"],
+                        "phone": staff["staff_phone"],
+                    }
+            return decision
     except Exception as exc:  # noqa: BLE001 - this boundary must fail closed
         log.error("WhatsApp reply-policy lookup failed; suppressing reply: %s", exc)
         return {

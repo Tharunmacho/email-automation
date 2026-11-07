@@ -21,6 +21,7 @@ import {
   Inbox,
   AlertTriangle,
   Globe2,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,6 +29,8 @@ import Select from "@/components/ui/Select";
 import MultiSelect from "@/components/ui/MultiSelect";
 import Combobox from "@/components/ui/Combobox";
 import { useModalFocus } from "@/components/ui/useModalFocus";
+import HandlingStaffField from "@/components/staff/HandlingStaffField";
+import AssignAgentsModal from "@/components/staff/AssignAgentsModal";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import { deriveStatus } from "@/screens/JobOrders";
@@ -36,6 +39,7 @@ import type {
   SourcingClientRecord,
   SourcingContact,
   SourcingType,
+  StaffContact,
 } from "@/types";
 import {
   listSourcingClientsAPI,
@@ -235,6 +239,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [jobOrders, setJobOrders] = useState<JobOrderRecord[]>([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAssignOpen, setIsAssignOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -249,6 +254,8 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [newCountry, setNewCountry] = useState("");
   /** Agents only: which job orders they are sent, by destination country. */
   const [newDestinationCountries, setNewDestinationCountries] = useState<string[]>([]);
+  /** Agents only: the staff member who handles them. Required on a new agent. */
+  const [newHandlingStaff, setNewHandlingStaff] = useState<StaffContact | undefined>(undefined);
   const [newContacts, setNewContacts] = useState<SourcingContact[]>([{ ...EMPTY_CONTACT }]);
   const [newAddress, setNewAddress] = useState("");
   const [countryOptions, setCountryOptions] = useState<string[]>([]);
@@ -342,6 +349,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewRegNo("");
     setNewCountry("");
     setNewDestinationCountries([]);
+    setNewHandlingStaff(undefined);
     setNewContacts([{ ...EMPTY_CONTACT }]);
     setNewAddress("");
     setFormError("");
@@ -364,6 +372,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewRegNo(item.regNo || "");
     setNewCountry(item.country || "");
     setNewDestinationCountries(destinationCountriesOf(item));
+    setNewHandlingStaff(item.handlingStaff);
     setNewContacts(contactsOf(item).map((contact) => ({
       name: contact.name,
       phone: hasValue(contact.phone) ? contact.phone : "",
@@ -432,6 +441,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         (rec.regNo || "").toLowerCase().includes(q) ||
         (rec.country || "").toLowerCase().includes(q) ||
         destinationCountriesOf(rec).some((country) => country.toLowerCase().includes(q)) ||
+        (rec.handlingStaff?.name || "").toLowerCase().includes(q) ||
         (rec.address || "").toLowerCase().includes(q) ||
         (rec.industryOrCategory || "").toLowerCase().includes(q)
       );
@@ -510,6 +520,10 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
       setFormError("Enter a name for each contact, or remove the empty contact.");
       return;
     }
+    if (newType === "agent" && !editingId && !newHandlingStaff) {
+      setFormError("Choose the staff member who handles this agent — their number goes on the job orders the agent is sent.");
+      return;
+    }
 
     const contacts = newContacts.map((contact) => ({
       name: contact.name.trim(),
@@ -547,6 +561,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         country: newCountry.trim(),
         // Only agents are sent job orders; any other type drops the list.
         destinationCountries: newType === "agent" ? newDestinationCountries : undefined,
+        handlingStaff: newType === "agent" ? newHandlingStaff : undefined,
         address: newAddress.trim(),
       };
 
@@ -578,6 +593,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
         regNo: newRegNo.trim(),
         country: newCountry.trim(),
         destinationCountries: newType === "agent" ? newDestinationCountries : undefined,
+        handlingStaff: newType === "agent" ? newHandlingStaff : undefined,
         address: newAddress.trim(),
       };
 
@@ -589,6 +605,23 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setIsModalOpen(false);
     setEditingId(null);
     resetForm();
+  };
+
+  const agents = useMemo(() => records.filter((r) => r.type === "agent"), [records]);
+  const unassignedAgents = agents.filter((agent) => !agent.handlingStaff?.id).length;
+
+  /** The bulk window saved these agents: merge them in by id. */
+  const handleAgentsAssigned = (updated: SourcingRecord[]) => {
+    const byId = new Map(updated.map((record) => [record.id, record]));
+    persist(records.map((r) => {
+      const saved = byId.get(r.id);
+      return saved ? { ...r, handlingStaff: saved.handlingStaff } : r;
+    }));
+    activity(
+      `Assigned ${updated.length} agent${updated.length === 1 ? "" : "s"} to staff.`,
+      "success",
+    );
+    setIsAssignOpen(false);
   };
 
   const handleDeleteRecord = (id: string) => {
@@ -709,6 +742,20 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                   {item.industryOrCategory || (item.type === "client" ? "No sector set" : "No category set")}
                 </span>
               </small>
+              {item.type === "agent" && (
+                item.handlingStaff?.name ? (
+                  <small
+                    className="sh-table-staff"
+                    title={item.handlingStaff.phone ? `${item.handlingStaff.name} — ${item.handlingStaff.phone}` : item.handlingStaff.name}
+                  >
+                    <UserCog size={11} /> Staff: {item.handlingStaff.name}
+                  </small>
+                ) : (
+                  <small className="sh-table-staff is-unset" title="Assign a staff member to handle this agent">
+                    <AlertTriangle size={11} /> No staff assigned
+                  </small>
+                )
+              )}
             </span>
           </span>
         </td>
@@ -956,10 +1003,26 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             <h2 id="sh-directory-title">Sourcing partners</h2>
             <p>Search contacts, review active demand, and manage every sourcing relationship.</p>
           </div>
-          <button type="button" className="sh-new-btn" onClick={openCreateModal}>
-            <Plus size={16} />
-            <span>New client</span>
-          </button>
+          <div className="sh-head-actions">
+            <button
+              type="button"
+              className="sh-assign-btn"
+              onClick={() => setIsAssignOpen(true)}
+              title="Choose the staff member who handles each agent"
+            >
+              <UserCog size={16} />
+              <span>Assign staff</span>
+              {unassignedAgents > 0 && (
+                <span className="sh-assign-badge" aria-label={`${unassignedAgents} agents without staff`}>
+                  {formatInt(unassignedAgents)}
+                </span>
+              )}
+            </button>
+            <button type="button" className="sh-new-btn" onClick={openCreateModal}>
+              <Plus size={16} />
+              <span>New client</span>
+            </button>
+          </div>
         </div>
 
         {/* Controls */}
@@ -1194,6 +1257,15 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                   </div>
                 )}
 
+                {newType === "agent" && (
+                  <HandlingStaffField
+                    id="sh-handling-staff"
+                    value={newHandlingStaff}
+                    onChange={setNewHandlingStaff}
+                    required={!editingId}
+                  />
+                )}
+
                 <section className="sh-contacts" aria-labelledby="sh-contacts-title">
                   <div className="sh-contacts-head">
                     <div>
@@ -1302,6 +1374,14 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
             </form>
           </div>
         </div>
+      )}
+
+      {isAssignOpen && (
+        <AssignAgentsModal
+          agents={agents}
+          onClose={() => setIsAssignOpen(false)}
+          onSaved={handleAgentsAssigned}
+        />
       )}
     </div>
   );
