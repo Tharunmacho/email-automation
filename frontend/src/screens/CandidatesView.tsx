@@ -30,10 +30,17 @@ import Select from "@/components/ui/Select";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import {
   assignCandidate,
+  listCountriesAPI,
   listStaff,
   type CandidateRecord,
   type StaffMember,
 } from "@/lib/api";
+
+/** How each candidate desk is named in the staff picker. */
+const DESK_LABELS: Record<string, string> = {
+  singapore_malaysia: "Singapore/Malaysia desk",
+  general: "Other-countries desk",
+};
 
 export type TalentFilter = "all" | "verified" | "pending" | "active";
 
@@ -314,6 +321,10 @@ export default function CandidatesView({
   const [assignmentSaving, setAssignmentSaving] = useState(false);
   const [assignmentError, setAssignmentError] = useState("");
   const [assignmentRemarks, setAssignmentRemarks] = useState("");
+  // Active destination countries, and the one chosen in the dialog. Changing
+  // it is how a candidate is handed to someone on another country desk.
+  const [countryOptions, setCountryOptions] = useState<string[]>([]);
+  const [assignmentDestination, setAssignmentDestination] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "added", dir: "desc" });
 
   const assignmentDialogRef = useModalFocus<HTMLDivElement>(Boolean(assigning), () => {
@@ -484,7 +495,15 @@ export default function CandidatesView({
     setSelectedStaffId(candidate.assigned_staff_id ?? "");
     setAssignmentError("");
     setAssignmentRemarks("");
+    setAssignmentDestination(candidate.profile?.destination_country?.trim() ?? "");
     setStaffLoading(true);
+    // The country list is a convenience: if it will not load, the dialog still
+    // assigns within the current desk, so its failure is not reported.
+    void listCountriesAPI()
+      .then(({ items }) =>
+        setCountryOptions((items ?? []).filter((row) => row.active).map((row) => row.name)),
+      )
+      .catch(() => undefined);
     try {
       const response = await listStaff(false);
       setStaff((response.items ?? []).filter((member) => member.active));
@@ -495,21 +514,37 @@ export default function CandidatesView({
     }
   };
 
+  const currentDestination = assigning?.profile?.destination_country?.trim() ?? "";
+  const destinationChanged =
+    !!assignmentDestination.trim() &&
+    assignmentDestination.trim().toLowerCase() !== currentDestination.toLowerCase();
+
   const saveAssignment = async () => {
     if (!assigning || !selectedStaffId) return;
     setAssignmentSaving(true);
     setAssignmentError("");
     try {
-      const result = await assignCandidate(assigning.id, selectedStaffId, assignmentRemarks.trim());
+      const result = await assignCandidate(
+        assigning.id,
+        selectedStaffId,
+        assignmentRemarks.trim(),
+        destinationChanged ? assignmentDestination.trim() : null,
+      );
       const owner = staff.find((member) => member.id === selectedStaffId);
       const ownerName = owner?.name || owner?.email || "staff";
+      const name = getDisplayName(assigning);
+      const moved = result.destination_changed ? ` moved to ${result.destination_country} and` : "";
       onToast?.(
-        result.status === "unchanged"
-          ? `${getDisplayName(assigning)} is already assigned to ${ownerName}; no new WhatsApp notification was sent.`
+        result.status === "unchanged" && result.destination_changed
+          ? `${name}'s destination changed to ${result.destination_country}; still with ${ownerName}.`
+          : result.status === "unchanged"
+          ? `${name} is already assigned to ${ownerName}; no new WhatsApp notification was sent.`
           : result.whatsapp_notified === false
-          ? `${getDisplayName(assigning)} assigned to ${ownerName}, but the WhatsApp bot did not accept the notification. Check WA_BOT_URL, WA_BOT_API_KEY, and the staff phone number.`
-          : `${getDisplayName(assigning)} assigned to ${ownerName}. WhatsApp notification sent.`,
-        result.status === "unchanged" || result.whatsapp_notified === false ? "info" : "success",
+          ? `${name}${moved} assigned to ${ownerName}, but the WhatsApp bot did not accept the notification. Check WA_BOT_URL, WA_BOT_API_KEY, and the staff phone number.`
+          : `${name}${moved} assigned to ${ownerName}. WhatsApp notification sent.`,
+        (result.status === "unchanged" && !result.destination_changed) || result.whatsapp_notified === false
+          ? "info"
+          : "success",
       );
       setAssigning(null);
       onAssignmentChanged?.();
@@ -1031,6 +1066,7 @@ export default function CandidatesView({
                     options={staff.map((member) => ({
                       value: member.id,
                       label: member.name || member.email,
+                      hint: member.desk ? DESK_LABELS[member.desk] : undefined,
                     }))}
                     onChange={setSelectedStaffId}
                     placeholder="Select an active staff member"
@@ -1042,17 +1078,50 @@ export default function CandidatesView({
                 </span>
               </div>
 
+              <div className="field-group">
+                <label className="modal-label" htmlFor="candidate-destination">Destination country</label>
+                <Select
+                  id="candidate-destination"
+                  value={assignmentDestination}
+                  options={[
+                    ...(currentDestination ? [] : [{ value: "", label: "Not set" }]),
+                    // Keep the current value selectable even if it is not (or
+                    // no longer) one of the active countries.
+                    ...(currentDestination &&
+                    !countryOptions.some((name) => name.toLowerCase() === currentDestination.toLowerCase())
+                      ? [{ value: currentDestination, label: currentDestination }]
+                      : []),
+                    ...countryOptions.map((name) => ({ value: name, label: name })),
+                  ]}
+                  onChange={setAssignmentDestination}
+                  placeholder="Not set"
+                  ariaLabel="Destination country"
+                  disabled={assignmentSaving}
+                />
+                <span className="modal-hint">
+                  {destinationChanged
+                    ? `Moves the candidate from ${currentDestination || "no destination"} to ${assignmentDestination}. The move is recorded with your remarks as the reason.`
+                    : "Singapore/Malaysia candidates go to the Singapore/Malaysia desk, all others to the other-countries desk. Change this to hand the candidate to someone on another desk."}
+                </span>
+              </div>
+
               {assigning.latest_assignment_remark && (
                 <p className="modal-hint">Last saved reassignment remark: {assigning.latest_assignment_remark}</p>
               )}
               <label className="field-group">
-                <span className="modal-label">Remarks (optional)</span>
+                <span className="modal-label">
+                  {destinationChanged ? "Reason for the move (required)" : "Remarks (optional)"}
+                </span>
                 <textarea
                   className="modal-textarea"
                   maxLength={1000}
                   value={assignmentRemarks}
                   onChange={(event) => setAssignmentRemarks(event.target.value)}
-                  placeholder="Why is this candidate being reassigned?"
+                  placeholder={
+                    destinationChanged
+                      ? "e.g. Interested in Singapore only"
+                      : "Why is this candidate being reassigned?"
+                  }
                   disabled={assignmentSaving}
                 />
               </label>
@@ -1075,7 +1144,8 @@ export default function CandidatesView({
                 onClick={() => void saveAssignment()}
                 disabled={
                   !selectedStaffId ||
-                  selectedStaffId === assigning.assigned_staff_id ||
+                  (selectedStaffId === assigning.assigned_staff_id && !destinationChanged) ||
+                  (destinationChanged && !assignmentRemarks.trim()) ||
                   staffLoading ||
                   assignmentSaving
                 }

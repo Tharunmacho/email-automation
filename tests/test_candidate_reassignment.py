@@ -96,6 +96,7 @@ def api():
          patch("app.api.routes.users", FakeUsers()):
         client = TestClient(app)
         client.repository = repository
+        client.collection = collection
         yield client
     app.dependency_overrides.clear()
 
@@ -344,3 +345,97 @@ def test_a_manual_assign_is_flagged_and_survives_automatic_passes(api):
         _rebalance_and_allocate(api)
 
         assert current(api).assigned_staff_id == "sg-2"
+
+
+# --------------------------------------------------------------------------- #
+#  Assigning across desks from the Assign dialog, by moving the destination
+# --------------------------------------------------------------------------- #
+def assign(client, **body):
+    with patch("app.api.routes.notify_candidate_assigned") as notify, \
+         patch("app.api.routes.relay_assignment", return_value=True) as relay:
+        response = client.post("/candidates/cand-1/assign", json=body)
+    response.notified = [call.args[1] for call in relay.call_args_list]
+    response.notify_calls = notify.call_count
+    return response
+
+
+def test_a_candidate_with_no_destination_is_refused_with_a_clear_reason(api):
+    """The case reported from the console: no destination, Singapore desk pick."""
+    api.collection.update_one({"_id": "cand-1"}, {"$set": {"profile.destination_country": None}})
+    second = FakeUser("sg-2", "Sharmila", "dsharmila.adira@gmail.com")
+    with patch.dict(STAFF, {"sg-2": second}):
+        response = assign(api, staff_id="sg-2", remarks="Interested in Singapore only")
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "Sharmila works the Singapore/Malaysia desk" in detail
+    assert "no destination country" in detail
+    assert "the the" not in detail
+    assert current(api).assigned_staff_id == "sg-1"
+
+
+def test_setting_the_destination_while_assigning_crosses_the_desk(api):
+    api.collection.update_one({"_id": "cand-1"}, {"$set": {"profile.destination_country": None}})
+    second = FakeUser("sg-2", "Sharmila", "dsharmila.adira@gmail.com")
+    with patch.dict(STAFF, {"sg-2": second}):
+        response = assign(
+            api,
+            staff_id="sg-2",
+            remarks="Interested in Singapore only",
+            destination_country="Singapore",
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "assigned"
+        assert body["destination_changed"] is True
+        assert body["destination_country"] == "Singapore"
+        # The new owner hears about it exactly as on an ordinary assignment.
+        assert response.notified == ["sg-2"]
+        assert response.notify_calls == 1
+
+        record = current(api)
+        assert record.profile.destination_country == "Singapore"
+        assert record.assigned_staff_id == "sg-2"
+        assert record.manually_assigned is True
+        entry = next(e for e in record.assignment_history if e.get("type") == "reassignment")
+        assert entry["from_country"] is None
+        assert entry["to_country"] == "Singapore"
+        assert entry["reason"] == "Interested in Singapore only"
+
+
+def test_moving_to_another_desks_country_assigns_to_that_desk(api):
+    response = assign(
+        api, staff_id="eu-1", remarks="Wants Germany now", destination_country="Germany",
+    )
+    assert response.status_code == 200, response.text
+    record = current(api)
+    assert record.profile.destination_country == "Germany"
+    assert record.assigned_staff_id == "eu-1"
+
+
+def test_changing_the_destination_on_assign_needs_a_remark(api):
+    response = assign(api, staff_id="eu-1", remarks="  ", destination_country="Germany")
+    assert response.status_code == 422
+    record = current(api)
+    assert record.profile.destination_country == "Singapore"
+    assert record.assigned_staff_id == "sg-1"
+
+
+def test_changing_only_the_destination_keeps_the_owner_and_their_review(api):
+    response = assign(
+        api, staff_id="sg-1", remarks="Correcting the country", destination_country="Germany",
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "unchanged"
+    assert response.notified == []
+    record = current(api)
+    assert record.profile.destination_country == "Germany"
+    assert record.assigned_staff_id == "sg-1"
+    assert record.evaluation_status == "shortlisted"
+
+
+def test_an_unchanged_destination_on_assign_is_an_ordinary_assignment(api):
+    """Sending the current country back is not a move, so the desk rule holds."""
+    response = assign(api, staff_id="eu-1", remarks="x", destination_country="singapore")
+    assert response.status_code == 400
+    assert "desk" in response.json()["detail"].lower()

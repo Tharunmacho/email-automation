@@ -1460,15 +1460,36 @@ export function deleteStaff(staffId: string, rebalance = true): Promise<DeleteSt
 // --------------------------------------------------------------------------- //
 //  Allocation
 // --------------------------------------------------------------------------- //
-/** Move one profile to a named staff member. */
-export function assignCandidate(candidateId: string, staffId: string, remarks = ""): Promise<{
+export interface AssignCandidateResult {
   status: string;
   whatsapp_notified?: boolean;
-}> {
-  return request<{ status: string; whatsapp_notified?: boolean }>(`/candidates/${candidateId}/assign`, {
+  /** Present when the destination country was changed in the same step. */
+  destination_country?: string;
+  destination_changed?: boolean;
+}
+
+/**
+ * Move one profile to a named staff member.
+ *
+ * Passing `destinationCountry` (different from the current one) also moves the
+ * candidate's destination, through the same audited route as a cross-desk
+ * reassignment — the way to hand someone to a staff member on another desk.
+ * `remarks` is then required, as the reason for the move.
+ */
+export function assignCandidate(
+  candidateId: string,
+  staffId: string,
+  remarks = "",
+  destinationCountry?: string | null,
+): Promise<AssignCandidateResult> {
+  return request<AssignCandidateResult>(`/candidates/${candidateId}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ staff_id: staffId, remarks }),
+    body: JSON.stringify({
+      staff_id: staffId,
+      remarks,
+      ...(destinationCountry ? { destination_country: destinationCountry } : {}),
+    }),
   });
 }
 

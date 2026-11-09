@@ -60,6 +60,7 @@ from app.whatsapp.groups import (
     route_group_message,
 )
 from app.assignment.balancer import (
+    DESK_LABELS,
     allocate_unassigned,
     assign_candidate,
     desk_for_candidate,
@@ -2461,7 +2462,12 @@ def list_staff(
     staff_items = users.list_staff(include_inactive=include_inactive)
     return {
         "count": len(staff_items),
-        "items": [with_branch(u, u.to_public()) for u in staff_items],
+        # `desk` lets the assignment dialog say which desk each person works,
+        # so a cross-desk pick is visible before the server refuses it.
+        "items": [
+            {**with_branch(u, u.to_public()), "desk": desk_for_staff(u)}
+            for u in staff_items
+        ],
         "branches": _branch_names(),
     }
 
@@ -2622,6 +2628,44 @@ def delete_staff(
 class AssignRequest(BaseModel):
     staff_id: str
     remarks: str = Field(default="", max_length=1000)
+    #: A new destination for the candidate, set in the same step. This is how an
+    #: admin hands a candidate to someone on another desk — "interested in
+    #: Singapore only, give them to the Singapore desk" — without leaving the
+    #: dialog. It runs the audited move `POST /candidates/{id}/reassign` makes,
+    #: so the desk rule is not bypassed: the destination moves, with a reason,
+    #: and the owner then belongs to the desk that destination needs.
+    destination_country: str | None = Field(default=None, max_length=100)
+
+
+def _desk_mismatch_detail(member, profile) -> str:
+    """Why `member` cannot take this candidate, and what would let them."""
+    who = member.name or member.email or "This staff member"
+    desk = DESK_LABELS.get(desk_for_staff(member), "another desk")
+    country = (getattr(profile, "destination_country", None) or "").strip()
+    if not country:
+        return (
+            f"{who} works the {desk}, and this candidate has no destination country "
+            "yet. Set the destination country to move them to that desk."
+        )
+    return (
+        f"{who} works the {desk}, but this candidate's destination is {country}. "
+        "Change the destination country to move them across desks."
+    )
+
+
+def _announce_assignment(candidate_id: str, record, member) -> bool:
+    """Tell the new owner, in the CRM and on WhatsApp. True if the bot took it."""
+    notify_candidate_assigned(
+        member.id,
+        {
+            "id": candidate_id,
+            "full_name": record.profile.full_name if record else None,
+            "email": record.profile.email if record else None,
+        },
+        staff_name=member.name,
+        relay_whatsapp=False,
+    )
+    return relay_assignment(candidate_id, member.id)
 
 
 @app.post("/candidates/{candidate_id}/assign")
@@ -2640,12 +2684,51 @@ def assign_candidate_route(
     record = repository.get(candidate_id)
     if not record:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    if not is_staff_eligible(member, record.profile):
-        country = record.profile.destination_country or "the remaining countries"
-        raise HTTPException(
-            status_code=400,
-            detail=f"This staff member is not assigned to the {country} candidate desk",
+
+    remarks = payload.remarks.strip()
+    new_country = (payload.destination_country or "").strip()
+    old_country = (record.profile.destination_country or "").strip()
+    if new_country and new_country.casefold() != old_country.casefold():
+        if not remarks:
+            raise HTTPException(
+                status_code=422,
+                detail="Add a remark saying why the destination country is changing.",
+            )
+        # Same owner: only the destination moves, and their review is left
+        # alone — exactly the "unchanged" rule below, for the same reason.
+        keeps_owner = record.assigned_staff_id == member.id
+        moved = reassign_candidate(
+            candidate_id,
+            ReassignmentRequest(
+                destination_country=new_country,
+                staff_id=None if keeps_owner else member.id,
+                keep_current_owner=keeps_owner,
+                reason=remarks,
+            ),
+            actor=_admin,
         )
+        destination = moved["reassignment"]["to_country"]
+        if keeps_owner:
+            return {
+                "status": "unchanged",
+                "candidate_id": candidate_id,
+                "assigned_staff_id": member.id,
+                "assigned_staff_name": member.name,
+                "destination_country": destination,
+                "destination_changed": True,
+            }
+        return {
+            "status": "assigned",
+            "candidate_id": candidate_id,
+            "assigned_staff_id": member.id,
+            "assigned_staff_name": member.name,
+            "destination_country": destination,
+            "destination_changed": True,
+            "whatsapp_notified": _announce_assignment(candidate_id, record, member),
+        }
+
+    if not is_staff_eligible(member, record.profile):
+        raise HTTPException(status_code=400, detail=_desk_mismatch_detail(member, record.profile))
 
     # Assigning somebody the candidate they already hold is not an assignment.
     # Two things follow from letting it through, and both are destructive:
@@ -2661,7 +2744,6 @@ def assign_candidate_route(
             "assigned_staff_name": member.name,
         }
 
-    remarks = payload.remarks.strip()
     event = {
         "from_staff_id": record.assigned_staff_id,
         "from_staff_name": record.assigned_staff_name,
@@ -2675,17 +2757,7 @@ def assign_candidate_route(
     repository.assign(
         candidate_id, member.id, member.name, assignment_event=event, manual=True
     )
-    notify_candidate_assigned(
-        member.id,
-        {
-            "id": candidate_id,
-            "full_name": record.profile.full_name if record else None,
-            "email": record.profile.email if record else None,
-        },
-        staff_name=member.name,
-        relay_whatsapp=False,
-    )
-    whatsapp_notified = relay_assignment(candidate_id, member.id)
+    whatsapp_notified = _announce_assignment(candidate_id, record, member)
     return {
         "status": "assigned",
         "candidate_id": candidate_id,

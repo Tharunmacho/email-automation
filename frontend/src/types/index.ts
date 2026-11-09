@@ -775,6 +775,8 @@ export interface StaffMember {
   branch?: string;
   /** The branch the account works from: typed branch, else its desk's. */
   effective_branch?: string;
+  /** Candidate desk this account works: "singapore_malaysia" or "general". */
+  desk?: string;
   active: boolean;
 }
 

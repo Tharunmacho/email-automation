@@ -58,6 +58,12 @@ def _destination_country(profile: object) -> str:
 SINGAPORE_MALAYSIA_DESK = "singapore_malaysia"
 GENERAL_DESK = "general"
 
+#: How each desk is named to a person reading an error or a staff picker.
+DESK_LABELS = {
+    SINGAPORE_MALAYSIA_DESK: "Singapore/Malaysia desk",
+    GENERAL_DESK: "other-countries desk",
+}
+
 
 def desk_for_staff(member: object) -> str:
     """Which desk this staff account belongs to."""
