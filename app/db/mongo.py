@@ -378,6 +378,11 @@ def ensure_indexes() -> None:
     )
     # Exact-duplicate detection: one candidate per resume file hash.
     ensure_index(coll, [("resume_hash", ASCENDING)], "resume_hash_unique", unique=True, sparse=True)
+    # A CV a recruiter replaced is still recognised as this candidate's
+    # (`find_by_resume_hash`), and that fallback runs for every genuinely new
+    # file, so it must not scan the collection. Not unique: one file can be a
+    # certificate on two candidates' records.
+    ensure_index(coll, [("attachments.sha256", ASCENDING)], "attachment_sha_idx", sparse=True)
     # Person-level dedup lookups.
     _prepare_passport_keys(coll, db[settings.mongo_passport_collection])
     ensure_index(

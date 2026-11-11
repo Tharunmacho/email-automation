@@ -162,6 +162,39 @@ export interface StoredResume {
   ocr_used?: boolean;
 }
 
+/**
+ * What a document attached to a candidate is. `previous_cv` is never chosen
+ * by hand — it is what a CV becomes when a newer one replaces it. Mirrors
+ * `ATTACHMENT_KINDS` in app/core/models.py.
+ */
+export type AttachmentKind =
+  | "certificate"
+  | "experience_letter"
+  | "passport"
+  | "photo"
+  | "visa"
+  | "medical"
+  | "offer_letter"
+  | "other"
+  | "previous_cv";
+
+/** A file a recruiter added to a candidate, or a CV that was replaced. */
+export interface CandidateAttachment {
+  id: string;
+  kind: AttachmentKind;
+  label?: string | null;
+  original_filename: string;
+  mime_type: string;
+  size: number;
+  sha256?: string;
+  storage_backend?: string;
+  storage_key?: string;
+  uploaded_at: string;
+  /** The uploader's user id. Absent on a replaced CV. */
+  uploaded_by?: string | null;
+  uploaded_by_name?: string | null;
+}
+
 export interface SourceEmail {
   message_id?: string;
   thread_id?: string;
@@ -333,6 +366,16 @@ export interface CandidateRecord {
    * does not exist.
    */
   resume?: StoredResume | null;
+  /**
+   * Certificates, letters, photos, and every CV a newer upload replaced.
+   * Detail reads only — list rows leave it out.
+   */
+  attachments?: CandidateAttachment[];
+  /**
+   * Set on a save that succeeded with something worth saying — an email
+   * address another candidate already holds, a CV that was already on file.
+   */
+  notice?: string;
   /** Absent for WhatsApp candidates — there is no email, and none is faked. */
   source_email?: SourceEmail | null;
   /** What the CV policy decided when this candidate registered. */

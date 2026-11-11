@@ -9824,6 +9824,142 @@ body {
   color: var(--error-ink);
 }
 
+/* --- CV & attachments ------------------------------------------------------ */
+.cdocs-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.cdocs-head .cprof-card-title {
+  margin: 0;
+}
+
+.cdocs-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.cdocs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.cdocs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue-faint);
+  background: var(--tint-1);
+}
+
+/* Replaced CVs are kept, not current: present, but quieter than the rest. */
+.cdocs-row.is-history {
+  background: transparent;
+  border-style: dashed;
+}
+
+.cdocs-row > .cprof-doc-icon {
+  flex: none;
+}
+
+.cdocs-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.cdocs-row-text strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--dash-ink);
+  overflow-wrap: anywhere;
+}
+
+.cdocs-row-text strong em {
+  font-style: normal;
+}
+
+.cdocs-row-text small {
+  font-size: 0.76rem;
+  color: var(--dash-muted);
+  overflow-wrap: anywhere;
+}
+
+.cdocs-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: none;
+}
+
+.cdocs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 0.9rem;
+  padding: 1rem 1.1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-blue);
+  background: var(--dash-surface);
+}
+
+.cdocs-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+
+.cdocs-form-file {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.cdocs-form-filename {
+  font-size: 0.8rem;
+  color: var(--dash-muted);
+  overflow-wrap: anywhere;
+}
+
+.cdocs-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+@media (max-width: 560px) {
+  .cdocs-row {
+    flex-wrap: wrap;
+  }
+
+  .cdocs-row-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .cdocs-head-actions {
+    margin-left: 0;
+  }
+}
+
 /* --- editor --------------------------------------------------------------- */
 .cedit-card-head {
   display: flex;

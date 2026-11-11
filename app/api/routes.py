@@ -42,15 +42,18 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from app.config import settings
 from app.core.models import (
+    ATTACHMENT_KINDS,
     EVALUATION_STATUSES,
     OUTCOME_TO_EVALUATION_STATUS,
     OUTCOMES_RETURNING_TO_POOL,
+    CandidateAttachment,
     CandidateProfile,
     CandidateRecord,
     JobSection,
     RegistrationState,
     utcnow,
 )
+from app.core.crm_ids import candidate_code
 from app.core.security import create_token, read_token, verify_service_key
 from app.whatsapp.groups import (
     GroupIntakeDisabled,
@@ -84,7 +87,7 @@ from app.policy.cv_policy import (
 from app.services.candidate_intake import IntakeError, intake_whatsapp_candidate
 from app.services.whatsapp_reply_policy import reply_policy as whatsapp_reply_policy
 from app.services.identity_intake import file_documents as file_identity_documents
-from app.services.resume_store import ResumeRejected, store_resume
+from app.services.resume_store import ResumeRejected, store_attachment, store_resume
 from app.mapping_pipeline import (
     MappingError,
     build_entry as build_mapping_entry,
@@ -842,13 +845,24 @@ def delete_candidate(
         "subject": getattr(source, "subject", "") or "",
         "from_addr": getattr(source, "from_addr", "") or "",
     } if source else {}
+    # Attachments and replaced CVs live in storage too, and are this
+    # candidate's alone — they go with the record.
+    attachment_refs = [
+        {
+            "storage_key": item.storage_key,
+            "storage_backend": item.storage_backend,
+            "shared_with_resume": False,
+        }
+        for item in rec.attachments
+        if item.storage_key
+    ]
     background.add_task(
         _post_delete_cleanup,
         storage_key,
         message_ids,
         identity,
         storage_backend,
-        related.get("storage_refs") or [],
+        [*(related.get("storage_refs") or []), *attachment_refs],
     )
 
     return {
@@ -1545,9 +1559,216 @@ def update_candidate_profile(
     """
     repository = repo()
     _owned_or_404(candidate_id, user)
-    repository.update_profile(candidate_id, profile)
+    conflict = repository.update_profile(candidate_id, profile)
     updated_record = repository.get(candidate_id)
-    return updated_record.model_dump(mode="json")
+    body = updated_record.model_dump(mode="json")
+    if conflict:
+        # Saved — but the address already identifies someone else, so it was
+        # not taken as this candidate's dedup key. Said rather than hidden: two
+        # records sharing an email is usually one person entered twice.
+        other = conflict.get("candidate_code") or candidate_code(str(conflict.get("_id")))
+        body["notice"] = (
+            f"Saved. {profile.email} is already on candidate {other}, so it is "
+            "not used to match duplicates for this one — check whether they are "
+            "the same person."
+        )
+    return body
+
+
+#: More than this on one candidate is not a document set, it is a misuse of
+#: the record as a file share — and every one of them rides on each detail read.
+MAX_ATTACHMENTS_PER_CANDIDATE = 40
+
+
+def _uploader(user: dict) -> tuple[str, str]:
+    return user["id"], user.get("name") or user.get("email") or "Unknown"
+
+
+def _discard_stored(backend_name: str | None, key: str | None) -> None:
+    """Best-effort removal of a file the record never came to point at."""
+    if not key:
+        return
+    try:
+        get_storage_backend(backend_name or settings.storage_backend).delete(key)
+    except Exception as exc:  # noqa: BLE001 - an orphan file is harmless
+        log.warning("Could not remove unused stored file %s: %s", key, exc)
+
+
+@app.put("/candidates/{candidate_id}/resume")
+def replace_candidate_resume(
+    candidate_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Upload a newer CV for a candidate the caller may edit.
+
+    The CRM user's counterpart to the bot's `POST /candidates/{id}/resume`,
+    and deliberately different from it: that one attaches a first CV and never
+    replaces, because nobody is watching. Here a recruiter is, and an updated
+    CV is the whole point. The file it replaces is kept as a `previous_cv`
+    attachment, never deleted, so a verdict formed on it can still be checked
+    against it and an emailed candidate's identity pages can still be cut from
+    it.
+
+    Same ownership rule as editing the profile: staff may replace the CV only
+    on candidates allocated to them.
+    """
+    repository = repo()
+    record = _owned_or_404(candidate_id, user)
+    data = file.file.read()
+
+    from app.db.dedup import sha256_hex
+
+    if record.resume and data and record.resume.sha256 == sha256_hex(data):
+        body = record.model_dump(mode="json")
+        body["notice"] = "That file is already the CV on record — nothing was changed."
+        return body
+
+    try:
+        stored = store_resume(
+            candidate_id=candidate_id,
+            data=data,
+            filename=file.filename,
+            mime_type=file.content_type,
+            discriminator=uuid.uuid4().hex[:8],
+        )
+    except ResumeRejected as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+
+    previous = None
+    if record.resume and record.resume.storage_key:
+        previous = CandidateAttachment(
+            id=uuid.uuid4().hex,
+            kind="previous_cv",
+            label="Previous CV",
+            original_filename=record.resume.original_filename,
+            mime_type=record.resume.mime_type,
+            size=record.resume.size,
+            sha256=record.resume.sha256,
+            storage_backend=record.resume.storage_backend,
+            storage_key=record.resume.storage_key,
+            # Stamped when it stopped being the CV, which is what a reader of
+            # the list needs to know about it.
+            uploaded_at=utcnow(),
+        )
+
+    try:
+        replaced = repository.replace_resume(candidate_id, stored, previous)
+    except DuplicateKeyError:
+        _discard_stored(stored.storage_backend, stored.storage_key)
+        owner = repository.find_by_resume_hash(stored.sha256)
+        where = f" ({owner.candidate_code})" if owner and owner.candidate_code else ""
+        raise HTTPException(
+            status_code=409,
+            detail=f"This exact file is already the CV of another candidate{where}.",
+        )
+    if not replaced:
+        _discard_stored(stored.storage_backend, stored.storage_key)
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    actor_id, actor_name = _uploader(user)
+    log.info("CV replaced on candidate %s by %s (%s)", candidate_id, actor_name, actor_id)
+    return repository.get(candidate_id).model_dump(mode="json")
+
+
+@app.post("/candidates/{candidate_id}/attachments", status_code=201)
+def add_candidate_attachment(
+    candidate_id: str,
+    file: UploadFile = File(...),
+    kind: str = Form(default="other"),
+    label: str = Form(default=""),
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Attach a certificate, letter, photo or other document to a candidate."""
+    if kind not in ATTACHMENT_KINDS or kind == "previous_cv":
+        raise HTTPException(status_code=422, detail="Choose what kind of document this is.")
+    if len(label) > 120:
+        raise HTTPException(status_code=422, detail="Keep the description under 120 characters.")
+
+    repository = repo()
+    record = _owned_or_404(candidate_id, user)
+    if len(record.attachments) >= MAX_ATTACHMENTS_PER_CANDIDATE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This candidate already has {MAX_ATTACHMENTS_PER_CANDIDATE} attachments.",
+        )
+
+    actor_id, actor_name = _uploader(user)
+    try:
+        attachment = store_attachment(
+            candidate_id=candidate_id,
+            data=file.file.read(),
+            filename=file.filename,
+            mime_type=file.content_type,
+            kind=kind,
+            label=label,
+            uploaded_by=actor_id,
+            uploaded_by_name=actor_name,
+        )
+    except ResumeRejected as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+
+    if not repository.add_attachment(candidate_id, attachment):
+        _discard_stored(attachment.storage_backend, attachment.storage_key)
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    return repository.get(candidate_id).model_dump(mode="json")
+
+
+@app.get("/candidates/{candidate_id}/attachments/{attachment_id}")
+def download_candidate_attachment(
+    candidate_id: str,
+    attachment_id: str,
+    user: dict = Depends(require_page("candidates", "job-orders")),
+    context: Literal["job-orders"] | None = None,
+) -> Response:
+    """One attachment's bytes. Readable by whoever may read the profile."""
+    record = _readable_or_404(candidate_id, user, context)
+    attachment = next((item for item in record.attachments if item.id == attachment_id), None)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    backend_name = attachment.storage_backend or settings.storage_backend
+    unavailable = False
+    for name in (backend_name, "local" if backend_name == "gridfs" else "gridfs"):
+        try:
+            data = get_storage_backend(name).load(attachment.storage_key)
+            return _attachment_response(data, attachment.mime_type, attachment.original_filename)
+        except FileNotFoundError:
+            continue
+        except Exception as exc:  # noqa: BLE001
+            unavailable = True
+            log.warning("Attachment storage %s unavailable for %s: %s", name, candidate_id, exc)
+    if unavailable:
+        raise HTTPException(status_code=503, detail="The file could not be read just now. Try again.")
+    raise HTTPException(status_code=404, detail="The file is no longer in storage.")
+
+
+@app.delete("/candidates/{candidate_id}/attachments/{attachment_id}")
+def delete_candidate_attachment(
+    candidate_id: str,
+    attachment_id: str,
+    user: dict = Depends(require_page("candidates")),
+) -> dict:
+    """Remove an attachment that was added by mistake.
+
+    Staff may remove only what they uploaded themselves, on a candidate they
+    own; an administrator may remove any. A replaced CV cannot be removed by
+    anyone: it is the evidence a past verdict rests on, and for an emailed
+    candidate the file their passport and Aadhaar pages are cut from.
+    """
+    repository = repo()
+    record = _owned_or_404(candidate_id, user)
+    attachment = next((item for item in record.attachments if item.id == attachment_id), None)
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    if attachment.kind == "previous_cv":
+        raise HTTPException(status_code=409, detail="A replaced CV is kept on record and cannot be removed.")
+    if user.get("role") != ADMIN_ROLE and attachment.uploaded_by != user["id"]:
+        raise HTTPException(status_code=403, detail="Only the person who uploaded this file, or an administrator, can remove it.")
+
+    if repository.remove_attachment(candidate_id, attachment_id):
+        _discard_stored(attachment.storage_backend, attachment.storage_key)
+    return repository.get(candidate_id).model_dump(mode="json")
 
 
 @app.post("/candidates/upload", status_code=201)

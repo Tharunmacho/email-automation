@@ -24,10 +24,11 @@ remember when something has to be found by hand.
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.core.models import StoredResume
+from app.core.models import CandidateAttachment, StoredResume
 from app.db.dedup import sha256_hex
 from app.logging_config import get_logger
 from app.storage.factory import get_storage_backend
@@ -70,15 +71,24 @@ class ResumeRejected(Exception):
 _MIME_ALIASES = {"image/jpg": "image/jpeg", "image/pjpeg": "image/jpeg", "text/rtf": "application/rtf"}
 
 
-def validate_resume(data: bytes, mime_type: Optional[str], filename: Optional[str] = None) -> str:
-    """Validate upload bytes without writing them and return the media type."""
+def validate_resume(
+    data: bytes,
+    mime_type: Optional[str],
+    filename: Optional[str] = None,
+    noun: str = "resume",
+) -> str:
+    """Validate upload bytes without writing them and return the media type.
+
+    `noun` only changes the wording: an attachment is held to the same types
+    and the same size limit, and is told so in its own name.
+    """
     if not data:
-        raise ResumeRejected("the resume file is empty", "empty_resume")
+        raise ResumeRejected(f"the {noun} file is empty", f"empty_{noun}")
     if len(data) > MAX_RESUME_BYTES:
         raise ResumeRejected(
-            f"the resume is {len(data) // (1024 * 1024)} MB; the limit is "
+            f"the {noun} is {len(data) // (1024 * 1024)} MB; the limit is "
             f"{MAX_RESUME_BYTES // (1024 * 1024)} MB",
-            "resume_too_large",
+            f"{noun}_too_large",
         )
 
     content_type = (mime_type or "").split(";")[0].strip().lower() or "application/octet-stream"
@@ -96,28 +106,37 @@ def validate_resume(data: bytes, mime_type: Optional[str], filename: Optional[st
             return sniffed
     if content_type not in ALLOWED_RESUME_TYPES:
         raise ResumeRejected(
-            f"{content_type} is not an accepted resume type", "unsupported_resume_type"
+            f"{content_type} is not an accepted {noun} type", f"unsupported_{noun}_type"
         )
     return content_type
 
 
-def _safe_name(filename: Optional[str]) -> str:
+def _safe_name(filename: Optional[str], fallback: str = "resume.pdf") -> str:
     """A filename that cannot escape the key it is embedded in.
 
     `../` in a storage key is a path traversal on the local backend and simply
     a confusing key on GridFS. Neither is acceptable and the fix is the same
     for both, so it happens here rather than in one backend.
     """
-    name = (filename or "").strip() or "resume.pdf"
+    name = (filename or "").strip() or fallback
     name = name.replace("\\", "/").rsplit("/", 1)[-1]
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-    return name[:120] or "resume.pdf"
+    return name[:120] or fallback
 
 
-def storage_key_for(candidate_id: str, filename: Optional[str]) -> str:
-    """`YYYY/MM/{candidate_id}_{filename}` — the mailbox pipeline's shape."""
+def storage_key_for(
+    candidate_id: str, filename: Optional[str], discriminator: Optional[str] = None
+) -> str:
+    """`YYYY/MM/{candidate_id}_{filename}` — the mailbox pipeline's shape.
+
+    `discriminator` goes between the two when a candidate can hold more than
+    one file under the same name. A replacement CV is usually the same
+    "resume.pdf" uploaded the same month, and without it the new upload would
+    be written over the very file it is meant to be kept beside.
+    """
     now = datetime.now(timezone.utc)
-    return f"{now:%Y/%m}/{candidate_id}_{_safe_name(filename)}"
+    middle = f"{discriminator}_" if discriminator else ""
+    return f"{now:%Y/%m}/{candidate_id}_{middle}{_safe_name(filename)}"
 
 
 def store_resume(
@@ -126,6 +145,7 @@ def store_resume(
     data: bytes,
     filename: Optional[str],
     mime_type: Optional[str],
+    discriminator: Optional[str] = None,
 ) -> StoredResume:
     """Write the bytes and describe what was written.
 
@@ -143,7 +163,7 @@ def store_resume(
     content_type = validate_resume(data, mime_type, filename)
 
     digest = sha256_hex(data)
-    key = storage_key_for(candidate_id, filename)
+    key = storage_key_for(candidate_id, filename, discriminator)
     backend = get_storage_backend()
     backend.save(key, data, content_type=content_type)
 
@@ -162,4 +182,55 @@ def store_resume(
         sha256=digest,
         storage_backend=backend.name,
         storage_key=key,
+    )
+
+
+def store_attachment(
+    *,
+    candidate_id: str,
+    data: bytes,
+    filename: Optional[str],
+    mime_type: Optional[str],
+    kind: str,
+    label: Optional[str],
+    uploaded_by: Optional[str],
+    uploaded_by_name: Optional[str],
+) -> CandidateAttachment:
+    """Write a recruiter's upload and describe it as an attachment.
+
+    Held to the résumé's rules — a certificate or an experience letter is the
+    same kind of file, photographed on the same phone — and keyed under
+    `attachments/` with its own id, so two uploads named "certificate.pdf" in
+    the same month are two files rather than one overwriting the other.
+    """
+    content_type = validate_resume(data, mime_type, filename, noun="attachment")
+
+    attachment_id = uuid.uuid4().hex
+    name = _safe_name(filename, fallback="attachment")
+    now = datetime.now(timezone.utc)
+    key = f"attachments/{now:%Y/%m}/{candidate_id}_{attachment_id[:12]}_{name}"
+    backend = get_storage_backend()
+    backend.save(key, data, content_type=content_type)
+
+    log.info(
+        "Stored %s attachment for candidate %s (%d bytes, %s, backend=%s)",
+        kind,
+        candidate_id,
+        len(data),
+        content_type,
+        backend.name,
+    )
+
+    return CandidateAttachment(
+        id=attachment_id,
+        kind=kind,
+        label=(label or "").strip() or None,
+        original_filename=name,
+        mime_type=content_type,
+        size=len(data),
+        sha256=sha256_hex(data),
+        storage_backend=backend.name,
+        storage_key=key,
+        uploaded_by=uploaded_by,
+        uploaded_by_name=uploaded_by_name,
     )

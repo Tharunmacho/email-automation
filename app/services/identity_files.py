@@ -162,24 +162,44 @@ def _pages(doc: Dict[str, Any]) -> List[int]:
         return []
 
 
-def _bundle_matches(record: CandidateRecord, doc: Dict[str, Any]) -> bool:
-    """Whether the candidate's stored file is the one this record was read off.
+def _bundle_for(record: CandidateRecord, doc: Dict[str, Any]):
+    """The stored file this identity record was read off, or None.
+
+    Usually the CV on the record. Not once a recruiter has uploaded a newer
+    one: the old CV then lives on as a `previous_cv` attachment, and it is
+    still the file whose pages hold this passport. Cutting those page numbers
+    out of the new upload would serve a page of somebody's work history as
+    their passport, so the bundle is found by fingerprint wherever it now is.
 
     Both fingerprints are the sha256 of the whole attachment, so when both are
-    present they settle it. A record written before the fingerprint was carried
-    has none, and the candidate id it is filed under is then the only link
-    there is — which is the link the caller has already checked. Refusing those
-    would take the feature away from exactly the older records most likely to
-    need looking up.
+    present they settle it. A record written before fingerprints were carried
+    has none, and the candidate id it is filed under is then the only link —
+    the link the caller has already checked, and refusing those would take the
+    feature away from the older records most likely to need it. Such a record
+    was read at ingestion, so its bundle is the CV the candidate arrived with:
+    the oldest replaced one, if any has been replaced.
+
+    Returns a `StoredResume` or a `CandidateAttachment`; both carry the
+    storage key, backend, type and name this module reads.
     """
     stored_hash = (doc.get("source") or {}).get("sha256")
     if not stored_hash and str(doc.get("_id") or "").startswith("whatsapp:"):
         # Documents the legacy WhatsApp intake filed were sent on their own,
         # never inside the CV, so the CV is not their file whatever it holds.
-        return False
-    if not stored_hash or not record.resume:
-        return True
-    return stored_hash == record.resume.sha256
+        return None
+
+    current = record.resume if record.resume and record.resume.storage_key else None
+    replaced = [
+        item for item in (getattr(record, "attachments", None) or [])
+        if item.kind == "previous_cv" and item.storage_key
+    ]
+    if stored_hash:
+        if current and current.sha256 == stored_hash:
+            return current
+        return next((item for item in replaced if item.sha256 == stored_hash), None)
+    if replaced:
+        return min(replaced, key=lambda item: item.uploaded_at)
+    return current
 
 
 def _load(backend_name: str, key: str) -> bytes:
@@ -231,13 +251,9 @@ def available(record: CandidateRecord, doc: Dict[str, Any]) -> bool:
     """
     if _stored(doc):
         return True
-    if not _bundle_matches(record, doc) or not (record.resume and record.resume.storage_key):
-        return _ingested(record, doc) is not None
-    return bool(
-        record.resume
-        and record.resume.storage_key
-        and _bundle_matches(record, doc)
-    )
+    if _bundle_for(record, doc) is not None:
+        return True
+    return _ingested(record, doc) is not None
 
 
 def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
@@ -258,9 +274,8 @@ def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
             filename=block.get("filename") or f"{document_type}.pdf",
         )
 
-    sibling = None
-    if not (record.resume and record.resume.storage_key) or not _bundle_matches(record, doc):
-        sibling = _ingested(record, doc)
+    bundle = _bundle_for(record, doc)
+    sibling = _ingested(record, doc) if bundle is None else None
     if sibling:
         data = _load(settings.storage_backend, sibling["storage_key"])
         pages = _pages(doc)
@@ -271,29 +286,42 @@ def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
         mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
         return IdentityFile(data=data, mime_type=mime, filename=name)
 
-    if not (record.resume and record.resume.storage_key):
-        raise IdentityFileMissing(
-            "no scan is stored for this document — it was read out of a bundle "
-            "the candidate record no longer points at"
-        )
-    if not _bundle_matches(record, doc):
+    if bundle is None:
+        if not (record.resume and record.resume.storage_key):
+            raise IdentityFileMissing(
+                "no scan is stored for this document — it was read out of a bundle "
+                "the candidate record no longer points at"
+            )
         raise IdentityFileMissing(
             "the file on the candidate record is not the one this document was "
             "read from, so the pages it names cannot be trusted"
         )
 
     try:
-        data = _load(record.resume.storage_backend, record.resume.storage_key)
+        data = _load(bundle.storage_backend, bundle.storage_key)
     except (IdentityFileMissing, IdentityFileUnavailable):
         # Older records may point at a bundle lost during a storage migration.
-        # Recover that same bundle before cutting out this document's pages.
+        # Recover that same bundle before cutting out this document's pages —
+        # asked about by its own fingerprint, which for a replaced CV is not
+        # the one on `record.resume`.
+        from app.core.models import StoredResume
         from app.services.resume_recovery import recover_from_email
 
-        data = recover_from_email(record)
+        lookup = record
+        if bundle is not record.resume:
+            lookup = record.model_copy(update={"resume": StoredResume(
+                original_filename=bundle.original_filename,
+                mime_type=bundle.mime_type,
+                size=bundle.size,
+                sha256=bundle.sha256,
+                storage_backend=bundle.storage_backend,
+                storage_key=bundle.storage_key,
+            )})
+        data = recover_from_email(lookup)
         if data is None:
             raise
     pages = _pages(doc)
-    stem = _stem((doc.get("source") or {}).get("filename") or record.resume.original_filename)
+    stem = _stem((doc.get("source") or {}).get("filename") or bundle.original_filename)
 
     # `subset_pdf` returns None for every case whose correct answer is "serve
     # the original": no page numbers, pages that are the whole file, a file
@@ -303,8 +331,8 @@ def load(record: CandidateRecord, doc: Dict[str, Any]) -> IdentityFile:
     if subset is None:
         return IdentityFile(
             data=data,
-            mime_type=record.resume.mime_type or "application/octet-stream",
-            filename=f"{stem}_{document_type}.{_extension(record.resume.original_filename)}",
+            mime_type=bundle.mime_type or "application/octet-stream",
+            filename=f"{stem}_{document_type}.{_extension(bundle.original_filename)}",
         )
 
     span = "-".join(str(n) for n in sorted(set(pages)))

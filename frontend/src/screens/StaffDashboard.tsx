@@ -358,15 +358,27 @@ export default function StaffDashboard({
     return sorted;
   }, [candidates, filter, query, sort, slaHours, now, isOverdue]);
 
+  /**
+   * What "Review next" opens: the unopened profile closest to its deadline,
+   * and once everything has been opened, the one that has waited longest for
+   * a verdict. Matches the review screen's "Save & next", so the two never
+   * disagree — this used to say "Queue clear" over a pending-review pile.
+   */
   const nextUp = useMemo(() => {
-    const waiting = candidates
-      .filter((candidate) => !candidate.viewed_at)
+    const since = (candidate: CandidateRecord) =>
+      new Date(candidate.assigned_at ?? candidate.created_at).getTime();
+    const unopened = candidates
+      .filter((candidate) => !candidate.viewed_at && !isEvaluated(candidate))
       .map((candidate) => ({
         candidate,
         left: hoursRemaining(candidate, slaHours, now) ?? Number.POSITIVE_INFINITY,
       }))
       .sort((a, b) => a.left - b.left);
-    return waiting[0]?.candidate ?? null;
+    if (unopened[0]) return unopened[0].candidate;
+    const awaitingVerdict = candidates
+      .filter((candidate) => candidate.viewed_at && !isEvaluated(candidate))
+      .sort((a, b) => since(a) - since(b));
+    return awaitingVerdict[0] ?? null;
   }, [candidates, slaHours, now]);
 
   /**
@@ -445,8 +457,10 @@ export default function StaffDashboard({
             onClick={() => nextUp && openProfile(nextUp)}
             title={
               nextUp
-                ? "Open the unopened profile closest to its deadline"
-                : "Nothing is waiting on a first read"
+                ? nextUp.viewed_at
+                  ? "Open the profile that has waited longest for a verdict"
+                  : "Open the unopened profile closest to its deadline"
+                : "Nothing is waiting for a verdict"
             }
           >
             <Sparkles size={15} />

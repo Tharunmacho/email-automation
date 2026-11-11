@@ -22,6 +22,8 @@ import type {
   StoredResume,
   SourceEmail,
   CandidateRecord,
+  AttachmentKind,
+  CandidateAttachment,
   CandidateListResponse,
   AadhaarRecord,
   PassportRecord,
@@ -81,6 +83,8 @@ export type {
   StoredResume,
   SourceEmail,
   CandidateRecord,
+  AttachmentKind,
+  CandidateAttachment,
   CandidateListResponse,
   AadhaarRecord,
   PassportRecord,
@@ -256,7 +260,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `${response.status} ${response.statusText}`;
     try {
       const body = await response.json();
-      if (body?.detail) {
+      if (Array.isArray(body?.detail)) {
+        // FastAPI's own validation errors: a list of `{ loc, msg }`. Stringified
+        // whole, they reached the toast as "[object Object]".
+        detail = body.detail
+          .map((item: { loc?: unknown[]; msg?: string }) => {
+            const field = (item.loc ?? []).filter((part) => part !== "body").join(".");
+            return field ? `${field}: ${item.msg ?? "invalid"}` : item.msg ?? "invalid";
+          })
+          .join("; ") || detail;
+      } else if (body?.detail) {
         // Most routes send a string; a few send `{ message, ... }` so the
         // caller gets context too. Either way the toast shows words.
         detail = typeof body.detail === "object" && body.detail !== null && "message" in body.detail
@@ -1307,6 +1320,45 @@ export function deleteCandidateAPI(candidateId: string): Promise<{ status: strin
 export function resumeDownloadUrl(candidateId: string, context?: CandidateReadContext): string {
   const query = candidateReadQuery(context, getToken());
   return `${API_BASE}/candidates/${candidateId}/resume${query}`;
+}
+
+/**
+ * Upload a newer CV. The one it replaces stays on the record as a
+ * `previous_cv` attachment; nothing is deleted.
+ */
+export function replaceCandidateResume(candidateId: string, file: File): Promise<CandidateRecord> {
+  const body = new FormData();
+  body.append("file", file);
+  return request<CandidateRecord>(`/candidates/${candidateId}/resume`, { method: "PUT", body });
+}
+
+export function addCandidateAttachment(
+  candidateId: string,
+  file: File,
+  kind: AttachmentKind,
+  label: string,
+): Promise<CandidateRecord> {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("kind", kind);
+  body.append("label", label);
+  return request<CandidateRecord>(`/candidates/${candidateId}/attachments`, { method: "POST", body });
+}
+
+export function deleteCandidateAttachment(candidateId: string, attachmentId: string): Promise<CandidateRecord> {
+  return request<CandidateRecord>(`/candidates/${candidateId}/attachments/${attachmentId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Token in the query, as `resumeDownloadUrl` — see `saveFile` for why. */
+export function attachmentDownloadUrl(
+  candidateId: string,
+  attachmentId: string,
+  context?: CandidateReadContext,
+): string {
+  const query = candidateReadQuery(context, getToken());
+  return `${API_BASE}/candidates/${candidateId}/attachments/${attachmentId}${query}`;
 }
 
 /**

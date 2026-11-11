@@ -25,6 +25,7 @@ import StaffDashboard from "@/screens/StaffDashboard";
 import AttendanceScreen from "@/screens/AttendanceScreen";
 import PayrollScreen from "@/screens/PayrollScreen";
 import RecruitmentPanel from "@/components/RecruitmentPanel";
+import CandidateDocuments from "@/components/CandidateDocuments";
 import Toast, { type ToastState, type ToastType } from "@/components/Toast";
 import { useModalFocus } from "@/components/ui/useModalFocus";
 import type { LogEntry } from "@/components/dashboard/ActivityLog";
@@ -806,8 +807,11 @@ export default function Home() {
     const renamed = nextName !== previousName;
 
     try {
-      await updateCandidateProfile(candidateId, profile);
-      showToast("Candidate profile updated successfully.", "success");
+      const saved = await updateCandidateProfile(candidateId, profile);
+      // A save can succeed with something to say — an email address another
+      // candidate already holds is kept, but not used to match duplicates.
+      if (saved.notice) showToast(saved.notice, "info");
+      else showToast("Candidate profile updated successfully.", "success");
       appendCandidateLog(
         candidateId,
         renamed ? "Renamed" : "Edited",
@@ -825,7 +829,9 @@ export default function Home() {
       setScreen((current) => ({ ...current, mode: "profile", candidateId }));
     } catch (err) {
       const message = err instanceof Error ? err.message : "Connection error saving profile.";
-      showToast("Failed to save profile changes.", "error");
+      // The reason, not just the fact: "Failed to save" alone left a reviewer
+      // with an edit they could neither save nor understand.
+      showToast(`Could not save the profile — ${message}`, "error");
       appendCandidateLog(candidateId, "Failed", `Save failed — ${message}`, "error", user?.email);
     } finally {
       setSaving(false);
@@ -1039,24 +1045,33 @@ export default function Home() {
   };
 
   /**
-   * The profile a reviewer should see next: the unopened one closest to its
-   * deadline, excluding whatever is on screen.
+   * The profile a reviewer should see next, excluding whatever is on screen:
+   * the unopened one closest to its deadline, and once nothing is unopened,
+   * the opened one that has waited longest for a verdict.
+   *
+   * It used to be unopened profiles only. A reviewer working through
+   * "Pending review" — every profile opened, none judged — therefore never
+   * had a next, and every profile offered "Save & finish" instead.
    *
    * Read from the same list the queue sorts, so "Save & next" and the queue's
    * own "Review next" always agree about what is most urgent.
    */
-  const nextUnviewed = useMemo(() => {
+  const nextInQueue = useMemo(() => {
     if (user?.role !== "staff") return null;
     const waiting = candidates.filter(
       (candidate) => candidate.assigned_staff_id === user.id
-        && !candidate.viewed_at && candidate.id !== screen?.candidateId,
+        && (candidate.evaluation_status ?? "pending") === "pending"
+        && candidate.id !== screen?.candidateId,
     );
     if (waiting.length === 0) return null;
-    // Oldest allocation first — that is the one nearest the SLA window.
-    return waiting.reduce((oldest, candidate) => {
-      const a = new Date(candidate.assigned_at ?? candidate.created_at).getTime();
-      const b = new Date(oldest.assigned_at ?? oldest.created_at).getTime();
-      return a < b ? candidate : oldest;
+    const since = (candidate: CandidateRecord) =>
+      new Date(candidate.assigned_at ?? candidate.created_at).getTime();
+    // Unopened first — their SLA clock is still running — then oldest
+    // allocation first, which is the one nearest (or furthest past) the window.
+    return waiting.reduce((best, candidate) => {
+      const unopened = Number(!candidate.viewed_at) - Number(!best.viewed_at);
+      if (unopened !== 0) return unopened > 0 ? candidate : best;
+      return since(candidate) < since(best) ? candidate : best;
     });
   }, [candidates, screen?.candidateId, user]);
 
@@ -1089,11 +1104,11 @@ export default function Home() {
     complete = false,
   ) => {
     setEvaluating(true);
-    // Read before the save: `nextUnviewed` is derived from a list this save is
+    // Read before the save: `nextInQueue` is derived from a list this save is
     // about to change, and after the refresh the profile just judged is no
-    // longer unviewed — so the "next" computed afterwards could be a different
+    // longer waiting — so the "next" computed afterwards could be a different
     // one from the button the reviewer actually pressed.
-    const following = advance ? nextUnviewed : null;
+    const following = advance ? nextInQueue : null;
     try {
       await evaluateCandidate(candidateId, {
         status: verdict.status,
@@ -1173,6 +1188,29 @@ export default function Home() {
 
   /** A staff member reading a candidate: the one screen that gets no page head. */
   const isStaffReview = user?.role === "staff" && screen?.mode === "profile";
+
+  /**
+   * The CV and attachments panel, shared by the profile and the editor.
+   *
+   * Uploading follows the profile-edit rule exactly — an administrator, or the
+   * staff member the candidate is allocated to — because the server applies
+   * the same one. Everyone who can read the profile can download.
+   */
+  const documentsPanel = screenCandidate ? (
+    <CandidateDocuments
+      candidate={screenCandidate}
+      readContext={candidateReadContext}
+      canManage={canReviewCandidate}
+      isAdmin={user?.role === "admin"}
+      currentUserId={user?.id}
+      onToast={showToast}
+      onChanged={(summary) => {
+        appendCandidateLog(screenCandidate.id, "Documents", summary, "success", user?.email);
+        setDetailNonce((n) => n + 1);
+        void refreshCandidates();
+      }}
+    />
+  ) : null;
 
   // Screens that draw their own title row. The dashboard's header carries the
   // window it is showing and the controls that change it, and the candidates
@@ -1303,10 +1341,11 @@ export default function Home() {
                 evaluation={canReviewCandidate ? {
                   saving: evaluating,
                   allowAdvance: user?.role === "staff" && candidateReadContext !== "job-orders",
-                  nextName: nextUnviewed ? candidateNameOf(nextUnviewed) : null,
+                  nextName: nextInQueue ? candidateNameOf(nextInQueue) : null,
                   onSave: (verdict, advance, complete) =>
                     void handleSaveEvaluation(screenCandidate.id, verdict, advance, complete),
                 } : undefined}
+                documents={documentsPanel}
                 recruitment={
                   <RecruitmentPanel
                     candidate={screenCandidate}
@@ -1337,6 +1376,7 @@ export default function Home() {
                 onSave={handleSave}
                 onVerify={user?.role === "admin" ? handleVerify : undefined}
                 onUnverify={user?.role === "admin" ? handleUnverify : undefined}
+                documents={documentsPanel}
               />
             )}
 

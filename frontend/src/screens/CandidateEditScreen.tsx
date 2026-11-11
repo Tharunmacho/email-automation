@@ -35,6 +35,11 @@ interface CandidateEditScreenProps {
   onVerify?: (candidateId: string) => void;
   /** Return an admin-verified profile to the review queue. */
   onUnverify?: (candidateId: string) => void;
+  /**
+   * The CV and attachments panel. Its uploads save on their own, so it sits
+   * above the form rather than inside it.
+   */
+  documents?: React.ReactNode;
 }
 
 function Field({
@@ -100,6 +105,7 @@ export default function CandidateEditScreen({
   onSave,
   onVerify,
   onUnverify,
+  documents,
 }: CandidateEditScreenProps) {
   const profile = candidate.profile ?? {};
   const isVerified = candidate.status === "verified";
@@ -234,6 +240,8 @@ export default function CandidateEditScreen({
       </header>
 
       <div className="cedit-sections">
+        {documents}
+
         <SectionCard title="Identity and contact">
           <div className="cedit-grid">
             <Field label="Full name">

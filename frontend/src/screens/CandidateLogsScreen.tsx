@@ -29,6 +29,7 @@ const EVENT: Record<CandidateLogAction, { label: string; tone: "blue" | "green" 
   Verified: { label: "Candidate profile verified", tone: "green" },
   Unverified: { label: "Candidate returned to review", tone: "amber" },
   Evaluated: { label: "Staff verdict recorded", tone: "green" },
+  Documents: { label: "CV or attachments changed", tone: "blue" },
   Deleted: { label: "Candidate profile deleted", tone: "red" },
   Failed: { label: "Action failed", tone: "amber" },
 };

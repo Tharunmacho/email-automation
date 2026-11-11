@@ -19,7 +19,7 @@ from pymongo import ASCENDING, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from app.core.crm_ids import candidate_code
-from app.core.models import CandidateProfile, CandidateRecord, StoredResume
+from app.core.models import CandidateAttachment, CandidateProfile, CandidateRecord, StoredResume
 from app.db import whatsapp_compat
 from app.db.mongo import get_candidates_collection, get_db
 from app.logging_config import get_logger
@@ -342,6 +342,13 @@ class CandidateRepository:
         if not resume_hash:
             return None
         doc = self._coll.find_one({"resume_hash": resume_hash})
+        if not doc:
+            # A CV a recruiter has since replaced is still this candidate's.
+            # Without this, the old file arriving again by email would no
+            # longer be recognised and would create the person a second time.
+            doc = self._coll.find_one({
+                "attachments": {"$elemMatch": {"kind": "previous_cv", "sha256": resume_hash}},
+            })
         return CandidateRecord.from_mongo(doc) if doc else None
 
     def find_by_idempotency_key(self, key: Optional[str]) -> Optional[CandidateRecord]:
@@ -608,12 +615,82 @@ class CandidateRepository:
             {"$set": {"status": status, "duplicate_of": duplicate_of, "updated_at": utcnow()}},
         )
 
-    def update_profile(self, candidate_id: str, profile: CandidateProfile) -> None:
-        from app.core.models import utcnow
+    def _dedup_key_update(
+        self, candidate_id: str, profile: CandidateProfile, existing_doc: Optional[dict]
+    ) -> tuple[dict, dict, Optional[dict]]:
+        """The `$set` and `$unset` halves for `email_key`/`phone_key`.
+
+        Two ways this used to fail a save outright, both on the unique sparse
+        `email_key` index (`app/db/mongo.py`):
+
+          * A blank address was written as `email_key: null`. A sparse index
+            skips a *missing* field, not a null one, so the first email-less
+            candidate saved cleanly and every one after it collided on null —
+            which is most WhatsApp and blue-collar candidates.
+          * An address another candidate already holds. The startup backfill
+            releases the key on the later of two such records, and the next
+            edit of that record tried to claim it straight back.
+
+        So a blank key is unset, never nulled, and an address that belongs to
+        someone else is saved in the profile but not claimed — the same thing
+        the backfill does with an existing collision. The third value is the
+        record that holds it, so the caller can say so.
+        """
         from app.db.dedup import normalize_email, normalize_phone
 
+        to_set: dict = {}
+        to_unset: dict = {}
+        conflict: Optional[dict] = None
+
         email_key = normalize_email(profile.email)
+        if email_key:
+            owner = self._coll.find_one(
+                {"email_key": email_key}, {"_id": 1, "candidate_code": 1}
+            )
+            this_id = str(existing_doc["_id"]) if existing_doc else candidate_id
+            if owner and str(owner["_id"]) != this_id:
+                conflict = owner
+                to_unset["email_key"] = ""
+            else:
+                to_set["email_key"] = email_key
+        else:
+            to_unset["email_key"] = ""
+
         phone_key = normalize_phone(profile.phone)
+        if phone_key:
+            to_set["phone_key"] = phone_key
+        else:
+            to_unset["phone_key"] = ""
+
+        return to_set, to_unset, conflict
+
+    def _write_with_keys(self, candidate_id: str, to_set: dict, to_unset: dict):
+        """Apply an update, retrying without `email_key` if it lost a race.
+
+        `_dedup_key_update` looked the address up first, but another save can
+        claim it between that read and this write. Losing that race must still
+        save the profile; only the key is given up.
+        """
+        update: dict = {"$set": to_set}
+        if to_unset:
+            update["$unset"] = to_unset
+        try:
+            return self._coll.update_one(_id_filter(candidate_id), update)
+        except DuplicateKeyError:
+            if "email_key" not in to_set:
+                raise
+            retry_set = {k: v for k, v in to_set.items() if k != "email_key"}
+            update = {"$set": retry_set, "$unset": {**to_unset, "email_key": ""}}
+            return self._coll.update_one(_id_filter(candidate_id), update)
+
+    def update_profile(self, candidate_id: str, profile: CandidateProfile) -> Optional[dict]:
+        """Save an edited profile.
+
+        Returns the other candidate already holding this profile's email
+        address (`_id` and `candidate_code`), or None. The edit is saved either
+        way; see `_dedup_key_update`.
+        """
+        from app.core.models import utcnow
 
         # Ensure work_experience items have both title and designation set
         if profile.work_experience:
@@ -642,19 +719,17 @@ class CandidateRepository:
         # back, so the stored one wins.
         profile_dump["raw_ocr"] = stored_raw if isinstance(stored_raw, dict) and stored_raw else None
 
+        key_set, key_unset, conflict = self._dedup_key_update(candidate_id, profile, existing_doc)
         update_dict = {
             "profile": profile_dump,
-            "email_key": email_key,
-            "phone_key": phone_key,
+            **key_set,
             "updated_at": utcnow(),
         }
         if isinstance(stored_raw, dict) and stored_raw:
             update_dict["raw_ocr"] = stored_raw
 
-        self._coll.update_one(
-            _id_filter(candidate_id),
-            {"$set": update_dict},
-        )
+        self._write_with_keys(candidate_id, update_dict, key_unset)
+        return conflict
 
     def replace_extraction(self, candidate_id: str, profile: CandidateProfile) -> bool:
         """Overwrite the parsed profile *and* the verbatim payload behind it.
@@ -672,7 +747,6 @@ class CandidateRepository:
         properly. The original upload is never touched.
         """
         from app.core.models import utcnow
-        from app.db.dedup import normalize_email, normalize_phone
 
         for exp in profile.work_experience or []:
             if exp.designation and not exp.title:
@@ -683,17 +757,19 @@ class CandidateRepository:
         payload = profile.model_dump(mode="python")
         raw = payload.get("raw_ocr") if isinstance(payload.get("raw_ocr"), dict) else None
 
-        result = self._coll.update_one(
-            _id_filter(candidate_id),
-            {
-                "$set": {
-                    "profile": payload,
-                    "raw_ocr": raw,
-                    "email_key": normalize_email(profile.email),
-                    "phone_key": normalize_phone(profile.phone),
-                    "updated_at": utcnow(),
-                }
-            },
+        # The same key rules as a human edit: a re-read that finds no address,
+        # or one another candidate holds, must not fail on the email index.
+        existing = self._coll.find_one(_id_filter(candidate_id), {"_id": 1})
+        key_set, key_unset, conflict = self._dedup_key_update(candidate_id, profile, existing)
+        if conflict:
+            log.warning(
+                "Re-read profile for %s carries an email already on %s; key not claimed",
+                candidate_id, conflict.get("_id"),
+            )
+        result = self._write_with_keys(
+            candidate_id,
+            {"profile": payload, "raw_ocr": raw, **key_set, "updated_at": utcnow()},
+            key_unset,
         )
         if result.matched_count:
             log.info("Replaced the extraction for candidate %s", candidate_id)
@@ -885,6 +961,66 @@ class CandidateRepository:
         if result.matched_count:
             log.info("Attached resume %s to candidate %s", resume.storage_key, candidate_id)
         return bool(result.matched_count)
+
+    def replace_resume(
+        self,
+        candidate_id: str,
+        resume: "StoredResume",
+        previous: Optional["CandidateAttachment"],
+    ) -> bool:
+        """Make `resume` the candidate's CV, keeping the one it replaces.
+
+        The old CV is pushed onto `attachments` as a `previous_cv` in the same
+        write that installs the new one, so there is no moment at which the
+        record holds neither. It is kept rather than dropped because a reviewer
+        may already have judged the candidate on it, and because an emailed
+        candidate's passport and Aadhaar pages are cut out of that very file.
+
+        Raises `DuplicateKeyError` when the new file is already another
+        candidate's CV — `resume_hash` is unique. Returns False when the
+        candidate does not exist.
+        """
+        from app.core.models import utcnow
+
+        update: dict = {
+            "$set": {
+                "resume": resume.model_dump(mode="python"),
+                "resume_hash": resume.sha256,
+                "updated_at": utcnow(),
+            }
+        }
+        if previous is not None:
+            update["$push"] = {"attachments": previous.model_dump(mode="python")}
+        result = self._coll.update_one(_id_filter(candidate_id), update)
+        if result.matched_count:
+            log.info("Replaced resume on candidate %s with %s", candidate_id, resume.storage_key)
+        return bool(result.matched_count)
+
+    def add_attachment(self, candidate_id: str, attachment: "CandidateAttachment") -> bool:
+        """Append one attachment. Returns False when the candidate does not exist."""
+        from app.core.models import utcnow
+
+        result = self._coll.update_one(
+            _id_filter(candidate_id),
+            {
+                "$push": {"attachments": attachment.model_dump(mode="python")},
+                "$set": {"updated_at": utcnow()},
+            },
+        )
+        return bool(result.matched_count)
+
+    def remove_attachment(self, candidate_id: str, attachment_id: str) -> bool:
+        """Take one attachment off the record. The stored file is the caller's."""
+        from app.core.models import utcnow
+
+        result = self._coll.update_one(
+            _id_filter(candidate_id),
+            {
+                "$pull": {"attachments": {"id": attachment_id}},
+                "$set": {"updated_at": utcnow()},
+            },
+        )
+        return bool(result.modified_count)
 
     def mark_auto_reply_sent(self, candidate_id: str) -> None:
         from app.core.models import utcnow

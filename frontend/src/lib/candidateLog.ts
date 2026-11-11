@@ -24,6 +24,8 @@ export type CandidateLogAction =
   | "Unverified"
   /** A staff verdict recorded against the profile. */
   | "Evaluated"
+  /** A CV replaced, or an attachment added or removed. */
+  | "Documents"
   | "Deleted"
   | "Failed";
 
@@ -58,6 +60,7 @@ const ACTIONS: CandidateLogAction[] = [
   "Verified",
   "Unverified",
   "Evaluated",
+  "Documents",
   "Deleted",
   "Failed",
 ];

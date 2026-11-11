@@ -464,6 +464,49 @@ class StoredResume(BaseModel):
     ocr_used: bool = False
 
 
+#: What a recruiter can file a document as. `previous_cv` is never picked by
+#: hand: it is what a résumé becomes when a newer one replaces it, so the file a
+#: reviewer formed a view from is never lost underneath them.
+ATTACHMENT_KINDS = (
+    "certificate",
+    "experience_letter",
+    "passport",
+    "photo",
+    "visa",
+    "medical",
+    "offer_letter",
+    "other",
+    "previous_cv",
+)
+
+
+class CandidateAttachment(BaseModel):
+    """A file a recruiter added to a candidate, or a CV that was replaced.
+
+    The same pointer-plus-fingerprint as `StoredResume`, plus who added it and
+    when. Kept on the record rather than in a collection of its own: there are
+    a handful per candidate at most, every reader of them already has the
+    record, and deleting the candidate then deletes them with it.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    kind: str = "other"
+    label: Optional[str] = None
+    original_filename: str
+    mime_type: str
+    size: int
+    sha256: str
+    storage_backend: str
+    storage_key: str
+    uploaded_at: datetime = Field(default_factory=utcnow)
+    #: The CRM user who added it. Absent on a replaced CV, which arrived with
+    #: the candidate rather than from anyone's upload.
+    uploaded_by: Optional[str] = None
+    uploaded_by_name: Optional[str] = None
+
+
 class SourceEmail(BaseModel):
     message_id: str
     thread_id: str
@@ -681,6 +724,9 @@ class CandidateRecord(BaseModel):
     # the rule did not.
     resume: Optional[StoredResume] = None
     source_email: Optional[SourceEmail] = None
+    #: Certificates, letters, photos — and every CV a newer upload replaced.
+    #: Detail reads only; `LIST_PROJECTION` leaves it out of directory rows.
+    attachments: List[CandidateAttachment] = Field(default_factory=list)
 
     # Normalised dedup keys (also indexed in Mongo).
     email_key: Optional[str] = None

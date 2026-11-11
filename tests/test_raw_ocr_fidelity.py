@@ -66,7 +66,7 @@ class FakeCollection:
     def __init__(self, doc: dict):
         self.doc = copy.deepcopy(doc)
 
-    def find_one(self, query):
+    def find_one(self, query, projection=None):
         return copy.deepcopy(self.doc) if query.get("_id") == self.doc["_id"] else None
 
     def update_one(self, query, update):
