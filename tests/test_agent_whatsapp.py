@@ -127,6 +127,94 @@ def test_a_single_country_stored_as_text_still_matches(db):
 
 
 # --------------------------------------------------------------------------- #
+#  Destination groups: Singapore, Malaysia, GCC countries, Europe
+# --------------------------------------------------------------------------- #
+_GROUPED_PHONES = {"AGT-EU": "8000000001", "AGT-GCC": "8000000002", "AGT-SG": "8000000003"}
+
+
+def _grouped_agent(db, agent_id, groups):
+    db["sourcing_clients"].insert_one({
+        "id": agent_id, "name": agent_id, "type": "agent", "status": "ACTIVE",
+        "contact": agent_id, "phone": _GROUPED_PHONES[agent_id],
+        "destinationCountries": groups,
+    })
+
+
+@pytest.mark.parametrize("country", [
+    "Germany", "Poland", "Romania", "Russia", "Armenia", "Bulgaria", "united kingdom", "Europe",
+])
+def test_an_agent_who_chose_europe_hears_about_every_european_country(db, country):
+    _grouped_agent(db, "AGT-EU", ["Europe"])
+    assert "AGT-EU" in [r["agent_id"] for r in agent_recipients(db, country)]
+
+
+@pytest.mark.parametrize("country", [
+    "Saudi Arabia", "United Arab Emirates", "UAE", "Qatar", "Kuwait", "Oman", "Bahrain",
+])
+def test_an_agent_who_chose_gcc_hears_about_all_six_gulf_states(db, country):
+    _grouped_agent(db, "AGT-GCC", ["GCC countries"])
+    assert "AGT-GCC" in [r["agent_id"] for r in agent_recipients(db, country)]
+
+
+def test_a_group_does_not_reach_outside_itself(db):
+    _grouped_agent(db, "AGT-EU", ["Europe"])
+    _grouped_agent(db, "AGT-GCC", ["GCC countries"])
+    _grouped_agent(db, "AGT-SG", ["Singapore"])
+    ids = lambda country: [r["agent_id"] for r in agent_recipients(db, country)]  # noqa: E731
+    assert "AGT-EU" not in ids("Saudi Arabia")
+    assert "AGT-EU" not in ids("Singapore")
+    assert "AGT-GCC" not in ids("Germany")
+    assert "AGT-GCC" not in ids("Malaysia")
+    assert "AGT-SG" in ids("Singapore")
+    assert "AGT-SG" not in ids("Malaysia")
+
+
+def test_older_agents_with_single_countries_match_exactly_as_before(db):
+    # AGT-1 was saved with Saudi Arabia and Qatar before the groups existed: it
+    # is not widened to the rest of the Gulf until someone saves it as a group.
+    ids = lambda country: [r["agent_id"] for r in agent_recipients(db, country)]  # noqa: E731
+    assert "AGT-1" in ids("Qatar")
+    assert "AGT-1" not in ids("Kuwait")
+    # "Any country" keeps taking everything, and an order for it still reaches
+    # every agent with a destination, grouped or not.
+    _grouped_agent(db, "AGT-EU", ["Europe"])
+    assert "AGT-9" in ids("Bahrain")
+    assert set(ids("Any country")) >= {"AGT-1", "AGT-2", "AGT-7", "AGT-9", "AGT-EU"}
+
+
+def test_an_order_for_a_whole_group_reaches_agents_with_one_of_its_countries(db):
+    # The countries register has a "Europe" row, so an order can name the region.
+    assert [r["agent_id"] for r in agent_recipients(db, "Europe")] == ["AGT-7", "AGT-9"]
+
+
+@pytest.mark.parametrize("countries, order_country, expected", [
+    (agent_whatsapp.agent_countries({"destinationCountries": ["Europe"]}), "Slovakia", True),
+    (agent_whatsapp.agent_countries({"destinationCountries": ["gcc  COUNTRIES"]}), "Oman", True),
+    (agent_whatsapp.agent_countries({"destinationCountries": ["Malaysia"]}), "Singapore", False),
+    (agent_whatsapp.agent_countries({"destinationCountries": ["Europe"]}), "", False),
+])
+def test_serves_country_with_groups(countries, order_country, expected):
+    assert serves_country(countries, order_country) is expected
+
+
+def test_the_groups_are_the_four_choices_in_order():
+    from app.destination_groups import EUROPEAN_COUNTRIES, GCC_COUNTRIES, public_groups
+
+    groups = public_groups()
+    assert [group["name"] for group in groups] == ["Singapore", "Malaysia", "GCC countries", "Europe"]
+    assert set(GCC_COUNTRIES) == {
+        "Saudi Arabia", "United Arab Emirates", "Qatar", "Kuwait", "Oman", "Bahrain",
+    }
+    # Every European country the countries register seeds is in Europe, so no
+    # existing job order destination falls outside every group.
+    from app.db.taxonomy import SEED_COUNTRIES
+
+    seeded = {name for name, _order in SEED_COUNTRIES}
+    grouped = {"Singapore", "Malaysia", "Europe", *GCC_COUNTRIES, *EUROPEAN_COUNTRIES}
+    assert seeded <= grouped
+
+
+# --------------------------------------------------------------------------- #
 #  Sending
 # --------------------------------------------------------------------------- #
 def test_switched_off_sends_nothing_and_claims_nothing(db):
@@ -329,6 +417,15 @@ def client(db):
         fastapi_app.dependency_overrides[current_user] = lambda: user
         yield TestClient(fastapi_app)
         fastapi_app.dependency_overrides.clear()
+
+
+def test_the_sourcing_list_carries_the_destination_groups_for_the_agent_form(client):
+    body = client.get("/sourcing-clients").json()
+    assert len(body["items"]) == len(AGENTS)
+    groups = {group["name"]: group["countries"] for group in body["destination_groups"]}
+    assert list(groups) == ["Singapore", "Malaysia", "GCC countries", "Europe"]
+    assert "Germany" in groups["Europe"]
+    assert "Kuwait" in groups["GCC countries"]
 
 
 def test_creating_a_job_order_starts_the_broadcast_and_resaving_does_not(client):

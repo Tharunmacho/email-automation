@@ -54,6 +54,15 @@ class AttendancePolicy:
 #: The first month with the separate three-hour paid permission.
 PAID_PERMISSION_START = date(2026, 11, 1)
 
+#: From this day the flexible hours run one way only. Arriving late can be
+#: made up by leaving late (up to `flex_minutes` after the shift end), but
+#: arriving early earns nothing: the day is counted from the shift start, so
+#: whoever comes early still works to the end of the shift, and leaving before
+#: it is short time. Only an approved early check-in still earns the time
+#: before the start. Days before this keep the two-way window they were worked
+#: under — payroll recalculates on every read, so the rule is dated, not global.
+LATE_ONLY_FLEX_FROM = date(2026, 11, 20)
+
 #: Before `PAID_PERMISSION_START`: one shared 60-minute balance, two occasions.
 SHARED_POOL_POLICY = AttendancePolicy(
     monthly_grace_minutes=60, monthly_permission_minutes=60,
@@ -137,9 +146,12 @@ def calculate_day(
     check-in to last check-out, less the same break. Nine hours in the office
     is therefore a full eight-hour day wherever it falls.
 
-    Hours are flexible. Presence counts anywhere inside the flexible window —
-    `policy.flex_minutes` either side of the shift, 09:00 to 20:00 by default —
-    so 09:30→18:30 and 10:30→19:30 are both full days. Time outside the window
+    Hours are flexible on the late side. From `LATE_ONLY_FLEX_FROM`, presence
+    counts from the shift start until `policy.flex_minutes` after its end —
+    10:00 to 20:00 by default — so 10:30→19:30 is a full day (late, made up by
+    leaving late) but 09:30→18:30 is 30 minutes short (early arrival earns
+    nothing; leaving before 19:00 is short time). Before that date the window
+    was open either side, 09:00 to 20:00, and both were full days. Time outside the window
     earns nothing, and time beyond the requirement is absorbed by the max(0, …)
     and never becomes overtime; that is a separate approved request (see
     `approved_extra_ot_minutes`). `late_minutes` and `early_minutes` still
@@ -257,9 +269,12 @@ def calculate_day(
 
     # Coverage: presence inside the flexible window, less the break. An early
     # check-in is always recorded; only an approved one earns the time before
-    # the window opens.
+    # the window opens. From `LATE_ONLY_FLEX_FROM` the window opens at the
+    # shift start itself: late can be balanced by staying late, early cannot
+    # be traded for leaving early.
     flex = timedelta(minutes=policy.flex_minutes)
-    window_start, window_end = start - flex, end + flex
+    window_start = start - flex if day < LATE_ONLY_FLEX_FROM else start
+    window_end = end + flex
     presence_start = check_in if "early_check_in" in kinds else max(check_in, window_start)
     presence_end = min(check_out, window_end)
     present = _minutes(presence_end - presence_start) if presence_end > presence_start else 0

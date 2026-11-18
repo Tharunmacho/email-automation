@@ -315,6 +315,8 @@ export interface IdentityDocument {
   date_of_issue?: string | null;
   /** The passport's own integrity test. False means the OCR misread a character. */
   check_digits_valid?: boolean | null;
+  /** "visual" when read off the printed page because no MRZ could be used. */
+  mrz_source?: string | null;
   confidence?: number | null;
 
   source?: { filename?: string | null; message_id?: string | null };
@@ -1025,6 +1027,12 @@ export interface SourcingContact {
  * given, so the screen's shape is the contract. The snake-case interface that
  * used to stand here described a record the app has never written.
  */
+/** One choice in an agent's "Job destination countries", and the countries it covers. */
+export interface DestinationGroup {
+  name: string;
+  countries: string[];
+}
+
 export interface SourcingClientRecord {
   id: string;
   name: string;
@@ -1039,9 +1047,12 @@ export interface SourcingClientRecord {
   address?: string;
   country?: string;
   /**
-   * Agents only: the countries they recruit for. A new job order is sent on
-   * WhatsApp only to agents who list its destination country (or "Any
-   * country"); an agent with none listed is sent nothing.
+   * Agents only: the destinations they recruit for — the groups in
+   * `DestinationGroup` ("Singapore", "Malaysia", "GCC countries", "Europe").
+   * A group covers every country in it. A new job order is sent on WhatsApp
+   * only to agents who cover its destination country (or list "Any country");
+   * an agent with none listed is sent nothing. Agents saved before the groups
+   * may still hold single countries, which match exactly.
    */
   destinationCountries?: string[];
   /**

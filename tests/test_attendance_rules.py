@@ -611,3 +611,53 @@ def test_only_one_rotational_weekly_off_per_week_and_never_on_sunday():
     _approve_weekly_off(attendance, "staff-1", date(2026, 10, 13))
     assert attendance.day("staff-1", date(2026, 10, 13))["status"] == "WO"
     assert attendance.day("staff-1", date(2026, 10, 18))["status"] != "WO"
+
+
+# --------------------------------------------------------------------------- #
+#  From 20 Nov 2026: late can be balanced by staying late, early cannot
+# --------------------------------------------------------------------------- #
+def _ist_day(day: date, check_in: time, check_out: time, **kwargs) -> dict:
+    punches = [
+        {"action": "check_in", "occurred_at": datetime.combine(day, check_in, IST)},
+        {"action": "check_out", "occurred_at": datetime.combine(day, check_out, IST)},
+    ]
+    return calculate_day(day, punches, now=datetime(2026, 12, 31, tzinfo=timezone.utc), **kwargs)
+
+
+def test_coming_late_and_leaving_late_balances_the_day():
+    result = _ist_day(date(2026, 11, 20), time(10, 30), time(19, 30))
+    assert result["actual_covered_minutes"] == 480
+    assert result["uncovered_minutes"] == 0
+    assert result["status"] == "P"
+
+
+def test_coming_early_and_leaving_early_is_short_until_the_shift_end():
+    result = _ist_day(date(2026, 11, 20), time(9, 30), time(18, 30))
+    # Counted from 10:00: 10:00 to 18:30 less the hour's break is 450 minutes.
+    assert result["actual_covered_minutes"] == 450
+    assert result["uncovered_minutes"] == 30
+    assert result["early_minutes"] == 30
+
+
+def test_coming_early_and_staying_to_the_shift_end_is_a_full_day():
+    result = _ist_day(date(2026, 11, 20), time(9, 15), time(19, 0))
+    assert result["uncovered_minutes"] == 0
+
+
+def test_making_up_late_time_stops_an_hour_after_the_shift():
+    # 11:30 to 20:30: only up to 20:00 counts, so 30 minutes stay short.
+    result = _ist_day(date(2026, 11, 20), time(11, 30), time(20, 30))
+    assert result["uncovered_minutes"] == 30
+
+
+def test_an_approved_early_check_in_still_earns_the_early_time():
+    result = _ist_day(
+        date(2026, 11, 20), time(9, 0), time(18, 0),
+        approved_permissions=[{"kind": "early_check_in", "requested_minutes": 60}],
+    )
+    assert result["uncovered_minutes"] == 0
+
+
+def test_days_before_the_change_keep_the_two_way_window():
+    result = _ist_day(date(2026, 11, 19), time(9, 30), time(18, 30))
+    assert result["uncovered_minutes"] == 0

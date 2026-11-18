@@ -337,9 +337,12 @@ function QuestionList({ items }: { items: AnsweredQuestion[] }) {
  */
 function IdentityCard({ document }: { document: IdentityDocument }) {
   const aadhaar = document.document_type !== "passport";
+  // A read off the printed page has no check digits. VeriIS reports them as
+  // failed, and older records stored that, so it is told apart by its source.
+  const printedPageRead = !aadhaar && document.mrz_source === "visual";
   const suspect = aadhaar
     ? document.aadhaar_number_valid === false
-    : document.check_digits_valid === false;
+    : !printedPageRead && document.check_digits_valid === false;
 
   return (
     <article className="cprof-entry">
@@ -384,6 +387,11 @@ function IdentityCard({ document }: { document: IdentityDocument }) {
         <p className="cprof-entry-meta">
           The number failed its own check — the scan was probably misread. Confirm it against
           the document before using it.
+        </p>
+      ) : printedPageRead ? (
+        <p className="cprof-entry-meta">
+          Read from the printed page — the machine-readable lines could not be used, so the
+          number has not been verified. Confirm it against the document before using it.
         </p>
       ) : null}
     </article>

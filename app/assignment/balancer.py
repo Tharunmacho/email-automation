@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
-from app.db.repository import CandidateRepository
+from app.db.repository import AWAITING_OWNER, CandidateRepository
 from app.db.users import User, UserRepository
 from app.logging_config import get_logger
 
@@ -97,6 +97,18 @@ def is_staff_eligible(member: object, profile: object) -> bool:
 
 def _eligible_staff(staff: Sequence[User], profile: object) -> List[User]:
     return [member for member in staff if is_staff_eligible(member, profile)]
+
+
+def _registration_open(row: dict) -> bool:
+    """True for a WhatsApp registration the candidate is still answering.
+
+    Its destination may simply not have been asked yet, so a desk chosen from
+    it now is a guess — and a blank destination means the other-countries
+    desk. Such a row waits for the intake, which places it on the delivery
+    that completes the registration. Same rule as `AWAITING_OWNER`.
+    """
+    registration = row.get("registration")
+    return isinstance(registration, dict) and registration.get("complete") is False
 
 
 @dataclass(frozen=True)
@@ -248,6 +260,80 @@ def pick_owner_for_destination(
     return _next_in_rotation(candidates_for_ownership, _turns(repo))
 
 
+def correct_desk(
+    candidate_id: str,
+    profile: object,
+    current_staff_id: str,
+    *,
+    repo: Optional[CandidateRepository] = None,
+    users: Optional[UserRepository] = None,
+) -> AssignmentResult:
+    """Move an automatically placed, untouched candidate onto the right desk.
+
+    For a candidate placed before their destination was known — a WhatsApp
+    registration allocated while still in progress, which a blank destination
+    sent to the other-countries desk. Once the destination is in, the owner may
+    be on the wrong desk for it, and nobody chose them.
+
+    Only ever moves a profile nobody has worked: the write is guarded by the
+    same "untouched and not hand-placed" filter a rebalance uses, so a profile
+    someone opened, judged or assigned by hand stays exactly where it is. An
+    owner already on the right desk keeps it; so does an owner whose account no
+    longer exists (that is an orphan, re-homed from the admin console).
+
+    Returns an `assigned` result only when the candidate actually moved.
+    """
+    repo = repo or CandidateRepository()
+    users = users or UserRepository()
+
+    owner = users.get(current_staff_id) if current_staff_id else None
+    if owner is None or is_staff_eligible(owner, profile):
+        return AssignmentResult(candidate_id=candidate_id, reason="unchanged")
+
+    staff = _eligible_staff(users.list_assignable_staff(), profile)
+    if not staff:
+        log.warning(
+            "Candidate %s stays with %s: no active staff member for destination %s",
+            candidate_id, owner.name, _destination_country(profile) or "unspecified",
+        )
+        return AssignmentResult(candidate_id=candidate_id, reason="no_staff")
+
+    chosen = _next_in_rotation(staff, _turns(repo))
+    desk = DESK_LABELS[desk_for_candidate(profile)]
+    country = (
+        profile.get("destination_country") if isinstance(profile, dict)
+        else getattr(profile, "destination_country", None)
+    ) or "unspecified"
+    event = {
+        "from_staff_id": owner.id,
+        "from_staff_name": owner.name,
+        "to_staff_id": chosen.id,
+        "to_staff_name": chosen.name,
+        "by_user_id": None,
+        "by_user_name": "System",
+        "remarks": f"Moved to the {desk}: destination is {country}",
+        "reason": "desk_correction",
+    }
+    if not repo.assign(
+        candidate_id, chosen.id, chosen.name,
+        assignment_event=event,
+        guard={"assigned_staff_id": owner.id, **_UNTOUCHED},
+    ):
+        log.info("Candidate %s was touched since it was read; desk correction skipped", candidate_id)
+        return AssignmentResult(candidate_id=candidate_id, reason="already_assigned")
+
+    log.info(
+        "Candidate %s moved from %s to %s (%s): destination %s",
+        candidate_id, owner.name, chosen.name, desk, country,
+    )
+    return AssignmentResult(
+        candidate_id=candidate_id,
+        staff_id=chosen.id,
+        staff_name=chosen.name,
+        reason="desk_correction",
+    )
+
+
 # --------------------------------------------------------------------------- #
 #  Rebalancing
 # --------------------------------------------------------------------------- #
@@ -352,6 +438,9 @@ def rebalance_all(
     movable: List[dict] = []
     locked_count = 0
     for row in rows:
+        if not row.get("assigned_staff_id") and _registration_open(row):
+            # Not waiting for an owner yet; see `_registration_open`.
+            continue
         if _is_pinned(row):
             locked_count += 1
             owner = row.get("assigned_staff_id")
@@ -498,11 +587,12 @@ def allocate_unassigned(
         return {"status": "ok", "allocated": 0}
 
     workloads = _current_workloads(staff, repo)
-    # Only while still unowned: a manual assignment that lands after the
-    # snapshot wins.
+    # Only while still awaiting an owner: a manual assignment that lands after
+    # the snapshot wins.
     allocated = _deal(
-        rows, staff, workloads, repo.assign,
-        guard=lambda _row: {"assigned_staff_id": None},
+        [row for row in rows if not _registration_open(row)],
+        staff, workloads, repo.assign,
+        guard=lambda _row: dict(AWAITING_OWNER),
         turns=_turns(repo),
     )
 

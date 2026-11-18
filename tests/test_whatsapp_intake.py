@@ -246,10 +246,12 @@ def client():
          patch("app.config.settings.whatsapp_service_key", SERVICE_KEY), \
          patch("app.api.routes.repo", return_value=repo), \
          patch("app.services.resume_store.get_storage_backend", return_value=storage), \
-         patch("app.services.candidate_intake.assign_candidate") as assign:
+         patch("app.services.candidate_intake.assign_candidate") as assign, \
+         patch("app.services.candidate_intake.correct_desk") as correct:
         c = TestClient(fastapi_app)
         c.fake_repo = repo
         c.assign_mock = assign
+        c.correct_mock = correct
         c.storage = storage
         yield c
 
@@ -1347,6 +1349,53 @@ def test_an_unfinished_registration_is_not_put_in_anybodys_queue(client):
     assert client.assign_mock.call_count == 1
     post_candidate(client, key=key, sections=finished())
     assert client.assign_mock.call_count == 1
+
+
+def test_finishing_a_registration_placed_early_puts_it_on_the_destinations_desk(client):
+    """The Singapore candidate who ended up on the Mount Road desk.
+
+    The allocation sweep used to place a registration while it was still being
+    answered, with no destination yet - the other-countries desk. Finishing it
+    with "Singapore" must then move it, since nobody chose that owner and
+    nobody has worked it.
+    """
+    key = "whatsapp/111/919876543210"
+    post_candidate(client, key=key, sections=in_progress(), destination_country=None)
+    record = next(iter(client.fake_repo.candidates.values()))
+    record.cv_required = False  # as on the reported record: "CV not required"
+    record.assigned_staff_id = "staff-mount-road"  # what the old sweep did
+
+    post_candidate(client, key=key, sections=finished(), destination_country="Singapore")
+
+    assert client.assign_mock.call_count == 0
+    assert client.correct_mock.call_count == 1
+    candidate_id, profile, owner = client.correct_mock.call_args.args
+    assert candidate_id == record.id
+    assert profile.destination_country == "Singapore"
+    assert owner == "staff-mount-road"
+
+
+@pytest.mark.parametrize(
+    "worked",
+    [
+        {"viewed_at": "now"},
+        {"evaluation_status": "rejected"},
+        {"manually_assigned": True},
+    ],
+)
+def test_finishing_a_registration_leaves_an_owner_who_has_worked_it(client, worked):
+    key = "whatsapp/111/919876543210"
+    post_candidate(client, key=key, sections=in_progress(), destination_country=None)
+    record = next(iter(client.fake_repo.candidates.values()))
+    record.cv_required = False
+    record.assigned_staff_id = "staff-mount-road"
+    for field, value in worked.items():
+        setattr(record, field, record.created_at if value == "now" else value)
+
+    post_candidate(client, key=key, sections=finished(), destination_country="Singapore")
+
+    assert client.correct_mock.call_count == 0
+    assert record.assigned_staff_id == "staff-mount-road"
 
 
 def test_an_unfinished_record_says_so(client):

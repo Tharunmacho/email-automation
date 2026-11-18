@@ -243,6 +243,27 @@ def store_aadhaar_record(
     return record_id
 
 
+#: VeriIS's `mrz_source` when it could not use the MRZ band (none found, or a
+#: low-confidence read it could not verify) and read the printed data page
+#: instead. Such a read has no check digits, and VeriIS reports
+#: `all_check_digits_valid: false` for it by construction — which means "not
+#: checked", not "checked and failed".
+VISUAL_READ = "visual"
+
+
+def check_digits_verdict(result: Dict[str, Any]) -> Optional[bool]:
+    """The MRZ check-digit result: True, False, or None when nothing was checked."""
+    if result.get("mrz_source") == VISUAL_READ:
+        return None
+    mrz = result.get("mrz")
+    return mrz.get("all_check_digits_valid") if isinstance(mrz, dict) else None
+
+
+def mrz_checksum_failed(result: Dict[str, Any]) -> bool:
+    """True only when an MRZ was read and its check digits did not add up."""
+    return check_digits_verdict(result) is False
+
+
 def store_passport_record(
     record_id: str,
     result: Dict[str, Any],
@@ -293,8 +314,9 @@ def store_passport_record(
             "personal_number": mrz.get("personal_number"),
             # The MRZ check digits are the passport's own integrity test. A
             # false here means the OCR misread a character — worth surfacing,
-            # never worth silently trusting.
-            "check_digits_valid": mrz.get("all_check_digits_valid"),
+            # never worth silently trusting. None for a read off the printed
+            # page, which has no check digits to fail (see `check_digits_verdict`).
+            "check_digits_valid": check_digits_verdict(result),
             "mrz_source": result.get("mrz_source"),
             "raw_mrz": result.get("raw_mrz"),
             "confidence": result.get("confidence"),
@@ -339,9 +361,10 @@ def passport_name(doc: Dict[str, Any]) -> str:
     """"Given-names Surname" off the passport MRZ, in title case.
 
     Empty when the MRZ failed its own check digits: a misread character is
-    better left out of the candidate's name than written into it.
+    better left out of the candidate's name than written into it. Empty too for
+    a read off the printed page, which no check digit has confirmed.
     """
-    if doc.get("check_digits_valid") is False:
+    if doc.get("check_digits_valid") is False or doc.get("mrz_source") == VISUAL_READ:
         return ""
     parts = [
         " ".join(word.capitalize() for word in str(doc.get(key) or "").replace("<", " ").split())

@@ -332,6 +332,53 @@ def test_upload_intake_rejects_failed_passport_checksum_before_creating_candidat
     assert repository.records == {}
 
 
+def test_upload_intake_accepts_a_passport_read_from_the_printed_page():
+    """VeriIS's printed-page read is "not checked", not "checksum failed".
+
+    With no usable MRZ band (a flatbed scan of the whole booklet, say) VeriIS
+    reads the data page instead and reports `all_check_digits_valid: false`
+    because that read has no check digits. Refusing it turned away passports
+    whose MRZ is perfectly valid.
+    """
+    repository = MemoryRepository()
+    outcome = SimpleNamespace(
+        succeeded=True,
+        timed_out=False,
+        job_id="job-passport",
+        result={
+            "mrz_source": "visual",
+            "mrz": {
+                "passport_number": "T2752884",
+                "surname": "ARUMUGAM",
+                "given_names": "KARTHICK",
+                "all_check_digits_valid": False,
+            },
+        },
+    )
+    with patch("app.services.candidate_upload_intake.settings.veris_ocr_api_key", "test-key"),          patch("app.services.candidate_upload_intake.ocr_gateway.run_job", return_value=(None, outcome)),          patch("app.services.candidate_upload_intake.identity_files.store", return_value={"storage_key": "id/file"}),          patch("app.services.candidate_upload_intake.identity_records.store_passport_record"):
+        result = intake_uploaded_candidate(
+            resume=None,
+            passport=upload("passport.pdf", b"passport", "application/pdf"),
+            repository=repository,
+            uploader_id="admin-1",
+            full_name="Karthick",
+        )
+
+    assert result.candidate.passport_key == "T2752884"
+    assert result.identity["passport"][0]["check_digits_valid"] is None
+    assert result.identity["passport"][0]["mrz_source"] == "visual"
+
+
+def test_passport_record_from_the_printed_page_is_unchecked_and_does_not_rename():
+    from app.db.identity_records import check_digits_verdict, passport_name
+
+    visual = {"mrz_source": "visual", "mrz": {"all_check_digits_valid": False}}
+    assert check_digits_verdict(visual) is None
+    assert check_digits_verdict({"mrz_source": "mrz", "mrz": {"all_check_digits_valid": False}}) is False
+    assert check_digits_verdict({"mrz": {"all_check_digits_valid": True}}) is True
+    assert passport_name({"given_names": "KARTHICK", "surname": "ARUMUGAM", "mrz_source": "visual"}) == ""
+
+
 def test_upload_intake_rejects_a_passport_already_owned_by_another_candidate():
     repository = MemoryRepository()
     outcome = SimpleNamespace(

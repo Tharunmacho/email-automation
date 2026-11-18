@@ -36,6 +36,7 @@ import type {
   PollSummary,
   AuthUser,
   SourcingClientRecord,
+  DestinationGroup,
   JobOrderRecord,
   B2BEnquiryRecord,
   EvaluationStatus,
@@ -97,6 +98,7 @@ export type {
   PollSummary,
   AuthUser,
   SourcingClientRecord,
+  DestinationGroup,
   JobOrderRecord,
   B2BEnquiryRecord,
   EvaluationStatus,
@@ -1909,8 +1911,14 @@ export function runSlaScan(): Promise<{ in_breach: number; new_alerts: number; r
 }
 
 // ---- Sourcing Clients DB API ----
-export function listSourcingClientsAPI(): Promise<{ items: SourcingClientRecord[] }> {
-  return request<{ items: SourcingClientRecord[] }>("/sourcing-clients");
+export function listSourcingClientsAPI(): Promise<{
+  items: SourcingClientRecord[];
+  /** The agent form's destination choices; absent from an older backend. */
+  destination_groups?: DestinationGroup[];
+}> {
+  return request<{ items: SourcingClientRecord[]; destination_groups?: DestinationGroup[] }>(
+    "/sourcing-clients",
+  );
 }
 
 export function createSourcingClientAPI(

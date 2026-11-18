@@ -20,6 +20,7 @@ import pytest
 from app.assignment.balancer import (
     allocate_unassigned,
     assign_candidate,
+    correct_desk,
     rebalance_all,
     redistribute_from_staff,
     rehome_orphans,
@@ -62,9 +63,12 @@ def make_staff(users, name, email=None):
 
 
 def insert_candidate(db, candidate_id, staff_id=None, staff_name=None, created_offset=0,
-                     viewed=False, status="pending", destination_country=None):
+                     viewed=False, status="pending", destination_country=None,
+                     registration=None):
     """A candidate document shaped the way the pipeline writes one."""
+    extra = {"source": "whatsapp", "registration": registration} if registration else {}
     db["candidates"].insert_one({
+        **extra,
         "_id": candidate_id,
         "profile": {
             "full_name": candidate_id.upper(),
@@ -325,6 +329,69 @@ def test_bulk_allocation_keeps_country_desks_separate(db, users, repo):
     assert db["candidates"].count_documents({
         "_id": {"$in": ["qa", "kw"]}, "assigned_staff_id": general.id,
     }) == 2
+
+
+def test_an_unfinished_whatsapp_registration_waits_for_its_destination(db, users, repo):
+    """The sweep must not place a registration the candidate is still answering.
+
+    Its destination is often not asked yet, and a blank destination is the
+    other-countries desk - which is how a Singapore applicant reached Mount
+    Road. The intake places it when the registration completes.
+    """
+    make_staff(users, "Sreya", "sreya.adira@gmail.com")
+    make_staff(users, "General Staff", "general.adira@gmail.com")
+    insert_candidate(db, "open", registration={"complete": False, "stage": "JOB_PREFERENCE_PENDING"})
+    insert_candidate(db, "done", destination_country="Qatar", registration={"complete": True})
+    insert_candidate(db, "mail", destination_country="Kuwait", created_offset=1)
+
+    assert repo.unassigned_count() == 2
+
+    assert allocate_unassigned(repo=repo, users=users)["allocated"] == 2
+    rebalance_all(repo=repo, users=users)
+
+    assert db["candidates"].find_one({"_id": "open"})["assigned_staff_id"] is None
+    assert db["candidates"].find_one({"_id": "done"})["assigned_staff_id"] is not None
+    assert db["candidates"].find_one({"_id": "mail"})["assigned_staff_id"] is not None
+    assert repo.unassigned_count() == 0
+
+
+def test_correct_desk_moves_an_untouched_early_placement(db, users, repo):
+    dedicated = make_staff(users, "Sreya", "sreya.adira@gmail.com")
+    general = make_staff(users, "Atba", "atba.adira@gmail.com")
+    insert_candidate(db, "sg", general.id, general.name, destination_country="Singapore")
+
+    result = correct_desk("sg", {"destination_country": "Singapore"}, general.id, repo=repo, users=users)
+
+    assert result.assigned and result.staff_id == dedicated.id
+    doc = db["candidates"].find_one({"_id": "sg"})
+    assert doc["assigned_staff_id"] == dedicated.id
+    entry = doc["assignment_history"][-1]
+    assert entry["reason"] == "desk_correction"
+    assert entry["from_staff_id"] == general.id
+    assert doc.get("manually_assigned") is False
+
+
+@pytest.mark.parametrize("touched", [{"viewed": True}, {"status": "rejected"}])
+def test_correct_desk_leaves_work_someone_has_done(db, users, repo, touched):
+    make_staff(users, "Sreya", "sreya.adira@gmail.com")
+    general = make_staff(users, "Atba", "atba.adira@gmail.com")
+    insert_candidate(db, "sg", general.id, general.name, destination_country="Singapore", **touched)
+
+    result = correct_desk("sg", {"destination_country": "Singapore"}, general.id, repo=repo, users=users)
+
+    assert not result.assigned
+    assert db["candidates"].find_one({"_id": "sg"})["assigned_staff_id"] == general.id
+
+
+def test_correct_desk_keeps_an_owner_already_on_the_right_desk(db, users, repo):
+    general = make_staff(users, "Atba", "atba.adira@gmail.com")
+    make_staff(users, "Rafi", "rafi.adira@gmail.com")
+    insert_candidate(db, "qa", general.id, general.name, destination_country="Qatar")
+
+    result = correct_desk("qa", {"destination_country": "Qatar"}, general.id, repo=repo, users=users)
+
+    assert result.reason == "unchanged"
+    assert db["candidates"].find_one({"_id": "qa"})["assigned_staff_id"] == general.id
 
 
 def test_rebalance_corrects_unopened_candidates_on_the_wrong_country_desk(db, users, repo):

@@ -12,12 +12,16 @@ budget, the same split as `app/staff_whatsapp.py`.
 * **Agents only.** Sourcing Hub rows with `type == "agent"` and
   `status == "ACTIVE"`, one message per agent, to the primary contact. Clients
   and associations are never messaged.
-* **By country.** An agent lists the countries they recruit for
+* **By country.** An agent lists the destinations they recruit for
   (`destinationCountries` on their Sourcing Hub record) and hears only about
-  orders for one of them. An agent with none listed hears about nothing.
-  "Any country" is a wildcard on either side: an agent who lists it hears
-  about every order, and an order for "Any country" goes to every agent who
-  lists at least one country.
+  orders for one of them. The Sourcing Hub offers four groups (Singapore,
+  Malaysia, GCC countries, Europe; see `app.destination_groups`), and a group
+  covers every country in it: an agent who chose "Europe" hears about an order
+  for Germany, Poland or Russia. Agents saved before the groups existed may
+  still list single countries, which match exactly as before. An agent with
+  none listed hears about nothing. "Any country" is a wildcard on either side:
+  an agent who lists it hears about every order, and an order for "Any
+  country" goes to every agent who lists at least one country.
 * **No client name.** Agents get the same facts the public Current Jobs page
   shows: title, country, vacancies, salary and experience, with the order's
   poster as the picture (required on a new order) — plus the order's agent
@@ -41,6 +45,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.config import settings
 from app.db.dedup import normalize_phone
 from app.db.users import USERS_COLLECTION, User, UserRepository
+from app.destination_groups import country_key, expand
 from app.logging_config import get_logger
 from app.staff_whatsapp import _post, relay_enabled
 from app.website_jobs import poster_url
@@ -72,29 +77,34 @@ def _primary_contact(record: Dict[str, Any]) -> tuple[str, str]:
 ANY_COUNTRY = "any country"
 
 
-def _country_key(value: Any) -> str:
-    """A country name for comparing: case and spacing do not matter."""
-    return " ".join(str(value or "").split()).casefold()
-
-
 def agent_countries(record: Dict[str, Any]) -> set[str]:
-    """The destination countries an agent recruits for, as match keys."""
+    """The destination countries an agent recruits for, as match keys.
+
+    A group ("Europe", "GCC countries") is expanded to every country it covers,
+    so the set can be compared with a single order country directly.
+    """
     raw = record.get("destinationCountries")
     if isinstance(raw, str):
         raw = [raw]
     if not isinstance(raw, list):
         return set()
-    return {key for key in (_country_key(item) for item in raw) if key}
+    return {key for item in raw for key in expand(item)}
 
 
 def serves_country(countries: set[str], order_country: Any) -> bool:
-    """Whether an agent with these countries should hear about an order for that one."""
+    """Whether an agent with these countries should hear about an order for that one.
+
+    An order whose country is itself a group ("Europe") reaches every agent who
+    covers any country in it, including one still listing a single country.
+    """
     if not countries:
         return False
     if ANY_COUNTRY in countries:
         return True
-    wanted = _country_key(order_country)
-    return bool(wanted) and (wanted == ANY_COUNTRY or wanted in countries)
+    wanted = country_key(order_country)
+    if not wanted:
+        return False
+    return wanted == ANY_COUNTRY or bool(expand(order_country) & countries)
 
 
 def _text(value: Any) -> str:

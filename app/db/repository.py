@@ -241,7 +241,22 @@ REBALANCE_PROJECTION = {
     # Country selects the responsible allocation desk before workload is
     # compared inside that desk.
     "profile.destination_country": 1,
+    # A WhatsApp registration still being answered is not placed yet — see
+    # `AWAITING_OWNER`.
+    "registration.complete": 1,
 }
+
+#: A profile that should have an owner and has none.
+#:
+#: Not simply "no owner": a WhatsApp registration reaches the CRM while the
+#: candidate is still answering, often before they have said which country
+#: they want. Placing it then puts it on the desk for a blank destination — the
+#: other-countries desk — and when they go on to answer "Singapore" the intake
+#: will not move a candidate who already has an owner. So an unfinished
+#: registration waits, exactly as the intake itself waits (it allocates on the
+#: delivery that completes the registration). Records with no `registration`
+#: at all — mailbox and upload intake — are complete by definition.
+AWAITING_OWNER = {"assigned_staff_id": None, "registration.complete": {"$ne": False}}
 
 # What an SLA alert is written from.
 SLA_PROJECTION = {
@@ -1536,9 +1551,9 @@ class CandidateRepository:
         return list(cursor)
 
     def list_unassigned(self) -> List[dict]:
-        """Profiles nobody owns, oldest first — the queue auto-allocation drains."""
+        """Profiles awaiting an owner, oldest first — the queue auto-allocation drains."""
         cursor = (
-            self._coll.find({"assigned_staff_id": None}, REBALANCE_PROJECTION)
+            self._coll.find(AWAITING_OWNER, REBALANCE_PROJECTION)
             .sort("created_at", 1)
         )
         return list(cursor)
@@ -1623,8 +1638,12 @@ class CandidateRepository:
         return list(cursor)
 
     def unassigned_count(self) -> int:
-        """Profiles nobody owns — invisible to every staff dashboard."""
-        return self._coll.count_documents({"assigned_staff_id": None})
+        """Profiles awaiting an owner — invisible to every staff dashboard.
+
+        Unfinished WhatsApp registrations are not counted: they are not waiting
+        for an owner yet (see `AWAITING_OWNER`).
+        """
+        return self._coll.count_documents(AWAITING_OWNER)
 
     def orphaned_count(self, known_staff_ids: Sequence[str]) -> int:
         """Profiles pointing at an account that no longer exists.

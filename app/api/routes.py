@@ -2099,9 +2099,14 @@ def list_sourcing_clients(
     _user: dict = Depends(require_page("sourcing", "job-orders")),
 ) -> dict:
     from app.db.mongo import get_db
+    from app.destination_groups import public_groups
+
     coll = get_db()["sourcing_clients"]
     items = list(coll.find({}, {"_id": 0}))
-    return {"items": items}
+    # The agent form's "Job destination countries" choices, with the countries
+    # each covers so the form can fold an agent's older single countries into
+    # their group. Kept here, beside the rows, so there is one list to edit.
+    return {"items": items, "destination_groups": public_groups()}
 
 
 @app.post("/sourcing-clients")

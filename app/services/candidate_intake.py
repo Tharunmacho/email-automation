@@ -33,7 +33,7 @@ from typing import Optional
 
 from typing import Any, Dict, List
 
-from app.assignment.balancer import assign_candidate
+from app.assignment.balancer import assign_candidate, correct_desk
 from app.core.models import (
     CandidateProfile,
     CandidateRecord,
@@ -327,6 +327,34 @@ def _allocate(candidate_id: str, profile: CandidateProfile, repo: CandidateRepos
             _announce_assignment(candidate_id, profile, result)
 
 
+def _placed_early(existing: CandidateRecord) -> bool:
+    """Owned, but by an automatic placement nobody has acted on.
+
+    A recruiter's choice (`manually_assigned`) or any work on the profile — it
+    was opened, or judged — means a person is now part of where it sits, and a
+    finished registration is not a reason to override them.
+    """
+    return bool(
+        existing.assigned_staff_id
+        and not existing.manually_assigned
+        and existing.viewed_at is None
+        and (existing.evaluation_status or "pending") == "pending"
+    )
+
+
+def _correct_desk(
+    candidate_id: str, profile: CandidateProfile, staff_id: str, repo: CandidateRepository
+) -> None:
+    """`correct_desk`, announced like any allocation; never fails the intake."""
+    try:
+        result = correct_desk(candidate_id, profile, staff_id, repo=repo)
+    except Exception as exc:  # noqa: BLE001 — allocation must not fail intake
+        log.error("Desk correction failed for candidate %s: %s", candidate_id, exc)
+    else:
+        if getattr(result, "assigned", False):
+            _announce_assignment(candidate_id, profile, result)
+
+
 def _store_identity_documents(
     candidate_id: str,
     identity: Optional[Dict[str, List[Dict[str, Any]]]],
@@ -530,7 +558,10 @@ def _refresh_existing(
     would break in production rather than in a test:
 
     * **It does not allocate.** The candidate has an owner, and running the
-      balancer again would move live work off somebody's desk.
+      balancer again would move live work off somebody's desk. The exceptions
+      are the delivery that completes the registration: it places a candidate
+      nobody owns, and moves one an automatic sweep placed early — untouched —
+      onto the desk the now-known destination belongs to.
     * **It does not notify.** No ownership changed, so there is no event. A
       message per answered question would be forty messages for one registration.
     * **It does not re-derive the CV decision.** §13: the rule that applied is
@@ -586,6 +617,11 @@ def _refresh_existing(
     # possibly by a manual assignment — keeps that owner.
     if complete and not was_complete and not existing.assigned_staff_id:
         _allocate(existing.id, profile, repo)
+    elif complete and not was_complete and _placed_early(existing):
+        # Owned before it was finished: an automatic sweep placed it while the
+        # destination may still have been blank, which is the other-countries
+        # desk. Now the answer is in, make sure the desk matches it.
+        _correct_desk(existing.id, profile, existing.assigned_staff_id, repo)
 
     log.info(
         "WhatsApp submission %s matched candidate %s on %s; profile refreshed",

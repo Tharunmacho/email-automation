@@ -237,7 +237,12 @@ def _extract_identity(
                 "The passport upload did not contain a readable passport number.",
                 code="invalid_passport",
             )
-        if isinstance(facts, dict) and facts.get("all_check_digits_valid") is False:
+        # Only an MRZ that was read and did not add up. A read off the printed
+        # page (VeriIS found no usable MRZ band — common on a flatbed scan of
+        # the whole booklet) carries `all_check_digits_valid: false` because it
+        # has no check digits at all; refusing it rejected passports VeriIS had
+        # read correctly.
+        if identity_records.mrz_checksum_failed(result):
             raise CandidateUploadError(
                 "The passport MRZ checksum failed. Upload a clearer passport scan.",
                 code="invalid_passport_mrz",
@@ -266,7 +271,10 @@ def _public_identity(extracted: ExtractedIdentity) -> Dict[str, Any]:
 
     mrz = dict(extracted.result.get("mrz") or {})
     public = {key: mrz.get(key) for key in _PASSPORT_FIELDS if mrz.get(key) is not None}
-    public["check_digits_valid"] = public.pop("all_check_digits_valid", None)
+    public.pop("all_check_digits_valid", None)
+    public["check_digits_valid"] = identity_records.check_digits_verdict(extracted.result)
+    if extracted.result.get("mrz_source"):
+        public["mrz_source"] = extracted.result["mrz_source"]
     fields = extracted.result.get("fields")
     if isinstance(fields, dict) and fields:
         public["printed_fields"] = fields

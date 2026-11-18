@@ -35,6 +35,7 @@ import type { LogEntry } from "@/components/dashboard/ActivityLog";
 import { formatDateFull, formatInt, initialsOf } from "@/lib/format";
 import { deriveStatus } from "@/screens/JobOrders";
 import type {
+  DestinationGroup,
   JobOrderRecord,
   SourcingClientRecord,
   SourcingContact,
@@ -211,6 +212,57 @@ function destinationCountriesOf(record: SourcingRecord): string[] {
   return list.map((item) => String(item ?? "").trim()).filter(Boolean);
 }
 
+/**
+ * The agent form's destination choices until `GET /sourcing-clients` sends the
+ * real list (`app/destination_groups.py`, which also holds the countries each
+ * group covers). Names only: without the member lists an older single country
+ * simply stays as it is.
+ */
+const FALLBACK_DESTINATION_GROUPS: DestinationGroup[] = [
+  { name: "Singapore", countries: [] },
+  { name: "Malaysia", countries: [] },
+  { name: "GCC countries", countries: [] },
+  { name: "Europe", countries: [] },
+];
+
+const countryKey = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * An agent's saved destinations, as the form's groups.
+ *
+ * Agents saved before the groups existed list single countries ("Saudi
+ * Arabia", "Germany"). Each one that belongs to a group is shown as that group,
+ * so saving the form moves the agent onto it; `folded` names them so the form
+ * can say so. Anything outside every group ("Any country", a country no group
+ * covers) is kept as it is, after the groups.
+ */
+function groupDestinations(
+  values: string[],
+  groups: DestinationGroup[],
+): { values: string[]; folded: string[] } {
+  const groupOf = new Map<string, string>();
+  for (const group of groups) {
+    groupOf.set(countryKey(group.name), group.name);
+    for (const country of group.countries) groupOf.set(countryKey(country), group.name);
+  }
+  const chosen = new Set<string>();
+  const kept: string[] = [];
+  const folded: string[] = [];
+  for (const value of values) {
+    const group = groupOf.get(countryKey(value));
+    if (group) {
+      chosen.add(group);
+      if (countryKey(group) !== countryKey(value)) folded.push(value);
+    } else if (!kept.some((item) => countryKey(item) === countryKey(value))) {
+      kept.push(value);
+    }
+  }
+  return {
+    values: [...groups.map((group) => group.name).filter((name) => chosen.has(name)), ...kept],
+    folded,
+  };
+}
+
 function toneOf(engagement: Engagement | undefined): ClientTone {
   if (!engagement || engagement.orders === 0) return "idle";
   if (engagement.live > 0) return "live";
@@ -252,8 +304,11 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
   const [newIndustryOrCategory, setNewIndustryOrCategory] = useState("");
   const [newRegNo, setNewRegNo] = useState("");
   const [newCountry, setNewCountry] = useState("");
-  /** Agents only: which job orders they are sent, by destination country. */
+  /** Agents only: which job orders they are sent, by destination group. */
   const [newDestinationCountries, setNewDestinationCountries] = useState<string[]>([]);
+  /** Single countries on the record being edited that the form folded into a group. */
+  const [foldedDestinations, setFoldedDestinations] = useState<string[]>([]);
+  const [destinationGroups, setDestinationGroups] = useState<DestinationGroup[]>(FALLBACK_DESTINATION_GROUPS);
   /** Agents only: the staff member who handles them. Required on a new agent. */
   const [newHandlingStaff, setNewHandlingStaff] = useState<StaffContact | undefined>(undefined);
   const [newContacts, setNewContacts] = useState<SourcingContact[]>([{ ...EMPTY_CONTACT }]);
@@ -296,6 +351,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
           ...item,
           type: normaliseType(item.type),
         }));
+        if (res.destination_groups?.length) setDestinationGroups(res.destination_groups);
         setRecords(items);
         writeCache(CACHE_KEYS.sourcingClients, items);
       })
@@ -349,6 +405,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewRegNo("");
     setNewCountry("");
     setNewDestinationCountries([]);
+    setFoldedDestinations([]);
     setNewHandlingStaff(undefined);
     setNewContacts([{ ...EMPTY_CONTACT }]);
     setNewAddress("");
@@ -371,7 +428,9 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setNewIndustryOrCategory(item.industryOrCategory || "");
     setNewRegNo(item.regNo || "");
     setNewCountry(item.country || "");
-    setNewDestinationCountries(destinationCountriesOf(item));
+    const destinations = groupDestinations(destinationCountriesOf(item), destinationGroups);
+    setNewDestinationCountries(destinations.values);
+    setFoldedDestinations(destinations.folded);
     setNewHandlingStaff(item.handlingStaff);
     setNewContacts(contactsOf(item).map((contact) => ({
       name: contact.name,
@@ -382,7 +441,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     setFormError("");
     setIsModalOpen(true);
     setActiveMenuId(null);
-  }, []);
+  }, [destinationGroups]);
 
   useEffect(() => {
     const handleOpenModal = () => openCreateModal();
@@ -709,12 +768,20 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     "India",
     ...countryOptions,
   ]));
-  // Where an agent sends people: the destination register, plus anything the
-  // record already lists that has since been retired from it.
+  // Where an agent sends people: the four destination groups, plus anything
+  // the record still lists outside them ("Any country" on an older agent), so
+  // it shows and can be removed.
   const destinationOptions = Array.from(new Set([
-    ...countryOptions,
+    ...destinationGroups.map((group) => group.name),
     ...newDestinationCountries,
-  ])).map((value) => ({ value, label: value }));
+  ])).map((value) => {
+    const group = destinationGroups.find((item) => item.name === value);
+    return {
+      value,
+      label: value,
+      ...(group && group.countries.length > 1 ? { hint: `${group.countries.length} countries` } : {}),
+    };
+  });
 
   // ---- pieces ------------------------------------------------------------ //
 
@@ -1246,14 +1313,19 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                       values={newDestinationCountries}
                       options={destinationOptions}
                       onChange={setNewDestinationCountries}
-                      placeholder="Select one or more countries"
+                      placeholder="Select Singapore, Malaysia, GCC countries or Europe"
                       ariaLabel="Job destination countries"
                     />
                     <small className={`sh-field-hint${newDestinationCountries.length ? "" : " is-warn"}`}>
                       {newDestinationCountries.length
-                        ? "Only new job orders for these countries are sent to this agent on WhatsApp."
-                        : "No countries chosen: this agent will not be sent any job orders. Choose \u201cAny country\u201d to send all."}
+                        ? "Only new job orders for these destinations are sent to this agent on WhatsApp. GCC countries covers all six Gulf states; Europe covers every European country."
+                        : "No destinations chosen: this agent will not be sent any job orders."}
                     </small>
+                    {foldedDestinations.length > 0 && (
+                      <small className="sh-field-hint">
+                        {`Saved as single countries (${foldedDestinations.join(", ")}) \u2014 now shown as their group. Saving sends this agent job orders for every country in it.`}
+                      </small>
+                    )}
                   </div>
                 )}
 

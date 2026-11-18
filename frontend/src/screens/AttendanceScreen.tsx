@@ -92,7 +92,7 @@ const STATUS: Record<string, string> = {
 };
 
 const PERMISSION_KIND: Record<AttendancePermission["kind"], string> = {
-  late: "Late arrival",
+  late: "Permission",
   early_exit: "Early leaving",
   early_check_in: "Early check-in",
   official_duty: "Official duty",
@@ -703,6 +703,13 @@ export default function AttendanceScreen({ user, onToast }: Props) {
   }));
   const allowance = allowanceOf(visibleMonth);
   const currentDay = visibleMonth?.days.find((row) => row.date === today) ?? day;
+  // The person's own shift, for the "How it works" panel. Late time can be made
+  // up until an hour after the shift ends (the backend's flexible window).
+  const shiftStartLabel = day?.shift_start ? timeOf(day.shift_start) : "10:00 AM";
+  const shiftEndLabel = day?.shift_end ? timeOf(day.shift_end) : "7:00 PM";
+  const makeUpUntilLabel = day?.shift_end
+    ? timeOf(new Date(new Date(day.shift_end).getTime() + 60 * 60_000).toISOString())
+    : "8:00 PM";
 
   const openEmployeeDetails = (selectedEmployeeId: string) => {
     setEmployeeId(selectedEmployeeId);
@@ -1031,7 +1038,8 @@ export default function AttendanceScreen({ user, onToast }: Props) {
             <aside className="ds-panel attendance-rules">
               <h2 className="ds-panel-title">How it works</h2>
               <ul>
-                <li><Clock3 size={15} /><span><strong>8 payable hours</strong>{day?.shift_start && day?.shift_end ? `${timeOf(day.shift_start)}–${timeOf(day.shift_end)}` : "10:00 AM–7:00 PM"} with a one-hour break</span></li>
+                <li><Clock3 size={15} /><span><strong>8 payable hours</strong>Your shift: {shiftStartLabel}–{shiftEndLabel} with a one-hour break</span></li>
+                <li><Clock3 size={15} /><span><strong>Late? Stay late</strong>Came in after {shiftStartLabel}? Stay that much later to make it up — time counts until {makeUpUntilLabel}. Coming before {shiftStartLabel} does not count, so work until {shiftEndLabel} either way</span></li>
                 <li><ShieldCheck size={15} /><span><strong>3 hours paid permission</strong>Late arrival or early leaving, asked in advance and approved by the finance manager</span></li>
                 <li><Clock3 size={15} /><span><strong>60 min grace</strong>Automatic, for late or early time without a permission</span></li>
                 <li><CalendarDays size={15} /><span><strong>1 paid leave</strong>Per month</span></li>
