@@ -469,13 +469,11 @@ SEED_COUNTRIES = [
     ("Slovenia", 14),
     ("Slovakia", 15),
     ("Greece", 16),
+    # Offered everywhere a country is: the bot's "Where would you like to
+    # work?" question, the CRM's Country preference fields, job orders and the
+    # Sourcing Hub's destination groups.
     ("Mauritius", 17),
 ]
-
-#: Seeded countries the candidate WhatsApp bot does not offer until an admin
-#: switches them on in Data Management. Mauritius was added for job orders and
-#: Sourcing Hub agents; candidates were never asked about it.
-SEED_COUNTRIES_HIDDEN_FROM_BOT = {"Mauritius"}
 
 
 def seed_taxonomy() -> None:
@@ -508,12 +506,7 @@ def seed_taxonomy() -> None:
     for name, order in SEED_COUNTRIES:
         if countries.find_one({"_id": slugify(name)}):
             continue
-        countries.insert_one(country_doc(
-            name=name,
-            bot_order=order,
-            bot_visible=name not in SEED_COUNTRIES_HIDDEN_FROM_BOT,
-            created_by="seed",
-        ))
+        countries.insert_one(country_doc(name=name, bot_order=order, created_by="seed"))
         added_countries += 1
 
     offices = offices_collection()
