@@ -127,9 +127,11 @@ def test_a_single_country_stored_as_text_still_matches(db):
 
 
 # --------------------------------------------------------------------------- #
-#  Destination groups: Singapore, Malaysia, GCC countries, Europe
+#  Destination groups: Singapore, Malaysia, Mauritius, GCC countries, Europe
 # --------------------------------------------------------------------------- #
-_GROUPED_PHONES = {"AGT-EU": "8000000001", "AGT-GCC": "8000000002", "AGT-SG": "8000000003"}
+_GROUPED_PHONES = {
+    "AGT-EU": "8000000001", "AGT-GCC": "8000000002", "AGT-SG": "8000000003", "AGT-MU": "8000000004",
+}
 
 
 def _grouped_agent(db, agent_id, groups):
@@ -169,6 +171,16 @@ def test_a_group_does_not_reach_outside_itself(db):
     assert "AGT-SG" not in ids("Malaysia")
 
 
+def test_an_agent_who_chose_mauritius_hears_only_about_mauritius(db):
+    _grouped_agent(db, "AGT-MU", ["Mauritius"])
+    ids = lambda country: [r["agent_id"] for r in agent_recipients(db, country)]  # noqa: E731
+    assert "AGT-MU" in ids("Mauritius")
+    assert "AGT-MU" in ids("mauritius")
+    assert "AGT-MU" not in ids("Malaysia")
+    assert "AGT-MU" not in ids("Singapore")
+    assert "AGT-MU" not in ids("Germany")
+
+
 def test_older_agents_with_single_countries_match_exactly_as_before(db):
     # AGT-1 was saved with Saudi Arabia and Qatar before the groups existed: it
     # is not widened to the rest of the Gulf until someone saves it as a group.
@@ -197,11 +209,13 @@ def test_serves_country_with_groups(countries, order_country, expected):
     assert serves_country(countries, order_country) is expected
 
 
-def test_the_groups_are_the_four_choices_in_order():
+def test_the_groups_are_the_five_choices_in_order():
     from app.destination_groups import EUROPEAN_COUNTRIES, GCC_COUNTRIES, public_groups
 
     groups = public_groups()
-    assert [group["name"] for group in groups] == ["Singapore", "Malaysia", "GCC countries", "Europe"]
+    assert [group["name"] for group in groups] == [
+        "Singapore", "Malaysia", "Mauritius", "GCC countries", "Europe",
+    ]
     assert set(GCC_COUNTRIES) == {
         "Saudi Arabia", "United Arab Emirates", "Qatar", "Kuwait", "Oman", "Bahrain",
     }
@@ -210,7 +224,7 @@ def test_the_groups_are_the_four_choices_in_order():
     from app.db.taxonomy import SEED_COUNTRIES
 
     seeded = {name for name, _order in SEED_COUNTRIES}
-    grouped = {"Singapore", "Malaysia", "Europe", *GCC_COUNTRIES, *EUROPEAN_COUNTRIES}
+    grouped = {"Singapore", "Malaysia", "Mauritius", "Europe", *GCC_COUNTRIES, *EUROPEAN_COUNTRIES}
     assert seeded <= grouped
 
 
@@ -423,7 +437,7 @@ def test_the_sourcing_list_carries_the_destination_groups_for_the_agent_form(cli
     body = client.get("/sourcing-clients").json()
     assert len(body["items"]) == len(AGENTS)
     groups = {group["name"]: group["countries"] for group in body["destination_groups"]}
-    assert list(groups) == ["Singapore", "Malaysia", "GCC countries", "Europe"]
+    assert list(groups) == ["Singapore", "Malaysia", "Mauritius", "GCC countries", "Europe"]
     assert "Germany" in groups["Europe"]
     assert "Kuwait" in groups["GCC countries"]
 

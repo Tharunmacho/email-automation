@@ -14,8 +14,8 @@ budget, the same split as `app/staff_whatsapp.py`.
   and associations are never messaged.
 * **By country.** An agent lists the destinations they recruit for
   (`destinationCountries` on their Sourcing Hub record) and hears only about
-  orders for one of them. The Sourcing Hub offers four groups (Singapore,
-  Malaysia, GCC countries, Europe; see `app.destination_groups`), and a group
+  orders for one of them. The Sourcing Hub offers five groups (Singapore,
+  Malaysia, Mauritius, GCC countries, Europe; see `app.destination_groups`), and a group
   covers every country in it: an agent who chose "Europe" hears about an order
   for Germany, Poland or Russia. Agents saved before the groups existed may
   still list single countries, which match exactly as before. An agent with

@@ -1048,7 +1048,8 @@ export interface SourcingClientRecord {
   country?: string;
   /**
    * Agents only: the destinations they recruit for — the groups in
-   * `DestinationGroup` ("Singapore", "Malaysia", "GCC countries", "Europe").
+   * `DestinationGroup` ("Singapore", "Malaysia", "Mauritius", "GCC countries",
+   * "Europe").
    * A group covers every country in it. A new job order is sent on WhatsApp
    * only to agents who cover its destination country (or list "Any country");
    * an agent with none listed is sent nothing. Agents saved before the groups

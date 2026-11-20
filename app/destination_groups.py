@@ -1,7 +1,7 @@
 """The destination groups a Sourcing Hub agent recruits for.
 
-An agent is offered four choices: Singapore, Malaysia, GCC countries and
-Europe. Agents recruit for a region, not a list of countries they would have to
+An agent is offered five choices: Singapore, Malaysia, Mauritius, GCC
+countries and Europe. Agents recruit for a region, not a list of countries they would have to
 keep up to date, so choosing "Europe" sends the agent every job order for any
 European country, and "GCC countries" every order for any of the six Gulf
 states.
@@ -19,7 +19,7 @@ Europe is meant broadly, the way overseas recruitment uses the word: the EU and
 EEA, Switzerland and the UK, the Balkans, Eastern Europe including Russia,
 Ukraine, Belarus and Moldova, the South Caucasus (Armenia, Georgia, Azerbaijan)
 and Turkey. Russia and Armenia are in it on purpose: job orders already go out
-for both, and with only these four choices an order for a country outside every
+for both, and with only these few choices an order for a country outside every
 group would reach no agent at all.
 """
 from __future__ import annotations
@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Tuple
 
 SINGAPORE = "Singapore"
 MALAYSIA = "Malaysia"
+MAURITIUS = "Mauritius"
 GCC = "GCC countries"
 EUROPE = "Europe"
 
@@ -94,10 +95,11 @@ EUROPEAN_COUNTRIES: Tuple[str, ...] = (
     "Vatican City",
 )
 
-#: The four choices, in the order the Sourcing Hub offers them.
+#: The choices, in the order the Sourcing Hub offers them.
 DESTINATION_GROUPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     (SINGAPORE, (SINGAPORE,)),
     (MALAYSIA, (MALAYSIA,)),
+    (MAURITIUS, (MAURITIUS,)),
     (GCC, GCC_COUNTRIES),
     (EUROPE, EUROPEAN_COUNTRIES),
 )

@@ -221,6 +221,7 @@ function destinationCountriesOf(record: SourcingRecord): string[] {
 const FALLBACK_DESTINATION_GROUPS: DestinationGroup[] = [
   { name: "Singapore", countries: [] },
   { name: "Malaysia", countries: [] },
+  { name: "Mauritius", countries: [] },
   { name: "GCC countries", countries: [] },
   { name: "Europe", countries: [] },
 ];
@@ -768,7 +769,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
     "India",
     ...countryOptions,
   ]));
-  // Where an agent sends people: the four destination groups, plus anything
+  // Where an agent sends people: the destination groups, plus anything
   // the record still lists outside them ("Any country" on an older agent), so
   // it shows and can be removed.
   const destinationOptions = Array.from(new Set([
@@ -1313,7 +1314,7 @@ export default function SourcingHub({ onActivity }: SourcingHubProps) {
                       values={newDestinationCountries}
                       options={destinationOptions}
                       onChange={setNewDestinationCountries}
-                      placeholder="Select Singapore, Malaysia, GCC countries or Europe"
+                      placeholder="Select Singapore, Malaysia, Mauritius, GCC countries or Europe"
                       ariaLabel="Job destination countries"
                     />
                     <small className={`sh-field-hint${newDestinationCountries.length ? "" : " is-warn"}`}>
