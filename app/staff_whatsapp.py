@@ -40,6 +40,13 @@ RELAY_PATH = "/api/staff-assignment"
 SLA_RELAY_PATH = "/api/sla-breach"
 CANDIDATE_CHAT_PATH = "/api/candidates"
 
+#: Sent on every request to the bot. `bot.adiragroups.com` sits behind
+#: Cloudflare, which since 2026-11-21 answers urllib's default
+#: "Python-urllib/3.x" with 403 "error code: 1010" (a banned client signature),
+#: so without this every job order broadcast and staff message was refused
+#: before it reached the bot. Any honest, non-default name passes.
+USER_AGENT = "AdiraCRM/1.0 (+crm backend; whatsapp relay)"
+
 
 class WhatsAppChatError(RuntimeError):
     """The bot was configured but its protected transcript API could not answer."""
@@ -76,7 +83,11 @@ def fetch_candidate_chat(wa_id: str) -> dict | None:
     request = urllib.request.Request(
         url,
         method="GET",
-        headers={"X-Api-Key": settings.wa_bot_api_key, "Accept": "application/json"},
+        headers={
+            "X-Api-Key": settings.wa_bot_api_key,
+            "Accept": "application/json",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
         with urllib.request.urlopen(request, timeout=settings.wa_bot_timeout_seconds) as response:
@@ -111,6 +122,7 @@ def _post(path: str, payload: Dict[str, Any], what: str, *, require_sent: bool =
         headers={
             "Content-Type": "application/json",
             "X-Api-Key": settings.wa_bot_api_key,
+            "User-Agent": USER_AGENT,
         },
     )
 

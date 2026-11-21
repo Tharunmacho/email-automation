@@ -12,6 +12,7 @@ from app.staff_whatsapp import (
     CANDIDATE_CHAT_PATH,
     RELAY_PATH,
     SLA_RELAY_PATH,
+    USER_AGENT,
     fetch_candidate_chat,
     relay_assignment,
     relay_enabled,
@@ -121,6 +122,8 @@ def test_it_sends_two_ids_and_nothing_else():
     # Header names are canonicalised by urllib, hence the capitalisation.
     assert request.get_header("X-api-key") == "secret"
     assert json.loads(request.data) == {"candidate_id": "cand-1", "staff_id": "staff-7"}
+    # Cloudflare in front of the bot refuses urllib's default User-Agent (1010).
+    assert request.get_header("User-agent") == USER_AGENT
 
 
 def test_candidate_chat_is_read_from_the_bots_protected_transcript_api():
@@ -140,6 +143,7 @@ def test_candidate_chat_is_read_from_the_bots_protected_transcript_api():
     assert request.full_url == f"https://bot.example.com{CANDIDATE_CHAT_PATH}/919876543210"
     assert request.method == "GET"
     assert request.get_header("X-api-key") == "secret"
+    assert request.get_header("User-agent") == USER_AGENT
     assert result["sessions"][0]["turns"][0]["text"] == "Hello"
 
 
