@@ -614,7 +614,27 @@ export default function JobOrders({
   // Client name -> sourcing type, so a submission is recorded against an
   // associate or a company correctly.
   const [clientTypes, setClientTypes] = useState<Record<string, string>>({});
-  const [countryOptions, setCountryOptions] = useState<string[]>([]);
+  const [registerCountries, setRegisterCountries] = useState<string[]>([]);
+  // Every country the Sourcing Hub's agent destination groups cover (Singapore,
+  // Malaysia, Mauritius, the GCC states, Europe), so an order can go to any
+  // country an agent can be chosen for, not only the ones in the register.
+  const [groupCountries, setGroupCountries] = useState<string[]>([]);
+  // The register first, in its own order (the usual destinations stay on top),
+  // then the rest of the group countries alphabetically. Case-insensitive
+  // de-duplication keeps the register's spelling.
+  const countryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const add = (name: string) => {
+      const key = name.trim().toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push(name.trim());
+    };
+    registerCountries.forEach(add);
+    [...groupCountries].sort((a, b) => a.localeCompare(b)).forEach(add);
+    return out;
+  }, [registerCountries, groupCountries]);
 
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -729,12 +749,12 @@ export default function JobOrders({
     listCountriesAPI()
       .then((res) => {
         if (!active) return;
-        setCountryOptions(
+        setRegisterCountries(
           (res.items ?? []).filter((country) => country.active).map((country) => country.name),
         );
       })
       .catch(() => {
-        if (active) setCountryOptions([]);
+        if (active) setRegisterCountries([]);
       });
     return () => {
       active = false;
@@ -754,6 +774,9 @@ export default function JobOrders({
         if (active) {
           setClientOptions(namesOf(eligible));
           setClientTypes(Object.fromEntries(eligible.map((record) => [record.name, record.type])));
+          if (res.destination_groups?.length) {
+            setGroupCountries(res.destination_groups.flatMap((group) => group.countries ?? []));
+          }
         }
       })
       .catch(() => {

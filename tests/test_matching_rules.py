@@ -230,6 +230,71 @@ def test_an_expired_licence_is_not_a_held_one():
 
 
 # --------------------------------------------------------------------------- #
+#  Destination: a group preference covers its countries
+# --------------------------------------------------------------------------- #
+def destination(order_country, *preferences):
+    """The destination component for one candidate with these preferences."""
+    first, *rest = preferences or ("",)
+    row = person("c", "TIG Welder", skills=["TIG Welding"], years=6,
+                 destination_country=first, destination_countries=rest)
+    found = ranked({**ORDER, "destinationCountry": order_country}, row)
+    return next(c for c in found["c"].outcome.components if c.key == "destination")
+
+
+@pytest.mark.parametrize("order_country, preference", [
+    ("Germany", "Europe"),
+    ("Russia", "Europe"),
+    ("United Kingdom", "Europe"),
+    ("Europe", "Europe"),
+    ("Kuwait", "GCC countries"),
+    ("Saudi Arabia", "GCC countries"),
+    ("KSA", "GCC countries"),
+    ("UAE", "Gulf"),
+    ("Oman", "Gulf"),
+    ("Mauritius", "Mauritius"),
+    ("Saudi Arabia", "KSA"),
+    ("United Arab Emirates", "UAE"),
+])
+def test_an_order_inside_the_candidates_preference_is_a_full_match(order_country, preference):
+    component = destination(order_country, preference)
+    assert component.value == 1.0
+    assert component.detail == f"Wants to work in {order_country}"
+
+
+def test_any_one_of_several_preferences_is_enough():
+    assert destination("Poland", "Singapore", "Europe").value == 1.0
+
+
+@pytest.mark.parametrize("order_country, preference", [
+    ("Germany", "GCC countries"),
+    ("Kuwait", "Europe"),
+    ("Singapore", "Malaysia"),
+    ("Mauritius", "Malaysia"),
+    ("Malaysia", "Europe"),
+])
+def test_a_group_does_not_reach_outside_itself(order_country, preference):
+    component = destination(order_country, preference)
+    assert component.value == 0.2
+    assert component.detail == f"Prefers {preference}"
+
+
+def test_an_order_for_a_whole_group_partly_matches_a_country_in_it():
+    # The order says "Europe" without the country; a candidate who wants
+    # Germany is likely, not certain.
+    component = destination("Europe", "Germany")
+    assert component.value == 0.8
+    assert component.detail == "Prefers Germany, in Europe"
+    assert destination("GCC countries", "Qatar").value == 0.8
+    assert destination("Europe", "Qatar").value == 0.2
+
+
+def test_an_open_preference_and_a_blank_one_score_as_before():
+    assert destination("Germany", "Any country").value == 0.8
+    blank = destination("Germany")
+    assert blank.value == 0.0 and blank.unknown
+
+
+# --------------------------------------------------------------------------- #
 #  Scoring
 # --------------------------------------------------------------------------- #
 def components(value):

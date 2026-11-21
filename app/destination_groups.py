@@ -146,6 +146,37 @@ def _build_index() -> Dict[str, frozenset[str]]:
 _GROUP_INDEX = _build_index()
 
 
+def _build_name_index() -> Dict[str, frozenset[str]]:
+    """`{key of a group or aliased country: keys of that one name's aliases}`."""
+    index: Dict[str, frozenset[str]] = {}
+    for name in (*(group for group, _members in DESTINATION_GROUPS), *_ALIASES):
+        keys = frozenset(country_key(alias) for alias in _names(name))
+        for key in keys:
+            index[key] = keys
+    return index
+
+
+_NAME_INDEX = _build_name_index()
+
+
+def is_group(value: Any) -> bool:
+    """Whether the value names a group ("Europe", "GCC countries", "Gulf")."""
+    key = country_key(value)
+    return bool(key) and key in _GROUP_INDEX
+
+
+def names_of(value: Any) -> frozenset[str]:
+    """The match keys for the value's own name: its aliases, never a group's members.
+
+    "Europe" is `{"europe"}` here, where `expand` gives every European country;
+    "UAE" is the UAE under each of its spellings in both. Blank is nothing.
+    """
+    key = country_key(value)
+    if not key:
+        return frozenset()
+    return _NAME_INDEX.get(key, frozenset({key}))
+
+
 def expand(value: Any) -> frozenset[str]:
     """Every match key one stored or ordered value stands for.
 
@@ -156,12 +187,7 @@ def expand(value: Any) -> frozenset[str]:
     key = country_key(value)
     if not key:
         return frozenset()
-    if key in _GROUP_INDEX:
-        return _GROUP_INDEX[key]
-    for name, aliases in _ALIASES.items():
-        if key in {country_key(alias) for alias in (name, *aliases)}:
-            return frozenset(country_key(alias) for alias in (name, *aliases))
-    return frozenset({key})
+    return _GROUP_INDEX.get(key) or names_of(value)
 
 
 def public_groups() -> List[Dict[str, Any]]:

@@ -16,7 +16,9 @@ of the record:
     relevance       BM25 — the search-engine ranking function — of the order's
                     words over the whole record, as a 0-1 coverage
     qualifications  licences and certifications the order names
-    destination     the job's country among the candidate's preferences
+    destination     the job's country among the candidate's preferences; a
+                    preference for a group ("Europe", "GCC countries", "Gulf")
+                    covers every country in it (`app.destination_groups`)
     documents       passport on file, valid, nothing outstanding
 
 then `scoring.combine` applies the mandatory gate and the category rules.
@@ -42,6 +44,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
+from app import destination_groups
 from app.matching import evidence, scoring, vocabulary
 from app.matching.scoring import NOT_SATISFIED, SATISFIED, UNKNOWN, Component, Outcome, Verdict
 from app.matching.spec import MatchSpec, normalize_job_order, spec_fingerprint
@@ -78,6 +81,20 @@ def _country(value: Any) -> str:
     return _COUNTRY.get(text, text)
 
 
+def _covered(values: List[str]) -> FrozenSet[str]:
+    """Every country the candidate's preferences take in, as `_country` keys.
+
+    A group ("Europe", "GCC countries", "Gulf") takes in each of its member
+    countries under every spelling, the same lists the Sourcing Hub's agent
+    groups use; a plain country takes in itself and its aliases.
+    """
+    keys: Set[str] = set()
+    for value in values:
+        keys.add(_country(value))
+        keys.update(_country(key) for key in destination_groups.expand(value))
+    return frozenset(keys)
+
+
 # --------------------------------------------------------------------------- #
 #  The pool, indexed
 # --------------------------------------------------------------------------- #
@@ -97,6 +114,10 @@ class CandidateDoc:
     sparse: bool
     experience: Optional[Tuple[float, float, str]]
     destinations: List[str]
+    #: The preferences as written, for labels.
+    destination_names: List[str] = field(default_factory=list)
+    #: Every country the preferences take in, groups opened up (`_covered`).
+    destination_cover: FrozenSet[str] = frozenset()
 
     @property
     def body_terms(self) -> Set[str]:
@@ -128,9 +149,12 @@ def _doc(row: Dict[str, Any]) -> CandidateDoc:
     body_norm = vocabulary.normalise(body_text)
     body_terms = vocabulary.terms_of_normalised(body_norm)
     profile = evidence.profile_of(row)
-    destinations = [_country(value) for value in
-                    [profile.get("destination_country"), *evidence.strings(profile.get("destination_countries"))]
-                    if str(value or "").strip()]
+    destination_names: List[str] = []
+    for value in [profile.get("destination_country"), *evidence.strings(profile.get("destination_countries"))]:
+        name = " ".join(str(value or "").split())
+        if name and _country(name) not in {_country(seen) for seen in destination_names}:
+            destination_names.append(name)
+    destinations = [_country(name) for name in destination_names]
     return CandidateDoc(
         id=str(row.get("id")),
         row=row,
@@ -144,6 +168,8 @@ def _doc(row: Dict[str, Any]) -> CandidateDoc:
         sparse=not has_content,
         experience=evidence.experience_range(row),
         destinations=destinations,
+        destination_names=destination_names,
+        destination_cover=_covered(destination_names),
     )
 
 
@@ -427,11 +453,23 @@ def _destination(spec: MatchSpec, doc: CandidateDoc) -> Tuple[Optional[float], b
     target = _country(spec.destination_country)
     if not doc.destinations:
         return 0.0, True, "No preferred destination on record"
-    if target in doc.destinations or (target in _GULF and "gulf" in doc.destinations):
+    # The order's own name under each spelling, never a group's members: an
+    # order for Germany is inside a "Europe" preference, but an order for
+    # "Europe" is not inside a "Germany" one.
+    order_keys = {target, *(_country(key) for key in destination_groups.names_of(spec.destination_country))}
+    if (target in doc.destinations or (target in _GULF and "gulf" in doc.destinations)
+            or order_keys & doc.destination_cover):
         return 1.0, False, f"Wants to work in {spec.destination_country}"
+    # An order for a whole group ("Europe") and a candidate who wants one
+    # country in it: likely, but the order has not said which country.
+    if destination_groups.is_group(spec.destination_country):
+        inside = {_country(key) for key in destination_groups.expand(spec.destination_country)}
+        within = [name for name in doc.destination_names if _country(name) in inside]
+        if within:
+            return 0.8, False, f"Prefers {', '.join(within)}, in {spec.destination_country}"
     if any(place in _OPEN_PREFERENCE for place in doc.destinations):
         return 0.8, False, "Open to any destination"
-    return 0.2, False, f"Prefers {', '.join(doc.destinations)}"
+    return 0.2, False, f"Prefers {', '.join(doc.destination_names)}"
 
 
 def _documents(doc: CandidateDoc) -> Tuple[float, str, str]:
